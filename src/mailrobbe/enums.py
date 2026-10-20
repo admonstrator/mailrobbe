@@ -48,3 +48,17 @@ class DnsStatus(StrEnum):
     FOUND = "found"
     NOT_FOUND = "not_found"
     TEMP_ERROR = "temp_error"
+
+
+class ImportErrorKind(StrEnum):
+    """Values of import_error.kind. The mail is still imported unless the kind says otherwise."""
+
+    SEPARATOR = "separator"  # From_ line without empty line before it, or data without From_ line
+    TOO_LARGE = "too_large"  # record above the size limit: headers only, no body, no DKIM check
+    ENCODING = "encoding"  # undecodable header or body, decoded heuristically
+    DATE = "date"  # Date header missing or not RFC 5322; date taken from the From_ line
+    MESSAGE_ID = "message_id"  # Message-ID missing or malformed
+    ADDRESS = "address"  # unparseable address in From/To/Cc/Bcc, left out
+    PARSE = "parse"  # unexpected parser failure; the mail is stored with what is known
+    DKIM = "dkim"  # the DKIM check failed unexpectedly; dkim_status stays NULL
+    IO = "io"  # the file could not be read; the file's status becomes error

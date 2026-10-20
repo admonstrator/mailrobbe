@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.db.models import (
+    TEXT_SEARCH_CONFIG,
     Attachment,
     DkimResult,
     Edge,
@@ -153,9 +154,8 @@ async def test_full_text_search_uses_gin_index(db_session: AsyncSession) -> None
     mbox_file = await _mbox_file(db_session)
     invoice = await _mail(db_session, mbox_file, 0, body_text="Anbei die Rechnung für März.")
     await _mail(db_session, mbox_file, 100, body_text="Termin am Montag um neun.")
-    await db_session.execute(update(Mail).values(tsv=func.to_tsvector("simple", Mail.body_text)))
 
-    search = "SELECT id FROM mail WHERE tsv @@ to_tsquery('simple', 'rechnung')"
+    search = f"SELECT id FROM mail WHERE tsv @@ to_tsquery('{TEXT_SEARCH_CONFIG}', 'rechnung')"
     assert list(await db_session.scalars(text(search))) == [invoice.id]
     # The tables are tiny, so forbid sequential scans to see whether the index can serve the query.
     await db_session.execute(text("SET LOCAL enable_seqscan = off"))
@@ -178,3 +178,23 @@ async def test_substring_search_on_canonical_email(db_session: AsyncSession) -> 
         "max.mueller@nordwind.example",
         "anna.mueller-lang@bergmann.test",
     }
+
+
+async def test_mail_tsv_is_generated_from_subject_and_body(db_session: AsyncSession) -> None:
+    mbox_file = await _mbox_file(db_session)
+    mail = await _mail(
+        db_session, mbox_file, 0, subject="Rechnungen für März", body_text="Die Verträge anbei."
+    )
+    await db_session.refresh(mail, ["tsv"])
+    matches = select(
+        Mail.tsv.bool_op("@@")(func.to_tsquery(TEXT_SEARCH_CONFIG, "rechnung & vertrag"))
+    ).where(Mail.id == mail.id)
+    assert await db_session.scalar(matches) is True
+    weights = select(
+        func.ts_rank(Mail.tsv, func.to_tsquery(TEXT_SEARCH_CONFIG, "rechnung"))
+        > func.ts_rank(Mail.tsv, func.to_tsquery(TEXT_SEARCH_CONFIG, "vertrag"))
+    ).where(Mail.id == mail.id)
+    assert await db_session.scalar(weights) is True  # subject weighs more than body
+    await db_session.execute(update(Mail).where(Mail.id == mail.id).values(subject=None))
+    await db_session.refresh(mail, ["tsv"])
+    assert await db_session.scalar(matches) is False
