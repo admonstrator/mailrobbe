@@ -265,7 +265,8 @@ def upgrade() -> None:
         ),
         sa.Column("first_date", _timestamptz()),
         sa.Column("last_date", _timestamptz()),
-        sa.CheckConstraint("person_a < person_b", name="ck_edge_ordered"),
+        # op.f: the name is final; the ck naming convention would wrap it a second time.
+        sa.CheckConstraint("person_a < person_b", name=op.f("ck_edge_ordered")),
     )
     op.create_index("ix_edge_person_b", "edge", ["person_b"])
     op.create_index("ix_edge_mails_total", "edge", ["mails_total"])

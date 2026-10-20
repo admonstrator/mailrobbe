@@ -40,6 +40,12 @@ def test_config_validation() -> None:
         )
     with pytest.raises(ValueError):
         GeneratorConfig(out_dir=Path("o"), meta_dir=Path("m"), fault_rate=1.5)
+    with pytest.raises(ValueError, match="future"):
+        GeneratorConfig(
+            out_dir=Path("o"),
+            meta_dir=Path("m"),
+            date_to=date.today().replace(year=date.today().year + 1),
+        )
 
 
 def test_cli_maps_onto_config(tmp_path: Path) -> None:

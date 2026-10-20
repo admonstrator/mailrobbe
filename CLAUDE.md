@@ -1,6 +1,6 @@
 # Mailspider
 
-Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan.
+Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine); it wins where the spec leaves a point open.
 
 ## Stack
 

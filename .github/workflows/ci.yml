@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mailspider
+          POSTGRES_PASSWORD: mailspider
+          POSTGRES_DB: mailspider
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mailspider -d mailspider"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes no moving major tags after v7, so this pins the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - run: uv run pytest
+        env:
+          MAILSPIDER_TEST_DATABASE_URL: postgresql+asyncpg://mailspider:mailspider@127.0.0.1:5432/mailspider
+          MAILSPIDER_REQUIRE_DB: "1"
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start Postgres and backend
+        run: docker compose up -d --build --wait
+      - name: Health endpoint reports the migrated schema
+        run: |
+          health=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/health)
+          echo "$health"
+          test "$(echo "$health" | jq -r .schema_revision)" = 0001
+      - name: MBOX mount is read-only
+        run: |
+          if output=$(docker compose exec -T backend sh -c 'touch /data/mbox/x' 2>&1); then
+            echo "/data/mbox is writable" >&2
+            exit 1
+          fi
+          echo "$output"
+          echo "$output" | grep -q 'Read-only file system'
+      - name: Generator CLI runs in the image
+        run: docker compose run --rm backend mailspider generate --help
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+      - name: Stop
+        if: always()
+        run: docker compose down -v
