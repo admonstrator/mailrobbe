@@ -17,6 +17,7 @@ import time
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from contextlib import contextmanager
 from dataclasses import dataclass
 from multiprocessing.queues import Queue
 from multiprocessing.synchronize import Event
@@ -261,10 +262,26 @@ def _init_worker(
     worker_ids: "Queue[int]",
     stop: Event,
 ) -> None:
-    # Ctrl-C reaches the whole process group; the main process decides and sets `stop`.
+    # Ctrl-C reaches the whole process group; the main process decides and sets `stop`. Until
+    # here SIGINT was blocked (_spawning_workers), so an early Ctrl-C cannot kill the worker.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
     global _worker
     _worker = _Worker(settings, preload, mbox_dir, pipeline, worker_ids.get(), stop)
+
+
+@contextmanager
+def _spawning_workers() -> Iterator[None]:
+    """SIGINT blocked in this thread while the pool may spawn worker processes.
+
+    A spawned process inherits the blocked signal, so a Ctrl-C while it is still importing its
+    modules waits until _init_worker ignores it, instead of killing it with a traceback.
+    """
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
 
 
 def _run_task(task: FileTask) -> FileOutcome:
@@ -323,7 +340,8 @@ async def run_files(
                 while queue and len(running) < count and not (stop.is_set() or broken):
                     file = queue.pop(0)
                     task = FileTask(file.id, file.path)
-                    running[loop.run_in_executor(executor, _run_task, task)] = file
+                    with _spawning_workers():
+                        running[loop.run_in_executor(executor, _run_task, task)] = file
                 if not running:
                     break
                 waiting: list[asyncio.Future[Any]] = [*running]

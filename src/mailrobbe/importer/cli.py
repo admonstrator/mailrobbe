@@ -7,11 +7,14 @@ ended in error or the import could not start, 130 when it was interrupted; the n
 import argparse
 import asyncio
 import logging
+import multiprocessing
+import os
 import signal
 import time
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
+from typing import NoReturn
 
 from alembic.script import ScriptDirectory
 from sqlalchemy import text
@@ -34,6 +37,7 @@ _UNLOCK = text("SELECT pg_advisory_unlock(:key)")
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_INTERRUPTED = 130
+REPEAT_SECONDS = 1.0  # a second Ctrl-C earlier than this is the first one delivered twice
 
 
 def _worker_count(value: str) -> int:
@@ -128,14 +132,23 @@ async def _schema_problem(connection: AsyncConnection, database_url: str) -> str
 
 @contextmanager
 def _stop_on_signals(stop: asyncio.Event) -> Iterator[None]:
-    """Ctrl-C or SIGTERM sets `stop`; a second one acts as usual (abort)."""
+    """Ctrl-C or SIGTERM sets `stop`; a second one, REPEAT_SECONDS or more later, aborts.
+
+    `uv run` forwards a terminal's Ctrl-C to its child, which therefore gets it twice within
+    milliseconds; that still counts as one.
+    """
     loop = asyncio.get_running_loop()
+    first: float | None = None
 
     def request(signum: int) -> None:
-        loop.remove_signal_handler(signum)
-        if not stop.is_set():
+        nonlocal first
+        now = time.monotonic()
+        if first is None:
+            first = now
             log.info("stopping after the current batches; Ctrl-C again aborts")
-        stop.set()
+            stop.set()
+        elif now - first >= REPEAT_SECONDS:
+            abort()
 
     signals = (signal.SIGINT, signal.SIGTERM)
     for signum in signals:
@@ -145,6 +158,18 @@ def _stop_on_signals(stop: asyncio.Event) -> Iterator[None]:
     finally:
         for signum in signals:
             loop.remove_signal_handler(signum)
+
+
+def abort() -> NoReturn:
+    """End the workers and this process at once, without waiting for any batch.
+
+    Uncommitted batches roll back when their connections drop, so the next run resumes every
+    file at its last committed batch, as after a crash.
+    """
+    for child in multiprocessing.active_children():
+        child.kill()
+    log.error("aborted: run `mailrobbe import` again to continue")
+    os._exit(EXIT_INTERRUPTED)
 
 
 async def _import(

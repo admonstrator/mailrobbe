@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from mailrobbe import cli as main_cli
 from mailrobbe import migrate
 from mailrobbe.config import Settings
+from mailrobbe.importer import cli as importer_cli
 from mailrobbe.importer.cli import IMPORT_LOCK_KEY, run_import
 from tests.conftest import GeneratedArchive
 from tests.importer.doubles import (
@@ -164,8 +165,10 @@ async def test_dkim_keys_come_from_the_generator_table_below_the_imported_direct
 
 @pytest.mark.db
 @pytest.mark.slow
+# Twice: `uv run` forwards the terminal's Ctrl-C, so the import gets it twice at once.
+@pytest.mark.parametrize("deliveries", [1, 2])
 async def test_ctrl_c_pauses_the_running_files_and_exits_130(
-    database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+    database_url: str, generated_archive: GeneratedArchive, tmp_path: Path, deliveries: int
 ) -> None:
     mbox_dir = copy_archive(generated_archive.mbox_dir, tmp_path / "mbox")
     process = start_import(database_url, mbox_dir, "slow")
@@ -173,7 +176,8 @@ async def test_ctrl_c_pauses_the_running_files_and_exits_130(
     try:
         sql = "SELECT count(*) = 2 FROM mbox_file WHERE status = 'running'"
         await wait_until(engine, sql, process)
-        os.killpg(process.pid, signal.SIGINT)  # what a terminal does: the whole process group
+        for _ in range(deliveries):
+            os.killpg(process.pid, signal.SIGINT)  # as a terminal does: the whole process group
         output = process.communicate(timeout=60)[0]
         assert process.returncode == 130, output
         async with engine.connect() as connection:
@@ -190,3 +194,21 @@ async def test_ctrl_c_pauses_the_running_files_and_exits_130(
     assert "interrupted: run `mailrobbe import` again to continue" in output
     assert statuses["paused"] == 2
     assert set(statuses) <= {"paused", "pending", "done"}
+
+
+async def test_a_second_ctrl_c_aborts_only_when_it_comes_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    aborted: list[bool] = []
+    monkeypatch.setattr(importer_cli, "abort", lambda: aborted.append(True))
+    stop = asyncio.Event()
+    with importer_cli._stop_on_signals(stop):
+        os.kill(os.getpid(), signal.SIGINT)
+        os.kill(os.getpid(), signal.SIGINT)
+        await asyncio.sleep(0.1)
+        assert stop.is_set()
+        assert not aborted
+        await asyncio.sleep(importer_cli.REPEAT_SECONDS)
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.sleep(0.1)
+    assert aborted == [True]
