@@ -1,7 +1,7 @@
 """Writing parsed mails in batches: one transaction per batch, together with the file's progress.
 
 A batch commits its mails with mbox_file.bytes_done, so a killed import loses at most the batch
-it was writing and the next run continues after the last committed record (D11); the unique
+it was writing and the next run continues after the last committed record (D15); the unique
 (mbox_file_id, byte_offset) rules out a second copy in any case. Persons are created first, in a
 short transaction of their own: popular addresses turn up in the batches of every worker, and
 their rows must not stay locked while a whole batch is written. All other rows go in with COPY,

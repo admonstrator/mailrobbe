@@ -72,6 +72,8 @@ async def run_import(
     if not mbox_dir.is_dir():
         log.error("%s is not a directory", mbox_dir)
         return EXIT_FAILED
+    # The DKIM checker looks for the generator's DNS override table below settings.mbox_dir.
+    settings = settings.model_copy(update={"mbox_dir": mbox_dir})
     engine = create_engine(settings.database_url)
     try:
         connection = await engine.connect()

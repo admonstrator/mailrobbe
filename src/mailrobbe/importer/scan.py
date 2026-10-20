@@ -1,4 +1,4 @@
-"""Finding MBOX files and keeping their mbox_file rows in step with the disk (D10).
+"""Finding MBOX files and keeping their mbox_file rows in step with the disk (D14).
 
 The scan decides, per file, where the import continues: a file it has seen before with the same
 first MiB keeps its progress (it may have grown); a file whose first MiB changed, or that is now

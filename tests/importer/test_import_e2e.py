@@ -9,11 +9,14 @@ said precisely next to the assertion:
 - Threads: every reply references its thread's root, so a thread stays together through the
   root's Message-ID even when that mail lost it; only the root itself (missing_message_id)
   drops out, and a thread left with one mail is no thread.
+
+DKIM is checked against the generator's DNS override table, so nothing queries real DNS: the
+copy holds only the MBOX files, and the settings point at the table explicitly.
 """
 
 import asyncio
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -25,7 +28,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe import migrate
 from mailrobbe.config import Settings
-from mailrobbe.importer import dkim_hook
 from mailrobbe.importer.cli import run_import
 from mailrobbe.importer.model import BODY_TEXT_LIMIT
 from tests.conftest import GeneratedArchive, _temporary_database
@@ -45,6 +47,7 @@ class Imported:
     mails: dict[tuple[str, int], dict[str, Any]] = field(repr=False)  # (file, offset) -> row
     participants: dict[int, dict[str, set[str]]] = field(repr=False)  # mail id -> role -> emails
     errors: dict[tuple[str, int], set[str]] = field(repr=False)  # (file, offset) -> kinds
+    signatures: dict[int, list[str]] = field(repr=False)  # mail id -> dkim_result statuses
 
     def mail(self, record: dict[str, Any]) -> dict[str, Any]:
         return self.mails[record["file"], record["offset"]]
@@ -59,7 +62,8 @@ def imported(
     mbox_dir = copy_archive(generated_archive.mbox_dir, tmp_path_factory.mktemp("e2e") / "mbox")
     with _temporary_database(database_server_url) as url:
         migrate.upgrade("head", url)
-        exit_code = asyncio.run(run_import(Settings(database_url=url), mbox_dir, 2))
+        settings = Settings(database_url=url, dkim_dns_override=generated_archive.dns_override)
+        exit_code = asyncio.run(run_import(settings, mbox_dir, 2))
         yield asyncio.run(_load(url, exit_code, generated_archive.manifest))
 
 
@@ -89,9 +93,12 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
             "JOIN mbox_file f ON f.id = e.mbox_file_id"
         ):
             errors[path, offset].add(kind)
+        signatures: dict[int, list[str]] = defaultdict(list)
+        for mail_id, status in await rows("SELECT mail_id, status::text FROM dkim_result"):
+            signatures[mail_id].append(status)
         files = {path: status for path, status in await rows("SELECT path, status FROM mbox_file")}
     await engine.dispose()
-    return Imported(exit_code, files, manifest, mails, participants, errors)
+    return Imported(exit_code, files, manifest, mails, participants, errors, signatures)
 
 
 def test_every_file_is_done(imported: Imported) -> None:
@@ -141,8 +148,16 @@ def test_attachments_and_body(imported: Imported) -> None:
         assert mail["has_attachments"] == (record["attachments"] > 0), record["index"]
         assert len(mail["body_text"] or "") <= BODY_TEXT_LIMIT
         assert mail["tsv"] is not None
-    if dkim_hook.create_checker(Settings(), None) is None:
-        assert {mail["dkim_status"] for mail in imported.mails.values()} == {None}
+
+
+def test_dkim_matches_the_manifest(imported: Imported) -> None:
+    for record in imported.manifest:
+        mail = imported.mail(record)
+        expected = record["dkim"]
+        assert mail["dkim_status"] == expected["expected"], record["index"]
+        # One dkim_result row per signature; the manifest lists them in signing order.
+        statuses = Counter(imported.signatures.get(mail["id"], []))
+        assert statuses == Counter(s["expected"] for s in expected["signatures"]), record["index"]
 
 
 def test_duplicates_point_at_their_original(imported: Imported) -> None:

@@ -1,4 +1,4 @@
-"""finalize: duplicates (D12), threads (D13), display names, and that a rerun changes nothing."""
+"""finalize: duplicates (D16), threads (D17), display names, and that a rerun changes nothing."""
 
 from typing import Any
 

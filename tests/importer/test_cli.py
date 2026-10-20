@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import shutil
 import signal
 from pathlib import Path
 
@@ -141,6 +142,24 @@ def test_the_command_reads_its_defaults_from_the_settings(
     monkeypatch.setenv("MAILROBBE_DATABASE_URL", database_url)
     monkeypatch.setenv("MAILROBBE_MBOX_DIR", str(tmp_path))  # no MBOX files: no worker needed
     assert main_cli.main(["import"]) == 0
+
+
+@pytest.mark.db
+@pytest.mark.slow
+async def test_dkim_keys_come_from_the_generator_table_below_the_imported_directory(
+    database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+) -> None:
+    mbox_dir = copy_archive(generated_archive.mbox_dir, tmp_path / "mbox")
+    (mbox_dir / "_generator").mkdir()
+    shutil.copyfile(generated_archive.dns_override, mbox_dir / "_generator" / "dns_override.json")
+    settings = Settings(database_url=database_url)  # mbox_dir is not the imported directory
+    assert await run_import(settings, mbox_dir, 2, pipeline=PIPELINE) == 0
+    engine = create_async_engine(database_url, poolclass=pool.NullPool)
+    async with engine.connect() as connection:
+        rows = await connection.execute(text("SELECT DISTINCT dkim_status::text FROM mail"))
+        statuses = {status for (status,) in rows}
+    await engine.dispose()
+    assert "pass" in statuses  # without the table every key of a reserved TLD is missing
 
 
 @pytest.mark.db

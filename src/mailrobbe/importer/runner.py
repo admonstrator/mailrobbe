@@ -1,4 +1,4 @@
-"""The worker pool: one MBOX file per task, resumable after every committed batch (D11).
+"""The worker pool: one MBOX file per task, resumable after every committed batch (D15).
 
 The main process hands out files, largest first, one to each idle worker, and reports progress
 from mbox_file every few seconds. A worker process (spawned, so it imports everything afresh and

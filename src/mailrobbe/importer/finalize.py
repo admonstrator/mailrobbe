@@ -1,4 +1,4 @@
-"""After importing: duplicates (D12), threads (D13) and display names, recomputed as a whole.
+"""After importing: duplicates (D16), threads (D17) and display names, recomputed as a whole.
 
 Every step is set-based SQL apart from threading, a union-find in the main process over the
 Message-IDs of all mails that are not duplicates. Each step writes only rows whose value

@@ -268,7 +268,7 @@ class _RaisingChecker:
 
 def test_a_failing_dkim_check_becomes_an_issue(tmp_path: Path) -> None:
     stop = multiprocessing.get_context("spawn").Event()
-    worker = _Worker(Settings(), None, tmp_path, PIPELINE, 1, stop)
+    worker = _Worker(Settings(), (), tmp_path, PIPELINE, 1, stop)
     worker.checker = _RaisingChecker()
     mail, verdict, issues = worker.examine(make_record(0, message(1)))
     assert mail.message_id == "<1@a.example>"
