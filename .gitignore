@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local configuration
+.env
+
+# Generated MBOX data (default generator output, compose bind mount)
+/data/
+
+# Agent worktrees
+/.claude/worktrees/
