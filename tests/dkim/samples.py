@@ -7,15 +7,19 @@ multipart/alternative, multipart/mixed with a base64 attachment, RFC 2047 names 
 """
 
 import base64
+import functools
 import quopri
 import random
-from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from collections.abc import Iterator, Mapping
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta, timezone
 from email.header import Header
 from email.utils import format_datetime, formataddr
 from pathlib import Path
 
+from mailspider.enums import DkimStatus
 from mailspider.generator.config import GeneratorConfig
+from mailspider.generator.dkim import DkimSetup, Selector, Signer, build_dkim_setup
 from mailspider.generator.model import (
     Address,
     Domain,
@@ -97,6 +101,27 @@ _SUBJECTS = (
 )
 _TRANSLITERATION = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", " ": "."})
 _LISTS = ("<vorstand.verband.example>", "<team.nordwind.example>", "<info.lists.verband.example>")
+
+
+def single_signer(
+    keys: Mapping[int, bytes],
+    domain: Domain,
+    bits: int = 2048,
+    canonicalization: str = "relaxed/relaxed",
+) -> DkimSetup:
+    """A setup in which only `domain` signs, with one published selector "s1" for every date."""
+    selector = Selector("s1", datetime(2000, 1, 1, tzinfo=UTC), bits, DkimStatus.PASS)
+    order = ("from", "to", "cc", "subject", "date", "message-id", "mime-version", "content-type")
+    return DkimSetup(
+        keys=keys, signers={domain.name: Signer(domain.name, canonicalization, order, (selector,))}
+    )
+
+
+@functools.cache
+def sample_setup(share: float = 0.7) -> DkimSetup:
+    """DKIM setup over DOMAINS; cached, because generating the keys takes about a second."""
+    config = replace(CONFIG, dkim_signed_share=share)
+    return build_dkim_setup(DOMAINS, config, stage_rng(config.seed, "dkim-setup"))
 
 
 def address(name: str, domain: Domain) -> Address:

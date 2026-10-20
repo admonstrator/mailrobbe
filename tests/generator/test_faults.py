@@ -13,6 +13,8 @@ from email.utils import parsedate_to_datetime
 
 import pytest
 
+from mailspider.enums import DkimStatus
+from mailspider.generator.dkim import sign_mail
 from mailspider.generator.faults import (
     FAULT_VARIANTS,
     append_footer,
@@ -24,10 +26,14 @@ from mailspider.generator.faults import (
 from mailspider.generator.model import Fault, RenderedMail, stage_rng
 from tests.dkim.samples import (
     CONFIG,
+    INTERNAL,
     STRUCTURES,
     sample_mail,
+    sample_setup,
     sample_stream,
+    single_signer,
 )
+from tests.dkim_check import verify_mail
 
 ALL_VARIANTS = [
     (fault, variant) for fault, variants in FAULT_VARIANTS.items() for variant in variants
@@ -248,6 +254,29 @@ def test_apply_faults_extremes_and_determinism() -> None:
     ]
     assert all(mail.faults for mail in first)
     assert [(m.raw, m.faults) for m in first] == [(m.raw, m.faults) for m in again]
+
+
+def test_faulty_mails_still_verify_after_signing() -> None:
+    setup = single_signer(sample_setup().keys, INTERNAL)
+    table = setup.dns_table()
+    for fault, variant in ALL_VARIANTS:
+        mail = next(
+            mail
+            for index in range(20)
+            if inject_fault(
+                mail := sample_mail(index, "mixed", sender=INTERNAL),
+                fault,
+                variant,
+                random.Random(index),
+            )
+        )
+        signed = sign_mail(mail, setup, stage_rng(mail.planned.seed, "dkim"))
+        reason = signed.dkim.signatures[0].reason
+        assert signed.dkim.expected is DkimStatus.PASS or reason in (
+            "body_modified",
+            "header_modified",
+        )
+        assert verify_mail(signed.raw, table)[0] is signed.dkim.expected
 
 
 @pytest.mark.parametrize("structure", STRUCTURES)

@@ -5,9 +5,11 @@ from collections import Counter
 from dataclasses import replace
 
 from mailspider.generator.config import GeneratorConfig
+from mailspider.generator.dkim import sign_mail
 from mailspider.generator.faults import DuplicateInjector, inject_fault
-from mailspider.generator.model import Fault, RenderedMail
-from tests.dkim.samples import CONFIG, sample_stream
+from mailspider.generator.model import Fault, RenderedMail, stage_rng
+from tests.dkim.samples import CONFIG, sample_setup, sample_stream
+from tests.dkim_check import verify_mail
 
 MOZILLA = b"X-Mozilla-Status: 0001\nX-Mozilla-Status2: 00000000\n"
 
@@ -86,3 +88,21 @@ def test_large_mails_and_mails_without_message_id() -> None:
     assert duplicates
     assert all(mail.duplicate_of is not None and mail.duplicate_of % 2 == 0 for mail in duplicates)
     assert {mail.faults[Fault.DUPLICATE] for mail in duplicates} == {"exact"}
+
+
+def test_redelivered_duplicates_keep_their_dkim_result() -> None:
+    setup = sample_setup()
+    table = setup.dns_table()
+    signed = [
+        sign_mail(mail, setup, stage_rng(mail.planned.seed, "dkim"))
+        for mail in sample_stream(300, seed=16)
+    ]
+    out = run(signed, replace(CONFIG, duplicate_rate=0.3))
+    checked = 0
+    for duplicate in out:
+        if duplicate.faults.get(Fault.DUPLICATE) == "same_message_id":
+            overall, per_signature = verify_mail(duplicate.raw, table)
+            assert overall is duplicate.dkim.expected
+            assert per_signature == [outcome.expected for outcome in duplicate.dkim.signatures]
+            checked += 1
+    assert checked > 10
