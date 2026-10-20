@@ -54,7 +54,7 @@ def reply_subject(subject: str, client: str, language: str, rng: random.Random) 
     if subject.startswith(f"{own}: "):
         return f"{own}: {subject}" if rng.random() < 0.06 else subject
     prefixes = _PREFIXES.match(subject)
-    if prefixes and prefixes.group().count(":") >= 3:
+    if prefixes and prefixes.group().count(":") >= 3 and _REPLY_PREFIX.match(subject):
         return subject  # long chains stop growing once several prefixes have piled up
     if _REPLY_PREFIX.match(subject):
         if client == "outlook" or rng.random() < 0.5:

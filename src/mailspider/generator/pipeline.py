@@ -1,12 +1,17 @@
 """Generator orchestration: population, planning, worker pool, writer, manifest, summary.
 
-The main process plans the stream and sends it in chunks to a pool of worker processes, each
-running render -> apply_faults -> sign_mail. Results come back in stream order through a
-bounded window of chunks, so memory does not grow with the number of mails, and the output is
-the same for any number of workers. The main process then injects duplicates, writes the MBOX
-records and the manifest, and finally summary.json.
+The main process plans the stream and sends it in chunks to a pool of config.jobs worker
+processes, each running render -> apply_faults -> sign_mail and hashing the result. Results are
+consumed in stream order through a bounded window of chunks, so memory does not grow with the
+number of mails, and the output is the same for any number of workers. The main process then
+injects duplicates, writes the MBOX records and the manifest, and finally summary.json.
+
+Workers are started with "spawn" on every platform, so code that calls generate() with
+jobs > 1 must be importable without side effects (the usual `if __name__ == "__main__"`).
 """
 
+import hashlib
+import itertools
 import json
 import logging
 import multiprocessing
@@ -28,8 +33,8 @@ from mailspider.generator.writer import ManifestWriter, MboxWriter, manifest_rec
 
 log = logging.getLogger(__name__)
 
-CHUNK = 32  # mails per task sent to a worker
-WINDOW_PER_JOB = 4  # chunks in flight per worker: the bounded look-ahead
+CHUNK = 64  # mails per task sent to a worker
+WINDOW_PER_JOB = 3  # chunks in flight per worker: the bounded look-ahead
 PROGRESS_SECONDS = 5.0
 
 
@@ -65,10 +70,13 @@ def generate(config: GeneratorConfig) -> GenerationSummary:
         MboxWriter(config.out_dir, config.file_size) as mbox,
         ManifestWriter(config.meta_dir) as manifest,
     ):
-        for index, produced in enumerate(_produce(plan(config, population), config, setup)):
-            mail = injector.process(produced)
+        produced = _produce(plan(config, population), config, setup)
+        for index, (made, digest) in enumerate(produced):
+            mail = injector.process(made)
+            if mail.raw is not made.raw:  # a duplicate or a changed mail: hash what is written
+                digest = hashlib.sha256(mail.raw).hexdigest()
             file, offset, length = mbox.write(mail)
-            manifest.write(manifest_record(index, mail, file, offset, length))
+            manifest.write(manifest_record(index, mail, file, offset, length, digest))
             dkim[mail.dkim.expected.value] += 1
             faults.update(fault.value for fault in mail.faults)
             duplicates += mail.duplicate_of is not None
@@ -102,56 +110,56 @@ def config_dict(config: GeneratorConfig) -> dict[str, Any]:
 
 # Workers -----------------------------------------------------------------------------------
 
-_worker: tuple[GeneratorConfig, DkimSetup] | None = None
+_Made = tuple[RenderedMail, str]  # a finished mail and the SHA-256 of its raw bytes
 
 
-def _init_worker(config: GeneratorConfig, setup: DkimSetup) -> None:
-    global _worker
-    _worker = (config, setup)
-
-
-def _work(chunk: list[PlannedMail]) -> list[RenderedMail]:
-    assert _worker is not None, "worker not initialised"
-    config, setup = _worker
-    return [_make(planned, config, setup) for planned in chunk]
-
-
-def _make(planned: PlannedMail, config: GeneratorConfig, setup: DkimSetup) -> RenderedMail:
+def _make(planned: PlannedMail, config: GeneratorConfig, setup: DkimSetup) -> _Made:
     mail = render(planned)
     mail = apply_faults(mail, config, stage_rng(planned.seed, "faults"))
-    return sign_mail(mail, setup, stage_rng(planned.seed, "dkim"))
+    mail = sign_mail(mail, setup, stage_rng(planned.seed, "dkim"))
+    return mail, hashlib.sha256(mail.raw).hexdigest()
 
 
 def _chunks(mails: Iterable[PlannedMail]) -> Iterator[list[PlannedMail]]:
-    chunk: list[PlannedMail] = []
-    for mail in mails:
-        chunk.append(mail)
-        if len(chunk) == CHUNK:
-            yield chunk
-            chunk = []
-    if chunk:
+    iterator = iter(mails)
+    while chunk := list(itertools.islice(iterator, CHUNK)):
         yield chunk
 
 
 def _produce(
     mails: Iterable[PlannedMail], config: GeneratorConfig, setup: DkimSetup
-) -> Iterator[RenderedMail]:
+) -> Iterator[_Made]:
     """Rendered, faulted and signed mails in stream order."""
     if config.jobs == 1:
         for planned in mails:
             yield _make(planned, config, setup)
         return
-    # spawn on every platform: the same behaviour on Linux and macOS, no inherited state.
+    # Pool.imap would read the whole plan ahead; apply_async with a window keeps it bounded.
     context = multiprocessing.get_context("spawn")
     window = config.jobs * WINDOW_PER_JOB
     with context.Pool(config.jobs, initializer=_init_worker, initargs=(config, setup)) as pool:
-        pending: deque[AsyncResult[list[RenderedMail]]] = deque()
+        pending: deque[AsyncResult[list[_Made]]] = deque()
         for chunk in _chunks(mails):
             pending.append(pool.apply_async(_work, (chunk,)))
             if len(pending) >= window:
                 yield from pending.popleft().get()
         while pending:
             yield from pending.popleft().get()
+
+
+_worker: tuple[GeneratorConfig, DkimSetup] | None = None
+
+
+def _init_worker(config: GeneratorConfig, setup: DkimSetup) -> None:
+    """Pool initializer: the setup reaches each worker once, not with every chunk."""
+    global _worker
+    _worker = (config, setup)
+
+
+def _work(chunk: list[PlannedMail]) -> list[_Made]:
+    assert _worker is not None, "worker not initialised"
+    config, setup = _worker
+    return [_make(planned, config, setup) for planned in chunk]
 
 
 class _Progress:

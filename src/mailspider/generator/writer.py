@@ -133,9 +133,12 @@ class MboxWriter:
 
 
 def manifest_record(
-    index: int, mail: RenderedMail, file: str, offset: int, length: int
+    index: int, mail: RenderedMail, file: str, offset: int, length: int, sha256: str | None = None
 ) -> ManifestRecord:
-    """Ground truth of one written mail; values come from the RenderedMail as written."""
+    """Ground truth of one written mail; values come from the RenderedMail as written.
+
+    `sha256` is the digest of mail.raw when the caller already has it.
+    """
     planned = mail.planned
     signatures = []
     for outcome in mail.dkim.signatures:
@@ -147,7 +150,7 @@ def manifest_record(
         file=file,
         offset=offset,
         length=length,
-        sha256=hashlib.sha256(mail.raw).hexdigest(),
+        sha256=sha256 or hashlib.sha256(mail.raw).hexdigest(),
         message_id=mail.message_id,
         date=planned.date.isoformat(),
         sender=planned.sender.email,
