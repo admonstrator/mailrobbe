@@ -10,7 +10,7 @@ Every batch commits its mails together with the file's progress, so an interrupt
 resumes at the last committed record and never stores a mail twice. Raw mails never reach the
 database (SPEC 2): it gets metadata, byte offsets and the text for the full text index.
 
-Modules: split (MBOX framing), parse (one message -> ParsedMail), model (types between parse
-and store), dkim_hook (seam to milestone 3), scan, store, runner (worker pool, resume,
-progress), finalize, cli.
+Modules: split (MBOX framing), parse (one message -> ParsedMail), text (charsets, encoded
+words, HTML), model (types between parse and store), dkim_hook (seam to milestone 3), scan,
+store, runner (worker pool, resume, progress), finalize, cli.
 """

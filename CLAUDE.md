@@ -1,6 +1,6 @@
 # Mailrobbe
 
-Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine); it wins where the spec leaves a point open.
+Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine, DKIM, importer); it wins where the spec leaves a point open.
 
 ## Stack
 
@@ -19,6 +19,8 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/api/`: FastAPI app (`create_app`), currently `GET /api/health`
 - `src/mailrobbe/generator/`: synthetic MBOX test data (SPEC 3.6). `model.py` documents the stage pipeline; `population.py` (persons, domains, aliases), `planner.py` (streaming plan: threads, lists, Cc chains), `render.py` (MIME), `faults.py` (defects, duplicates), `dkim.py` (keys, selectors, signing), `writer.py` (mboxrd, manifest), `pipeline.py` (worker pool)
 - `src/mailrobbe/dkim/`: DKIM verification (SPEC 3.4, decisions D10 to D13); the package docstring lists the modules. `verify_mail` is pure, `DkimChecker` (one per process) adds the cached key sources, `store.py` writes `dkim_result`/`dns_cache`, `mailrobbe dkim` rechecks. `override.py` is the DNS override table for tests and generated data
+- `src/mailrobbe/mbox.py`: the one definition of an MBOX record; `read_message(path, byte_offset, byte_length)` reads a stored mail back (API, tests)
+- `src/mailrobbe/importer/`: MBOX importer (SPEC 3.5, decisions D14 to D18); the package docstring shows the pipeline. `split.py` (framing), `parse.py` and `text.py` (one message to `ParsedMail`), `dkim_hook.py` (seam to `dkim/`), `scan.py`, `store.py` (COPY per batch, progress in the same transaction), `runner.py` (worker pool, resume), `finalize.py` (duplicates, threads, display names), `cli.py`
 - `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`)
 - `tests/`: mirrors the package; `tests/db` needs PostgreSQL
 
@@ -32,7 +34,7 @@ uv run pytest                            # DB tests skip without a test database
 uv run pytest -m "not slow"              # quick run while iterating
 uv run mailrobbe generate --mails 10000 # test data into data/mbox (see --help)
 docker compose up -d --build             # Postgres + backend on http://127.0.0.1:8000
-docker compose run --rm backend mailrobbe import   # importer (milestone 2)
+docker compose run --rm backend mailrobbe import   # importer; Ctrl-C pauses, the next run resumes
 uv run mailrobbe dkim --help             # DKIM recheck of imported mails (D13)
 ```
 

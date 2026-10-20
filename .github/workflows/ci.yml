@@ -63,8 +63,14 @@ jobs:
           fi
           echo "$output"
           echo "$output" | grep -q 'Read-only file system'
-      - name: Generator CLI runs in the image
-        run: docker compose run --rm backend mailrobbe generate --help
+      - name: Generate test data
+        run: docker compose run --rm generator --mails 1000
+      - name: Import over the read-only mount stores every generated mail
+        run: |
+          docker compose run --rm backend mailrobbe import
+          sql() { docker compose exec -T db psql -U mailrobbe -d mailrobbe -tAc "$1"; }
+          test "$(sql 'SELECT count(*) FROM mail')" = "$(wc -l < data/mbox/_generator/manifest.jsonl)"
+          test "$(sql "SELECT count(*) FROM mail WHERE dkim_status = 'pass'")" -gt 0
       - name: Logs
         if: failure()
         run: docker compose logs
