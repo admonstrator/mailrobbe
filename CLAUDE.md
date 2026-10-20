@@ -33,6 +33,7 @@ uv run pytest -m "not slow"              # quick run while iterating
 uv run mailrobbe generate --mails 10000 # test data into data/mbox (see --help)
 docker compose up -d --build             # Postgres + backend on http://127.0.0.1:8000
 docker compose run --rm backend mailrobbe import   # importer (milestone 2)
+uv run mailrobbe dkim --help             # DKIM recheck of imported mails (D13)
 ```
 
 Database tests need `MAILROBBE_TEST_DATABASE_URL`, for example `postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe` against `docker compose up -d db`. The tests create and drop their own temporary database on that server and never touch the one they connect to. CI runs them against a Postgres 16 service and sets `MAILROBBE_REQUIRE_DB=1`, which turns the skip into a failure.
