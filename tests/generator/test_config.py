@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from mailspider.cli import build_parser
+from mailspider.cli import build_parser, main
 from mailspider.generator.cli import config_from_args
 from mailspider.generator.config import GeneratorConfig, parse_size
 
@@ -58,3 +58,8 @@ def test_cli_maps_onto_config(tmp_path: Path) -> None:
     assert config.mails == 500
     assert config.file_size == 4 * 1024**2
     assert config.jobs == 2
+
+
+def test_cli_refuses_existing_output(tmp_path: Path) -> None:
+    (tmp_path / "mbox-0001.mbox").write_bytes(b"")
+    assert main(["generate", "--out", str(tmp_path), "--mails", "10", "--quiet"]) == 2

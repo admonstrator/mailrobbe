@@ -121,6 +121,10 @@ def run(args: argparse.Namespace) -> int:
     except ValueError as error:
         logging.error("invalid configuration: %s", error)
         return 2
-    summary = generate(config)
+    try:
+        summary = generate(config)
+    except (FileExistsError, ValueError) as error:
+        logging.error("%s", error)
+        return 2
     print(json.dumps(asdict(summary), indent=2, default=str))
     return 0
