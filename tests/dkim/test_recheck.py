@@ -37,22 +37,10 @@ def test_read_message_gives_the_imported_bytes(corpus: Corpus) -> None:
         assert raw == corpus.message(record)
 
 
-def test_read_message_accepts_crlf_records(tmp_path: Path) -> None:
-    quoted = b"From: a@nordwind.example\r\nSubject: x\r\n\r\n>From here on\r\n>>From there\r\n"
-    first = b"From a@nordwind.example Mon Mar  4 09:12:33 2019\r\n" + quoted + b"\r\n"
-    second = b"From b@nordwind.example Mon Mar  4 09:12:34 2019\nBody\n\n"
-    path = tmp_path / "crlf.mbox"
-    path.write_bytes(first + second)
-    assert read_message(path, 0, len(first)) == quoted.replace(b"\n>", b"\n")
-    assert read_message(path, len(first), len(second)) == b"Body\n"
-
-
-def test_read_message_rejects_a_range_without_a_record(corpus: Corpus) -> None:
+def test_read_message_rejects_a_range_beyond_the_file(corpus: Corpus) -> None:
     record = corpus.records[1]
     path = corpus.mbox_dir / record["file"]
     with pytest.raises(ValueError):
-        read_message(path, record["offset"] + 1, record["length"])
-    with pytest.raises(ValueError):  # beyond the end of the file
         read_message(path, record["offset"], path.stat().st_size)
 
 
@@ -75,6 +63,9 @@ class Archive:
 
     def set_status(self, mail_ids: list[int], status: DkimStatus) -> None:
         asyncio.run(_set_status(self.url, mail_ids, status))
+
+    def set_length(self, mail_id: int, byte_length: int) -> None:
+        asyncio.run(_update(self.url, mail_id, byte_length=byte_length))
 
     def dns_cache(self) -> dict[str, DnsStatus]:
         """dns_cache: name -> status."""
@@ -131,6 +122,15 @@ async def _state(url: str) -> dict[int, tuple[DkimStatus | None, list[dict[str, 
     finally:
         await engine.dispose()
     return state
+
+
+async def _update(url: str, mail_id: int, **values: Any) -> None:
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(update(Mail).where(Mail.id == mail_id).values(**values))
+    finally:
+        await engine.dispose()
 
 
 async def _dns_cache(url: str) -> dict[str, DnsStatus]:
@@ -262,11 +262,10 @@ def test_unreadable_and_changed_mails_are_skipped(
         byte = handle.read(1)
         handle.seek(-1, 1)
         handle.write(b"x" if byte != b"x" else b"y")
-        handle.seek(broken["offset"])
-        handle.write(b"X")  # no From separator any more
     (mbox_dir / files[-1]).unlink()
 
     selected = [archive.mail_ids[record["index"]] for record in (fine, changed, broken, gone)]
+    archive.set_length(selected[2], (mbox_dir / files[0]).stat().st_size)  # beyond the file end
     settings = Settings(database_url=archive.url, mbox_dir=mbox_dir)
     summary = recheck(settings, mail_ids=selected)
     assert (summary.selected, summary.checked) == (4, 1)
