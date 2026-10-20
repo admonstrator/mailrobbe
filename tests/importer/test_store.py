@@ -1,13 +1,17 @@
 """Batches written by store.Store, built by hand from MboxRecord and ParsedMail objects."""
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import pool, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from mailrobbe.enums import DkimStatus, ImportErrorKind
+from mailrobbe import migrate
+from mailrobbe.dkim.model import DnsAnswer
+from mailrobbe.enums import DkimStatus, DnsStatus, ImportErrorKind
+from mailrobbe.importer import dkim_hook
 from mailrobbe.importer.model import Issue
 from mailrobbe.importer.store import BATCH_RECORDS, Batch, Store
 from tests.importer.doubles import (
@@ -234,3 +238,56 @@ def test_a_batch_is_full_at_its_record_limit() -> None:
         batch.add(make_record(index * 100, b"S: x\n\nb\n"), make_mail())
     assert batch.is_full()
     assert len(batch) == BATCH_RECORDS
+
+
+@pytest.fixture
+def own_database_url(empty_database_url: str) -> str:
+    """A migrated database of this test's own, for transactions that commit."""
+    migrate.upgrade("head", empty_database_url)
+    return empty_database_url
+
+
+async def _save_answers(session: AsyncSession, answers: list[DnsAnswer]) -> None:
+    async with session.begin():
+        await dkim_hook.save_answers(session, answers)
+
+
+async def _until_one_waits_for_a_lock(session: AsyncSession) -> None:
+    sql = text(
+        "SELECT count(*) FROM pg_stat_activity "
+        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+    )
+    for _ in range(200):
+        waiting = await session.scalar(sql)
+        await session.rollback()  # the view is a snapshot per transaction
+        if waiting == 1:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("no transaction waits for a lock")
+
+
+@pytest.mark.slow
+async def test_concurrent_batches_save_dns_answers_without_deadlock(own_database_url: str) -> None:
+    """Every worker saves the keys it looked up in its batch transaction, in name order."""
+    engine = create_async_engine(own_database_url, poolclass=pool.NullPool)
+    now = datetime.now(UTC)
+    a, b = (
+        DnsAnswer(f"{s}._domainkey.a.example", DnsStatus.NOT_FOUND, None, now, 60) for s in "ab"
+    )
+    try:
+        async with (
+            AsyncSession(engine) as first,
+            AsyncSession(engine) as second,
+            AsyncSession(engine) as observer,
+        ):
+            async with first.begin():
+                await dkim_hook.save_answers(first, [a])
+                # Looked up in the other order. Saved as given, it would hold b and wait for a.
+                other = asyncio.create_task(_save_answers(second, [b, a]))
+                await _until_one_waits_for_a_lock(observer)
+                await dkim_hook.save_answers(first, [b])
+            await other
+            rows = await fetch(observer, "SELECT name FROM dns_cache ORDER BY name")
+    finally:
+        await engine.dispose()
+    assert rows == [(a.name,), (b.name,)]

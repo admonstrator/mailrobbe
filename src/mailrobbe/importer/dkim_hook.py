@@ -47,5 +47,9 @@ def create_checker(settings: Settings, preload: Any) -> DkimChecker | None:
 
 
 async def save_answers(session: AsyncSession, answers: list[Any]) -> None:
-    """Per batch, inside the batch transaction: persist the checker's new DNS answers."""
-    await store.upsert_dns_cache(session, answers)
+    """Per batch, inside the batch transaction: persist the checker's new DNS answers.
+
+    Workers look up the same keys in different orders; written in name order, concurrent batch
+    transactions lock the dns_cache rows in one order and cannot deadlock.
+    """
+    await store.upsert_dns_cache(session, sorted(answers, key=lambda answer: answer.name))
