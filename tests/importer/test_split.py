@@ -218,14 +218,23 @@ def test_separator_date_rejects_impossible_dates() -> None:
     assert separator_date(b"") is None
 
 
-def test_crlf_files_keep_their_bytes() -> None:
-    messages = [b"Subject: %d\r\nFrom: a@b.example\r\n\r\nline\r\n" % n for n in range(3)]
+@pytest.mark.parametrize("max_size", [0, 30, MAX_SIZE])
+@pytest.mark.parametrize("block_size", [1, 3, 4096])
+def test_crlf_files_follow_message_from_record(block_size: int, max_size: int) -> None:
     separator = SEPARATOR.replace(b"\n", b"\r\n")
-    data = b"".join(separator + message + b"\r\n" for message in messages)
-    records = _records(data)
-    assert [record.message for record in records] == [m + b"\r\n" for m in messages]
-    assert all(record.separator == SEPARATOR.rstrip() and not record.issues for record in records)
-    assert _records(data, block_size=3) == records
+    messages = [b"Subject: %d\r\nFrom: a@b.example\r\n\r\n>From here\r\n" % n for n in range(3)]
+    last = separator + b"Subject: last\r\n\r\nno empty line at the end\r\n"
+    data = b"".join(separator + message + b"\r\n" for message in messages) + last
+    records = _records(data, block_size=block_size, max_size=max_size)
+    assert len(records) == 4
+    for record in records:
+        raw = data[record.byte_offset : record.byte_offset + record.byte_length]
+        assert record.message == message_from_record(raw)
+        assert record.raw_sha256 == hashlib.sha256(record.message).hexdigest()
+        assert record.separator == SEPARATOR.rstrip()
+        assert _kinds(record) == ([ImportErrorKind.TOO_LARGE] if record.truncated else [])
+    assert records[0].message == b"Subject: 0\r\nFrom: a@b.example\r\n\r\nFrom here\r\n"
+    assert records[3].message.endswith(b"at the end\r\n")
 
 
 def test_empty_input_has_no_records() -> None:

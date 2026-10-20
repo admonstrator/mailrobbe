@@ -14,10 +14,8 @@ From_ line, a malformed From_ line at `start`, a separator not preceded by an em
 record above max_size (kept as its first TRUNCATED_HEAD_SIZE message bytes, still hashed whole).
 
 CRLF line endings are accepted: a From_ line, the field name after it and the empty line before
-it may end with CR LF (MboxRecord.separator is then given without the CR). The message keeps
-its bytes unchanged; mailrobbe.mbox only strips the LF of a closing LF LF, so a CRLF record's
-message keeps its closing CR LF as a trailing empty line, which DKIM body canonicalisation
-ignores.
+it may end with CR LF. MboxRecord.separator is then given without the CR, and the closing empty
+line left out of the message is CR LF, as mailrobbe.mbox defines it.
 """
 
 import hashlib
@@ -265,7 +263,9 @@ def _message(buf: bytes | bytearray, start: int, end: int) -> bytes:
     if buf.startswith(b"From ", start, end):
         newline = buf.find(b"\n", start, end)
         start = end if newline < 0 else newline + 1
-    if buf.endswith(b"\n\n", start, end):
+    if buf.endswith(b"\r\n\r\n", start, end):
+        end -= 2
+    elif buf.endswith(b"\n\n", start, end):
         end -= 1
     return unescape_from_lines(bytes(memoryview(buf)[start:end]))
 
@@ -274,16 +274,16 @@ class _StreamedMessage:
     """message_from_record over a record fed in pieces: the head of the message and its SHA-256.
 
     The separator line is skipped, mboxrd quoting is undone line by line (a line start that may
-    still turn out to be `>+From ` is held back, at most one `>` and four letters), and a final
-    LF is held back until the end shows whether the record closed with LF LF.
+    still turn out to be `>+From ` is held back, at most one `>` and four letters), and the last
+    two bytes are held back until the end shows whether the record closed with an empty line.
     """
 
     def __init__(self, has_separator: bool) -> None:
         self._skip_line = has_separator
         self._mid_line = False  # inside a line whose start was already written
         self._held = b""  # start of a line that may still be a quoted From_ line
-        self._last_two = b""  # last two bytes of the message so far
-        self._held_newline = False
+        self._tail = b""  # last four bytes of the message so far
+        self._end = b""  # last two bytes, not yet emitted: maybe the closing empty line
         self._hash = hashlib.sha256()
         self._head = bytearray()
 
@@ -318,18 +318,25 @@ class _StreamedMessage:
 
     def finish(self) -> tuple[bytes, str]:
         self._write(self._held)
-        if self._held_newline and self._last_two != b"\n\n":
-            self._emit(b"\n")
+        if self._tail.endswith(b"\r\n\r\n"):
+            self._end = self._end[:-2]
+        elif self._tail.endswith(b"\n\n"):
+            self._end = self._end[:-1]
+        self._emit(self._end)
         return bytes(self._head), self._hash.hexdigest()
 
     def _write(self, data: bytes) -> None:
         if not data:
             return
-        self._last_two = (self._last_two + data[-2:])[-2:]
-        if self._held_newline:
-            self._emit(b"\n")
-        self._held_newline = data.endswith(b"\n")
-        self._emit(memoryview(data)[: len(data) - self._held_newline])
+        self._tail = (self._tail + data[-4:])[-4:]
+        if len(data) >= 2:
+            self._emit(self._end)
+            self._emit(memoryview(data)[:-2])
+            self._end = data[-2:]
+        else:
+            end = self._end + data
+            self._emit(end[:-2])
+            self._end = end[-2:]
 
     def _emit(self, data: bytes | memoryview) -> None:
         self._hash.update(data)
