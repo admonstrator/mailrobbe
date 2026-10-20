@@ -305,5 +305,8 @@ def test_tag_subject() -> None:
     changed = tag_subject(mail.raw, "[team]")
     assert changed is not None
     assert parse(changed)["subject"] == "[team] " + mail.planned.subject
+    assert tag_subject(changed, "[team]") is None  # never "[team] [team] ..."
     start, end = field_span(mail.raw, "Subject")
     assert tag_subject(mail.raw[:start] + mail.raw[end:], "[team]") is None
+    encoded = b"Subject: =?utf-8?b?W1RlYW1dIEdyw7zDn2U=?=\n"  # "[Team] Grüße"
+    assert tag_subject(mail.raw[:start] + encoded + mail.raw[end:], "[team]") is None

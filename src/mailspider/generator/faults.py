@@ -10,6 +10,7 @@ DuplicateInjector runs in the main process on the stream of signed mails.
 
 import base64
 import binascii
+import email.policy
 import functools
 import random
 import re
@@ -178,9 +179,16 @@ def _has_8bit_text(raw: bytes, part: _Part) -> bool:
 
 
 def tag_subject(raw: bytes, tag: str) -> bytes | None:
-    """Insert `tag` and a space in front of the Subject value; None without a Subject."""
-    start, _ = field_span(raw, "Subject")
+    """Insert `tag` and a space in front of the Subject value.
+
+    None without a Subject, and when the decoded Subject already carries the tag: list servers
+    add their tag only once.
+    """
+    start, end = field_span(raw, "Subject")
     if start < 0:
+        return None
+    subject = BytesHeaderParser(policy=email.policy.default).parsebytes(raw[start:end])["subject"]
+    if tag.lower() in str(subject).lower():
         return None
     value = raw.index(b":", start) + 1
     while raw[value : value + 1] in (b" ", b"\t"):
