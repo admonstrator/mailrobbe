@@ -24,7 +24,7 @@ from mailrobbe.dkim.resolver import (
     parse_nameservers,
 )
 from mailrobbe.enums import DkimReason, DnsStatus
-from tests.dkim.fake_dns import FakeDns, Reply, block_network, install, txt
+from tests.dkim.fake_dns import FakeDns, Query, Reply, block_network, install, txt
 
 NAMESERVER = "192.0.2.53"
 NAME = "sel._domainkey.firma.ch"
@@ -439,9 +439,13 @@ def _logged(caplog: pytest.LogCaptureFixture, level: int) -> list[str]:
     return [record.getMessage() for record in caplog.records if record.levelno == level]
 
 
+def _root_probes(fake: FakeDns) -> list[Query]:
+    return [query for query in fake.queries if query.name == "."]
+
+
 def _open_breaker(fake: FakeDns, clock: Clock) -> DnsResolver:
-    fake.default = dns.rcode.SERVFAIL
-    source = DnsResolver(0.2, (NAMESERVER,), clock=clock)
+    fake.down()
+    source = DnsResolver(0.1, (NAMESERVER,), clock=clock)
     for name in _names(UNREACHABLE_AFTER):
         source(name)
     return source
@@ -455,25 +459,31 @@ def _blocked(answer: DnsAnswer) -> bool:
     )
 
 
-def test_breaker_opens_after_five_failures_in_a_row(
-    fake: FakeDns, clock: Clock, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize(
+    "failure",
+    [dns.rcode.REFUSED, ConnectionRefusedError(111, "Connection refused"), dns.exception.Timeout],
+    ids=["refused", "socket-error", "timeout"],
+)
+def test_breaker_opens_when_the_root_does_not_answer_either(
+    fake: FakeDns, clock: Clock, caplog: pytest.LogCaptureFixture, failure: Reply
 ) -> None:
     caplog.set_level(logging.INFO, logger="mailrobbe.dkim.resolver")
-    fake.default = dns.rcode.SERVFAIL
-    fake.zone["down1._domainkey.firma.ch."] = ConnectionRefusedError(111, "Connection refused")
-    fake.zone["down2._domainkey.firma.ch."] = dns.exception.Timeout
-    source = DnsResolver(0.2, (NAMESERVER,), clock=clock)
+    fake.down(failure)
+    source = DnsResolver(0.1, (NAMESERVER,), clock=clock)
     failed = [source(name) for name in _names(UNREACHABLE_AFTER)]
     # The failures themselves were real answers from the network: cached like any temp_error.
     assert {(answer.status, answer.ttl) for answer in failed} == {
         (DnsStatus.TEMP_ERROR, TEMP_ERROR_TTL)
     }
-    assert {query.name for query in fake.queries} == {
-        name + "." for name in _names(UNREACHABLE_AFTER)
-    }
+    # After the fifth failure, NS for the root zone, same nameserver and timeout.
+    probes = _root_probes(fake)
+    assert probes and {(query.rdtype, query.where) for query in probes} == {("NS", NAMESERVER)}
+    assert all(query.timeout is not None and query.timeout <= 0.1 for query in probes)
+    assert fake.queries[-len(probes) :] == probes
     (warning,) = _logged(caplog, logging.WARNING)
     assert warning.startswith("DNS looks unreachable")
 
+    fake.up()
     fake.zone[NAME + "."] = txt(RECORD)  # DNS would even answer now: nobody asks
     queries = len(fake.queries)
     blocked = [source(NAME), source("other._domainkey.firma.ch"), source(NAME)]
@@ -483,29 +493,79 @@ def test_breaker_opens_after_five_failures_in_a_row(
     assert len(_logged(caplog, logging.WARNING)) == 1
 
 
-def test_any_answer_resets_the_failure_count(fake: FakeDns, clock: Clock) -> None:
-    fake.default = dns.rcode.SERVFAIL
-    fake.zone.update(
-        {
-            "nx._domainkey.firma.ch.": dns.rcode.NXDOMAIN,
-            "empty._domainkey.firma.ch.": dns.rcode.NOERROR,
-            NAME + ".": txt(RECORD),
-        }
-    )
-    source = DnsResolver(0.2, (NAMESERVER,), clock=clock)
-    for answered in ("nx._domainkey.firma.ch", "empty._domainkey.firma.ch", NAME):
-        for name in _names(UNREACHABLE_AFTER - 1):
-            assert source(name).ttl == TEMP_ERROR_TTL
-        assert source(answered).status is not DnsStatus.TEMP_ERROR
+def test_missing_system_configuration_opens_the_breaker(
+    fake: FakeDns, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def read_resolv_conf(self: dns.resolver.Resolver, f: object) -> None:
+        raise dns.resolver.NoResolverConfiguration
+
+    monkeypatch.setattr(dns.resolver.Resolver, "read_resolv_conf", read_resolv_conf)
+    source = DnsResolver(0.1, clock=clock)
+    for name in _names(UNREACHABLE_AFTER):
+        source(name)
+    assert _blocked(source(NAME))
+    assert fake.queries == []
+
+
+def test_servfail_neither_counts_nor_resets(fake: FakeDns, clock: Clock) -> None:
+    """SERVFAIL comes from a working resolver: one domain is broken, not DNS."""
+    fake.down()
+    lame = _names(3, "lame")
+    fake.zone.update({name + ".": dns.rcode.SERVFAIL for name in lame})
+    source = DnsResolver(0.1, (NAMESERVER,), clock=clock)
     for name in _names(UNREACHABLE_AFTER - 1):
         source(name)
-    queries = len(fake.queries)
-    assert source("fifth._domainkey.firma.ch").ttl == TEMP_ERROR_TTL  # still asked for real
-    assert len(fake.queries) == queries + 1
+    for name in lame:
+        answer = source(name)
+        assert (answer.status, answer.ttl) == (DnsStatus.TEMP_ERROR, TEMP_ERROR_TTL)
+    assert _root_probes(fake) == []  # SERVFAIL did not count ...
+    source(_names(UNREACHABLE_AFTER)[-1])
+    assert len(_root_probes(fake)) == 1  # ... and did not reset the count either
     assert _blocked(source(NAME))
 
 
-def test_a_failed_probe_renews_the_block(
+def test_answers_reset_the_count(fake: FakeDns, clock: Clock) -> None:
+    fake.down()
+    answered = ["nx._domainkey.firma.ch", "empty._domainkey.firma.ch", NAME]
+    fake.zone.update(
+        {
+            answered[0] + ".": dns.rcode.NXDOMAIN,
+            answered[1] + ".": dns.rcode.NOERROR,
+            NAME + ".": txt(RECORD),
+        }
+    )
+    source = DnsResolver(0.1, (NAMESERVER,), clock=clock)
+    for name in answered:
+        for failing in _names(UNREACHABLE_AFTER - 1):
+            assert source(failing).ttl == TEMP_ERROR_TTL
+        assert source(name).status is not DnsStatus.TEMP_ERROR
+    assert _root_probes(fake) == []
+    for failing in _names(UNREACHABLE_AFTER):
+        source(failing)
+    assert len(_root_probes(fake)) == 1
+    assert _blocked(source(NAME))
+
+
+def test_a_root_that_answers_keeps_the_breaker_closed(
+    fake: FakeDns, clock: Clock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Lame delegations of dead domains time out as well, but the root answers."""
+    caplog.set_level(logging.INFO, logger="mailrobbe.dkim.resolver")
+    fake.default = dns.exception.Timeout
+    source = DnsResolver(0.1, (NAMESERVER,), clock=clock)
+    for name in _names(UNREACHABLE_AFTER):
+        assert source(name).ttl == TEMP_ERROR_TTL
+    assert len(_root_probes(fake)) == 1
+    fake.default = dns.rcode.REFUSED
+    for name in _names(UNREACHABLE_AFTER - 1, "more"):
+        source(name)
+    assert len(_root_probes(fake)) == 1  # the count started again after the probe
+    fake.zone[NAME + "."] = txt(RECORD)
+    assert source(NAME).status is DnsStatus.FOUND
+    assert _logged(caplog, logging.WARNING) == []
+
+
+def test_a_failed_root_probe_after_the_block_renews_it(
     fake: FakeDns, clock: Clock, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="mailrobbe.dkim.resolver")
@@ -514,46 +574,51 @@ def test_a_failed_probe_renews_the_block(
         clock.advance(TEMP_ERROR_TTL - 1)
         queries = len(fake.queries)
         assert _blocked(source(NAME))
+        assert len(fake.queries) == queries
         clock.advance(1)
-        probe = source("probe._domainkey.firma.ch")
-        assert (probe.status, probe.ttl) == (DnsStatus.TEMP_ERROR, TEMP_ERROR_TTL)
-        assert len(fake.queries) == queries + 1  # exactly one probe
-        assert _blocked(source(NAME)) and _blocked(source("next._domainkey.firma.ch"))
+        assert _blocked(source(NAME))  # the root did not answer: NAME is not asked
+        assert [query.name for query in fake.queries[queries:]] == ["."]
+        assert _blocked(source("next._domainkey.firma.ch"))
         assert len(fake.queries) == queries + 1
     assert len(_logged(caplog, logging.WARNING)) == 1
     assert not [message for message in _logged(caplog, logging.INFO) if "again" in message]
 
 
-def test_a_successful_probe_closes_the_breaker(
+def test_a_root_answer_after_the_block_closes_the_breaker(
     fake: FakeDns, clock: Clock, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="mailrobbe.dkim.resolver")
     source = _open_breaker(fake, clock)
     clock.advance(TEMP_ERROR_TTL)
-    fake.default = dns.rcode.NXDOMAIN
+    fake.up()
     fake.zone[NAME + "."] = txt(RECORD)
-    probe = source(NAME)
-    assert (probe.status, probe.record, probe.ttl) == (DnsStatus.FOUND, RECORD, FOUND_TTL)
-    assert probe.fetched_at == clock.now
+    queries = len(fake.queries)
+    answer = source(NAME)
+    assert (answer.status, answer.record, answer.ttl) == (DnsStatus.FOUND, RECORD, FOUND_TTL)
+    assert answer.fetched_at == clock.now
+    assert [(query.name, query.rdtype) for query in fake.queries[queries:]] == [
+        (".", "NS"),
+        (NAME + ".", "TXT"),
+    ]
     resumed = [message for message in _logged(caplog, logging.INFO) if "again" in message]
     assert resumed == ["DNS answers again, DKIM key lookups resumed"]
-    queries = len(fake.queries)
-    assert source("gone._domainkey.firma.ch").status is DnsStatus.NOT_FOUND
-    # Closed for good: a single failure afterwards does not block anything.
-    fake.default = dns.rcode.SERVFAIL
-    assert source("down._domainkey.firma.ch").ttl == TEMP_ERROR_TTL
-    assert source("down._domainkey.firma.ch").ttl == TEMP_ERROR_TTL
-    assert len(fake.queries) == queries + 3
+    # Closed for good: the count starts from zero.
+    probes = len(_root_probes(fake))
+    fake.down()
+    for name in _names(UNREACHABLE_AFTER - 1):
+        assert source(name).ttl == TEMP_ERROR_TTL
+    assert len(_root_probes(fake)) == probes
 
 
 def test_blocked_answers_are_neither_cached_nor_persisted(fake: FakeDns, clock: Clock) -> None:
-    fake.default = dns.rcode.SERVFAIL
-    cache = KeyCache(DnsResolver(0.2, (NAMESERVER,), clock=clock), clock=clock)
+    fake.down()
+    cache = KeyCache(DnsResolver(0.1, (NAMESERVER,), clock=clock), clock=clock)
     for name in _names(UNREACHABLE_AFTER):
         cache(name)
     assert len(cache.take_new_answers()) == UNREACHABLE_AFTER
     assert _blocked(cache(NAME)) and _blocked(cache(NAME))
     assert (cache.lookups, cache.take_new_answers()) == (UNREACHABLE_AFTER + 2, [])
     clock.advance(TEMP_ERROR_TTL)
+    fake.up()
     fake.zone[NAME + "."] = txt(RECORD)
     assert cache(NAME).status is DnsStatus.FOUND  # asked for real once the block ended

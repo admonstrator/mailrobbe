@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import dns.message
 import dns.query
 import dns.rcode
+import dns.rdata
 import dns.rdataclass
 import dns.rdatatype
 import pytest
@@ -19,6 +20,8 @@ from dns.rdtypes.ANY.TXT import TXT
 # A zone entry: TXT records (each a tuple of character strings), an rcode without answer, or an
 # exception (class or instance) the transport raises: dns.exception.Timeout, OSError.
 Reply = list[tuple[bytes, ...]] | dns.rcode.Rcode | Exception | type[Exception]
+
+ROOT_SERVER = dns.rdata.from_text(dns.rdataclass.IN, dns.rdatatype.NS, "a.root-servers.net.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,9 +36,20 @@ class Query:
 
 @dataclass
 class FakeDns:
+    """Answers TXT queries from zone, else with default; the root "." answers NS queries (the
+    resolver's reachability probe) unless it has a zone entry of its own, such as a timeout."""
+
     zone: dict[str, Reply] = field(default_factory=dict)  # absolute name -> reply
-    default: Reply = dns.rcode.NXDOMAIN  # for names not in the zone; SERVFAIL: DNS is down
+    default: Reply = dns.rcode.NXDOMAIN  # for names not in the zone
     queries: list[Query] = field(default_factory=list)
+
+    def down(self, reply: Reply = dns.rcode.REFUSED) -> None:
+        """DNS unreachable: every name, the root included, gets reply."""
+        self.default = self.zone["."] = reply
+
+    def up(self) -> None:
+        self.default = dns.rcode.NXDOMAIN
+        self.zone.pop(".", None)
 
     def udp(
         self,
@@ -48,10 +62,16 @@ class FakeDns:
         name = question.name.to_text()
         rdtype = dns.rdatatype.to_text(question.rdtype)
         self.queries.append(Query(name, rdtype, where, timeout, request.edns, request.payload))
+        response = dns.message.make_response(request)
+        if name == "." and name not in self.zone:
+            rrset = response.find_rrset(
+                response.answer, question.name, dns.rdataclass.IN, dns.rdatatype.NS, create=True
+            )
+            rrset.add(ROOT_SERVER, ttl=518400)
+            return response
         reply = self.zone.get(name, self.default)
         if isinstance(reply, Exception | type):
             raise reply
-        response = dns.message.make_response(request)
         if isinstance(reply, dns.rcode.Rcode):
             response.set_rcode(reply)
             return response
