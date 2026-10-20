@@ -8,7 +8,9 @@ def alembic_config(database_url: str | None = None) -> Config:
     """Alembic configuration without alembic.ini, so it works from the installed package."""
     config = Config()
     config.set_main_option("script_location", "mailspider:migrations")
-    config.set_main_option("sqlalchemy.url", database_url or get_settings().database_url)
+    url = database_url or get_settings().database_url
+    # configparser interpolation: a percent-encoded password would otherwise raise.
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     return config
 
 
