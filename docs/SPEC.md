@@ -1,4 +1,4 @@
-# Mailspider – Projektübergabe und Spezifikation
+# Mailrobbe – Projektübergabe und Spezifikation
 
 Stand: 20.10.2026. Dieses Dokument fasst Ziel, Rahmenbedingungen, Architektur und UI-Anforderungen zusammen, so dass ein Entwickler oder Agent das Projekt ohne Vorwissen aufsetzen kann.
 
