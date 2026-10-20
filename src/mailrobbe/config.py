@@ -19,8 +19,9 @@ class Settings(BaseSettings):
     # Attachments above this size get metadata only, no SHA-256 (SPEC 3.5). Accepts "50MiB".
     import_attachment_hash_limit: ByteSize = ByteSize(50 * 1024**2)
     # Mails above this size are imported with their headers only, so a damaged file without
-    # separators cannot exhaust memory.
-    import_max_mail_size: ByteSize = ByteSize(256 * 1024**2)
+    # separators cannot exhaust memory. Parsing needs up to about 8 times a mail's size, so the
+    # default keeps one worker below about 1 GB; mail servers rarely accept more than 150 MB.
+    import_max_mail_size: ByteSize = ByteSize(128 * 1024**2)
     # DKIM key lookups (SPEC 3.4, mailrobbe/dkim/checker.py). The override table answers the
     # names it lists; unset means mbox_dir/_generator/dns_override.json when that file exists.
     dkim_dns_override: Path | None = None
