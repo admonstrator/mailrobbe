@@ -914,8 +914,8 @@ def _private_ip(rng: random.Random) -> str:
 
 
 def _host(domain: str, names: Sequence[str]) -> str:
-    if domain.count(".") > 1:  # already a mail subdomain such as news.shop.example
-        names = ("mta1", "mta2", "mta5", "o1")
+    label = domain.partition(".")[0]  # no mail.mail.shop.example for a sending subdomain
+    names = [name for name in names if name != label]
     return f"{names[zlib.crc32(domain.encode()) % len(names)]}.{domain}"
 
 
