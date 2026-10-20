@@ -20,9 +20,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from mailrobbe import migrate
 from mailrobbe.cli import main
 from mailrobbe.config import Settings
-from mailrobbe.db.models import DkimResult, Mail, MboxFile
+from mailrobbe.db.models import DkimResult, DnsCache, Mail, MboxFile
+from mailrobbe.dkim.override import key_name
 from mailrobbe.dkim.recheck import DEFAULT_STATUSES, recheck
-from mailrobbe.enums import DkimStatus
+from mailrobbe.enums import DkimStatus, DnsStatus
 from mailrobbe.mbox import read_message
 from tests.dkim.conftest import Corpus
 
@@ -74,6 +75,10 @@ class Archive:
 
     def set_status(self, mail_ids: list[int], status: DkimStatus) -> None:
         asyncio.run(_set_status(self.url, mail_ids, status))
+
+    def dns_cache(self) -> dict[str, DnsStatus]:
+        """dns_cache: name -> status."""
+        return asyncio.run(_dns_cache(self.url))
 
 
 async def _load(url: str, corpus: Corpus) -> dict[int, int]:
@@ -128,6 +133,16 @@ async def _state(url: str) -> dict[int, tuple[DkimStatus | None, list[dict[str, 
     return state
 
 
+async def _dns_cache(url: str) -> dict[str, DnsStatus]:
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    try:
+        async with engine.connect() as connection:
+            rows = await connection.execute(select(DnsCache.name, DnsCache.status))
+            return {name: status for name, status in rows}
+    finally:
+        await engine.dispose()
+
+
 async def _set_status(url: str, mail_ids: list[int], status: DkimStatus) -> None:
     engine = create_async_engine(url, poolclass=pool.NullPool)
     try:
@@ -180,6 +195,25 @@ def test_recheck_matches_the_manifest(archive: Archive, corpus: Corpus, jobs: in
         status, rows = state[archive.mail_ids[record["index"]]]
         assert status == record["dkim"]["expected"], record["index"]
         assert _got(rows) == _expected(record), record["index"]  # none for unsigned mails
+
+    # Every key name of the corpus reached dns_cache with the answer the override table gives.
+    names = {
+        key_name(signature["selector"], signature["domain"]): signature["expected"]
+        for record in corpus.records
+        for signature in record["dkim"]["signatures"]
+    }
+    cache = archive.dns_cache()
+    assert summary.dns_answers_saved >= len(cache) == len(names)
+    dns_status = {"no_key": DnsStatus.NOT_FOUND, "temp_error": DnsStatus.TEMP_ERROR}
+    assert cache == {
+        name: dns_status.get(status, DnsStatus.FOUND) for name, status in names.items()
+    }
+    # One key lookup per signature: the first one per name and worker reaches the override table,
+    # the others are cache hits and say so in dns_cached.
+    rows = [row for _, rows in state.values() for row in rows]
+    assert summary.dns_lookups + summary.dns_hits == len(rows)
+    assert summary.dns_lookups == sum(not row["dns_cached"] for row in rows)
+    assert len(names) <= summary.dns_lookups <= len(names) * jobs
 
     # The default selection: only the keys that were missing or did not answer are asked again.
     again = recheck(archive.settings, jobs=jobs)

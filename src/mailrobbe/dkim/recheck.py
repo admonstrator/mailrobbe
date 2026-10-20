@@ -72,6 +72,8 @@ class RecheckSummary:
     statuses: dict[str, int]  # DkimStatus value -> checked mails with that status now
     transitions: dict[str, int]  # "no_key -> pass" -> checked mails whose status changed
     dns_answers_saved: int  # dns_cache rows written
+    dns_lookups: int  # key lookups that went past the workers' caches
+    dns_hits: int  # key lookups the caches answered
     elapsed_seconds: float
 
 
@@ -157,6 +159,8 @@ class _Checked:
 
     outcomes: list[MailVerdict | Skip]
     answers: list[DnsAnswer]  # the worker's new key answers, for dns_cache
+    lookups: int  # the checker's counters for this chunk
+    hits: int
 
 
 async def _chunks(
@@ -211,8 +215,14 @@ class _Worker:
         self._checker = DkimChecker.from_settings(settings, preload=answers, refresh_negative=True)
 
     def check(self, chunk: list[_Mail]) -> _Checked:
+        lookups, hits = self._checker.lookups, self._checker.hits
         outcomes = [self._check(mail) for mail in chunk]
-        return _Checked(outcomes, self._checker.take_new_answers())
+        return _Checked(
+            outcomes,
+            self._checker.take_new_answers(),
+            self._checker.lookups - lookups,
+            self._checker.hits - hits,
+        )
 
     def _check(self, mail: _Mail) -> MailVerdict | Skip:
         try:
@@ -278,6 +288,8 @@ class _Tally:
         self._transitions: Counter[str] = Counter()
         self._missing_files: set[str] = set()
         self._answers_saved = 0
+        self._lookups = 0
+        self._hits = 0
 
     def count(self, chunk: list[_Mail], checked: _Checked) -> list[tuple[int, MailVerdict]]:
         """Count a finished chunk; returns the verdicts to save."""
@@ -293,6 +305,8 @@ class _Tally:
                 self._transitions[f"{mail.dkim_status or UNCHECKED} -> {status}"] += 1
         # what upsert_dns_cache writes: the last answer per name, ttl 0 left out
         self._answers_saved += len({answer.name for answer in checked.answers if answer.ttl > 0})
+        self._lookups += checked.lookups
+        self._hits += checked.hits
         return verdicts
 
     def _skip(self, mail: _Mail, reason: Skip) -> None:
@@ -340,5 +354,7 @@ class _Tally:
             statuses=dict(sorted(self._statuses.items())),
             transitions=dict(sorted(self._transitions.items())),
             dns_answers_saved=self._answers_saved,
+            dns_lookups=self._lookups,
+            dns_hits=self._hits,
             elapsed_seconds=round(elapsed, 3),
         )
