@@ -33,7 +33,8 @@ class Query:
 
 @dataclass
 class FakeDns:
-    zone: dict[str, Reply] = field(default_factory=dict)  # absolute name -> reply; else NXDOMAIN
+    zone: dict[str, Reply] = field(default_factory=dict)  # absolute name -> reply
+    default: Reply = dns.rcode.NXDOMAIN  # for names not in the zone; SERVFAIL: DNS is down
     queries: list[Query] = field(default_factory=list)
 
     def udp(
@@ -47,7 +48,7 @@ class FakeDns:
         name = question.name.to_text()
         rdtype = dns.rdatatype.to_text(question.rdtype)
         self.queries.append(Query(name, rdtype, where, timeout, request.edns, request.payload))
-        reply = self.zone.get(name, dns.rcode.NXDOMAIN)
+        reply = self.zone.get(name, self.default)
         if isinstance(reply, Exception | type):
             raise reply
         response = dns.message.make_response(request)

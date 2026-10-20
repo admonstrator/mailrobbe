@@ -34,6 +34,9 @@ log = logging.getLogger(__name__)
 # uses them; real archives do not.
 RESERVED_TLDS = frozenset({"example", "test", "invalid", "localhost"})
 
+# DnsResolver's circuit breaker: this many failed lookups in a row block DNS for TEMP_ERROR_TTL.
+UNREACHABLE_AFTER = 5
+
 _DKIM1 = re.compile(r"\s*v\s*=\s*dkim1", re.IGNORECASE)
 
 
@@ -59,8 +62,8 @@ def parse_nameservers(text: str) -> tuple[str, ...]:
     return tuple(addresses)
 
 
-def _not_found(name: str) -> DnsAnswer:
-    return DnsAnswer(name, DnsStatus.NOT_FOUND, None, utc_now(), NOT_FOUND_TTL)
+def _not_found(name: str, fetched_at: datetime) -> DnsAnswer:
+    return DnsAnswer(name, DnsStatus.NOT_FOUND, None, fetched_at, NOT_FOUND_TTL)
 
 
 class DnsResolver:
@@ -69,12 +72,28 @@ class DnsResolver:
     timeout: seconds per name, every retry and nameserver included.
     nameservers: IP addresses; empty uses the system configuration, read on the first query, so
     a checker that never needs real DNS (generated data) never needs a configuration either.
+    clock: the current time (tests move it).
+
+    Circuit breaker: when DNS is down, every new name would cost the full timeout. After
+    UNREACHABLE_AFTER failures in a row (any answer resets the count) the resolver stops asking
+    for TEMP_ERROR_TTL and answers temp_error with ttl 0, which is neither cached nor persisted,
+    so those names are asked for for real once the block ends. Then a single probe query goes
+    out: an answer lifts the block, another failure renews it.
     """
 
-    def __init__(self, timeout: float, nameservers: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        timeout: float,
+        nameservers: Sequence[str] = (),
+        *,
+        clock: Callable[[], datetime] = utc_now,
+    ) -> None:
         self.timeout = timeout
         self.nameservers = tuple(nameservers)
+        self._clock = clock
         self._resolver: dns.resolver.Resolver | None = None
+        self._failures = 0  # failed lookups in a row
+        self._blocked_until: datetime | None = None  # set while the breaker is open
 
     def __call__(self, name: str) -> DnsAnswer:
         key = normalise_name(name)
@@ -82,28 +101,59 @@ class DnsResolver:
             qname = dns.name.from_text(key)
         except dns.exception.DNSException:
             # Empty or overlong label, bad escape: not a DNS name, so no key can be there.
-            return _not_found(key)
+            return _not_found(key, self._clock())
+        now = self._clock()
+        if self._blocked_until is not None and now < self._blocked_until:
+            return DnsAnswer(key, DnsStatus.TEMP_ERROR, None, now, 0, DkimReason.DNS_TIMEOUT)
         try:
             answer = self._dnspython().resolve(
                 qname, dns.rdatatype.TXT, search=False, lifetime=self.timeout
             )
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
-            return _not_found(key)
+            self._answered()
+            return _not_found(key, self._clock())
         # Timeout, SERVFAIL, socket errors, no usable nameserver or no system configuration.
         except Exception as error:
-            log.warning("DKIM key %s: DNS lookup failed: %s", key, error)
+            log.info("DKIM key %s: DNS lookup failed: %s", key, error)
+            self._failed()
             return DnsAnswer(
-                key, DnsStatus.TEMP_ERROR, None, utc_now(), TEMP_ERROR_TTL, DkimReason.DNS_TIMEOUT
+                key,
+                DnsStatus.TEMP_ERROR,
+                None,
+                self._clock(),
+                TEMP_ERROR_TTL,
+                DkimReason.DNS_TIMEOUT,
             )
+        self._answered()
         records = [
             b"".join(rdata.strings).decode("latin-1")
             for rdata in answer.rrset or ()
             if isinstance(rdata, TXTBase)
         ]
         if not records:
-            return _not_found(key)
+            return _not_found(key, self._clock())
         record = next((record for record in records if _DKIM1.match(record)), records[0])
-        return DnsAnswer(key, DnsStatus.FOUND, record, utc_now(), FOUND_TTL)
+        return DnsAnswer(key, DnsStatus.FOUND, record, self._clock(), FOUND_TTL)
+
+    def _failed(self) -> None:
+        self._failures += 1
+        if self._blocked_until is None:  # closed: open after UNREACHABLE_AFTER failures
+            if self._failures < UNREACHABLE_AFTER:
+                return
+            log.warning(
+                "DNS looks unreachable, %d key lookups in a row failed: keys not in the cache "
+                "are temp_error without a query for the next %d minutes, then DNS is tried again",
+                UNREACHABLE_AFTER,
+                TEMP_ERROR_TTL // 60,
+            )
+        # Opening, or the probe failed: block for another TEMP_ERROR_TTL.
+        self._blocked_until = self._clock() + timedelta(seconds=TEMP_ERROR_TTL)
+
+    def _answered(self) -> None:
+        if self._blocked_until is not None:
+            log.info("DNS answers again, DKIM key lookups resumed")
+        self._failures = 0
+        self._blocked_until = None
 
     def _dnspython(self) -> dns.resolver.Resolver:
         if self._resolver is None:
@@ -141,7 +191,7 @@ class KeyChain:
         if self.table is not None and self.table.lists(key):
             return self.table.answer(key)
         if is_reserved(key):
-            return _not_found(key)
+            return _not_found(key, utc_now())
         return self.last(key)
 
 
