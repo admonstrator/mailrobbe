@@ -1,0 +1,69 @@
+# Works on Docker Desktop (macOS) and Linux. Sized for a machine with about 10 GB RAM shared by
+# Postgres and the importer; every value below can be overridden in a .env file next to this one.
+name: mailspider
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mailspider
+      POSTGRES_PASSWORD: ${MAILSPIDER_DB_PASSWORD:-mailspider}
+      POSTGRES_DB: mailspider
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${MAILSPIDER_PG_SHARED_BUFFERS:-2GB}
+      - -c
+      - effective_cache_size=${MAILSPIDER_PG_EFFECTIVE_CACHE_SIZE:-4GB}
+      - -c
+      - work_mem=${MAILSPIDER_PG_WORK_MEM:-32MB}
+      - -c
+      - maintenance_work_mem=${MAILSPIDER_PG_MAINTENANCE_WORK_MEM:-1GB}
+      - -c
+      - max_wal_size=4GB
+    shm_size: 1g
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${MAILSPIDER_DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailspider -d mailspider"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: .
+    environment:
+      MAILSPIDER_DATABASE_URL: postgresql+asyncpg://mailspider:${MAILSPIDER_DB_PASSWORD:-mailspider}@db:5432/mailspider
+      MAILSPIDER_MBOX_DIR: /data/mbox
+      # Empty means the default, min(8, CPU count).
+      MAILSPIDER_IMPORT_WORKERS: ${MAILSPIDER_IMPORT_WORKERS:-}
+    volumes:
+      - ${MAILSPIDER_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
+    ports:
+      - "127.0.0.1:${MAILSPIDER_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # Test data without a local Python setup: docker compose run --rm generator --mails 10000
+  generator:
+    build: .
+    profiles: ["tools"]
+    entrypoint: ["mailspider", "generate", "--out", "/data/mbox"]
+    volumes:
+      - ${MAILSPIDER_MBOX_HOST_DIR:-./data/mbox}:/data/mbox
+
+volumes:
+  pgdata:
