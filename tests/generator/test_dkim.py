@@ -4,7 +4,7 @@ import random
 import re
 from collections import Counter
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from email.parser import BytesParser
 from pathlib import Path
 from unittest import mock
@@ -101,6 +101,11 @@ def test_selector_plan(setup: DkimSetup) -> None:
         assert signer.selector_at(selectors[0].valid_from - timedelta(seconds=1)) is None
         assert signer.selector_at(selectors[-1].valid_from) is selectors[-1]
     assert bits[1024] and bits[2048] > bits[1024]
+    # the internal domain signs the last 70 % of the volume, which grows like the planner's clock
+    first = datetime.combine(CONFIG.date_from, time(), UTC)
+    span = datetime.combine(CONFIG.date_to, time(), UTC) + timedelta(days=1) - first
+    since = (setup.signers[INTERNAL.name].selectors[0].valid_from - first) / span
+    assert 0.55 * since + 0.45 * since**2 == pytest.approx(0.3)
 
 
 def test_dns_table_follows_the_selector_states(setup: DkimSetup, table: DnsOverrideTable) -> None:

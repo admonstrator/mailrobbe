@@ -14,9 +14,10 @@ signatures are deterministic. Some mails are changed after signing (a list foote
 tag: fail), some get a second signature from a list or service domain on top. Faults are applied
 before signing, so they never break a signature by themselves.
 
-The signed share follows config.dkim_signed_share under two assumptions: mails spread evenly over
-the date range, and external mails come about half from freemail and service domains and half
-from organisations (_SERVICE_SENDER_SHARE). Internal domains sign exactly the target share.
+The signed share follows config.dkim_signed_share under two assumptions: mail volume grows
+linearly over the date range, from 0.55 to 1.45 times the mean, as the planner's clock spreads it
+(_VOLUME_GROWTH), and external mails come about half from freemail and service domains and half
+from organisations (_SERVICE_SENDER_SHARE). Internal domains sign the target share of their mails.
 """
 
 import base64
@@ -57,6 +58,7 @@ from mailspider.generator.model import (
 
 KEY_SIZES = (2048, 1024)
 
+_VOLUME_GROWTH = 0.9  # mails per day rise linearly from 1 - 0.9 / 2 to 1 + 0.9 / 2 of the mean
 _SERVICE_ADOPTION = 2.5  # freemail and service domains sign 1 - (1 - share) ** 2.5 of their mails
 _SERVICE_SENDER_SHARE = 0.5  # assumed share of freemail and service senders among external mails
 _NEVER_SIGN_SHARE = 0.15  # external organisations that never sign
@@ -342,12 +344,25 @@ def _spread(names: list[str], mean: float, never: float, rng: random.Random) -> 
     return dict(zip(names, shares, strict=True))
 
 
+def _adoption_point(share: float) -> float:
+    """Fraction of the date range after which `share` of the mail volume is still to come.
+
+    With mails per day proportional to 1 + g (x - 1/2) over x in [0, 1] (g = _VOLUME_GROWTH,
+    0 < g <= 2), the volume after x is (1 - g/2)(1 - x) + g/2 (1 - x^2); solved here for x.
+    """
+    growth = _VOLUME_GROWTH
+    base = 1 - growth / 2
+    return (math.sqrt(base * base + 2 * growth * (1 - share)) - base) / growth
+
+
 def _plan_signer(
     domain: str, share: float, start: datetime, end: datetime, rng: random.Random
 ) -> Signer:
     span = end - start
-    # share 1: the domain signed before the range began
-    since = start - timedelta(days=rng.uniform(30, 3 * 365)) if share >= 1 else end - span * share
+    if share >= 1:  # the domain signed before the range began
+        since = start - timedelta(days=rng.uniform(30, 3 * 365))
+    else:
+        since = start + span * _adoption_point(share)
     scheme = rng.choice(_SELECTOR_SCHEMES)
     period = rng.uniform(*_ROTATION_YEARS) * 365  # at least 388 days: year-based names stay unique
     starts = [since]

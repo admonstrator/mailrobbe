@@ -8,6 +8,7 @@ multipart/alternative, multipart/mixed with a base64 attachment, RFC 2047 names 
 
 import base64
 import functools
+import math
 import quopri
 import random
 from collections.abc import Iterator, Mapping
@@ -139,7 +140,8 @@ def planned_mail(
     automated: bool | None = None,
 ) -> PlannedMail:
     """A plausible PlannedMail; senders weighted internal 50 %, freemail and service 25 %,
-    other organisations 25 %, dates spread evenly over CONFIG's range."""
+    other organisations 25 %, dates over CONFIG's range with mails per day rising linearly from
+    0.55 to 1.45 times the mean, as the planner's clock spreads them."""
     mail_seed = derive_seed(seed, index)
     rng = stage_rng(mail_seed, "sample")
     if sender is None:
@@ -154,7 +156,9 @@ def planned_mail(
         start = datetime(CONFIG.date_from.year, CONFIG.date_from.month, CONFIG.date_from.day)
         end = datetime(CONFIG.date_to.year, CONFIG.date_to.month, CONFIG.date_to.day)
         offset = timezone(timedelta(hours=rng.choice((1, 2))))
-        seconds = rng.uniform(0, (end - start).total_seconds())
+        # inverse of the distribution 0.55 x + 0.45 x^2 of the range's fraction x
+        fraction = (math.sqrt(0.55**2 + 1.8 * rng.random()) - 0.55) / 0.9
+        seconds = fraction * (end - start).total_seconds()
         date = (start + timedelta(seconds=seconds)).replace(microsecond=0, tzinfo=offset)
     if automated is None:
         automated = sender.kind is DomainKind.SERVICE
