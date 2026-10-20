@@ -36,13 +36,9 @@ import dkim
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
-from dkim.canonicalization import (
-    CanonicalizationPolicy,
-    Relaxed,
-    correct_empty_body,
-    strip_trailing_lines,
-)
+from dkim.canonicalization import CanonicalizationPolicy, Relaxed
 
+from mailrobbe.dkim.canonical import canonical_body
 from mailrobbe.dkim.override import DnsOverrideTable, key_name
 from mailrobbe.enums import DkimStatus, best_dkim_status
 from mailrobbe.generator.config import DKIM_KEY_DIR, DNS_OVERRIDE_NAME, GeneratorConfig
@@ -488,23 +484,6 @@ def _signed(
     return _signature(raw, signer, selector, key, timestamp, sign_list_id) + raw
 
 
-def _canonical_body(policy: CanonicalizationPolicy, body: bytes) -> bytes:
-    """policy.canonicalize_body of the body as dkim.rfc822_parse returns it, only faster.
-
-    dkimpy splits the body into lines and runs two whitespace regexes over it, which costs about
-    80 ms per MB. bytes.replace gives the same CRLF body, and the regexes cannot change a body
-    without tabs, double spaces and spaces before a line end, which covers base64 attachments.
-    """
-    body = body.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
-    plain = not (b"\t" in body or b"  " in body or b" \r\n" in body)
-    canonical: bytes
-    if policy.body_algorithm is Relaxed and plain:
-        canonical = correct_empty_body(strip_trailing_lines(body))  # what remains of relaxed
-    else:
-        canonical = policy.canonicalize_body(body)
-    return canonical
-
-
 def _tag_list(fields: list[tuple[bytes, bytes]]) -> bytes:
     return b"; ".join(b"=".join(tag) for tag in fields)
 
@@ -527,7 +506,7 @@ def _signature(
         if name in present and (sign_list_id or name != b"list-id")
     )
     policy = CanonicalizationPolicy.from_c_value(signer.canonicalization.encode())
-    body = _canonical_body(policy, message[head_end + 1 :])
+    body = canonical_body(message[head_end + 1 :], policy.body_algorithm is Relaxed)
     body_hash = base64.b64encode(hashlib.sha256(body).digest())
     domain = signer.domain.encode()
     fields = [
