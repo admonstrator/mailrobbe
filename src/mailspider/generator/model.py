@@ -63,6 +63,17 @@ class AttachmentSpec:
     inline: bool = False
 
 
+class MailKind(StrEnum):
+    """What the planner made a mail to be; the renderer chooses wording and structure from it."""
+
+    PERSONAL = "personal"  # written by a person, opens a topic (also posts to a list)
+    REPLY = "reply"
+    FORWARD = "forward"
+    NEWSLETTER = "newsletter"
+    NOTIFICATION = "notification"
+    INVOICE = "invoice"
+
+
 @dataclass(slots=True)
 class PlannedMail:
     """What a mail is about, decided by the planner before any bytes exist."""
@@ -83,6 +94,14 @@ class PlannedMail:
     automated: bool = False  # newsletters, notifications, noreply senders
     language: str = "de"
     attachments: tuple[AttachmentSpec, ...] = ()
+    kind: MailKind = MailKind.PERSONAL
+    # Program that wrote the mail (outlook, thunderbird, apple, webmail, mobile) or the sending
+    # system of automated mail (bulk, system); decides headers, quoting and body style.
+    client: str = ""
+    # The mail this one replies to or forwards, with its own `quoted` cleared, so the renderer
+    # can quote its text. Bounded: never more than one level deep.
+    quoted: "PlannedMail | None" = None
+    large_attachment: bool = False  # the last attachment is the configured very large one
 
 
 @dataclass(frozen=True, slots=True)
