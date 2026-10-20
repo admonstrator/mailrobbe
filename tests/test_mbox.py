@@ -35,6 +35,11 @@ SEPARATOR = b"From a@b.example Mon Mar  4 09:12:33 2019\n"
         # data without a separator keeps its first line
         (b"S: x\n\nbody\n\n", b"S: x\n\nbody\n"),
         (SEPARATOR + b"S: x\n\n>From here\n>>From x\n\n", b"S: x\n\nFrom here\n>From x\n"),
+        # CRLF line endings: the empty line is CRLF too
+        (
+            b"From a@b.example Mon Mar  4 09:12:33 2019\r\nS: x\r\n\r\nbody\r\n\r\n",
+            b"S: x\r\n\r\nbody\r\n",
+        ),
     ],
 )
 def test_message_from_record(record: bytes, message: bytes) -> None:
