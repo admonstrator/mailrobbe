@@ -97,6 +97,11 @@ class Mail(Base):
         Index("ix_mail_thread_id", "thread_id"),
         Index("ix_mail_dkim_status", "dkim_status"),
         Index("ix_mail_tsv", "tsv", postgresql_using="gin"),
+        Index(
+            "ix_mail_is_duplicate_of",
+            "is_duplicate_of",
+            postgresql_where=text("is_duplicate_of IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

@@ -35,9 +35,18 @@ def upgrade() -> None:
     op.create_index("ix_mail_tsv", "mail", ["tsv"], postgresql_using="gin")
     op.add_column("participation", sa.Column("display_name", sa.Text()))
     op.add_column("mbox_file", sa.Column("worker_id", sa.SmallInteger()))
+    # The ON DELETE SET NULL of is_duplicate_of looks up referencing mails once per deleted mail;
+    # without an index that is a scan of all mails each time a replaced file's mails go.
+    op.create_index(
+        "ix_mail_is_duplicate_of",
+        "mail",
+        ["is_duplicate_of"],
+        postgresql_where=sa.text("is_duplicate_of IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_mail_is_duplicate_of", table_name="mail")
     op.drop_column("mbox_file", "worker_id")
     op.drop_column("participation", "display_name")
     op.drop_index("ix_mail_tsv", table_name="mail")
