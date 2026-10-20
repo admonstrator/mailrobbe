@@ -150,11 +150,6 @@ async def test_models_match_migrated_schema(db_session: AsyncSession) -> None:
 
 # compare_metadata ignores check constraints and the names of primary and foreign keys.
 @pytest.mark.db
-@pytest.mark.xfail(
-    strict=True,
-    reason="migration 0001 creates ck_edge_ck_edge_ordered: the ck naming convention wraps the "
-    "explicit name 'ck_edge_ordered' once more (the model passes name='ordered')",
-)
 async def test_constraint_names_match_models(db_session: AsyncSession) -> None:
     expected = {
         (table.name, str(constraint.name))
