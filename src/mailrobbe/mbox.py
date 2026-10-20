@@ -28,12 +28,14 @@ def message_from_record(record: bytes) -> bytes:
 
     A record that does not start with `From ` (data the importer found without a separator)
     keeps its first line. A record not ended by an empty line (the next separator followed
-    directly) loses no trailing byte.
+    directly) loses no trailing byte. In a file with CRLF line endings the empty line is CRLF.
     """
     if record.startswith(b"From "):
         newline = record.find(b"\n")
         record = b"" if newline < 0 else record[newline + 1 :]
-    if record.endswith(b"\n\n"):
+    if record.endswith(b"\r\n\r\n"):
+        record = record[:-2]
+    elif record.endswith(b"\n\n"):
         record = record[:-1]
     return unescape_from_lines(record)
 

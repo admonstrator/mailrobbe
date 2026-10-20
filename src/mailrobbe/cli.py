@@ -2,6 +2,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from mailrobbe.dkim import cli as dkim_cli
 from mailrobbe.generator import cli as generator_cli
 from mailrobbe.importer import cli as importer_cli
 
@@ -48,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     importer = commands.add_parser("import", help="import MBOX files into the database")
     importer_cli.add_arguments(importer)
     importer.set_defaults(handler=importer_cli.run)
+
+    check = commands.add_parser("dkim", help="check the DKIM signatures of imported mails")
+    dkim_cli.add_arguments(check)
+    check.set_defaults(handler=dkim_cli.run)
 
     return parser
 

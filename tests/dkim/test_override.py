@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from mailrobbe.dkim.override import DnsOverrideTable, DnsTimeout, key_name
+from mailrobbe.enums import DkimReason, DnsStatus
 
 MESSAGE = (
     b"From: Max Mueller <max.mueller@nordwind.example>\nTo: anna@hafen.example\n"
@@ -108,3 +109,21 @@ def test_dkimpy_swallows_its_own_timeout_error(key: bytes) -> None:
         raise dkim.DnsTimeoutError("timeout")
 
     assert dkim.DKIM(_signed(key)).verify(dnsfunc=dnsfunc) is False
+
+
+def test_answer_turns_lookups_into_dns_answers() -> None:
+    table = DnsOverrideTable(
+        records={"S1._domainkey.Nordwind.example.": "v=DKIM1; k=rsa; p=AAAA"},
+        temp_error=frozenset({"slow._domainkey.nordwind.example"}),
+    )
+    found = table.answer("s1._domainkey.nordwind.example")
+    assert (found.name, found.status, found.record) == (
+        "s1._domainkey.nordwind.example",
+        DnsStatus.FOUND,
+        "v=DKIM1; k=rsa; p=AAAA",
+    )
+    assert found.ttl > 0 and found.fetched_at.tzinfo is not None and not found.from_cache
+    missing = table.answer("old._domainkey.nordwind.example")
+    assert (missing.status, missing.record) == (DnsStatus.NOT_FOUND, None)
+    slow = table.answer("SLOW._domainkey.nordwind.example")
+    assert (slow.status, slow.reason) == (DnsStatus.TEMP_ERROR, DkimReason.DNS_TIMEOUT)
