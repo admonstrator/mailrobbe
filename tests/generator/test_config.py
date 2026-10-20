@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -44,7 +44,7 @@ def test_config_validation() -> None:
         GeneratorConfig(
             out_dir=Path("o"),
             meta_dir=Path("m"),
-            date_to=date.today().replace(year=date.today().year + 1),
+            date_to=date.today() + timedelta(days=1),
         )
 
 
