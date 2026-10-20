@@ -76,6 +76,11 @@ class DnsOverrideTable:
         }
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
+    def lists(self, name: str) -> bool:
+        """Whether the table answers name itself (records or temp_error)."""
+        key = normalise_name(name)
+        return key in self.records or key in self.temp_error
+
     def lookup(self, name: str) -> str | None:
         """TXT record for name, None for NXDOMAIN; raises DnsTimeout for temp_error names.
 
