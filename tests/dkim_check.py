@@ -5,6 +5,7 @@ mailspider.dkim.override: DnsTimeout from the lookup is temp_error, a missing re
 """
 
 import dkim
+
 from mailspider.dkim.override import DnsOverrideTable, DnsTimeout
 from mailspider.enums import DkimStatus, best_dkim_status
 

@@ -9,11 +9,11 @@ from email.parser import BytesParser
 from pathlib import Path
 from unittest import mock
 
+import dkim
 import pytest
 from cryptography.hazmat.primitives import serialization
 from dkim.util import parse_tag_value
 
-import dkim
 from mailspider.dkim.override import DnsOverrideTable, key_name
 from mailspider.enums import DkimStatus
 from mailspider.generator import dkim as generator_dkim

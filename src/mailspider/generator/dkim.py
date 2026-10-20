@@ -32,6 +32,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
+import dkim
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
@@ -42,7 +43,6 @@ from dkim.canonicalization import (
     strip_trailing_lines,
 )
 
-import dkim
 from mailspider.dkim.override import DnsOverrideTable, key_name
 from mailspider.enums import DkimStatus, best_dkim_status
 from mailspider.generator.config import DKIM_KEY_DIR, DNS_OVERRIDE_NAME, GeneratorConfig

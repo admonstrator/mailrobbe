@@ -42,6 +42,10 @@ extend-exclude = [".claude"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.isort]
+# tests/dkim would otherwise make ruff treat dkimpy as a first-party module.
+known-third-party = ["dkim"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

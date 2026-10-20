@@ -2,11 +2,11 @@ import base64
 import json
 from pathlib import Path
 
+import dkim
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-import dkim
 from mailspider.dkim.override import DnsOverrideTable, DnsTimeout, key_name
 
 MESSAGE = (

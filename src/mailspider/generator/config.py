@@ -59,6 +59,9 @@ class GeneratorConfig:
             raise ValueError("domains must be between 1 and the number of persons")
         if self.date_from >= self.date_to:
             raise ValueError("date_from must be before date_to")
+        if self.date_to > date.today():
+            # DKIM verifiers reject signatures with t= in the future (t= is the mail date).
+            raise ValueError("date_to must not lie in the future")
         for name in ("attachment_share", "dkim_signed_share", "fault_rate", "duplicate_rate"):
             share = getattr(self, name)
             if not 0.0 <= share <= 1.0:
