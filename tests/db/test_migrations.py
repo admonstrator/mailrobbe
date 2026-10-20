@@ -49,6 +49,8 @@ INDEXES = {
     "ix_participation_person_id_role": "CREATE INDEX ix_participation_person_id_role "
     "ON public.participation USING btree (person_id, role, mail_id)",
     "ix_mail_tsv": "CREATE INDEX ix_mail_tsv ON public.mail USING gin (tsv)",
+    "ix_mail_is_duplicate_of": "CREATE INDEX ix_mail_is_duplicate_of ON public.mail "
+    "USING btree (is_duplicate_of) WHERE (is_duplicate_of IS NOT NULL)",
     "uq_person_canonical_email": "CREATE UNIQUE INDEX uq_person_canonical_email "
     "ON public.person USING btree (canonical_email)",
     "ix_person_domain": "CREATE INDEX ix_person_domain ON public.person USING btree (domain)",

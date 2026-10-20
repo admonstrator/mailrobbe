@@ -86,3 +86,4 @@ class ImportErrorKind(StrEnum):
     PARSE = "parse"  # unexpected parser failure; the mail is stored with what is known
     DKIM = "dkim"  # the DKIM check failed unexpectedly; dkim_status stays NULL
     IO = "io"  # the file could not be read; the file's status becomes error
+    INTERNAL = "internal"  # unexpected failure (database, bug) while importing the file; as io
