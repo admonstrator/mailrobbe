@@ -197,6 +197,12 @@ async def test_downgrade_to_base_and_upgrade_again(empty_database_url: str) -> N
     assert await schema_objects() == migrated
 
 
+def test_alembic_config_keeps_percent_encoded_url() -> None:
+    # Passwords with special characters are percent-encoded; % is configparser syntax.
+    url = "postgresql+asyncpg://mailspider:p%40ss@db:5432/mailspider"
+    assert migrate.alembic_config(url).get_main_option("sqlalchemy.url") == url
+
+
 def test_upgrade_renders_offline_without_database() -> None:
     # Offline mode only takes the dialect from the URL; nothing listens there.
     config = migrate.alembic_config("postgresql+asyncpg://nobody:secret@127.0.0.1:1/none")
