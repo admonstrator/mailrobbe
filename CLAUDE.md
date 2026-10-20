@@ -18,8 +18,8 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/migrations/`: Alembic environment and hand-written revisions (the schema's source of truth)
 - `src/mailrobbe/api/`: FastAPI app (`create_app`), currently `GET /api/health`
 - `src/mailrobbe/generator/`: synthetic MBOX test data (SPEC 3.6). `model.py` documents the stage pipeline; `population.py` (persons, domains, aliases), `planner.py` (streaming plan: threads, lists, Cc chains), `render.py` (MIME), `faults.py` (defects, duplicates), `dkim.py` (keys, selectors, signing), `writer.py` (mboxrd, manifest), `pipeline.py` (worker pool)
-- `src/mailrobbe/dkim/`: DKIM support; `override.py` is the DNS override table for tests and generated data (`DnsTimeout` marks a temporary DNS failure, `None` a missing key)
-- `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`)
+- `src/mailrobbe/dkim/`: DKIM verification (SPEC 3.4, decisions D10 to D13); the package docstring lists the modules. `verify_mail` is pure, `DkimChecker` (one per process) adds the cached key sources, `store.py` writes `dkim_result`/`dns_cache`, `mailrobbe dkim` rechecks. `override.py` is the DNS override table for tests and generated data
+- `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`)
 - `tests/`: mirrors the package; `tests/db` needs PostgreSQL
 
 ## Commands

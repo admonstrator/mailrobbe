@@ -28,7 +28,11 @@ convention every resolver in this project follows:
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
+
+from mailrobbe.dkim.model import FOUND_TTL, NOT_FOUND_TTL, TEMP_ERROR_TTL, DnsAnswer
+from mailrobbe.enums import DkimReason, DnsStatus
 
 FORMAT_VERSION = 1
 
@@ -86,3 +90,17 @@ class DnsOverrideTable:
         """`lookup` with the signature dkimpy expects for its `dnsfunc` argument."""
         record = self.lookup(name.decode("utf-8", errors="replace"))
         return None if record is None else record.encode("ascii")
+
+    def answer(self, name: str) -> DnsAnswer:
+        """`lookup` as a DnsAnswer, so the table can serve as a KeySource."""
+        key = normalise_name(name)
+        now = datetime.now(UTC)
+        try:
+            record = self.lookup(key)
+        except DnsTimeout:
+            return DnsAnswer(
+                key, DnsStatus.TEMP_ERROR, None, now, TEMP_ERROR_TTL, DkimReason.DNS_TIMEOUT
+            )
+        if record is None:
+            return DnsAnswer(key, DnsStatus.NOT_FOUND, None, now, NOT_FOUND_TTL)
+        return DnsAnswer(key, DnsStatus.FOUND, record, now, FOUND_TTL)
