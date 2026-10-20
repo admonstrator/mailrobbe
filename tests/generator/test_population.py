@@ -1,9 +1,9 @@
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.model import DomainKind, PlannedMail, stage_rng
-from mailspider.generator.population import (
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.model import DomainKind, PlannedMail, stage_rng
+from mailrobbe.generator.population import (
     PersonKind,
     Population,
     build_population,

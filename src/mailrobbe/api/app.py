@@ -6,8 +6,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from mailspider.config import Settings, get_settings
-from mailspider.db.session import create_engine
+from mailrobbe.config import Settings, get_settings
+from mailrobbe.db.session import create_engine
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -19,7 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         await engine.dispose()
 
-    app = FastAPI(title="Mailspider", lifespan=lifespan)
+    app = FastAPI(title="Mailrobbe", lifespan=lifespan)
 
     @app.get("/api/health")
     async def health() -> JSONResponse:

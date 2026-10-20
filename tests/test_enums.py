@@ -1,4 +1,4 @@
-from mailspider.enums import DkimStatus, best_dkim_status
+from mailrobbe.enums import DkimStatus, best_dkim_status
 
 
 def test_best_dkim_status_prefers_pass() -> None:

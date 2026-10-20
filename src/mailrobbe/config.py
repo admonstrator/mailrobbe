@@ -5,11 +5,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime settings, read from MAILSPIDER_* environment variables."""
+    """Runtime settings, read from MAILROBBE_* environment variables."""
 
-    model_config = SettingsConfigDict(env_prefix="MAILSPIDER_", env_ignore_empty=True)
+    model_config = SettingsConfigDict(env_prefix="MAILROBBE_", env_ignore_empty=True)
 
-    database_url: str = "postgresql+asyncpg://mailspider:mailspider@localhost:5432/mailspider"
+    database_url: str = "postgresql+asyncpg://mailrobbe:mailrobbe@localhost:5432/mailrobbe"
     mbox_dir: Path = Path("/data/mbox")
     host: str = "0.0.0.0"
     port: int = 8000

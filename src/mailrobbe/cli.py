@@ -2,17 +2,17 @@ import argparse
 import sys
 from collections.abc import Sequence
 
-from mailspider.generator import cli as generator_cli
+from mailrobbe.generator import cli as generator_cli
 
 
 def _serve(args: argparse.Namespace) -> int:
     import uvicorn
 
-    from mailspider.config import get_settings
+    from mailrobbe.config import get_settings
 
     settings = get_settings()
     uvicorn.run(
-        "mailspider.api.app:create_app",
+        "mailrobbe.api.app:create_app",
         factory=True,
         host=args.host or settings.host,
         port=args.port or settings.port,
@@ -21,7 +21,7 @@ def _serve(args: argparse.Namespace) -> int:
 
 
 def _migrate(args: argparse.Namespace) -> int:
-    from mailspider import migrate
+    from mailrobbe import migrate
 
     migrate.upgrade(args.revision)
     return 0
@@ -33,7 +33,7 @@ def _import(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="mailspider")
+    parser = argparse.ArgumentParser(prog="mailrobbe")
     commands = parser.add_subparsers(dest="command", required=True)
 
     serve = commands.add_parser("serve", help="run the web server")

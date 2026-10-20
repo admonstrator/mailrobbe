@@ -4,9 +4,9 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.model import MailKind, PlannedMail, derive_seed, stage_rng
-from mailspider.generator.planner import (
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.model import MailKind, PlannedMail, derive_seed, stage_rng
+from mailrobbe.generator.planner import (
     MAX_OPEN_THREADS,
     MAX_REFERENCES,
     Planner,
@@ -14,7 +14,7 @@ from mailspider.generator.planner import (
     reply_subject,
     subject_core,
 )
-from mailspider.generator.population import Population, build_population
+from mailrobbe.generator.population import Population, build_population
 from tests.generator.conftest import small_config
 
 _PREFIX = re.compile(r"^(?:(?:Re|RE|AW|Aw|WG|FW|Fwd|Fw|\[[^\]]+\]):\s*)+")

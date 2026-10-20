@@ -7,7 +7,7 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from mailspider.dkim.override import DnsOverrideTable, DnsTimeout, key_name
+from mailrobbe.dkim.override import DnsOverrideTable, DnsTimeout, key_name
 
 MESSAGE = (
     b"From: Max Mueller <max.mueller@nordwind.example>\nTo: anna@hafen.example\n"

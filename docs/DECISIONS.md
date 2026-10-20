@@ -1,6 +1,6 @@
 # Decisions
 
-Binding decisions for Mailspider beyond docs/SPEC.md. New entries get the next number; a changed decision gets a new entry that names the one it replaces.
+Binding decisions for Mailrobbe beyond docs/SPEC.md. New entries get the next number; a changed decision gets a new entry that names the one it replaces.
 
 | No. | Question | Decision | Date |
 |---|---|---|---|
@@ -12,3 +12,4 @@ Binding decisions for Mailspider beyond docs/SPEC.md. New entries get the next n
 | D6 | Repository workflow | One pull request per milestone against `main`, merged by Claude once lint, typecheck, tests and CI are green. Aaron is assigned and requested as reviewer but not waited for. | 2026-10-20 |
 | D7 | Target machine | macOS or Linux, about 10 GB RAM for Postgres and the importer together, Docker Desktop or Linux Docker. Compose defaults: `shared_buffers` 2 GB, `maintenance_work_mem` 1 GB, importer workers `min(8, CPU count)`. | 2026-10-20 |
 | D8 | Stack details | uv, Python 3.12, SQLAlchemy 2 async with asyncpg, Alembic, ruff, mypy (strict), pytest. Graph rendering with Cytoscape.js only (no Sigma.js), with the hard limit of 2,000 nodes per view from SPEC 5.4. | 2026-10-20 |
+| D9 | Name | The tool is called Mailrobbe (formerly Mailspider). Package, CLI and environment prefix follow (`mailrobbe`, `MAILROBBE_`); Aaron renames the GitHub repository later. | 2026-10-20 |

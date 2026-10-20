@@ -14,18 +14,18 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from dkim.util import parse_tag_value
 
-from mailspider.dkim.override import DnsOverrideTable, key_name
-from mailspider.enums import DkimStatus
-from mailspider.generator import dkim as generator_dkim
-from mailspider.generator.config import DKIM_KEY_DIR, DNS_OVERRIDE_NAME
-from mailspider.generator.dkim import (
+from mailrobbe.dkim.override import DnsOverrideTable, key_name
+from mailrobbe.enums import DkimStatus
+from mailrobbe.generator import dkim as generator_dkim
+from mailrobbe.generator.config import DKIM_KEY_DIR, DNS_OVERRIDE_NAME
+from mailrobbe.generator.dkim import (
     DkimSetup,
     build_dkim_setup,
     generate_test_key,
     sign_mail,
     write_dkim_artifacts,
 )
-from mailspider.generator.model import DomainKind, RenderedMail, stage_rng
+from mailrobbe.generator.model import DomainKind, RenderedMail, stage_rng
 from tests.dkim.samples import (
     CONFIG,
     DOMAINS,

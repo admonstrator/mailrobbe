@@ -18,7 +18,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from mailspider.enums import DkimStatus
+from mailrobbe.enums import DkimStatus
 
 
 def derive_seed(seed: int, index: int) -> int:

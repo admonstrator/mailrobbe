@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.model import PlannedMail, RenderedMail, stage_rng
-from mailspider.generator.planner import plan
-from mailspider.generator.population import Population, build_population
-from mailspider.generator.render import render
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.model import PlannedMail, RenderedMail, stage_rng
+from mailrobbe.generator.planner import plan
+from mailrobbe.generator.population import Population, build_population
+from mailrobbe.generator.render import render
 
 PLAN_MAILS = 4000
 RENDER_STEP = 8

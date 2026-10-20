@@ -9,15 +9,15 @@ from typing import Any
 
 import pytest
 
-from mailspider.dkim.override import DnsOverrideTable
-from mailspider.generator.config import (
+from mailrobbe.dkim.override import DnsOverrideTable
+from mailrobbe.generator.config import (
     DNS_OVERRIDE_NAME,
     MANIFEST_NAME,
     SUMMARY_NAME,
     GeneratorConfig,
 )
-from mailspider.generator.pipeline import CHUNK, WINDOW_PER_JOB, GenerationSummary, generate
-from mailspider.generator.writer import unescape_from_lines
+from mailrobbe.generator.pipeline import CHUNK, WINDOW_PER_JOB, GenerationSummary, generate
+from mailrobbe.generator.writer import unescape_from_lines
 from tests.dkim_check import verify_mail
 from tests.generator.conftest import small_config
 

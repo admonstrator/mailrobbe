@@ -4,10 +4,10 @@ import random
 from collections import Counter
 from dataclasses import replace
 
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.dkim import sign_mail
-from mailspider.generator.faults import DuplicateInjector, inject_fault
-from mailspider.generator.model import Fault, RenderedMail, stage_rng
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.dkim import sign_mail
+from mailrobbe.generator.faults import DuplicateInjector, inject_fault
+from mailrobbe.generator.model import Fault, RenderedMail, stage_rng
 from tests.dkim.samples import CONFIG, sample_setup, sample_stream
 from tests.dkim_check import verify_mail
 

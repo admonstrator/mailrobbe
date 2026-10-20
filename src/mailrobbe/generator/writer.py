@@ -15,8 +15,8 @@ from pathlib import Path
 from types import TracebackType
 from typing import IO, Self
 
-from mailspider.generator.config import MANIFEST_NAME, MBOX_NAME_TEMPLATE, GeneratorConfig
-from mailspider.generator.model import ManifestRecord, RenderedMail
+from mailrobbe.generator.config import MANIFEST_NAME, MBOX_NAME_TEMPLATE, GeneratorConfig
+from mailrobbe.generator.model import ManifestRecord, RenderedMail
 
 _FROM_LINE = re.compile(rb"^(>*From )", re.MULTILINE)
 _ESCAPED_FROM_LINE = re.compile(rb"^>(>*From )", re.MULTILINE)

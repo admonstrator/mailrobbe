@@ -15,9 +15,9 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 
-from mailspider.generator import vocabulary as vocab
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.model import (
+from mailrobbe.generator import vocabulary as vocab
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.model import (
     Address,
     AttachmentSpec,
     MailKind,
@@ -25,7 +25,7 @@ from mailspider.generator.model import (
     derive_seed,
     stage_rng,
 )
-from mailspider.generator.population import (
+from mailrobbe.generator.population import (
     ERAS,
     MailingList,
     Person,

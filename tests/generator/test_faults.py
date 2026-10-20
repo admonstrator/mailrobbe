@@ -13,9 +13,9 @@ from email.utils import parsedate_to_datetime
 
 import pytest
 
-from mailspider.enums import DkimStatus
-from mailspider.generator.dkim import sign_mail
-from mailspider.generator.faults import (
+from mailrobbe.enums import DkimStatus
+from mailrobbe.generator.dkim import sign_mail
+from mailrobbe.generator.faults import (
     FAULT_VARIANTS,
     append_footer,
     apply_faults,
@@ -23,7 +23,7 @@ from mailspider.generator.faults import (
     inject_fault,
     tag_subject,
 )
-from mailspider.generator.model import Fault, RenderedMail, stage_rng
+from mailrobbe.generator.model import Fault, RenderedMail, stage_rng
 from tests.dkim.samples import (
     CONFIG,
     INTERNAL,

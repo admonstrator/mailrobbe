@@ -16,9 +16,9 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from functools import lru_cache
 
-from mailspider.generator import vocabulary as vocab
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.model import Address, Domain, DomainKind, MailKind
+from mailrobbe.generator import vocabulary as vocab
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.model import Address, Domain, DomainKind, MailKind
 
 ERAS = 3  # a person's mail program may change between the first, middle and last third
 

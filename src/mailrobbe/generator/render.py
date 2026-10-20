@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from functools import lru_cache
 
-from mailspider.generator import vocabulary as vocab
-from mailspider.generator.model import (
+from mailrobbe.generator import vocabulary as vocab
+from mailrobbe.generator.model import (
     Address,
     AttachmentSpec,
     Fault,
@@ -30,8 +30,8 @@ from mailspider.generator.model import (
     RenderedMail,
     stage_rng,
 )
-from mailspider.generator.planner import format_date, subject_core
-from mailspider.generator.population import brand, is_freemail, org_name, utc_offset
+from mailrobbe.generator.planner import format_date, subject_core
+from mailrobbe.generator.population import brand, is_freemail, org_name, utc_offset
 
 RFC822_FORWARD_SHARE = 0.3  # forwards that attach the original as message/rfc822
 _AUTOMATED = (MailKind.NEWSLETTER, MailKind.NOTIFICATION, MailKind.INVOICE)

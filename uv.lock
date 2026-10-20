@@ -697,7 +697,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mailspider"
+name = "mailrobbe"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

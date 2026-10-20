@@ -43,11 +43,11 @@ from dkim.canonicalization import (
     strip_trailing_lines,
 )
 
-from mailspider.dkim.override import DnsOverrideTable, key_name
-from mailspider.enums import DkimStatus, best_dkim_status
-from mailspider.generator.config import DKIM_KEY_DIR, DNS_OVERRIDE_NAME, GeneratorConfig
-from mailspider.generator.faults import append_footer, header_end, tag_subject
-from mailspider.generator.model import (
+from mailrobbe.dkim.override import DnsOverrideTable, key_name
+from mailrobbe.enums import DkimStatus, best_dkim_status
+from mailrobbe.generator.config import DKIM_KEY_DIR, DNS_OVERRIDE_NAME, GeneratorConfig
+from mailrobbe.generator.faults import append_footer, header_end, tag_subject
+from mailrobbe.generator.model import (
     DkimOutcome,
     DkimSignatureOutcome,
     Domain,
@@ -116,7 +116,7 @@ _HEADER_ORDERS = (
 _REASONS = {DkimStatus.NO_KEY: "selector_retired", DkimStatus.TEMP_ERROR: "dns_timeout"}
 _SIGNATURE_HEADER = b"DKIM-Signature"
 _KEYS_README = """\
-Test keys of the Mailspider test data generator. They sign synthetic mails only and are
+Test keys of the Mailrobbe test data generator. They sign synthetic mails only and are
 derived from the generator seed: never use them for real mail.
 
 rsa-2048.pem  signs most selectors

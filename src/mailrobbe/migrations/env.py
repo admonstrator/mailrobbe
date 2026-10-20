@@ -6,9 +6,9 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from mailspider.config import get_settings
-from mailspider.db import models  # noqa: F401  (registers all tables on the metadata)
-from mailspider.db.base import Base
+from mailrobbe.config import get_settings
+from mailrobbe.db import models  # noqa: F401  (registers all tables on the metadata)
+from mailrobbe.db.base import Base
 
 config = context.config
 if config.config_file_name is not None:

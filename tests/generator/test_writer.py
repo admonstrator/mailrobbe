@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from mailspider.enums import DkimStatus
-from mailspider.generator.config import MANIFEST_NAME
-from mailspider.generator.model import (
+from mailrobbe.enums import DkimStatus
+from mailrobbe.generator.config import MANIFEST_NAME
+from mailrobbe.generator.model import (
     Address,
     DkimOutcome,
     DkimSignatureOutcome,
@@ -18,7 +18,7 @@ from mailspider.generator.model import (
     PlannedMail,
     RenderedMail,
 )
-from mailspider.generator.writer import (
+from mailrobbe.generator.writer import (
     ManifestWriter,
     MboxWriter,
     escape_from_lines,

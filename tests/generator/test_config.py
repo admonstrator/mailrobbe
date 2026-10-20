@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-from mailspider.cli import build_parser, main
-from mailspider.generator.cli import config_from_args
-from mailspider.generator.config import GeneratorConfig, parse_size
+from mailrobbe.cli import build_parser, main
+from mailrobbe.generator.cli import config_from_args
+from mailrobbe.generator.config import GeneratorConfig, parse_size
 
 
 @pytest.mark.parametrize(

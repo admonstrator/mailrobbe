@@ -22,8 +22,8 @@ from email.message import Message
 from email.parser import BytesHeaderParser
 from email.utils import format_datetime
 
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.model import Fault, RenderedMail, stage_rng
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.model import Fault, RenderedMail, stage_rng
 
 # Variant names as recorded in RenderedMail.faults and the manifest.
 FAULT_VARIANTS: dict[Fault, tuple[str, ...]] = {

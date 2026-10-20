@@ -1,5 +1,5 @@
 [project]
-name = "mailspider"
+name = "mailrobbe"
 version = "0.1.0"
 description = "Import, verify and explore large MBOX archives"
 readme = "README.md"
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mailspider = "mailspider.cli:main"
+mailrobbe = "mailrobbe.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -67,6 +67,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra"
 markers = [
-    "db: needs PostgreSQL (MAILSPIDER_TEST_DATABASE_URL)",
+    "db: needs PostgreSQL (MAILROBBE_TEST_DATABASE_URL)",
     "slow: takes more than a few seconds",
 ]

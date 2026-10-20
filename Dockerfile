@@ -18,10 +18,10 @@ COPY alembic.ini ./
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-COPY docker/entrypoint.sh /usr/local/bin/mailspider-entrypoint
+COPY docker/entrypoint.sh /usr/local/bin/mailrobbe-entrypoint
 
 # Runs as root on purpose: the MBOX directory is a read-only bind mount with the host's file
 # permissions, which an unprivileged container user often cannot read.
 EXPOSE 8000
-ENTRYPOINT ["mailspider-entrypoint"]
-CMD ["mailspider", "serve"]
+ENTRYPOINT ["mailrobbe-entrypoint"]
+CMD ["mailrobbe", "serve"]

@@ -22,14 +22,14 @@ from dataclasses import asdict, dataclass, field
 from multiprocessing.pool import AsyncResult
 from typing import Any
 
-from mailspider.generator.config import SUMMARY_NAME, GeneratorConfig
-from mailspider.generator.dkim import DkimSetup, build_dkim_setup, sign_mail, write_dkim_artifacts
-from mailspider.generator.faults import DuplicateInjector, apply_faults
-from mailspider.generator.model import PlannedMail, RenderedMail, stage_rng
-from mailspider.generator.planner import plan
-from mailspider.generator.population import build_population
-from mailspider.generator.render import render
-from mailspider.generator.writer import ManifestWriter, MboxWriter, manifest_record, prepare_output
+from mailrobbe.generator.config import SUMMARY_NAME, GeneratorConfig
+from mailrobbe.generator.dkim import DkimSetup, build_dkim_setup, sign_mail, write_dkim_artifacts
+from mailrobbe.generator.faults import DuplicateInjector, apply_faults
+from mailrobbe.generator.model import PlannedMail, RenderedMail, stage_rng
+from mailrobbe.generator.planner import plan
+from mailrobbe.generator.population import build_population
+from mailrobbe.generator.render import render
+from mailrobbe.generator.writer import ManifestWriter, MboxWriter, manifest_record, prepare_output
 
 log = logging.getLogger(__name__)
 

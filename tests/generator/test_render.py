@@ -6,8 +6,8 @@ from email.parser import BytesParser
 
 import pytest
 
-from mailspider.generator.model import Fault, MailKind, PlannedMail, RenderedMail
-from mailspider.generator.render import compose, render
+from mailrobbe.generator.model import Fault, MailKind, PlannedMail, RenderedMail
+from mailrobbe.generator.render import compose, render
 
 _PARSER = BytesParser(policy=email.policy.default)
 RESERVED = (".example", ".test")

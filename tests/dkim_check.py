@@ -1,13 +1,13 @@
 """DKIM verification of a generated mail with dkimpy against a DNS override table.
 
 For the generator tests and the acceptance suite. It follows the convention documented in
-mailspider.dkim.override: DnsTimeout from the lookup is temp_error, a missing record no_key.
+mailrobbe.dkim.override: DnsTimeout from the lookup is temp_error, a missing record no_key.
 """
 
 import dkim
 
-from mailspider.dkim.override import DnsOverrideTable, DnsTimeout
-from mailspider.enums import DkimStatus, best_dkim_status
+from mailrobbe.dkim.override import DnsOverrideTable, DnsTimeout
+from mailrobbe.enums import DkimStatus, best_dkim_status
 
 
 def verify_mail(raw: bytes, table: DnsOverrideTable) -> tuple[DkimStatus, list[DkimStatus]]:

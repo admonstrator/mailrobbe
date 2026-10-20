@@ -4,8 +4,8 @@ import time
 import httpx
 import pytest
 
-from mailspider.api.app import create_app
-from mailspider.config import Settings
+from mailrobbe.api.app import create_app
+from mailrobbe.config import Settings
 
 
 async def _get_health(database_url: str) -> httpx.Response:
@@ -38,7 +38,7 @@ async def test_health_fails_fast_when_database_is_unreachable() -> None:
     # the port while the test runs.
     with socket.socket() as closed:
         closed.bind(("127.0.0.1", 0))
-        url = f"postgresql+asyncpg://mailspider:x@127.0.0.1:{closed.getsockname()[1]}/mailspider"
+        url = f"postgresql+asyncpg://mailrobbe:x@127.0.0.1:{closed.getsockname()[1]}/mailrobbe"
         started = time.monotonic()
         response = await _get_health(url)
         elapsed = time.monotonic() - started

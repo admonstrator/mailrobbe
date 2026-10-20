@@ -20,13 +20,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: mailspider
-          POSTGRES_PASSWORD: mailspider
-          POSTGRES_DB: mailspider
+          POSTGRES_USER: mailrobbe
+          POSTGRES_PASSWORD: mailrobbe
+          POSTGRES_DB: mailrobbe
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U mailspider -d mailspider"
+          --health-cmd "pg_isready -U mailrobbe -d mailrobbe"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -40,8 +40,8 @@ jobs:
       - run: uv run mypy
       - run: uv run pytest
         env:
-          MAILSPIDER_TEST_DATABASE_URL: postgresql+asyncpg://mailspider:mailspider@127.0.0.1:5432/mailspider
-          MAILSPIDER_REQUIRE_DB: "1"
+          MAILROBBE_TEST_DATABASE_URL: postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe
+          MAILROBBE_REQUIRE_DB: "1"
 
   compose:
     runs-on: ubuntu-latest
@@ -64,7 +64,7 @@ jobs:
           echo "$output"
           echo "$output" | grep -q 'Read-only file system'
       - name: Generator CLI runs in the image
-        run: docker compose run --rm backend mailspider generate --help
+        run: docker compose run --rm backend mailrobbe generate --help
       - name: Logs
         if: failure()
         run: docker compose logs

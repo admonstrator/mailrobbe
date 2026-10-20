@@ -18,10 +18,10 @@ from email.header import Header
 from email.utils import format_datetime, formataddr
 from pathlib import Path
 
-from mailspider.enums import DkimStatus
-from mailspider.generator.config import GeneratorConfig
-from mailspider.generator.dkim import DkimSetup, Selector, Signer, build_dkim_setup
-from mailspider.generator.model import (
+from mailrobbe.enums import DkimStatus
+from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.dkim import DkimSetup, Selector, Signer, build_dkim_setup
+from mailrobbe.generator.model import (
     Address,
     Domain,
     DomainKind,

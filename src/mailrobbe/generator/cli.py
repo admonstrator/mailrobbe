@@ -6,8 +6,8 @@ from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 
-from mailspider.generator.config import GeneratorConfig, parse_size
-from mailspider.generator.pipeline import generate
+from mailrobbe.generator.config import GeneratorConfig, parse_size
+from mailrobbe.generator.pipeline import generate
 
 _DEFAULTS = GeneratorConfig(out_dir=Path("data/mbox"), meta_dir=Path("data/mbox/_generator"))
 

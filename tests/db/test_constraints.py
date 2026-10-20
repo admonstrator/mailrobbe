@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailspider.db.models import (
+from mailrobbe.db.models import (
     Attachment,
     DkimResult,
     Edge,
@@ -16,7 +16,7 @@ from mailspider.db.models import (
     Participation,
     Person,
 )
-from mailspider.enums import DkimStatus, ParticipationRole
+from mailrobbe.enums import DkimStatus, ParticipationRole
 
 pytestmark = pytest.mark.db
 

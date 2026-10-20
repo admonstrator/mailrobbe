@@ -1,6 +1,6 @@
 """ORM models for the data model in docs/SPEC.md section 3.3.
 
-The schema itself is owned by the Alembic migrations in mailspider/migrations; these models must
+The schema itself is owned by the Alembic migrations in mailrobbe/migrations; these models must
 stay identical to it (tests/db checks for drift). Deviations from the spec sketch:
 
 - mail.offset/length and import_error.offset are named byte_offset/byte_length, because OFFSET is
@@ -37,8 +37,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
-from mailspider.db.base import Base
-from mailspider.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
+from mailrobbe.db.base import Base
+from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
 
 
 def _pg_enum(enum_cls: type[StrEnum], name: str) -> ENUM:

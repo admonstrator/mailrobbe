@@ -12,10 +12,10 @@ from alembic.migration import MigrationContext
 from sqlalchemy import Connection, pool, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 
-from mailspider import migrate
-from mailspider.db import models  # noqa: F401  (registers all tables on the metadata)
-from mailspider.db.base import Base
-from mailspider.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
+from mailrobbe import migrate
+from mailrobbe.db import models  # noqa: F401  (registers all tables on the metadata)
+from mailrobbe.db.base import Base
+from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
 
 TABLES = {
     "mbox_file",
@@ -194,7 +194,7 @@ async def test_downgrade_to_base_and_upgrade_again(empty_database_url: str) -> N
 
 def test_alembic_config_keeps_percent_encoded_url() -> None:
     # Passwords with special characters are percent-encoded; % is configparser syntax.
-    url = "postgresql+asyncpg://mailspider:p%40ss@db:5432/mailspider"
+    url = "postgresql+asyncpg://mailrobbe:p%40ss@db:5432/mailrobbe"
     assert migrate.alembic_config(url).get_main_option("sqlalchemy.url") == url
 
 
