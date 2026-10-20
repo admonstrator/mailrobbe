@@ -26,7 +26,7 @@ from dkim.canonicalization import CanonicalizationPolicy, InvalidCanonicalizatio
 from dkim.util import parse_tag_value
 
 from mailrobbe.dkim import verify
-from mailrobbe.dkim.canonical import canonical_chunks
+from mailrobbe.dkim.canonical import canonical_blocks
 from mailrobbe.dkim.model import DnsAnswer, MailVerdict, SignatureResult
 from mailrobbe.dkim.override import DnsOverrideTable, key_name
 from mailrobbe.dkim.verify import verify_mail
@@ -521,11 +521,11 @@ def test_answer_from_the_cache() -> None:
 def test_several_signatures_in_header_order(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[bool] = []
 
-    def counted(data: bytes, relaxed: bool, start: int = 0) -> list[bytes]:
+    def counted(data: bytes, relaxed: bool, start: int = 0) -> Iterator[bytes]:
         calls.append(relaxed)
-        return canonical_chunks(data, relaxed, start)
+        return canonical_blocks(data, relaxed, start)
 
-    monkeypatch.setattr(verify, "canonical_chunks", counted)
+    monkeypatch.setattr(verify, "canonical_blocks", counted)
     list_domain = "lists.verband.example"
     raw = sign(MESSAGE)  # the author
     raw = sign(raw, "rsa1024", d=list_domain, s="list", h=SIGNED + ":list-id")

@@ -8,7 +8,7 @@ import pytest
 from dkim.canonicalization import CanonicalizationPolicy
 
 from mailrobbe.dkim import canonical
-from mailrobbe.dkim.canonical import canonical_body, canonical_chunks
+from mailrobbe.dkim.canonical import canonical_blocks, canonical_body
 
 _PIECES = (
     b"Text",
@@ -87,12 +87,12 @@ def test_large_body_with_text_and_attachment() -> None:
     body = text + b"\n" + attachment + b" \n\n" + text + b"\n \n\t\n\n"
     for relaxed in (True, False):
         assert canonical_body(body, relaxed) == dkimpy(body, relaxed)
-        assert len(canonical_chunks(body, relaxed)) > 3
+        assert len(list(canonical_blocks(body, relaxed))) > 3
 
 
-def test_chunks_of_a_body_inside_a_message() -> None:
+def test_blocks_of_a_body_inside_a_message() -> None:
     message = b"Subject: x\n\nbody  text\n\n"
     start = message.index(b"\n\n") + 2
     for relaxed in (True, False):
-        chunks = canonical_chunks(message, relaxed, start)
-        assert b"".join(chunks) == canonical_body(message[start:], relaxed)
+        blocks = canonical_blocks(message, relaxed, start)
+        assert b"".join(blocks) == canonical_body(message[start:], relaxed)

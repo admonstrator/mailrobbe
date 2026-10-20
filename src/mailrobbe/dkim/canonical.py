@@ -8,34 +8,35 @@ operations: CRLF line ends, then for relaxed tabs to spaces, runs of spaces to o
 before a line end. A block without spaces and tabs, such as base64, skips the relaxed steps after
 two scans, and one with some (text, an indented HTML part) costs a few scans more, never a regex.
 Trailing empty lines (for relaxed also lines of whitespace only) are cut off a short tail.
+
+The blocks are produced one at a time, so a hash can take each while it is still in the CPU
+cache and the canonical copy of a large body never exists in memory as a whole.
 """
+
+from collections.abc import Iterator
 
 from dkim.canonicalization import correct_empty_body, strip_trailing_lines
 
-BLOCK_SIZE = 64 * 1024  # a block of lines stays in the CPU cache through all of its steps
+BLOCK_SIZE = 64 * 1024
 
 
 def canonical_body(body: bytes, relaxed: bool) -> bytes:
     """dkimpy's canonicalize_body (relaxed or simple) of a body with LF or CRLF line endings."""
-    return b"".join(canonical_chunks(body, relaxed))
+    return b"".join(canonical_blocks(body, relaxed))
 
 
-def canonical_chunks(data: bytes, relaxed: bool, start: int = 0) -> list[bytes]:
+def canonical_blocks(data: bytes, relaxed: bool, start: int = 0) -> Iterator[bytes]:
     """canonical_body of data[start:] in pieces, without copying the body out of data first."""
     end = _content_end(data, start, b" \t\r\n" if relaxed else b"\r\n")
-    chunks = []
     position = start
     while position < end:
         # Blocks end after a LF, so neither a CRLF nor a run of whitespace spans two of them.
         stop = data.find(b"\n", position + BLOCK_SIZE, end)
         stop = end if stop < 0 else stop + 1
-        chunks.append(_convert(data[position:stop], relaxed))
+        yield _convert(data[position:stop], relaxed)
         position = stop
     tail = strip_trailing_lines(_convert(data[end:], relaxed))
-    if relaxed and not chunks:
-        tail = correct_empty_body(tail)
-    chunks.append(tail)
-    return chunks
+    yield correct_empty_body(tail) if relaxed and end == start else tail
 
 
 def _content_end(data: bytes, start: int, trailing: bytes) -> int:

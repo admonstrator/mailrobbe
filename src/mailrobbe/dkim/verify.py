@@ -56,7 +56,7 @@ from dkim.canonicalization import (
 from dkim.crypto import parse_public_key
 from dkim.util import InvalidTagValueList, parse_tag_value
 
-from mailrobbe.dkim.canonical import canonical_chunks
+from mailrobbe.dkim.canonical import canonical_blocks
 from mailrobbe.dkim.model import KeySource, MailVerdict, SignatureResult
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus
@@ -226,7 +226,6 @@ class _Mail:
     body_start: int
     headers: list[list[bytes]]  # rfc822_parse's [name, value] pairs
     author: str | None = field(init=False)  # domain of the From address, for alignment
-    _bodies: dict[bool, list[bytes]] = field(default_factory=dict)  # relaxed? -> chunks
     _body_hashes: dict[tuple[bool, int | None, str], bytes] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -286,22 +285,20 @@ class _Mail:
         return DkimStatus.PASS, None
 
     def _body_hash(self, signature: _Signature) -> bytes:
+        """The hash of the canonical body, computed once per canonicalisation, l= and hash."""
         relaxed = signature.policy.body_algorithm is Relaxed
         key = (relaxed, signature.length, signature.hash_name)
         digest = self._body_hashes.get(key)
         if digest is None:
-            chunks = self._bodies.get(relaxed)
-            if chunks is None:
-                chunks = canonical_chunks(self.raw, relaxed, self.body_start)
-                self._bodies[relaxed] = chunks
             hasher = hashlib.new(signature.hash_name)
             remaining = signature.length
-            for chunk in chunks:
-                if remaining is None:
-                    hasher.update(chunk)
-                elif remaining > 0:
-                    hasher.update(memoryview(chunk)[:remaining])
-                    remaining -= len(chunk)
+            for block in canonical_blocks(self.raw, relaxed, self.body_start):
+                if remaining is not None:
+                    if remaining <= 0:
+                        break
+                    block = block[:remaining]
+                    remaining -= len(block)
+                hasher.update(block)
             digest = self._body_hashes[key] = hasher.digest()
         return digest
 
