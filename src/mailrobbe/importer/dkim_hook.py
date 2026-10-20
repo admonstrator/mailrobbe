@@ -1,9 +1,8 @@
 """Seam to the DKIM check of milestone 3 (mailrobbe.dkim), agreed with that milestone.
 
-Until mailrobbe.dkim is merged every function here is a no-op: no checker, so imported mails
-keep dkim_status NULL ("not checked yet") and the DKIM command checks them later. Whichever of
-the two milestones merges second replaces the three function bodies with the calls
-load_dns_cache, DkimChecker.from_settings and upsert_dns_cache; nothing else changes.
+The importer sees DKIM only through these protocols and three functions: the main process loads
+the cached DNS answers once, every worker process builds one checker from them, and each batch
+persists the answers its checker had to look up, inside the batch transaction.
 """
 
 from datetime import datetime
@@ -12,6 +11,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.config import Settings
+from mailrobbe.dkim import checker, store
 from mailrobbe.enums import DkimStatus
 
 
@@ -38,14 +38,14 @@ class DkimChecker(Protocol):
 
 async def load_preload(session: AsyncSession) -> Any:
     """Main process, once per run: the cached DNS answers handed to every worker (picklable)."""
-    return None
+    return await store.load_dns_cache(session)
 
 
 def create_checker(settings: Settings, preload: Any) -> DkimChecker | None:
     """Once per worker process; None means mails are imported without a DKIM check."""
-    return None
+    return checker.DkimChecker.from_settings(settings, preload=preload)
 
 
 async def save_answers(session: AsyncSession, answers: list[Any]) -> None:
     """Per batch, inside the batch transaction: persist the checker's new DNS answers."""
-    return None
+    await store.upsert_dns_cache(session, answers)
