@@ -1,0 +1,171 @@
+/* The map fills the viewport below the shell header (56px plus its border). */
+.page {
+  display: flex;
+  height: calc(100vh - 57px);
+  min-height: 560px;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13px;
+}
+
+.counts strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-muted);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+/* The explanation and the zoom buttons: a row of their own, on the right (mockup). */
+.tools {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 16px;
+}
+
+.explain {
+  color: var(--color-muted);
+}
+
+.zoom {
+  display: flex;
+  gap: 4px;
+}
+
+.zoomButton {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.map {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background-color: #fbfbfc;
+  background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.year {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  padding: 2px 14px;
+  border-radius: var(--radius-tile);
+  background: rgb(255 255 255 / 85%);
+  color: var(--color-accent-hover);
+  font-size: 44px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.notice {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 32px));
+  pointer-events: none;
+}
+
+.stateCard {
+  max-width: 460px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  pointer-events: auto;
+}
+
+.stateCard > * {
+  padding: 24px;
+}
+
+.busy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+/* Narrow windows: the columns stack, the map keeps most of the viewport. */
+@media (max-width: 1100px) {
+  .page {
+    flex-direction: column;
+    height: auto;
+  }
+
+  .body {
+    flex-direction: column;
+  }
+
+  .map {
+    flex: none;
+    height: 70vh;
+  }
+}
