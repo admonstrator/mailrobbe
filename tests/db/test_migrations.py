@@ -130,7 +130,7 @@ INDEXES = {
     "uq_document_sha256": "CREATE UNIQUE INDEX uq_document_sha256 "
     "ON public.document USING btree (sha256)",
     "ix_attachment_document_id": "CREATE INDEX ix_attachment_document_id "
-    "ON public.attachment USING btree (document_id)",
+    "ON public.attachment USING btree (document_id, mail_id)",
 }
 
 # Everything in the database apart from system catalogs: relations (tables, indexes, sequences),

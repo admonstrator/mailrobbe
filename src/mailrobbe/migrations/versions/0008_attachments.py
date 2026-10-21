@@ -130,7 +130,8 @@ def upgrade() -> None:
             ),
         ),
     )
-    op.create_index("ix_attachment_document_id", "attachment", ["document_id"])
+    # The mails of a document, read from the index alone (the search through attachments, D73).
+    op.create_index("ix_attachment_document_id", "attachment", ["document_id", "mail_id"])
 
 
 def downgrade() -> None:

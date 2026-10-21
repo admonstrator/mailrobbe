@@ -283,7 +283,8 @@ class Attachment(Base):
     __table_args__ = (
         Index("ix_attachment_mail_id", "mail_id"),
         Index("ix_attachment_sha256", "sha256"),
-        Index("ix_attachment_document_id", "document_id"),
+        # the mails of a document, read from the index alone (search through attachments, D73)
+        Index("ix_attachment_document_id", "document_id", "mail_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
