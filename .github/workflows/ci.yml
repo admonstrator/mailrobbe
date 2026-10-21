@@ -43,6 +43,26 @@ jobs:
           MAILROBBE_TEST_DATABASE_URL: postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe
           MAILROBBE_REQUIRE_DB: "1"
 
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   compose:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -71,6 +91,18 @@ jobs:
           sql() { docker compose exec -T db psql -U mailrobbe -d mailrobbe -tAc "$1"; }
           test "$(sql 'SELECT count(*) FROM mail')" = "$(wc -l < data/mbox/_generator/manifest.jsonl)"
           test "$(sql "SELECT count(*) FROM mail WHERE dkim_status = 'pass'")" -gt 0
+      - name: Web UI and mail API serve the imported mails
+        run: |
+          get() { curl --fail --silent --show-error "http://127.0.0.1:8000$1"; }
+          get / | grep -q '<div id="root">'
+          get '/mails/1?q=x' | grep -q '<div id="root">'
+          page=$(get '/api/mails?limit=5')
+          test "$(echo "$page" | jq '.items | length')" = 5
+          id=$(echo "$page" | jq '.items[0].id')
+          get "/api/mails/$id" | jq -e '.source.path'
+          get "/api/mails/$id/body?format=raw" | jq -e '.size > 0'
+          get "/api/mails/summary?dkim=pass" | jq -e '.total > 0'
+          get /api/stats | jq -e ".mails == $(wc -l < data/mbox/_generator/manifest.jsonl)"
       - name: Logs
         if: failure()
         run: docker compose logs
