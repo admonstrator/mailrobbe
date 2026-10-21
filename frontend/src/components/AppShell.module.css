@@ -161,10 +161,43 @@
   font-weight: 600;
 }
 
-/* Below this width the totals give way to the search field; the import state stays. */
-@media (max-width: 1199px) {
+/* The header keeps one row of 56px (the map's height depends on it), so on narrower screens
+   its parts give way in steps: first the totals, then spacing and the editor's label, then the
+   words of the logo and of the import state, whose dot and title stay. */
+@media (max-width: 1599px) {
   .count {
     display: none;
+  }
+}
+
+@media (max-width: 1359px) {
+  .header {
+    gap: 16px;
+    padding: 0 16px;
+  }
+
+  .navLink {
+    padding: 6px 8px;
+  }
+
+  .editorPrefix {
+    display: none;
+  }
+}
+
+@media (max-width: 1099px) {
+  .logoText,
+  .importText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .search {
+    min-width: 120px;
   }
 }
 

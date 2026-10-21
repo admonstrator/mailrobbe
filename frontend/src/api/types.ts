@@ -102,6 +102,7 @@ export interface MailFilters {
   collection?: number[]; // in any of these Akten
   has_note?: boolean;
   document?: number; // one of the mail's attachments is this document (D75)
+  thread?: number; // the mail's thread_id is this one (D95)
   entity?: number[]; // each of these entities is mentioned, in the mail or an attachment (D86)
   amount_min?: number; // an amount of at least this value is mentioned, any currency
   amount_context?: EntityContextKey[]; // such an amount next to any of these contexts
@@ -1107,6 +1108,80 @@ export interface DocumentText {
   text: string;
   truncated: boolean;
   text_status: DocumentTextStatus;
+}
+
+// Timeline (milestone 11, D90 to D95) -----------------------------------------------------------
+
+export const MAX_TIMELINE_BUCKETS = 1_500;
+export const TIMELINE_SERIES = 6;
+export const MAX_TIMELINE_SERIES = 12;
+export const MAX_TIMELINE_TERMS = 6;
+export const FIRST_MENTIONS = 100;
+export const MAX_FIRST_MENTIONS = 500;
+
+/** UTC day, ISO week (Monday to Sunday) or calendar month. */
+export type TimelineBucket = "day" | "week" | "month";
+export type TimelineSplit = "none" | "person" | "thread" | "term";
+export type OutlierKind = "high" | "low";
+export type FirstMentionRole = "any" | "sent";
+
+export interface TimelineParams extends MailFilters {
+  bucket?: TimelineBucket; // absent: chosen by the span of the axis (D91)
+  split?: TimelineSplit;
+  split_id?: number[]; // split person/thread: these, in order; absent: the top `series` (D92)
+  term?: string[]; // split term: search strings in the syntax of q, at most MAX_TIMELINE_TERMS
+  series?: number; // 1 to MAX_TIMELINE_SERIES, default TIMELINE_SERIES
+}
+
+export interface TimelineOutlier {
+  index: number; // into Timeline.starts
+  kind: OutlierKind;
+  expected: number; // the moving mean it was compared with (D93)
+}
+
+export interface TimelineSeries {
+  key: string; // "all", "person:<id>", "thread:<id>", "term:<index>"
+  label: string | null; // person name or address, thread subject, search string; null: total
+  person: PersonRef | null;
+  thread_id: number | null;
+  term: string | null;
+  counts: number[]; // aligned with Timeline.starts
+  total: number;
+  outliers: TimelineOutlier[];
+  silent_from: string | null; // YYYY-MM-DD, first day of the silent stretch (D93)
+}
+
+export interface Timeline {
+  bucket: TimelineBucket;
+  coarsened: boolean;
+  starts: string[]; // YYYY-MM-DD, first day of every bucket, ascending, without gaps
+  total: TimelineSeries | null; // null: out of time
+  series: TimelineSeries[];
+  undated: number | null;
+  archive_end: string | null; // YYYY-MM-DD
+  timed_out: boolean;
+}
+
+export interface FirstMentionParams extends MailFilters {
+  role?: FirstMentionRole;
+  limit?: number;
+  lists?: boolean; // also lists and automated senders
+}
+
+export interface FirstMention {
+  person: PersonRef; // the root person
+  kind: PersonKind | null;
+  role: ParticipationRole;
+  date: string;
+  mail_id: number;
+  subject: string | null;
+  mails: number;
+}
+
+export interface FirstMentions {
+  items: FirstMention[]; // earliest first
+  persons: number | null; // null: out of time
+  timed_out: boolean;
 }
 
 // Entities (milestone 10, D80 to D89) -------------------------------------------------------

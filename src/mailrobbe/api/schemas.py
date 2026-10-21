@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 9): query parameters and responses.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 11): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -43,6 +43,8 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
+    GET  /api/timeline?TimelineParams            Timeline: the matching mails over time (D90)
+    GET  /api/timeline/first-mentions?FirstMentionParams  FirstMentions, earliest first (D94)
 
 Research file (milestone 8, D53 to D63); writes take the editor from X-Mailrobbe-Editor (D54):
 
@@ -200,6 +202,7 @@ class MailFilters(BaseModel):
     collection: list[int] = []
     has_note: bool = False
     document: int | None = None  # one of the mail's attachments is this document (D75)
+    thread: int | None = None  # the mail's thread_id is this one (D17, D95)
     # Entities (D86): each of these entities is mentioned in the mail's subject or text or in
     # one of its attachments; an amount of at least amount_min (any currency) is mentioned,
     # and, with amount_context, one such amount next to any of these contexts.
@@ -1208,6 +1211,93 @@ class DocumentText(BaseModel):
     text: str  # the stored text, at most DOCUMENT_TEXT_LIMIT characters; "" without text
     truncated: bool  # the extraction stopped at the limit or the time limit
     text_status: DocumentTextStatus
+
+
+# Timeline (milestone 11, D90 to D95) -----------------------------------------------------------
+
+MAX_TIMELINE_BUCKETS = 1_500  # a finer bucket that would give more is coarsened (D91)
+TIMELINE_SERIES = 6  # default number of split series without split_id (D92)
+MAX_TIMELINE_SERIES = 12  # also the most split_id values
+MAX_TIMELINE_TERMS = 6  # search strings of split term
+FIRST_MENTIONS = 100  # default number of first mentions listed (D94)
+MAX_FIRST_MENTIONS = 500
+
+# Bucket of the timeline in UTC: a day, an ISO week (Monday to Sunday) or a calendar month.
+TimelineBucket = Literal["day", "week", "month"]
+# Series beside the total: none; per person, per thread, or per search string (D92).
+TimelineSplit = Literal["none", "person", "thread", "term"]
+OutlierKind = Literal["high", "low"]  # well above or well below the moving mean (D93)
+FirstMentionRole = Literal["any", "sent"]  # sent or received the mail; only sent it
+
+
+class TimelineParams(MailFilters):
+    """The mails of the mail list's filters (MailFilters) over time (D90)."""
+
+    bucket: TimelineBucket | None = None  # None: chosen by the span of the axis (D91)
+    split: TimelineSplit = "none"
+    # split person: these persons (an alias counts as its root), split thread: these threads, in
+    # this order; empty: the `series` persons or threads with the most matching mails (D92)
+    split_id: list[int] = Field([], max_length=MAX_TIMELINE_SERIES)
+    # split term: search strings in the syntax of q (D20); each series is the filters AND it
+    term: list[str] = Field([], max_length=MAX_TIMELINE_TERMS)
+    series: int = Field(TIMELINE_SERIES, ge=1, le=MAX_TIMELINE_SERIES)
+
+
+class TimelineOutlier(BaseModel):
+    index: int  # into Timeline.starts
+    kind: OutlierKind
+    expected: float  # the moving mean it was compared with (D93)
+
+
+class TimelineSeries(BaseModel):
+    key: str  # "all", "person:<id>", "thread:<id>" or "term:<index into term>"
+    # The person's display name, else its address; the subject of the thread's first mail; the
+    # search string; None for the total and for a thread without subject.
+    label: str | None
+    person: PersonRef | None  # split person: the root person (its own name and address)
+    thread_id: int | None  # split thread
+    term: str | None  # split term: the search string as given
+    counts: list[int]  # matching mails per bucket, aligned with Timeline.starts
+    total: int  # sum of counts
+    outliers: list[TimelineOutlier]  # by index
+    # First day of the bucket from which the series has no mail up to the end of the archive or
+    # date_to, after steady activity before (D93); None: not silent.
+    silent_from: date | None
+
+
+class Timeline(BaseModel):
+    bucket: TimelineBucket  # the bucket of starts
+    coarsened: bool  # the requested bucket would have given more than MAX_TIMELINE_BUCKETS
+    starts: list[date]  # first day of every bucket of the axis, ascending, without gaps (D91)
+    total: TimelineSeries | None  # every matching dated mail, key "all"; None: out of time
+    series: list[TimelineSeries]  # the split's series in order; empty without split or out of time
+    undated: int | None  # matching mails without a date, which the axis cannot show
+    archive_end: date | None  # the archive's latest date not after today (D91); None: no mails
+    timed_out: bool  # a count ran out of MAILROBBE_API_COUNT_TIMEOUT; its part is None or empty
+
+
+class FirstMentionParams(MailFilters):
+    """Per root person, the earliest matching mail it takes part in (D94)."""
+
+    role: FirstMentionRole = "any"
+    limit: int = Field(FIRST_MENTIONS, ge=1, le=MAX_FIRST_MENTIONS)
+    lists: bool = False  # also lists and automated senders (person.kind, D39)
+
+
+class FirstMention(BaseModel):
+    person: PersonRef  # the root person: its own display name and address
+    kind: PersonKind | None
+    role: ParticipationRole  # its role in that mail, From before To, Cc, Bcc; aliases count
+    date: datetime
+    mail_id: int
+    subject: str | None
+    mails: int  # all matching mails the person takes part in (with role sent: sent)
+
+
+class FirstMentions(BaseModel):
+    items: list[FirstMention]  # earliest first (date, then mail id, then person id)
+    persons: int | None  # persons with a first mention in all; None: out of time
+    timed_out: bool  # the search ran out of MAILROBBE_API_COUNT_TIMEOUT; items is then empty
 
 
 # Entities (milestone 10, D80 to D89) ---------------------------------------------------------

@@ -6,6 +6,7 @@ import { DkimDot } from "../../components/DkimDot";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatNumber, formatShortDate } from "../../lib/format";
+import { timelinePath } from "../timeline/buckets";
 import styles from "./ThreadCard.module.css";
 
 function Entry({
@@ -37,7 +38,8 @@ function Entry({
   );
 }
 
-/** The mails of the thread by date, the open one highlighted (D17). */
+/** The mails of the thread by date, the open one highlighted (D17), and the thread as a list
+ *  and on the timeline (D95). */
 export function ThreadCard({
   mail,
   mailHref,
@@ -69,6 +71,12 @@ export function ThreadCard({
         })}
       </ol>
       {more > 0 && <p className={styles.more}>… und {formatNumber(more)} weitere</p>}
+      {mail.thread_id !== null && (
+        <p className={styles.links}>
+          <Link to={`/mails?thread=${mail.thread_id}`}>Alle Mails des Threads als Liste</Link>
+          <Link to={timelinePath({ thread: mail.thread_id })}>Thread in der Zeitachse</Link>
+        </p>
+      )}
     </Card>
   );
 }

@@ -53,8 +53,17 @@ describe("mail detail", () => {
     expect(within(people).getByText("Diese 4 im Graphen zeigen")).toBeTruthy();
 
     const thread = card("Thread (4 Mails)");
-    expect(within(thread).getAllByRole("link")).toHaveLength(3);
+    expect(within(within(thread).getByRole("list")).getAllByRole("link")).toHaveLength(3);
     expect(within(thread).getByText(/\(diese Mail\)/)).toBeTruthy();
+    // The whole thread as a list and on the timeline, by its thread id (D95).
+    expect(
+      within(thread)
+        .getByRole("link", { name: "Alle Mails des Threads als Liste" })
+        .getAttribute("href"),
+    ).toBe("/mails?thread=184001");
+    expect(
+      within(thread).getByRole("link", { name: "Thread in der Zeitachse" }).getAttribute("href"),
+    ).toBe("/zeitachse?thread=184001");
 
     expect(await screen.findByText(/Hallo Herr Brandt, hallo Herr Hofmann/)).toBeTruthy();
     expect(screen.queryByText(/danke für den Entwurf/)).toBeNull();
