@@ -220,3 +220,10 @@ def test_import_errors_follow_the_faults(imported: Imported) -> None:
         assert required <= kinds <= allowed, (record["index"], record["faults"], kinds)
     located = {key for key in imported.errors}
     assert located <= set(imported.mails)  # every error names the offset of its mail
+
+
+def test_list_and_automation_headers_match_the_manifest(imported: Imported) -> None:
+    for record in imported.manifest:
+        mail = imported.mail(record)
+        expected = (record["list_id"], record["automated"])
+        assert (mail["list_id"], mail["automated"]) == expected, record["index"]

@@ -231,6 +231,18 @@ async def test_unsigned_and_unchecked_mails(db_session: AsyncSession) -> None:
     assert await fetch(db_session, "SELECT count(*) FROM dkim_result") == [(0,)]
 
 
+async def test_list_and_automation_headers_are_stored(db_session: AsyncSession) -> None:
+    file_id = await add_mbox_file(db_session)
+    batch = _batch(
+        (0, make_mail(list_id="team.lists.example")),
+        (1000, make_mail(automated=True)),
+        (2000, make_mail()),
+    )
+    await Store().write(db_session, file_id, batch)
+    rows = await fetch(db_session, "SELECT list_id, automated FROM mail ORDER BY byte_offset")
+    assert rows == [("team.lists.example", False), (None, True), (None, False)]
+
+
 def test_a_batch_is_full_at_its_record_limit() -> None:
     batch = Batch()
     for index in range(BATCH_RECORDS):

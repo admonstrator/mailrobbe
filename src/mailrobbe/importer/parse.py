@@ -8,6 +8,9 @@ follow the generator's rule (generator/render.py): leaf parts with a file name o
 Content-Disposition attachment; a message/rfc822 part with either is one attachment, one
 without is searched for attachments like the mail itself.
 
+List-Id, Auto-Submitted and Precedence say whether a mail came through a list or from a
+program (RFC 2919, RFC 3834); person.kind is derived from them (graph/edges.py, D39).
+
 Defects never raise: they become issues and the mail is imported with what could be read.
 
 mime_parts, part_payload and part_text are shared with the mail detail view (api/body.py), so
@@ -41,10 +44,17 @@ from mailrobbe.importer.split import MboxRecord, separator_date
 
 _PARSER = email.parser.BytesParser(policy=email.policy.compat32)
 _HEADER_PARSER = email.parser.BytesHeaderParser(policy=email.policy.compat32)
-_WANTED = frozenset({"message-id", "in-reply-to", "references", "subject", "date"})
+_WANTED = frozenset(
+    {"message-id", "in-reply-to", "references", "subject", "date"}
+    | {"list-id", "auto-submitted", "precedence"}
+)
 _ADDRESS_HEADERS = {"from": "From", "to": "To", "cc": "Cc", "bcc": "Bcc"}
 _ID = re.compile(r"<[^<>\s]+>")
 _MAX_REFERENCES = 50  # the first and the last 49 of a longer References header
+_LIST_ID = re.compile(r"<([^<>]*)>")
+_COMMENT = re.compile(r"\([^()]*\)")
+# Precedence of mail no person wrote; "list" alone marks a person's post through a list.
+_AUTOMATED_PRECEDENCE = frozenset({"bulk", "junk", "auto_reply"})
 _HEADER_END = re.compile(rb"\r?\n\r?\n")
 _UTC_UNKNOWN_ZONE = re.compile(r"\s-0000\b")  # RFC 5322 3.3: UTC, local zone not known
 _DOTTED_DATE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})[ T]+(\d{1,2}):(\d\d)(?::(\d\d))?")
@@ -94,6 +104,8 @@ class _MailParser:
         self._addresses: dict[str, tuple[ParsedAddress, ...]] = {}
         self._body: str | None = None
         self._attachments: list[ParsedAttachment] = []
+        self._list_id: str | None = None
+        self._automated = False
 
     def issue(self, kind: ImportErrorKind, message: str) -> None:
         self._issues.append(Issue(kind, message))
@@ -113,6 +125,8 @@ class _MailParser:
             body_text=self._body,
             attachments=tuple(self._attachments),
             issues=tuple(dict.fromkeys(self._issues)),
+            list_id=self._list_id,
+            automated=self._automated,
         )
 
     def parse(self) -> None:
@@ -131,6 +145,7 @@ class _MailParser:
         self._read_identifiers(headers)
         self._read_subject(headers.get("subject"))
         self._read_date(headers.get("date"))
+        self._read_list_headers(headers)
         for key, name in _ADDRESS_HEADERS.items():
             self._addresses[key] = self._read_addresses(headers.get(key), name)
         if any(isinstance(d, MissingHeaderBodySeparatorDefect) for d in message.defects):
@@ -187,6 +202,19 @@ class _MailParser:
         else:
             source = "no date known"
         self.issue(ImportErrorKind.DATE, f"Date header {problem}, {source}")
+
+    def _read_list_headers(self, headers: dict[str, list[str]]) -> None:
+        """List-Id, and whether Auto-Submitted or Precedence mark the mail as sent by a program.
+
+        Auto-Submitted counts with any value but "no" (RFC 3834), Precedence with bulk, junk or
+        auto_reply; parameters and comments are ignored.
+        """
+        value = self._header(headers.get("list-id"), "List-Id")
+        if value is not None:
+            self._list_id = _list_id(value, self._issues)
+        submitted = {_keyword(value) for value in headers.get("auto-submitted", ())}
+        precedence = {_keyword(value) for value in headers.get("precedence", ())}
+        self._automated = bool(submitted - {"", "no"} or precedence & _AUTOMATED_PRECEDENCE)
 
     def _read_addresses(self, values: list[str] | None, name: str) -> tuple[ParsedAddress, ...]:
         if not values:
@@ -353,6 +381,22 @@ def _message_id(value: str) -> str | None:
     if bare.count("@") == 1 and not any(c.isspace() or c in "<>" for c in bare):
         return text.clean(f"<{bare}>")
     return None
+
+
+def _list_id(value: str, issues: list[Issue]) -> str | None:
+    """The id inside the last angle brackets of a List-Id, or the whole value without any."""
+    brackets = _LIST_ID.findall(value)
+    if brackets:
+        list_id = "".join(brackets[-1].split())
+    else:
+        list_id = " ".join(text.decode_words(value, "List-Id header", issues).split())
+    return text.clean(list_id).lower() or None
+
+
+def _keyword(value: str) -> str:
+    """The first word of a header value, lowercase, without comments and parameters."""
+    words = _COMMENT.sub(" ", value).partition(";")[0].split()
+    return words[0].lower() if words else ""
 
 
 def _rfc5322_date(value: str) -> datetime | None:
