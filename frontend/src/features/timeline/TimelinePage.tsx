@@ -29,6 +29,7 @@ import { TAG_PALETTE } from "../../lib/research";
 import { filterChips } from "../mails/chips";
 import { DEFAULT_LIST_STATE, hasFilters, withFilters } from "../mails/listState";
 import { invalidTerm } from "../mails/queryText";
+import { useSignalChipNames } from "../mails/SignalFacets";
 import { formatBucket } from "./buckets";
 import { FirstMentionList } from "./FirstMentionList";
 import { markRules, mailsText, NO_SUBJECT } from "./labels";
@@ -84,6 +85,7 @@ export function TimelinePage() {
   const mboxFiles = useMboxFiles();
   const filtered = useDocument(state.list.document ?? 0, state.list.document !== null);
   const threadMail = useMailDetail(state.list.thread ?? 0, state.list.thread !== null);
+  const signalNames = useSignalChipNames();
   const [picked, setPicked] = useState<Map<number, string>>(new Map());
 
   const persons = knownPersons(timeline.data, mentions.data, picked);
@@ -96,6 +98,7 @@ export function TimelinePage() {
       filtered.data?.id === id ? (filtered.data.name ?? "(ohne Dateinamen)") : `#${id}`,
     thread: (id) =>
       threadMail.data?.id === id ? threadMail.data.subject || NO_SUBJECT : undefined,
+    signal: signalNames,
   });
 
   /** The name of a chosen person or thread, from the series shown or the person picked. */
