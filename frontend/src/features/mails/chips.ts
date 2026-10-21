@@ -17,6 +17,7 @@ export interface FilterChip {
 export interface ChipNames {
   person: (id: number) => string;
   mboxFile: (id: number) => string;
+  document?: (id: number) => string;
 }
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
@@ -118,6 +119,13 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: "between",
       label: `Zwischen ${state.between.map(names.person).join(" und ")}`,
       next: withFilters(state, { between: [] }),
+    });
+  }
+  if (state.document !== null) {
+    chips.push({
+      id: "document",
+      label: `Dokument: ${names.document?.(state.document) ?? `#${state.document}`}`,
+      next: withFilters(state, { document: null }),
     });
   }
   return chips;

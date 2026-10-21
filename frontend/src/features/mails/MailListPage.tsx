@@ -1,7 +1,13 @@
 import { Link } from "react-router";
 
 import { ApiError, buildQuery } from "../../api/client";
-import { useMailPage, useMailSummary, useMboxFiles, useStats } from "../../api/queries";
+import {
+  useDocument,
+  useMailPage,
+  useMailSummary,
+  useMboxFiles,
+  useStats,
+} from "../../api/queries";
 import type { MailPage, MailSummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
@@ -60,12 +66,16 @@ export function MailListPage() {
   const page = useMailPage(toListParams(state));
   const summary = useMailSummary(toFilters(state));
   const [columns, setColumn] = useColumns();
+  // The document filter's chip is named by the document (D75).
+  const filtered = useDocument(state.document ?? 0, state.document !== null);
 
   const mboxPath = (id: number) =>
     mboxFiles.data?.find((file) => file.id === id)?.path ?? `Datei #${id}`;
   const chips = filterChips(state, page.data?.query_terms ?? [], {
     person: (id) => personName(page.data, id),
     mboxFile: mboxPath,
+    document: (id) =>
+      filtered.data?.id === id ? (filtered.data.name ?? "(ohne Dateinamen)") : `#${id}`,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
 
