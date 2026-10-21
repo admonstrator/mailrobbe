@@ -104,9 +104,16 @@ def _head_digest(path: Path, length: int) -> str:
         return hashlib.sha256(handle.read(length)).hexdigest()
 
 
-async def scan(session: AsyncSession, mbox_dir: Path) -> ScanReport:
-    """Bring mbox_file in line with the MBOX files below mbox_dir, in one transaction."""
-    found, unreadable = find_mbox_files(mbox_dir)
+async def scan(
+    session: AsyncSession,
+    mbox_dir: Path,
+    examined: tuple[list[FoundFile], list[tuple[str, str]]] | None = None,
+) -> ScanReport:
+    """Bring mbox_file in line with the MBOX files below mbox_dir, in one transaction.
+
+    examined: what find_mbox_files(mbox_dir) returned, when the caller ran it already.
+    """
+    found, unreadable = examined or find_mbox_files(mbox_dir)
     async with session.begin():
         rows = {
             row.path: row
