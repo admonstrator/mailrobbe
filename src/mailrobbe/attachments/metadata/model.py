@@ -32,6 +32,7 @@ Value = str | int | float | list[str]
 Fields = dict[str, dict[str, Value]]
 
 VALUE_LIMIT = 1_000  # characters of a text value
+SUMMARY_LIMIT = 200  # characters of a summary value (an indexed column)
 LIST_LIMIT = 50  # texts of a list value
 FIELD_LIMIT = 300  # fields of one document in all
 KEY_LIMIT = 80  # characters of a key the file names itself
@@ -62,10 +63,10 @@ class Summary:
     gps: bool = False
 
 
-def clean(value: str) -> str:
+def clean(value: str, limit: int = VALUE_LIMIT) -> str:
     """A value as stored: control characters removed, whitespace collapsed, trimmed, capped."""
     text = _SPACES.sub(" ", _CONTROL.sub("", value)).strip()
-    return text if len(text) <= VALUE_LIMIT else text[: VALUE_LIMIT - 1] + "…"
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 class Collector:
@@ -219,8 +220,9 @@ _CREATED = (
 
 
 def summarize(fields: Fields) -> Summary:
-    """The summary of a document's fields (see the orders above); the device is the camera or
-    scanner, Make and Model, the make once when the model already names it."""
+    """The summary of a document's fields (see the orders above), each text at most
+    SUMMARY_LIMIT characters; the device is the camera or scanner, Make and Model, the make once
+    when the model already names it."""
 
     def first(keys: Iterable[tuple[str, str]]) -> Value | None:
         for source, key in keys:
@@ -232,8 +234,8 @@ def summarize(fields: Fields) -> Summary:
     def text(keys: Iterable[tuple[str, str]]) -> str | None:
         value = first(keys)
         if isinstance(value, list):
-            return ", ".join(value) or None
-        return None if value is None else str(value)
+            value = ", ".join(value)
+        return None if value is None else clean(str(value), SUMMARY_LIMIT) or None
 
     exif = fields.get("exif", {})
     make, model = (str(exif.get(key, "")) for key in ("make", "model"))
@@ -247,7 +249,7 @@ def summarize(fields: Fields) -> Summary:
         author=text(_AUTHORS),
         modified_by=text(_MODIFIERS),
         program=text(_PROGRAMS),
-        device=device.strip() or None,
+        device=clean(device, SUMMARY_LIMIT) or None,
         created=created,
         gps="latitude" in gps and "longitude" in gps,
     )

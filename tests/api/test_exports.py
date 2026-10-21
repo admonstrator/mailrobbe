@@ -43,6 +43,7 @@ from mailrobbe.export.manifest import (
     ManifestFile,
     ManifestFiles,
     ManifestMail,
+    ManifestMetadata,
     ManifestSignature,
     ManifestSource,
 )
@@ -144,6 +145,13 @@ class Archive:
                     mime_type=a["mime_type"],
                     size=a["size_bytes"],
                     sha256=a["sha256"],
+                    metadata=None
+                    if a["metadata_status"] is None
+                    else ManifestMetadata(
+                        status=a["metadata_status"],
+                        error=a["metadata_error"],
+                        fields=a["metadata_fields"] or {},
+                    ),
                 )
                 for a in self.attachments[mail["id"]]
             ],
@@ -184,7 +192,10 @@ async def _load(url: str, mbox_dir: Path) -> Archive:
                 dkim[row["mail_id"]].append(row)
             dns = {row["name"]: row for row in await rows("SELECT * FROM dns_cache")}
             attachments: dict[int, list[Row]] = defaultdict(list)
-            for row in await rows("SELECT * FROM attachment ORDER BY id"):
+            for row in await rows(
+                "SELECT a.*, d.metadata_status, d.metadata_error, d.metadata_fields"
+                " FROM attachment a LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
+            ):
                 attachments[row["mail_id"]].append(row)
     finally:
         await engine.dispose()
@@ -440,6 +451,11 @@ async def test_the_zip_holds_every_mail_with_manifest_and_checksums(
         assert entry == archive.entry(number, mail, pdf)
     assert any(len(entry["dkim"]["signatures"]) > 1 for entry in manifest["mails"])
     assert any(entry["attachments"] for entry in manifest["mails"])
+    assert any(  # what the attachments' files say about themselves (D167)
+        attachment["metadata"]["fields"]
+        for entry in manifest["mails"]
+        for attachment in entry["attachments"]
+    )
 
     # manifest.csv: the same per mail, below the export's figures.
     rows = export.csv()
@@ -474,6 +490,7 @@ async def test_the_zip_holds_every_mail_with_manifest_and_checksums(
     assert "\n" not in readme.replace("\r\n", "")
     for expected in ("sha256sum -c SHA256SUMS", "shasum -a 256 -c SHA256SUMS", "nicht enthalten"):
         assert expected in readme
+    assert "Unter „metadata“ steht in manifest.json bei jedem Anhang" in readme.replace("\r\n", " ")
 
     # The end of the first complete download records the SHA-256 of SHA256SUMS ...
     first = await _listed(mutable_client, info.id)

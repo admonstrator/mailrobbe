@@ -16,6 +16,7 @@ from mailrobbe.attachments.metadata.images import read_image
 from mailrobbe.attachments.metadata.model import (
     FIELD_LIMIT,
     LIST_LIMIT,
+    SUMMARY_LIMIT,
     VALUE_LIMIT,
     Collector,
     Fields,
@@ -467,6 +468,8 @@ def test_the_summary_takes_the_first_field_in_order() -> None:
     assert summary.created == datetime(2023, 1, 1, tzinfo=UTC)  # the first date with a zone
     assert summary.gps is False
     assert summarize({}) == type(summary)()
+    long = summarize({"pdf": {"author": "x" * VALUE_LIMIT}}).author  # an indexed column
+    assert long == "x" * (SUMMARY_LIMIT - 1) + "…"
 
 
 def test_which_documents_may_carry_metadata() -> None:

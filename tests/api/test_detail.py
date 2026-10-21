@@ -106,7 +106,9 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
             attachments: dict[int, list[Row]] = defaultdict(list)
             for row in await rows(
                 "SELECT a.*, d.kind::text AS kind, d.text_status::text AS text_status, d.pages, "
-                "d.mails AS document_mails FROM attachment a "
+                "d.mails AS document_mails, d.metadata_status::text AS metadata_status, "
+                "d.metadata_author, d.metadata_modified_by, d.metadata_program, "
+                "d.metadata_device, d.metadata_created, d.metadata_gps FROM attachment a "
                 "LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
             ):
                 attachments[row["mail_id"]].append(row)
@@ -183,6 +185,20 @@ def _expected_figures(
         together = None if pair is None or root == sender else archive.edges.get(pair)
         expected.append((mails, contacts, together))
     return expected
+
+
+def _metadata_summary(row: Row) -> dict[str, Any] | None:
+    """AttachmentInfo.metadata as the document row has it (D167): None unless its metadata was
+    found and the summary names something."""
+    summary = {
+        "author": row["metadata_author"],
+        "modified_by": row["metadata_modified_by"],
+        "software": row["metadata_program"],
+        "device": row["metadata_device"],
+        "created": row["metadata_created"],
+        "gps": bool(row["metadata_gps"]),
+    }
+    return summary if row["metadata_status"] == "found" and any(summary.values()) else None
 
 
 def _together(manifest: list[Record]) -> Counter[frozenset[str]]:
@@ -272,6 +288,7 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
                     hashed=row["sha256"] is not None,
                     max_size=Settings().preview_max_size,
                 ),
+                "metadata": _metadata_summary(row),
             }
             for row in archive.attachments[mail_id]
         ]

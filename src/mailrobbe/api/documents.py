@@ -1,8 +1,9 @@
 """Attachments and documents (milestone 9, D70 to D76): the document list, its figures, a
 document's page and text, and attachment downloads. Endpoints and models are in schemas.py.
 
-Routes: GET /api/documents, /api/documents/summary, /api/documents/{id},
-/api/documents/{id}/text, /api/attachments/{id}/content, /api/mails/{id}/hits.
+Routes: GET /api/documents, /api/documents/summary, /api/documents/metadata-values,
+/api/documents/{id}, /api/documents/{id}/text, /api/attachments/{id}/content,
+/api/mails/{id}/hits.
 
 The list reads document rows only, apart from the conditions on the mails carrying a document
 (date, person, external), which hold when one carrying mail that is no duplicate meets them all:
@@ -23,6 +24,13 @@ The hits of one mail (D79) say whether its own text matches the mail list's full
 which of its attachments do, each with the snippet of the list, or around another form of a
 word where none occurs as typed. The browser marks the words as typed and the words the stems of
 the query begin, the forms German stemming finds.
+
+What a file says about itself (D167) was read by the import's metadata step: the document page
+shows every field found, the list filters by the summary's author and program (exact values,
+their partial indexes) and counts the most frequent of them; a search within those values
+(metadata-values) finds the others. They are not part of q: the full text index is computed
+from the text and the file names, and the names and versions of authors and programs are
+found as typed rather than as German stems.
 
 Downloads read the bytes from the MBOX file on request (attachments.content, D76) and are never
 cached: a download as application/octet-stream with a sandboxing policy, apart from raster
@@ -82,12 +90,14 @@ from mailrobbe.api.schemas import (
     COUNT_LIMIT,
     DOCUMENT_NAMES_LIMIT,
     DOCUMENT_PERSONS_LIMIT,
+    METADATA_VALUES_LIMIT,
     SNIPPET_LENGTH,
     AttachmentHit,
     DocumentDetail,
     DocumentFilters,
     DocumentListItem,
     DocumentListParams,
+    DocumentMetadata,
     DocumentNameCount,
     DocumentPage,
     DocumentSort,
@@ -95,6 +105,10 @@ from mailrobbe.api.schemas import (
     DocumentText,
     MailFilters,
     MailHits,
+    MetadataSummary,
+    MetadataValueCount,
+    MetadataValueParams,
+    MetadataValues,
     PersonCount,
     PersonRef,
     ThreadMail,
@@ -189,6 +203,10 @@ def document_conditions(
         where.append(Document.text_status.in_(sorted(set(filters.text_status))))
     if filters.shared:
         where.append(Document.mails >= 2)
+    if filters.author:
+        where.append(Document.metadata_author.in_(sorted(set(filters.author))))
+    if filters.program:
+        where.append(Document.metadata_program.in_(sorted(set(filters.program))))
     mail_filters = MailFilters(
         date_from=filters.date_from,
         date_to=filters.date_to,
@@ -551,13 +569,49 @@ async def summary(
                 kinds[kind] += count
             statuses[status] += count
         return DocumentSummary(
-            total=sum(statuses.values()), exact=True, kinds=kinds, text_status=statuses
+            total=sum(statuses.values()),
+            exact=True,
+            kinds=kinds,
+            text_status=statuses,
+            authors=await _metadata_values(session, where, Document.metadata_author),
+            programs=await _metadata_values(session, where, Document.metadata_program),
         )
     bounded = select(Document.id).where(*where).limit(COUNT_LIMIT + 1).subquery()
     row = await _unless_canceled(session, select(func.count()).select_from(bounded))
     total = None if row is None else min(row[0], COUNT_LIMIT)
     exact = row is not None and row[0] <= COUNT_LIMIT
     return DocumentSummary(total=total, exact=exact, kinds=None, text_status=None)
+
+
+@router.get("/documents/metadata-values")
+async def metadata_values(
+    params: Annotated[MetadataValueParams, Query()], session: Session, settings: AppSettings
+) -> MetadataValues:
+    where = _where(params, settings.internal_domains)
+    column = Document.metadata_author if params.field == "author" else Document.metadata_program
+    await _count_budget(session, settings)
+    values = await _metadata_values(session, where, column, params.search, params.limit)
+    return MetadataValues(values=values)
+
+
+async def _metadata_values(
+    session: AsyncSession,
+    where: Sequence[ColumnElement[bool]],
+    column: SQLColumnExpression[str | None],
+    search: str = "",
+    limit: int = METADATA_VALUES_LIMIT,
+) -> list[MetadataValueCount] | None:
+    """The values of a metadata column among the documents where holds, with their documents,
+    most first (ties by value); None when the count budget ran out."""
+    count = func.count().label("count")
+    statement = select(column, count).where(*where, column.is_not(None))
+    if search.strip():
+        statement = statement.where(column.ilike(_contains(search.strip())))
+    statement = statement.group_by(column).order_by(count.desc(), column.collate("C"))
+    rows = await _all_unless_canceled(session, statement.limit(limit))
+    if rows is None:
+        return None
+    return [MetadataValueCount(value=value, documents=documents) for value, documents in rows]
 
 
 async def _all_unless_canceled(session: AsyncSession, statement: Executable) -> list[Any] | None:
@@ -590,6 +644,15 @@ _DETAIL_COLUMNS = (
     Document.first_date,
     Document.last_date,
     Document.first_mail_id,
+    Document.metadata_status,
+    Document.metadata_error,
+    Document.metadata_fields,
+    Document.metadata_author,
+    Document.metadata_modified_by,
+    Document.metadata_program,
+    Document.metadata_device,
+    Document.metadata_created,
+    Document.metadata_gps,
 )
 
 
@@ -636,6 +699,29 @@ async def document_detail(
             hashed=document.sha256 is not None,
             max_size=settings.preview_max_size,
         ),
+        metadata=_metadata(document),
+    )
+
+
+def _metadata(document: Any) -> DocumentMetadata:
+    fields = document.metadata_fields or {}
+    return DocumentMetadata(
+        status=document.metadata_status,
+        error=document.metadata_error,
+        fields=fields,
+        summary=_summary(document) if fields else None,
+    )
+
+
+def _summary(row: Any) -> MetadataSummary:
+    """The summary columns of a document row (D167) as the API names them."""
+    return MetadataSummary(
+        author=row.metadata_author,
+        modified_by=row.metadata_modified_by,
+        software=row.metadata_program,
+        device=row.metadata_device,
+        created=row.metadata_created,
+        gps=row.metadata_gps,
     )
 
 

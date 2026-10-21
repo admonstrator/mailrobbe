@@ -129,7 +129,7 @@ INHALT DES ORDNERS {folder}/
                        MBOX-Datei mit Byte-Offset und Länge, SHA-256 von mail.eml und mail.pdf,
                        DKIM-Ergebnis je Signatur mit Schlüssel, Herkunft des Schlüssels,
                        seiner SHA-256-Prüfsumme, den Nummern seiner Belege und Prüfzeitpunkt,
-                       Anhänge. Zeiten in UTC (ISO 8601).
+                       Anhänge mit ihren Metadaten. Zeiten in UTC (ISO 8601).
   manifest.csv         Dieselben Angaben als Tabelle für Excel und LibreOffice (Semikolon,
                        UTF-8). Zellen, die mit = + - @ beginnen, haben dort ein vorangestelltes
                        Apostroph, damit kein Tabellenprogramm sie als Formel ausführt; in
@@ -141,6 +141,11 @@ Im Namen eines Mail-Ordners zählt NNNN die Mails in Exportreihenfolge ab 0001, 
 Mail-ID in Mailrobbe (etwa 0001-4711). Byte-identische Kopien einer Mail im Archiv
 erscheinen nur einmal. Anhänge sind in mail.eml enthalten und im Manifest mit Name, Typ, Größe
 und Prüfsumme aufgeführt; als eigene Dateien liegen sie diesem Export nicht bei.
+
+Unter „metadata“ steht in manifest.json bei jedem Anhang, was seine Datei über sich selbst
+angibt, etwa Autor, Programm, Kamera, Aufnahmezeit oder Ort (EXIF, PDF-Dokumentinformationen,
+XMP, Office- und OpenDocument-Eigenschaften), alle Felder so, wie sie in der Datei stehen. Diese
+Angaben sind ungeprüft: Programme schreiben sie oft unvollständig, und jeder kann sie ändern.
 
 
 PRÜFEN, OB DIE DATEIEN UNVERÄNDERT SIND
