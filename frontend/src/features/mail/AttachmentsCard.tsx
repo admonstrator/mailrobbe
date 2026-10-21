@@ -7,6 +7,7 @@ import { formatBytes, formatNumber } from "../../lib/format";
 import { KindIcon } from "../documents/KindIcon";
 import { kindFromMimeType, pagesText, statusNote } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
+import { PreviewPanel, PreviewToggle } from "../preview/AttachmentPanel";
 import styles from "./AttachmentsCard.module.css";
 
 /** "auch in 5 weiteren Mails" when the document travels in others too, else "Zum Dokument". */
@@ -55,6 +56,7 @@ export function AttachmentsCard({ attachments }: { attachments: AttachmentInfo[]
                   >
                     Herunterladen
                   </a>
+                  <PreviewToggle attachment={attachment} />
                   {attachment.document_id !== null && (
                     <Link
                       to={documentPath(attachment.document_id)}
@@ -65,6 +67,7 @@ export function AttachmentsCard({ attachments }: { attachments: AttachmentInfo[]
                   )}
                 </span>
               </span>
+              <PreviewPanel attachment={attachment} name={name} />
             </li>
           );
         })}

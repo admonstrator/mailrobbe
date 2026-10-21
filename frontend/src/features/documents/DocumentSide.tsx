@@ -1,37 +1,27 @@
-import { useState } from "react";
 import { Link } from "react-router";
 
-import { attachmentContentUrl } from "../../api/client";
 import { DOCUMENT_NAMES_LIMIT, type DocumentDetail, type PersonCount } from "../../api/types";
 import { Card, CardTitle } from "../../components/Card";
 import { personPath } from "../../components/PersonLink";
 import { formatNumber } from "../../lib/format";
 import { personLabel } from "../persons/labels";
+import { AttachmentPreview } from "../preview/AttachmentPreview";
 import styles from "./DocumentSide.module.css";
 import { documentName } from "./labels";
 
-/** A raster image, shown from the attachment's bytes (D76: served with its type only then). A
- *  damaged image says so instead of showing the browser's broken image. */
+/** A raster image (D76), shown as the mail detail shows it. */
 export function DocumentPreview({ document }: { document: DocumentDetail }) {
-  const [broken, setBroken] = useState(false);
   return (
     <Card variant="side" aria-labelledby="document-preview-title">
       <CardTitle id="document-preview-title" variant="caps">
         Vorschau
       </CardTitle>
       <div className={styles.preview}>
-        {broken ? (
-          <p className={styles.noPreview}>
-            Der Browser kann dieses Bild nicht anzeigen. Herunterladen lässt es sich trotzdem.
-          </p>
-        ) : (
-          <img
-            src={attachmentContentUrl(document.attachment_id)}
-            alt={`Vorschau von ${documentName(document.name)}`}
-            className={styles.image}
-            onError={() => setBroken(true)}
-          />
-        )}
+        <AttachmentPreview
+          attachmentId={document.attachment_id}
+          kind="image"
+          name={documentName(document.name)}
+        />
       </div>
     </Card>
   );

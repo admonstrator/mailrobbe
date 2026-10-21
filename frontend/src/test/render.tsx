@@ -124,6 +124,11 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (path === "/api/timeline/first-mentions") return fx.firstMentions;
   const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);
   if (document) return documentApi(Number(document[1]), document[2]);
+  const attachment = /^\/api\/attachments\/\d+\/(content|html)$/.exec(path);
+  if (attachment?.[1] === "content") return new Response(fx.attachmentBytes);
+  if (attachment?.[1] === "html") {
+    return new Response(fx.attachmentHtml, { headers: { "Content-Type": "text/html" } });
+  }
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 

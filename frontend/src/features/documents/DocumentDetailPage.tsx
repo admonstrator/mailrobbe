@@ -3,13 +3,14 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { ApiError, attachmentContentUrl } from "../../api/client";
 import { useDocument } from "../../api/queries";
-import type { DocumentDetail } from "../../api/types";
+import type { DocumentDetail, PreviewKind } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
+import { Card, CardTitle } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatBytes, formatDate, formatDateTime, formatNumber } from "../../lib/format";
+import { AttachmentPreview } from "../preview/AttachmentPreview";
 import styles from "./DocumentDetailPage.module.css";
 import { DocumentMails } from "./DocumentMails";
 import { DocumentNames, DocumentPersons, DocumentPreview } from "./DocumentSide";
@@ -96,6 +97,9 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
       <main className={styles.main}>
         <DocumentHeader document={document} />
         <DocumentTiles document={document} />
+        {document.preview && document.preview !== "image" && (
+          <PreviewCard document={document} kind={document.preview} />
+        )}
         <DocumentMails document={document} state={state} href={href} />
         {hasStoredText(document.text_status) && <DocumentTextCard document={document} />}
       </main>
@@ -195,6 +199,15 @@ function DocumentHeader({ document }: { document: DocumentDetail }) {
             )}
           </dd>
         </div>
+        {document.preview === null && (
+          <div className={styles.fact}>
+            <dt>Vorschau</dt>
+            <dd className={styles.muted}>
+              Keine Vorschau im Browser, nur Download.
+              {hasStoredText(document.text_status) && " Text siehe unten."}
+            </dd>
+          </div>
+        )}
         <div className={styles.fact}>
           <dt>Text</dt>
           <dd className={styles.status}>
@@ -220,6 +233,21 @@ function DocumentHeader({ document }: { document: DocumentDetail }) {
           </dd>
         </div>
       </dl>
+    </Card>
+  );
+}
+
+/** The document as the browser shows it (D120): PDF, Word, audio and video; an image keeps its
+ *  card beside. */
+function PreviewCard({ document, kind }: { document: DocumentDetail; kind: PreviewKind }) {
+  return (
+    <Card aria-labelledby="document-view-title">
+      <CardTitle id="document-view-title">Vorschau</CardTitle>
+      <AttachmentPreview
+        attachmentId={document.attachment_id}
+        kind={kind}
+        name={documentName(document.name)}
+      />
     </Card>
   );
 }
