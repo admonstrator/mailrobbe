@@ -164,6 +164,9 @@ describe("timeline screen", () => {
         "Fügen Sie oben Suchbegriffe hinzu, um sie einzeln über die Zeit zu vergleichen.",
       ),
     ).toBeTruthy();
+    // Without a search string yet the API counts the total alone.
+    expect(timelineCalls(calls)[0].url.searchParams.has("split")).toBe(false);
+    expect(screen.getByRole("button", { name: "Suchbegriffe", pressed: true })).toBeTruthy();
     const field = screen.getByRole("textbox", { name: "Suchbegriff" });
     fireEvent.change(field, { target: { value: " Spende " } });
     fireEvent.click(screen.getByRole("button", { name: "Hinzufügen" }));

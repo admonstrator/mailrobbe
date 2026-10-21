@@ -98,7 +98,10 @@ export function parseTimelineState(search: URLSearchParams): TimelineState {
 export function toTimelineParams(state: TimelineState): TimelineParams {
   const params: TimelineParams = toFilters(state.list);
   if (state.bucket) params.bucket = state.bucket;
-  if (state.split !== "none") params.split = state.split;
+  // Split term without a search string yet is the total alone.
+  if (state.split !== "none" && (state.split !== "term" || state.term.length)) {
+    params.split = state.split;
+  }
   if (state.split_id.length) params.split_id = state.split_id;
   if (state.term.length) params.term = state.term;
   return params;
@@ -115,8 +118,10 @@ export function toFirstMentionParams(state: TimelineState, limit: number): First
 
 /** The query string of state, the inverse of parseTimelineState. */
 export function timelineSearch(state: TimelineState): URLSearchParams {
+  // The split stays even without a search string, so the control keeps showing it.
   return buildQuery({
     ...toTimelineParams(state),
+    split: state.split === "none" ? null : state.split,
     role: state.role === "sent" ? state.role : null,
     lists: state.lists,
   });

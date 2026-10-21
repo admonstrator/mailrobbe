@@ -135,6 +135,12 @@ describe("timeline state in the URL", () => {
 
   it("asks the API with the defaults left out", () => {
     expect(toTimelineParams(DEFAULT_TIMELINE_STATE)).toEqual({});
+    expect(toTimelineParams({ ...DEFAULT_TIMELINE_STATE, split: "term" })).toEqual({});
+    expect(search({ ...DEFAULT_TIMELINE_STATE, split: "term" })).toBe("split=term");
+    expect(toTimelineParams({ ...DEFAULT_TIMELINE_STATE, split: "term", term: ["a"] })).toEqual({
+      split: "term",
+      term: ["a"],
+    });
     expect(toTimelineParams(full)).toEqual({
       ...toFilters(list),
       bucket: "week",
