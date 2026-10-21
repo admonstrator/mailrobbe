@@ -950,7 +950,12 @@ async def test_dismissing_a_suggestion(
 
 def ref(seed: Seed, person_id: int) -> Json:
     person = seed.people[person_id]
-    return {"person_id": person_id, "email": person.canonical_email, "name": person.display_name}
+    return {
+        "person_id": person_id,
+        "email": person.canonical_email,
+        "name": person.display_name,
+        "label": None,
+    }
 
 
 async def test_merging_every_certain_suggestion_and_undoing_the_run(
