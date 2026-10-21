@@ -6,10 +6,11 @@ person in the database again; nothing is read from the MBOX files.
     addresses   every person (address) once into the temporary table signal_person: its root,
                 the root's kind, its class (D131: the domain equal to or a subdomain of an
                 internal domain, else of a private one, else external) and whether it is a
-                private address of a person with an internal one (merged or a certain alias
-                suggestion, D160: private_alias); the mails of automated senders (mail.automated or
-                a sender whose root is of kind automated) into signal_automated. Both are
-                analysed, since autovacuum never looks at temporary tables.
+                private address of a person with an internal one (merged or an alias
+                suggestion sharing a main name, D160: private_alias); the mails of automated
+                senders (mail.automated or a sender whose root is of kind automated) into
+                signal_automated. Both are analysed, since autovacuum never looks at temporary
+                tables.
     mails       rows of signals the rules no longer know deleted; then per signal of the rules,
                 in display order, one transaction: its rows of mail_signal deleted and, when
                 the signal is available, inserted again by one INSERT ... SELECT over
@@ -76,13 +77,13 @@ _ADDRESSES = (
     SELECT p.id, r.id, r.kind, c.class
     FROM person p JOIN person r ON r.id = coalesce(p.merged_into, p.id)
     JOIN classes c ON c.domain = p.domain""",
-    # Private addresses of a root that has an internal address too, or that forms a certain alias
-    # suggestion with a root that has one (D132, D160).
+    # Private addresses of a root that has an internal address too, or that shares a main name in
+    # an alias suggestion with a root that has one, certain or not (D132, D160).
     """WITH internal AS (SELECT DISTINCT root FROM signal_person WHERE class = 'internal'),
     pairs AS (
         SELECT a.root AS one, b.root AS other FROM alias_suggestion s
         JOIN signal_person a ON a.id = s.person_a JOIN signal_person b ON b.id = s.person_b
-        WHERE s.tier = 'certain'
+        WHERE s.same_name IS NOT NULL
     ),
     linked AS (
         SELECT root FROM internal

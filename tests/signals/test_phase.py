@@ -42,18 +42,26 @@ PERSONS = (
     (2, "anna@webpost.example", 1, None),  # private, merged into an internal person
     (3, "bert@mail.nordwind.example", None, None),  # internal, though its domain is private too
     (4, "bert@webpost.example", None, None),  # private, a certain suggestion with 3 (person_b)
-    (5, "dora@post.webpost.example", None, None),  # private, suggested with an external person
+    (5, "dora@post.webpost.example", None, None),  # private, suggested with 6 and, by local
+    # part only, with 1, which makes no private alias
     (6, "emil@partner.example", None, None),  # external
     (7, "news@nordwind.example", None, "automated"),
     (8, "liste@partner.example", None, "list"),
     (9, "fritz@xwebpost.example", None, None),  # external: no subdomain of webpost.example
-    (10, "ida@webpost.example", None, None),  # private, a certain suggestion with 11 (person_a)
+    (10, "ida@webpost.example", None, None),  # private, an uncertain suggestion with 11 sharing a
+    # main name (person_a)
     (11, "ida@nordwind.example", None, None),  # internal
     (12, "info@webpost.example", 7, None),  # merged into the automated sender
     (13, "otto@partner.example", None, None),  # falls silent
     (14, "otto@webpost.example", 13, None),
 )
-SUGGESTIONS = ((3, 4), (10, 11), (5, 6))
+# person_a, person_b, the main name and the local part they share, tier (D160)
+SUGGESTIONS = (
+    (3, 4, "bert", "bert", "certain"),
+    (10, 11, "ida", "ida", "uncertain"),
+    (5, 6, "dora", None, "uncertain"),
+    (1, 5, None, "dora", "uncertain"),
+)
 # id, kind, key, detail: two term entities of RULES' themes, one of a theme RULES lacks, and a
 # place whose detail looks like a theme key
 ENTITIES = (
@@ -169,6 +177,8 @@ Statement = tuple[str, dict[str, Any]]
 _PERSON = """
     INSERT INTO person (id, canonical_email, domain, merged_into, kind) OVERRIDING SYSTEM VALUE
     VALUES (:id, :address, :domain, :root, CAST(:kind AS person_kind))"""
+_SUGGESTION = """
+    INSERT INTO alias_suggestion VALUES (:a, :b, :name, :local_part, CAST(:tier AS alias_tier))"""
 _ENTITY = """
     INSERT INTO entity (id, kind, key, label, detail) OVERRIDING SYSTEM VALUE
     VALUES (:id, CAST(:kind AS entity_kind), :key, :key, :detail)"""
@@ -198,8 +208,8 @@ def _archive() -> list[Statement]:
     for person_id, address, root, kind in PERSONS:  # roots come before their aliases
         domain = address.partition("@")[2]
         add(_PERSON, id=person_id, address=address, domain=domain, root=root, kind=kind)
-    for a, b in SUGGESTIONS:
-        add("INSERT INTO alias_suggestion VALUES (:a, :b, NULL, 'x', 'certain')", a=a, b=b)
+    for a, b, name, local_part, tier in SUGGESTIONS:
+        add(_SUGGESTION, a=a, b=b, name=name, local_part=local_part, tier=tier)
     for entity_id, kind, key, detail in ENTITIES:
         add(_ENTITY, id=entity_id, kind=kind, key=key, detail=detail)
     add(_DOCUMENT)

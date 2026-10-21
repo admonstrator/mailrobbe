@@ -80,7 +80,7 @@ export function signalRule(key: SignalKey | "silent", settings: SignalSettings):
     case "private_to_internal":
       return "Eine private Adresse schreibt an einen internen Empfänger, in An, Cc oder Bcc.";
     case "private_alias":
-      return "Eine private Adresse gehört zu einer Person, die auch eine interne Adresse hat (zusammengeführt oder als Alias-Vorschlag).";
+      return "Eine private Adresse gehört zu einer Person, die auch eine interne Adresse hat (zusammengeführt oder als Alias-Vorschlag mit gleichem Namen).";
     case "bcc":
       return "Ein Empfänger steht in Bcc; das zeigt nur die Kopie des Absenders.";
     case "many_recipients":
