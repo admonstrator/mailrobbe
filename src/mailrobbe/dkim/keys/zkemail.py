@@ -13,8 +13,9 @@ only computed it from signatures (gcd_recovered) or says nothing about it. One r
 domain, never per selector, so a request does not tell which selectors the archive holds; only
 on request, never during an import, and nothing is ever sent but the domain.
 
-fetch_plan is what a fetch would ask (the API's preview shows it): the concerned domains with
-their names, mails and when each was last asked. Domains under reserved TLDs (.example, .test,
+fetch_plan is what a fetch would ask (the API's preview shows it): the domains of concerned names
+and of names only keys from other sources verify, with their names, mails and when each was last
+asked. Domains under reserved TLDs (.example, .test,
 ...) never leave this machine: they go only to an archive on a loopback address (tests,
 generated data) and are skipped otherwise.
 """
@@ -29,7 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from mailrobbe.config import Settings
@@ -89,7 +90,9 @@ class FetchPlan:
 
 
 async def fetch_plan(db: Executor, url: str | None, domains: Collection[str] = ()) -> FetchPlan:
-    """The domains a fetch asks: the concerned ones, or the given ones (with their figures)."""
+    """The domains a fetch asks, or the given ones, with their figures: the domains of concerned
+    names and of names a key from another source verifies, whose origin the archive may raise
+    (a reconstructed key the archive saw in DNS becomes observed, D102)."""
     given = sorted({normalise_name(domain) for domain in domains if normalise_name(domain)})
     concerned = (
         select(
@@ -98,7 +101,11 @@ async def fetch_plan(db: Executor, url: str | None, domains: Collection[str] = (
             func.count(DkimResult.mail_id.distinct()),
         )
         .join(Mail, Mail.id == DkimResult.mail_id)
-        .where(CONCERNED, Mail.is_duplicate_of.is_(None), DkimResult.domain.is_not(None))
+        .where(
+            or_(CONCERNED, DkimResult.key_id.is_not(None)),
+            Mail.is_duplicate_of.is_(None),
+            DkimResult.domain.is_not(None),
+        )
         .group_by(DkimResult.domain)
     )
     if given:

@@ -1,6 +1,6 @@
 # DKIM-Schlüssel für gelöschte Selektoren
 
-Entwurf, nicht freigegeben. Dieser Plan beschreibt, wie Mailrobbe DKIM-Signaturen alter Mails noch prüfen kann, wenn der Selektor im DNS inzwischen gelöscht oder widerrufen ist. Er ergänzt D10 bis D13 in [DECISIONS.md](DECISIONS.md); gebaut wird erst nach Freigabe, die Entscheidungen bekommen dann die nächsten freien D-Nummern.
+Stufen 1 und 2 sind gebaut (Aaron hat sie am 21.10.2026 freigegeben); die Entscheidungen dazu stehen als D100 bis D105 in [DECISIONS.md](DECISIONS.md) und ergänzen D10 bis D13. Dieses Dokument hält fest, warum es so gebaut ist, welche Quellen geprüft wurden und was gebaut ist. Passive DNS (Stufe 3) und das ARC-Zeugnis (Stufe 4) sind nicht gebaut; die Quellen-Schnittstelle (`dkim_key_lookup` mit eigener `source`, Belege in `dkim_key_evidence`) nimmt sie später ohne Schemaänderung auf.
 
 ## Ausgangslage
 
@@ -67,12 +67,12 @@ Messung am Testkorpus (21.10.2026, Sandbox, Intel Xeon 2,1 GHz, ein Kern je Sele
 
 Jede Signatur, die ein Schlüssel verifiziert, bekommt die Herkunft dieses Schlüssels. Gibt es für einen Schlüssel mehrere Belege, zählt der stärkste; die übrigen werden mit angezeigt.
 
-| Stufe | Herkunft (`key_origin`) | Belegt | Status | UI-Text (Vorschlag) |
+| Stufe | Herkunft (`key_origin`) | Belegt | Status | In der Oberfläche |
 |---|---|---|---|---|
-| 1 | `dns` | die Domain veröffentlicht den Schlüssel heute | `pass` | „gültig (DNS heute)“ |
-| 2 | `observed` | ein Dritter hat den Schlüssel im DNS der Domain gesehen: Schlüsselarchiv mit `live_dns`, Passive DNS | `pass` | „gültig (Schlüssel 2019 im DNS beobachtet, Quelle …)“, mit Hinweis, ob der Beobachtungszeitraum den Signaturzeitpunkt deckt |
-| 3 | `documented` | ein Dokument enthält den Schlüssel: Fund im Archiv, Zonendatei, manuell hinterlegter Beleg | `pass` | „gültig (Schlüssel aus Beleg: …)“ |
-| 4 | `reconstructed` | nur: dieselben Signaturen stammen vom selben privaten Schlüssel; auch `gcd_recovered` aus dem ZK-Email-Archiv | neu: `consistent` | „Signatur stimmig, Schlüssel rekonstruiert, nicht an die Domain gebunden“ |
+| 1 | `dns` | die Domain veröffentlicht den Schlüssel heute | `pass` | „DNS heute“ |
+| 2 | `observed` | ein Dritter hat den Schlüssel im DNS der Domain gesehen: Schlüsselarchiv mit `live_dns`, Passive DNS | `pass` | „im DNS beobachtet“, mit Quelle und Beobachtungszeitraum am Beleg |
+| 3 | `documented` | ein Dokument enthält den Schlüssel: Fund im Archiv, Zonendatei, manuell hinterlegter Beleg | `pass` | „dokumentiert“, mit Verweis und Notiz am Beleg |
+| 4 | `reconstructed` | nur: dieselben Signaturen stammen vom selben privaten Schlüssel; auch `gcd_recovered` aus dem ZK-Email-Archiv | neu: `consistent` | „Signatur stimmig“ und „rekonstruiert“, mit dem festen Hinweis, dass das die Domain nicht bindet |
 
 - „Rekonstruiert, bestätigt durch …“ ist kein eigener Wert: stimmt der rekonstruierte Schlüssel mit einem Beleg der Stufe 1 bis 3 überein, hat er dessen Stufe, und die Rekonstruktion steht als zusätzlicher Beleg dabei („zusätzlich aus 37 Signaturen rekonstruiert“).
 - `consistent` ist ein neuer Wert von `DkimStatus` mit Rang zwischen `pass` und `temp_error`. Ein rekonstruierter Schlüssel macht also nie `pass`; der Filter „gültig“ zeigt ihn nicht.
@@ -80,52 +80,55 @@ Jede Signatur, die ein Schlüssel verifiziert, bekommt die Herkunft dieses Schl�
 - Passt kein Kandidat, bleibt `no_key`, neuer Grund `key_mismatch` („vorhandene Schlüssel passen nicht“).
 - Für `fail` mit `signature_mismatch` und `body_hash_ok` werden ebenfalls Kandidaten probiert (Schlüsselwechsel unter gleichem Namen); passt einer, wird die Signatur mit dessen Herkunft neu bewertet.
 
-## Änderungen
+## Was gebaut ist
 
-### Datenmodell (eine neue Alembic-Revision)
+Alles läuft als Nachlauf über den vorhandenen Bestand; ein Neuimport ist nicht nötig. Die Migration 0010 legt die Tabellen an und setzt bei älteren Ergebnissen, die auf einem Schlüssel aus dem DNS beruhen, `key_origin = dns`.
 
-- `dkim_key`: ein Schlüssel je Name und Inhalt. `id`, `name` (`<selector>._domainkey.<domain>`), `key_type`, `bits`, `key_sha256` (SHA-256 des DER-SubjectPublicKeyInfo, Identität über alle Quellen), `record` (TXT wie veröffentlicht, bei Rekonstruktion `v=DKIM1; k=rsa; p=…` erzeugt), `created_at`; eindeutig über `(name, key_sha256)`.
-- `dkim_key_lookup`: jede Frage an eine Quelle, auch ohne Treffer. `source` (`zkemail`, `dnsdb`, `securitytrails`, `circl`, `archive_text`, `manual`, `reconstruction`), `query` (URL oder Name, nie mit API-Schlüssel), `asked_at`, `outcome` (`found`, `not_found`, `error`), `http_status`, `raw` (Antwort unverändert, bytea), `raw_sha256`, `tool_version`.
-- `dkim_key_evidence`: ein Beleg für einen Schlüssel. `key_id`, `lookup_id`, `origin` (`dns`, `observed`, `documented`, `reconstructed`), `observed_from` und `observed_to` (die Zeitangaben der Quelle), `reference` (URL, Permalink `/m/<hash>`, Datei mit SHA-256), `note`, `editor` (D54), `created_at`; bei Rekonstruktion zusätzlich `exponent` und `signatures` (jsonb: `mail_id`, `signature_index`, `raw_sha256` je verwendeter Signatur).
-- `dkim_result`: neu `key_id` und `key_origin`. `mail`: neu `dkim_origin` (Herkunft der Signatur, die `dkim_status` bestimmt), damit Liste und Filter ohne Join schnell bleiben. `DkimStatus` bekommt `consistent`, `DkimReason` bekommt `key_mismatch`.
-- `dns_cache` bleibt, wie es ist: nur heutiges DNS.
+### Datenmodell (Migration 0010)
+
+- `dkim_key`: ein Schlüssel je Name und Inhalt (`name`, `domain`, `selector`, `key_type`, `bits`, `key_sha256`, `record`, `origin` als stärkste Herkunft seiner Belege, `factorable`); `key_sha256` ist bei RSA der SHA-256 des DER-SubjectPublicKeyInfo, gleich, ob `p=` als SPKI oder als nacktes RSAPublicKey kam.
+- `dkim_key_lookup`: jede Frage an eine Quelle, auch ohne Treffer und bei Fehlern: `source` (`reconstruction`, `archive_text`, `manual`, `zkemail`, `dns`), `query` (nie mit Zugangsdaten), `asked_at`, `outcome`, `http_status`, `raw` unverändert mit `raw_sha256`, Medientyp und Dateiname, `message`, `tool_version`, `editor`.
+- `dkim_key_evidence`: ein Beleg je Schlüssel und Abfrage: `origin`, `observed_from`/`observed_to` (die Zeitangaben der Quelle), `reference`, `note`, `details` (bei Rekonstruktion `exponent`, `hash` und die verwendeten Signaturen mit `mail_id`, `signature_index`, `mail_sha256`), `editor`.
+- `dkim_result` bekommt `key_id` und `key_origin`; `DkimStatus` bekommt `consistent`, `DkimReason` bekommt `key_mismatch`.
+- Anders als geplant bekommt `mail` keine Spalte `dkim_origin` (D100): der Status `consistent` trennt Stufe 4 schon in Liste und Filter, und eine neue Spalte zu füllen hätte jede Mailzeile samt Volltextindex neu geschrieben.
 
 ### Prüfung
 
-- `verify_mail` bleibt rein. Neben der `KeySource` bekommt es eine zweite Quelle für Kandidaten je Name (aus `dkim_key`, beim Start eines Laufs einmal geladen wie `dns_cache`). Liefert das DNS `not_found`, einen widerrufenen Schlüssel oder einen, der nicht verifiziert, werden die Kandidaten nach Stufe probiert.
-- `SignatureResult` bekommt `key_id` und `key_origin`; `MailVerdict.status` wählt bei gleichem Status die stärkere Herkunft.
+`verify_mail(raw, keys, candidates)` bleibt rein. Gibt das DNS keinen, einen widerrufenen oder unbrauchbaren Schlüssel, eine Zeitüberschreitung oder einen Schlüssel, unter dem die Signatur bei intaktem Body nicht hält, probiert es die Kandidaten des Namens, stärkste Herkunft zuerst; ein Kandidat zählt nur, wenn er den Header-Hash verifiziert. Die Kandidaten werden je Lauf einmal geladen (wie `dns_cache`) und gelten beim Import, bei `mailrobbe dkim`, bei „Neu prüfen“ im Mail-Detail und in den Schlüssel-Läufen. Faktorisierbare Schlüssel sind nie Kandidaten.
 
 ### Kommandozeile
 
 ```sh
-mailrobbe dkim-keys status                       # no_key-Selektoren nach betroffenen Mails, Kandidaten, Herkunft
-mailrobbe dkim-keys reconstruct [--name N] [--jobs N] [--limit N]
-mailrobbe dkim-keys find-in-archive               # Volltext und Anhangstext nach "v=DKIM1" und "p=MII"
-mailrobbe dkim-keys fetch --source zkemail [--domain D] [--dry-run]
-mailrobbe dkim-keys fetch --source dnsdb|securitytrails|circl [--dry-run]
-mailrobbe dkim-keys add --name N --record R --reference REF [--note TEXT]
-mailrobbe dkim-keys import keys.csv               # name, record, reference, note
-mailrobbe dkim-keys show N                        # Belege, Rohantworten, Signaturen
-mailrobbe dkim --sources dns,observed,documented,reconstructed   # welche Herkünfte eine Nachprüfung nutzt
+mailrobbe dkim-keys reconstruct [--name N]... [--jobs N]   # Schlüssel aus Signaturpaaren, dann Abgleich und Batch-GCD
+mailrobbe dkim-keys search [--name N]...                   # Schlüsseleinträge in Mail- und Anhangstexten
+mailrobbe dkim-keys fetch [--domain D]... [--name N]...    # ZK-Email-Archiv, eine Anfrage je Domain
+mailrobbe dkim-keys check [--name N]...                    # Mails dieser Namen mit allen Kandidaten neu prüfen
+mailrobbe dkim-keys add --name N (--record R | --record-file F) --reference REF \
+    [--note T] [--evidence-file F] [--editor NAME] [--observed-from D] [--observed-to D]
+mailrobbe dkim-keys status                                 # Kennzahlen als JSON
 ```
 
-- `reconstruct` arbeitet die Selektoren nach Zahl der betroffenen Mails ab, ist wie Import und DKIM-Lauf ein Job (D46, D47) mit Pause, Fortsetzen und Live-Zahlen, und prüft am Ende die betroffenen Mails neu.
-- `fetch` fragt je Domain, nicht je Selektor (das ZK-Email-Archiv liefert alle Selektoren einer Domain, so verrät die Abfrage nicht, welche Selektoren im Archiv vorkommen). `--dry-run` zeigt, was an wen ginge.
-- Zugangsdaten nur über Umgebungsvariablen: `MAILROBBE_DKIM_KEY_ARCHIVE_URL` (Vorgabe `https://archive.zk.email`, leer schaltet ab), `MAILROBBE_DKIM_DNSDB_KEY`, `MAILROBBE_DKIM_SECURITYTRAILS_KEY`, `MAILROBBE_DKIM_CIRCL_USER` und `MAILROBBE_DKIM_CIRCL_PASSWORD`. Ohne Schlüssel ist die Quelle aus.
+- Jede Aufgabe außer `status` ist ein Lauf der Art `dkim_keys` in der Tabelle `job` (D101) mit Schritten (D110): auswählen, die Aufgabe selbst, abgleichen, prüfen und die vier Aggregat-Schritte. Ctrl-C, SIGTERM und „Anhalten“ im Dashboard beenden nach dem laufenden Namen oder Block; was gefunden ist, wird trotzdem geprüft. Der Lauf teilt sich die Sperre mit `mailrobbe dkim`, beide laufen also nie gleichzeitig.
+- `reconstruct` liest je Name bis zu acht Signaturen von Mails, die keine Dubletten sind (verschiedene `b=`, älteste `t=` zuerst), probiert Paare mit e = 65537, dann 3, legt verifizierte Signaturen beiseite und versucht es mit dem Rest erneut. Ein Name, dessen letzter Versuch dieselben Signaturen las, wird übersprungen; mit `--name` wird immer neu gerechnet. Danach `compare`: ein rekonstruierter Schlüssel, der heute unter einem anderen Selektor derselben Domain im DNS steht oder aus einer anderen Quelle bekannt ist, bekommt einen Beleg dieser Herkunft. Zum Schluss Batch-GCD über alle bekannten RSA-Moduli.
+- `search` findet Texte über den Volltextindex (Tokens `dkim1`, `mii…`, `migf…`, `migj…`), liest die Schlüssel daraus, auch über mehrere Strings in Anführungszeichen verteilt, und testet jeden an den drei ältesten Signaturen jedes betroffenen Namens; ein passender wird `documented` mit dem Permalink `/m/<hash>` oder `/anhaenge/<id>` als Verweis.
+- `fetch` fragt `MAILROBBE_DKIM_KEY_ARCHIVE_URL` (Vorgabe `https://archive.zk.email`, `off` schaltet ab) mit der Python-Standardbibliothek und den Proxy-Einstellungen der Umgebung. Domains unter reservierten TLDs (`.example`, `.test`, …) gehen nur an ein Archiv auf dieser Maschine.
+- `add` speichert einen Schlüssel mit Verweis und optionaler Belegdatei als `documented` und prüft danach die Mails des Namens.
 
 ### Import-Dashboard
 
-Neue Kachel „Gelöschte Selektoren“: Selektoren und Mails mit `no_key`, davon rekonstruierbar (mindestens zwei RSA-Signaturen), Fortschritt und Restzeit der Rekonstruktion, Treffer je Quelle, Verteilung nach Herkunft. Knöpfe „Rekonstruieren“, „Im Archiv suchen“ und „Schlüsselarchive abfragen“; der letzte zeigt vorher, welche Domains an welchen Dienst gehen.
+Karte „Gelöschte Selektoren“ unter `/import`: Selektoren und Mails ohne Schlüssel, davon rekonstruierbar, geklärte Selektoren, Mails „Signatur stimmig“, gefundene Schlüssel je Herkunft, faktorisierbare. Knöpfe „Schlüssel rekonstruieren“, „Im Archiv suchen“ und „Schlüsselarchiv abfragen …“; der letzte zeigt vorher je Domain, wie viele Selektoren und Mails betroffen sind und wann sie zuletzt gefragt wurde, mit Häkchen zum Abwählen. Ein laufender Schlüssel-Lauf zeigt seine Schritte wie Import und DKIM-Prüfung („41 von 164 Selektoren · 3,6 Selektoren/min“).
 
-### Mail-Detail
+### Selektorseiten und Mail-Detail
 
-Je Signatur ein Herkunftsabzeichen neben dem Status, aufklappbar: Quelle, Beobachtungszeitraum gegen `t=`, Abrufzeit, SHA-256 der Rohantwort mit Download, bei Rekonstruktion die Zahl der Signaturen und Links auf die Mails. `consistent` bekommt einen festen Hinweistext, der sagt, was nicht belegt ist. Eine Seite je Selektor (aus dem Dashboard erreichbar) zeigt alle Belege und Signaturen und erlaubt einen manuellen Beleg mit Herkunftsvermerk.
+- `/import/selektoren`: alle Schlüsselnamen mit Signaturen (offen, geklärt, alle), mit Statusmischung, RSA-Signaturen, Zeitraum, Schlüsseln und heutigem DNS-Stand.
+- `/import/selektoren/<name>`: heutige DNS-Antwort, die Schlüssel mit Herkunft, Bits, SHA-256 und allen Belegen (Quelle, Abrufzeit, Zeitangaben der Quelle, Verweis, Notiz, Bearbeiter, Download der Rohantwort, bei Rekonstruktion die verwendeten Signaturen als Links), die Abfragen, die neuesten Mails, „Schlüssel rekonstruieren“ für diesen Namen und „Schlüssel von Hand hinzufügen“ (Eintrag oder `p=`-Wert, Herkunft, Notiz, Zeitraum, Belegdatei bis 10 MiB, Bearbeitername nach D54).
+- Im Mail-Detail trägt jede Signatur ein Herkunftsabzeichen; hängt sie an einem Schlüssel aus `dkim_key`, stehen dessen SHA-256, Bits, Belege und der Weg zur Selektorseite dabei, bei `consistent` der Hinweis: „Die Signatur passt zu einem aus Signaturen berechneten Schlüssel. Das zeigt, dass diese Mails mit demselben privaten Schlüssel signiert wurden, nicht, dass die Domain ihn veröffentlicht hat.“
 
-### Export (D62, D63)
+### Export (D62, D63, D105)
 
-- `manifest.json` und `manifest.csv` je Signatur: `key_origin`, `key_sha256`, alle Belege.
-- Ordner `schluessel/<name>/<key_sha256>/` mit `record.txt`, je Beleg die Rohantwort unverändert plus `beleg.json` (Quelle, Abfrage, Zeitpunkte, SHA-256), bei Rekonstruktion `signaturen.json` (`s`, `m`, `e`, Mail und Signatur je Eintrag) und `pruefe_rekonstruktion.py`, das nur mit der Python-Standardbibliothek `pow(s, e, n) == m` für jede Signatur nachrechnet. Alles in `SHA256SUMS`.
-- PDF: Zeile „Herkunft des Schlüssels“; bei Stufe 4 der Hinweistext. `LIESMICH.txt` erklärt die vier Stufen.
+- `manifest.json` und `manifest.csv` je Signatur: `key_origin`, `key_sha256` und die Beleg-Nummern.
+- Je Schlüssel, auf dem eine exportierte Signatur beruht, `schluessel/<name>/<key_sha256>/` mit `record.txt`, je Beleg `beleg-<id>.json` und der Rohantwort unverändert; bei Rekonstruktion `signaturen.json` (`s`, `m`, `e`, Hash, Mail und Signatur je Eintrag) und `pruefe_rekonstruktion.py`, das nur mit der Python-Standardbibliothek `pow(s, e, n) == m` nachrechnet. Alles in `SHA256SUMS`.
+- PDF: je Signatur die Herkunft des Schlüssels, bei `consistent` der Hinweis; `LIESMICH.txt` erklärt die vier Herkünfte und das Prüfskript.
 
 ## Was ein Gutachter nachvollziehen können muss
 
@@ -140,12 +143,12 @@ Je Signatur ein Herkunftsabzeichen neben dem Status, aufklappbar: Quelle, Beobac
 
 Jede Abfrage verrät etwas. Schon heute fragt die DKIM-Prüfung das DNS der Organisation nach Selektoren, die seit Jahren gelöscht sind; das sieht deren Nameserver (mit `MAILROBBE_DKIM_NAMESERVERS` auf einem öffentlichen Resolver nur dessen Adresse). Passive-DNS-Dienste ordnen jede Abfrage einem Konto zu. Deshalb: externe Abfragen nur auf Befehl, je Domain statt je Selektor, mit Vorschau, und nie Uploads.
 
-## Reihenfolge und Aufwand
+## Reihenfolge
 
-1. **Fundament und Offline-Quellen** (ein Meilenstein, etwa so groß wie M8): Tabellen, Herkunft in Prüfung, Liste, Detail und Export, Status `consistent`, Rekonstruktion als Job, Suche im eigenen Archiv, manuelle Belege, Batch-GCD. Kein Netz nötig, kein Quellenschutzproblem, deckt jeden RSA-Selektor mit zwei Signaturen ab.
-2. **ZK-Email-Archiv und Abgleich** (klein): Abfrage je Domain mit Vorschau, Einordnung `live_dns` als Stufe 2 und `gcd_recovered` als Stufe 4, Vergleich rekonstruierter Schlüssel mit Archiv und heutigen Selektoren derselben Domain.
-3. **Passive DNS** (klein je Anbieter, aber nur gegen aufgezeichnete Antworten testbar): zuerst DNSDB, dann SecurityTrails, sobald Aaron ein Konto hat.
-4. **ARC-Zeugnis** (klein, getrennt): ARC-Siegel von Google und Microsoft prüfen und `dkim=pass` des Empfangsservers als eigenes Zeugnis anzeigen, nicht als Status.
+1. **Fundament und Offline-Quellen**: gebaut (Tabellen, Herkunft in Prüfung, Liste, Detail und Export, Status `consistent`, Rekonstruktion als Lauf, Suche im eigenen Archiv, manuelle Belege, Batch-GCD).
+2. **ZK-Email-Archiv und Abgleich**: gebaut (Abfrage je Domain mit Vorschau, `live_dns` als Stufe 2, `gcd_recovered` als Stufe 4, Abgleich rekonstruierter Schlüssel mit Archiv, anderen Quellen und heutigen Selektoren derselben Domain).
+3. **Passive DNS**: offen, zuerst DNSDB, dann SecurityTrails, sobald ein Konto da ist; nur gegen aufgezeichnete Antworten testbar. Eine Quelle ist ein neuer `source`-Wert in `dkim_key_lookup` und eine Aufgabe von `mailrobbe dkim-keys`.
+4. **ARC-Zeugnis**: offen. ARC-Siegel von Google und Microsoft prüfen und `dkim=pass` des Empfangsservers als eigenes Zeugnis anzeigen, nicht als Status.
 
 Nicht bauen: Wayback, DMARC- und BIMI-Berichte, OTX, Robtex.
 
@@ -170,7 +173,6 @@ Aufruf: `docker compose exec db psql -U mailrobbe mailrobbe`. Rechenzeit grob: r
 
 ## Offene Entscheidungen
 
-- Eigener Status `consistent` für rekonstruierte Schlüssel statt `pass` mit Vermerk (Empfehlung: ja).
-- Abfragen beim ZK-Email-Archiv erlauben, nur auf Knopfdruck mit Vorschau (Empfehlung: ja).
 - Zugang zu DNSDB anfragen; Farsight bot 2019 investigativen Journalisten freien Zugang an, ob das noch gilt, ist unklar.
-- gmpy2 als neue Abhängigkeit (Empfehlung: ja).
+
+Entschieden (D100 bis D105): eigener Status `consistent` statt `pass` mit Vermerk, Abfragen beim ZK-Email-Archiv nur auf Knopfdruck mit Vorschau, gmpy2 als einzige neue Abhängigkeit.

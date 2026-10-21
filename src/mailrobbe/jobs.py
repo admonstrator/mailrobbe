@@ -1,7 +1,8 @@
-"""Runs of the importer and the DKIM check, as the import dashboard sees them (D46, D47).
+"""Runs of the importer, the DKIM check and the key runs, as the import dashboard sees them (D46,
+D47, D101).
 
-Every `mailrobbe import` and `mailrobbe dkim` run holds the advisory lock of its kind for its
-whole length (a session lock on a connection it keeps open) and records itself in `job`:
+Every run holds the advisory lock of its kind for its whole length (a session lock on a
+connection it keeps open; dkim-keys shares the DKIM lock) and records itself in `job`:
 
     begin_job    right after taking the lock: marks earlier rows of the kind that never
                  recorded their end as failed, then inserts the running row

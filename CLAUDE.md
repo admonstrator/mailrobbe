@@ -29,11 +29,11 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/persons/`: persons (milestone 5, D28 to D33); `roots.py` (root person of an address), `stats.py` (`person_stats`, `person_year`), `suggestions.py` (alias suggestions), `merge.py` (merge, unmerge, dismiss)
 - `src/mailrobbe/export/`: export for lawyers and archives (D62, D63); `records.py` (what an export reads per mail), `pdf.py` (one mail as PDF with the DejaVu font in `fonts/`), `manifest.py`, `readme.py` (LIESMICH.txt), `bundle.py` (the streamed ZIP with SHA256SUMS)
 - `src/mailrobbe/themes.toml`: the research themes with word fields and search templates (D64), read through `themes.py` (`load_themes`); the one source for later milestones too
-- `src/mailrobbe/jobs.py`: runs of `mailrobbe import` and `mailrobbe dkim` in the `job` table (D46, D47): lock keys, options and live figures with their steps (D110), `begin_job`/`report_job`/`end_job` for the runs, `request_stop`/`latest_job`/`job_alive` for the API, `db_activity`/`end_leftovers` on `pg_stat_activity` (D111, D113)
-- `src/mailrobbe/jobrun.py`: the run side of both commands: `job_run` (lock, job row, 2 s reports, stop on Ctrl-C, SIGTERM or the dashboard's request), `RateWindow`, `Steps` (`job.steps`: every step of a run with its counter, rate and estimate, D110)
+- `src/mailrobbe/jobs.py`: runs of `mailrobbe import`, `mailrobbe dkim` and `mailrobbe dkim-keys` in the `job` table (D46, D47): lock keys, options and live figures with their steps (D110), `begin_job`/`report_job`/`end_job` for the runs, `request_stop`/`latest_job`/`job_alive` for the API, `db_activity`/`end_leftovers` on `pg_stat_activity` (D111, D113)
+- `src/mailrobbe/jobrun.py`: the run side of these commands: `job_run` (lock, job row, 2 s reports, stop on Ctrl-C, SIGTERM or the dashboard's request), `RateWindow`, `Steps` (`job.steps`: every step of a run with its counter, rate and estimate, D110)
 - `src/mailrobbe/bench.py`: `mailrobbe bench`, response times of a running server's API (D51); procedure and results of the load test in [docs/LOADTEST.md](docs/LOADTEST.md)
 - `src/mailrobbe/aggregates.py`: aggregation tables; `refresh_aggregates` runs edges, person figures, alias suggestions and `global_stats` in that order (finalize, `mailrobbe dkim`, merges; D33), and `global_stats` is also refreshed lazily by the API (D19)
-- `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`, `graph`, `bench`)
+- `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`, `dkim-keys`, `graph`, `bench`)
 - `tests/`: mirrors the package; `tests/db` needs PostgreSQL
 
 ## Commands
@@ -48,6 +48,7 @@ uv run mailrobbe generate --mails 10000 # test data into data/mbox (see --help)
 docker compose up -d --build             # Postgres + backend on http://127.0.0.1:8000
 docker compose run --rm backend mailrobbe import   # importer; Ctrl-C pauses, the next run resumes
 uv run mailrobbe dkim --help             # DKIM recheck of imported mails (D13)
+uv run mailrobbe dkim-keys --help        # keys of deleted selectors: reconstruct, search, fetch, check, add (D101)
 uv run mailrobbe graph --help            # recompute edges, full GraphML export for Gephi (D38)
 uv run mailrobbe bench --rounds 5        # API response times against a running server (D51)
 cd frontend && npm ci                    # Node 22; then, inside frontend/:

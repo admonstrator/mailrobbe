@@ -1,4 +1,5 @@
-"""The run side of `mailrobbe import` and `mailrobbe dkim` (D46, D47); jobs.py is the table side.
+"""The run side of `mailrobbe import`, `mailrobbe dkim` and `mailrobbe dkim-keys` (D46, D47);
+jobs.py is the table side.
 
     job_run      connect; take the kind's advisory lock on a connection of the run's own; check
                  the schema; end what dead runs of the kind left in the database; record the

@@ -599,7 +599,7 @@ async def test_a_manual_key_while_a_run_is_alive(
     assert (key["origin"], key["evidence"][0]["editor"], key["evidence"][0]["raw_size"]) == (
         "documented",
         None,
-        None,
+        len(p),  # without a file, the lookup keeps what was entered
     )
     jobs = await rows(dashboard.url, "SELECT id FROM job")
     assert [job.id for job in jobs] == [started["id"]]  # the key waits for the next check
