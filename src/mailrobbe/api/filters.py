@@ -3,7 +3,9 @@
 The list, its summary, the neighbours of a mail and the CSV export all build on these, so they
 agree on which mails match and in which order (D19 to D21). Conditions are plain columns of mail
 or EXISTS subqueries correlated to it: participants through participation and person (both
-indexed for this), flags through mail_note.
+indexed for this), flags through mail_note, documents through attachment. The full text words
+match the mail's own text or the text of one of its attachments' documents (D73): a set of mail
+ids from both GIN indexes (full_text), never an OR that would make PostgreSQL scan every mail.
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -40,6 +42,7 @@ from sqlalchemy import (
     or_,
     select,
     tuple_,
+    union,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import QueryableAttribute, aliased
@@ -51,6 +54,8 @@ from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TEXT_SEARCH_CONFIG,
     TIMESTAMPTZ,
+    Attachment,
+    Document,
     Mail,
     MailNote,
     Participation,
@@ -88,10 +93,9 @@ def mail_conditions(
 ) -> list[ColumnElement[bool]]:
     """Every condition of the filters and of q's terms; a mail matches when all hold."""
     where = [condition for term in terms for condition in _term(term)]
-    words = [_phrase(term) for term in terms if term.key == "text"]
-    if words:
-        query = func.websearch_to_tsquery(_TEXT_SEARCH, " ".join(words))
-        where.append(Mail.tsv.bool_op("@@")(query))
+    query = text_query(terms)
+    if query is not None:
+        where.append(full_text(query))
     if filters.dkim:
         where.append(_dkim(filters.dkim))
     if filters.sender_domain:
@@ -118,7 +122,39 @@ def mail_conditions(
         where.append(_between(filters.between))
     if filters.external:
         where.append(_external(internal))
+    if filters.document is not None:
+        where.append(_carries(filters.document))
     return where
+
+
+def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
+    """The tsquery of q's full text words; None without any."""
+    words = [_phrase(term) for term in terms if term.key == "text"]
+    if not words:
+        return None
+    return func.websearch_to_tsquery(_TEXT_SEARCH, " ".join(words))
+
+
+def full_text(query: ColumnElement[Any]) -> ColumnElement[bool]:
+    """D73: the mail's own text matches, or the text of one of its attachments' documents.
+
+    Each side uses its GIN index; the inner mail is an alias, so first_ids moves only the outer
+    mail.id onto its window.
+    """
+    own = aliased(Mail)
+    return Mail.id.in_(
+        union(
+            select(own.id).where(own.tsv.bool_op("@@")(query)),
+            select(Attachment.mail_id)
+            .join(Document, Document.id == Attachment.document_id)
+            .where(Document.tsv.bool_op("@@")(query)),
+        )
+    )
+
+
+def _carries(document_id: int) -> ColumnElement[bool]:
+    """One of the mail's attachments is this document (D75)."""
+    return exists().where(Attachment.mail_id == Mail.id, Attachment.document_id == document_id)
 
 
 def _term(term: QueryTerm) -> list[ColumnElement[bool]]:

@@ -40,6 +40,12 @@ TAKES_PART = (
 )
 SENDER = "pa.role = 'from'"
 RECIPIENT = "pa.role IN ('to', 'cc', 'bcc')"
+# D73: full text words match the mail's own text or the text of one of its attachments.
+FULL_TEXT = (
+    "(tsv @@ websearch_to_tsquery('german', :w) OR EXISTS (SELECT 1 FROM attachment a"
+    " JOIN document d ON d.id = a.document_id"
+    " WHERE a.mail_id = mail.id AND d.tsv @@ websearch_to_tsquery('german', :w)))"
+)
 
 
 def takes_part(person: str, role: str = "true") -> str:
@@ -312,18 +318,12 @@ async def test_participant_filters_select_what_sql_selects(
         ),
         ("mbox_file", [("mbox_file", str(mbox_file))], "mbox_file_id = :f", {"f": mbox_file}),
         ("message_id", [("q", message_id)], "message_id = :m", {"m": message_id}),
-        ("text", [("q", word)], "tsv @@ websearch_to_tsquery('german', :w)", {"w": word}),
-        (
-            "phrase",
-            [("q", f'"{word}" {word}')],
-            "tsv @@ websearch_to_tsquery('german', :w)",
-            {"w": word},
-        ),
+        ("text", [("q", word)], FULL_TEXT, {"w": word}),
+        ("phrase", [("q", f'"{word}" {word}')], FULL_TEXT, {"w": word}),
         (
             "combined",
             [("q", f"from:{part} {word}"), ("dkim", "pass"), ("dkim", "no_key")],
-            f"{takes_part(named, SENDER)} AND dkim_status IN ('pass', 'no_key')"
-            " AND tsv @@ websearch_to_tsquery('german', :w)",
+            f"{takes_part(named, SENDER)} AND dkim_status IN ('pass', 'no_key') AND {FULL_TEXT}",
             {**pattern, "w": word},
         ),
     ]

@@ -53,7 +53,15 @@ from mailrobbe.api.stats import read_mbox_files
 from mailrobbe.config import Settings
 from mailrobbe.db.models import ImportErrorRecord, Job, MboxFile
 from mailrobbe.dkim.resolver import parse_nameservers
-from mailrobbe.enums import DkimReason, DnsStatus, ImportErrorKind, JobKind, JobStatus, MboxStatus
+from mailrobbe.enums import (
+    DkimReason,
+    DnsStatus,
+    DocumentTextStatus,
+    ImportErrorKind,
+    JobKind,
+    JobStatus,
+    MboxStatus,
+)
 from mailrobbe.graph.excerpt import edge_table
 from mailrobbe.importer import scan
 from mailrobbe.jobs import DkimOptions, DkimProgress, ImportOptions, ImportProgress
@@ -214,6 +222,9 @@ _SIZES = text("""
            (SELECT count(*) FROM alias_suggestion) AS suggestions
 """)
 _DNS_CACHE = text("SELECT status::text, count(*) FROM dns_cache GROUP BY status")
+# Live, both cheap: attachment rows by an index-only scan, documents by ix_document_text_status.
+_ATTACHMENTS = text("SELECT count(*) FROM attachment")
+_DOCUMENTS = text("SELECT text_status::text, count(*) FROM document GROUP BY text_status")
 
 
 @router.get("/import/summary")
@@ -240,7 +251,17 @@ async def import_summary(session: Session, settings: AppSettings) -> ImportSumma
             for reason, mails in figures.dkim_fail_reasons.items()
         ],
         updated_at=figures.updated_at,
+        attachments=await session.scalar(_ATTACHMENTS) or 0,
+        documents=await _documents(session),
     )
+
+
+async def _documents(session: AsyncSession) -> dict[DocumentTextStatus, int]:
+    """Documents by text status, every status present (D72)."""
+    documents = dict.fromkeys(DocumentTextStatus, 0)
+    for status, count in await session.execute(_DOCUMENTS):
+        documents[DocumentTextStatus(status)] = count
+    return documents
 
 
 # Errors ----------------------------------------------------------------------------------------
