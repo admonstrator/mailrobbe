@@ -8,10 +8,11 @@ out of a text: a v=DKIM1 record with p=, also split over several quoted strings 
 zone files write it, or a bare p=MI... . The length of an RSA key comes from its DER header, so
 text after the key never sticks to it.
 
-A key found counts only when it verifies a signature: signatures_to_test reads one signature of
-each concerned name (every mail once), and the run stores a key that verifies one of them as
-documented, referenced by the mail's permalink or the document page and dated by the mail
-(store_find). The passage found is the lookup's answer.
+A key found counts only when it verifies a signature: signatures_to_test reads the oldest
+SIGNATURES_PER_NAME signatures of each concerned name (every mail once; more than one, as a list
+host or gateway may have changed the signed header of a mail), and the run stores a key for the
+names it verifies a signature of as documented, referenced by the mail's permalink or the
+document page and dated by the mail (store_find). The passage found is the lookup's answer.
 """
 
 import asyncio
@@ -20,7 +21,7 @@ import binascii
 import hashlib
 import re
 from collections import defaultdict
-from collections.abc import AsyncIterator, Collection
+from collections.abc import AsyncGenerator, Collection
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +48,7 @@ from mailrobbe.mbox import read_message
 # MII.. or MIGJ..)
 TEXT_QUERY = "dkim1 | mii:* | migf:* | migj:*"
 BATCH = 100  # texts per query and commit
+SIGNATURES_PER_NAME = 3  # the oldest signatures of a name a key found is tried on
 RECORD_REACH = 300  # characters between the v=DKIM1 of a record and its p=
 MAX_KEY_CHARS = 1500  # base64 of an RSA key of 8192 bits, with room for line breaks
 ED25519_CHARS = 43  # 32 bytes in base64, without padding
@@ -148,7 +150,7 @@ async def count_texts(db: AsyncConnection) -> int:
     return (await db.scalar(mails) or 0) + (await db.scalar(documents) or 0)
 
 
-async def texts(db: AsyncConnection) -> AsyncIterator[list[Text]]:
+async def texts(db: AsyncConnection) -> AsyncGenerator[list[Text], None]:
     """The mail texts (no duplicates) and attachment texts that may quote a key record, BATCH
     at a time; one query per batch, so the caller may write and commit between them."""
     query = func.to_tsquery(TEXT_SEARCH_CONFIG, TEXT_QUERY)
@@ -198,35 +200,40 @@ async def texts(db: AsyncConnection) -> AsyncIterator[list[Text]]:
 async def signatures_to_test(
     db: AsyncConnection, mbox_dir: Path, names: Collection[str] = ()
 ) -> list[SignatureMaterial]:
-    """One signature of each concerned key name (or of these names), from mails that are no
-    duplicates, the oldest first; every mail is read once."""
+    """The oldest SIGNATURES_PER_NAME signatures of each concerned key name (or of these
+    names), from mails that are no duplicates; every mail is read once."""
     where = [CONCERNED, Mail.is_duplicate_of.is_(None)]
     if names:
         where.append(of_key_names(names))
-    rows = await db.execute(
+    rank = func.row_number().over(
+        partition_by=(DkimResult.domain, DkimResult.selector),
+        order_by=(DkimResult.signed_at.asc().nulls_last(), Mail.id, DkimResult.signature_index),
+    )
+    ranked = (
         select(
-            DkimResult.domain,
-            DkimResult.selector,
             DkimResult.signature_index,
-            Mail.id,
             MboxFile.path,
             Mail.byte_offset,
             Mail.byte_length,
             Mail.raw_sha256,
+            rank.label("rank"),
         )
         .join(Mail, Mail.id == DkimResult.mail_id)
         .join(MboxFile, MboxFile.id == Mail.mbox_file_id)
         .where(*where)
-        .distinct(DkimResult.domain, DkimResult.selector)
-        .order_by(
-            DkimResult.domain,
-            DkimResult.selector,
-            DkimResult.signed_at.asc().nulls_last(),
-            Mail.id,
-        )
+        .subquery()
+    )
+    rows = await db.execute(
+        select(
+            ranked.c.signature_index,
+            ranked.c.path,
+            ranked.c.byte_offset,
+            ranked.c.byte_length,
+            ranked.c.raw_sha256,
+        ).where(ranked.c.rank <= SIGNATURES_PER_NAME)
     )
     wanted: defaultdict[tuple[str, int, int, str], set[int]] = defaultdict(set)
-    for _, _, index, _, path, offset, length, sha256 in rows:
+    for index, path, offset, length, sha256 in rows:
         wanted[path, offset, length, sha256].add(index)
     return await asyncio.to_thread(_read_signatures, mbox_dir, wanted)
 
@@ -247,7 +254,7 @@ def _read_signatures(
 
 
 def fitting_names(record: str, signatures: Collection[SignatureMaterial]) -> list[str]:
-    """The key names whose signature the key of `record` verifies, in name order."""
+    """The key names the key of `record` verifies a signature of, in name order."""
     return sorted({s.name for s in signatures if key_verifies(record, s)})
 
 

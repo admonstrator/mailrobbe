@@ -101,15 +101,14 @@ async def fetch_plan(
     figures: dict[str, tuple[int, int]] = {
         domain: (names, mails) for domain, names, mails in await db.execute(concerned) if domain
     }
-    asked = dict(
-        (
-            await db.execute(
-                select(DkimKeyLookup.domain, func.max(DkimKeyLookup.asked_at))
-                .where(DkimKeyLookup.source == KeyLookupSource.ZKEMAIL.value)
-                .group_by(DkimKeyLookup.domain)
-            )
-        ).tuples()
-    )
+    asked = {
+        domain: last
+        for domain, last in await db.execute(
+            select(DkimKeyLookup.domain, func.max(DkimKeyLookup.asked_at))
+            .where(DkimKeyLookup.source == KeyLookupSource.ZKEMAIL.value)
+            .group_by(DkimKeyLookup.domain)
+        )
+    }
     local = url is not None and is_local(url)
     plan: list[ArchiveDomain] = []
     skipped: list[str] = []
