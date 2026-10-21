@@ -16,5 +16,6 @@ and as clusters of words that stand together.
                of the mail list counted on request against the stored vocabulary (D144)
 
 Modules: model (constants, periods, the vocabulary and clusters handed between the modules),
-keyness, phase, clusters.
+keyness, phase, clusters (co-occurrence of terms and their grouping) with louvain (the grouping
+of a weighted graph, pure).
 """
