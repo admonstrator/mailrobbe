@@ -14,4 +14,20 @@
 
 Nothing is converted in advance and nothing needs an import: the cache (MAILROBBE_PREVIEW_DIR,
 D124) fills when someone opens a preview, and it can be deleted at any time.
+
+The modules, besides kinds:
+
+    convert     convert(): one conversion in a child process (python -I -m
+                mailrobbe.preview.convert) with rlimits on memory, CPU time, file size and
+                core dumps; ConversionFailed with the reason and whether it is worth remembering
+    docx        docx_html(): DOCX through mammoth, after every XML part passed the safe parser
+                of attachments/extract/packages.py; raster images as data: URLs
+    odt         odt_html(): ODT by an own converter on the same safe parser
+    sanitize    sanitize(): the allow list both converters' HTML goes through, page() wraps it
+                in a document with its own CSP and stylesheet
+    media       media_type(): audio and video recognised by their first bytes
+    cache       PreviewCache: pages, remembered failures and media files per SHA-256 and
+                version, written atomically; an unusable directory only costs the caching
+
+The endpoints are in api/previews.py.
 """
