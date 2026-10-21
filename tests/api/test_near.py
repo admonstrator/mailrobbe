@@ -183,10 +183,12 @@ async def test_collapse_near_keeps_the_first_match_of_each_group(
         assert found == expected, params
         summary = await get(near_client, "/api/mails/summary", [*params, ("collapse_near", "true")])
         assert (summary["total"], summary["exact"]) == (len(expected), True), params
-    # The person's copy stays when another got the first one; without the filter the first.
+    # The person's copy stays when another got the first one; without the filter the first, which
+    # is the earliest member, not necessarily the one whose id names the group.
+    first = (await groups(url))[group_id][0]
     alone = await listed(near_client, [("person", str(person)), ("collapse_near", "true")])
-    assert later in alone and group_id not in alone
-    assert group_id in await listed(near_client, [("collapse_near", "true")])
+    assert later in alone and first not in alone
+    assert first in await listed(near_client, [("collapse_near", "true")])
     assert later not in await listed(near_client, [("collapse_near", "true")])
 
 
