@@ -136,9 +136,45 @@
   background: var(--color-unsigned);
 }
 
+.editor {
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.editor:hover {
+  background: var(--color-field);
+  color: var(--color-text);
+}
+
+.editor strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
 /* Below this width the totals give way to the search field; the import state stays. */
 @media (max-width: 1199px) {
   .count {
+    display: none;
+  }
+}
+
+/* On a phone the editor's name stands alone, so the header does not grow by the label. */
+@media (max-width: 759px) {
+  .editor {
+    max-width: 120px;
+  }
+
+  .editorPrefix {
     display: none;
   }
 }
