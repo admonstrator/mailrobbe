@@ -408,7 +408,7 @@ async def export_key(session: AsyncSession, key_id: int) -> ExportKey | None:
             raw_name=lookup.raw_name,
             tool_version=lookup.tool_version,
         )
-        for item, lookup in rows.tuples()
+        for item, lookup in rows
     ]
     return ExportKey(
         id=key.id,
