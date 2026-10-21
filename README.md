@@ -59,7 +59,7 @@ Für jede Suche zeigt die Zeitachse das Mailaufkommen je Tag, Woche oder Monat, 
 
 ### Anhänge sind Teil der Suche
 
-Text aus PDF, Word, Excel, PowerPoint, OpenDocument und vielen weiteren Formaten landet im selben Volltextindex wie die Mails. Jedes Dokument steht einmal in der Liste, auch wenn es durch viele Mails gewandert ist, mit der Antwort auf die Frage, wer es wann an wen geschickt hat.
+Text aus PDF, Word, Excel, PowerPoint, OpenDocument und vielen weiteren Formaten landet im selben Volltextindex wie die Mails. Jedes Dokument steht einmal in der Liste, auch wenn es durch viele Mails gewandert ist, mit der Antwort auf die Frage, wer es wann an wen geschickt hat. Wer eine Mail aus einer Suche öffnet, sieht, wo die Suchwörter stehen: im Betreff, im Text, im zitierten Verlauf oder in welchem Anhang. Die Fundstellen sind markiert, auch gebeugte Formen wie „Spenden“ bei der Suche nach „Spende“.
 
 ### Die Rechercheakte hält fest, was das Team findet
 

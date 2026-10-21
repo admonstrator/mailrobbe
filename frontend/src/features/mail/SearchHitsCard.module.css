@@ -1,0 +1,35 @@
+.card {
+  border-color: var(--color-accent-soft);
+  background: var(--color-accent-soft);
+}
+
+.line {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.label {
+  font-weight: 600;
+}
+
+.place {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.place:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.separator,
+.none {
+  color: var(--color-muted);
+}

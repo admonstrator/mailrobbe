@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { highlightParts, highlightTerms } from "./highlight";
+import { highlightParts, highlightTerms, markCount } from "./highlight";
 
 describe("highlightTerms", () => {
   it("takes words and quoted phrases, without OR and negations", () => {
@@ -41,6 +41,29 @@ describe("highlightParts", () => {
       { text: "Konto DE89", mark: true },
       { text: " ", mark: false },
       { text: "(neu)", mark: true },
+    ]);
+  });
+
+  it("marks the words a German stem begins, umlauts and ß folded as PostgreSQL writes them", () => {
+    const parts = highlightParts(
+      "Die Spendenquittungen, Übersicht und Straße.",
+      [],
+      ["spendenquitt", "ubersicht", "strass"],
+    );
+    expect(parts.filter((part) => part.mark).map((part) => part.text)).toEqual([
+      "Spendenquittungen",
+      "Übersicht",
+      "Straße",
+    ]);
+    expect(markCount(parts)).toBe(3);
+  });
+
+  it("takes a short stem only as a whole word and merges overlapping marks", () => {
+    expect(highlightParts("EU und Europa", [], ["eu"]).filter((part) => part.mark)).toEqual([
+      { text: "EU", mark: true },
+    ]);
+    expect(highlightParts("Großspenden", ["spende"], ["grossspend"])).toEqual([
+      { text: "Großspenden", mark: true },
     ]);
   });
 

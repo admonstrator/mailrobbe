@@ -16,7 +16,7 @@ import { DebouncedInput } from "./DebouncedInput";
 import { DocumentFilterColumn } from "./DocumentFilterColumn";
 import styles from "./DocumentListPage.module.css";
 import { DocumentTable } from "./DocumentTable";
-import { highlightTerms } from "./highlight";
+import { highlightTerms } from "../../lib/highlight";
 import { SORT_LABELS } from "./labels";
 import {
   documentListHref,

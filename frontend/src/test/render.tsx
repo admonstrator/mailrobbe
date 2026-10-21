@@ -92,6 +92,9 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
     return (url.searchParams.get("q") ?? "").includes("subject:") ? fx.filteredPage : fx.mailPage;
   }
   if (/^\/api\/mails\/\d+\/neighbors$/.test(path)) return fx.neighbors;
+  if (/^\/api\/mails\/\d+\/hits$/.test(path)) {
+    return (url.searchParams.get("q") ?? "").includes("Haftung") ? fx.mailHits : fx.noHits;
+  }
   if (/^\/api\/mails\/\d+\/body$/.test(path)) {
     const format = url.searchParams.get("format") ?? "text";
     return { text: fx.mailText, headers: fx.mailHeaders, raw: fx.mailRaw }[format];

@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import type { MailDetail, Participant, ParticipationRole } from "../../api/types";
 import { Card } from "../../components/Card";
 import { DkimBadge } from "../../components/DkimBadge";
+import { Highlighted, type SearchMarks } from "../../components/Highlighted";
 import { CopyIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
@@ -41,13 +42,15 @@ function People({ people, strong }: { people: Participant[]; strong?: boolean })
 /** "3f9a…c21e" */
 const shortHash = (hash: string) => `${hash.slice(0, 4)}…${hash.slice(-4)}`;
 
-/** Subject, DKIM badge and the metadata grid. */
+/** Subject, DKIM badge and the metadata grid; the search words marked in the subject (D79). */
 export function HeaderCard({
   mail,
   mailHref,
+  marks,
 }: {
   mail: MailDetail;
   mailHref: (id: number) => string;
+  marks?: SearchMarks;
 }) {
   const byRole = (role: ParticipationRole) => mail.participants.filter((p) => p.role === role);
   const cc = byRole("cc");
@@ -58,7 +61,7 @@ export function HeaderCard({
     <Card className={styles.card}>
       <div className={styles.titleRow}>
         <h1 className={cx(styles.subject, !mail.subject && styles.muted)}>
-          {mail.subject || "(kein Betreff)"}
+          {mail.subject ? <Highlighted text={mail.subject} marks={marks} /> : "(kein Betreff)"}
         </h1>
         <DkimBadge status={dkimKey(mail.dkim.status)} />
       </div>
