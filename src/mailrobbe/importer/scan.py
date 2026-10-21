@@ -104,9 +104,17 @@ def _head_digest(path: Path, length: int) -> str:
         return hashlib.sha256(handle.read(length)).hexdigest()
 
 
-async def scan(session: AsyncSession, mbox_dir: Path) -> ScanReport:
-    """Bring mbox_file in line with the MBOX files below mbox_dir, in one transaction."""
-    found, unreadable = find_mbox_files(mbox_dir)
+async def scan(
+    session: AsyncSession,
+    mbox_dir: Path,
+    found: tuple[list[FoundFile], list[tuple[str, str]]] | None = None,
+) -> ScanReport:
+    """Bring mbox_file in line with the MBOX files below mbox_dir, in one transaction.
+
+    found: what find_mbox_files(mbox_dir) returned, when the caller examined the files itself,
+    for example in a thread, to keep its event loop free while they are read.
+    """
+    found_files, unreadable = find_mbox_files(mbox_dir) if found is None else found
     async with session.begin():
         rows = {
             row.path: row
@@ -117,7 +125,7 @@ async def scan(session: AsyncSession, mbox_dir: Path) -> ScanReport:
         files: list[ScannedFile] = []
         new: list[str] = []
         replaced: list[tuple[str, str]] = []
-        for file in found:
+        for file in found_files:
             row = rows.get(file.path)
             if row is None:
                 new.append(file.path)
@@ -131,7 +139,7 @@ async def scan(session: AsyncSession, mbox_dir: Path) -> ScanReport:
             else:
                 bytes_done = row.bytes_done
             files.append(await _update(session, row.id, file, bytes_done))
-        on_disk = {file.path for file in found} | {path for path, _ in unreadable}
+        on_disk = {file.path for file in found_files} | {path for path, _ in unreadable}
         missing = tuple(sorted(path for path in rows if path not in on_disk))
     return ScanReport(tuple(files), tuple(new), tuple(replaced), missing, tuple(unreadable))
 

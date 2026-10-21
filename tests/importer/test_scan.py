@@ -76,6 +76,17 @@ async def test_new_files_are_pending(db_session: AsyncSession, tmp_path: Path) -
     assert rows["a.mbox"] == ("pending", size, 0, 0, 0)
 
 
+async def test_the_files_can_be_examined_beforehand(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    _mbox(tmp_path / "a.mbox")
+    _mbox(tmp_path / "b.mbox")
+    found = find_mbox_files(tmp_path)  # what the API does in a thread
+    (tmp_path / "b.mbox").unlink()
+    report = await scan(db_session, tmp_path, found)
+    assert report.new == ("a.mbox", "b.mbox")  # as found, not as now
+
+
 async def test_known_files_keep_their_progress(db_session: AsyncSession, tmp_path: Path) -> None:
     done = _mbox(tmp_path / "done.mbox")
     grown = _mbox(tmp_path / "grown.mbox")

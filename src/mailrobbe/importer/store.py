@@ -136,6 +136,11 @@ class Batch:
     def issue_count(self) -> int:
         return sum(len(entry.issues) for entry in self.entries)
 
+    @property
+    def verdict_count(self) -> int:
+        """Mails checked for DKIM: all but those above the size limit or whose check failed."""
+        return sum(entry.verdict is not None for entry in self.entries)
+
 
 class Store:
     """Writes the batches of one worker and remembers person ids across batches."""
