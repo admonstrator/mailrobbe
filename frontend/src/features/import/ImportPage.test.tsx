@@ -122,7 +122,7 @@ describe("run card", () => {
 
     fireEvent.click(button("Pausieren"));
     expect(await heading("Import wird pausiert …")).toBeTruthy();
-    expect(posts(calls, "/api/import/pause")).toHaveLength(1);
+    expect(posts(calls, "/api/import/pause").map((call) => call.body)).toEqual([{}]);
     expect(button("Wird pausiert …")).toHaveProperty("disabled", true);
   });
 
@@ -363,7 +363,7 @@ describe("actions", () => {
     fireEvent.click(button("DKIM-Prüfung abbrechen"));
     expect(await screen.findByText("DKIM-Prüfung wird abgebrochen …")).toBeTruthy();
     expect(button("Wird abgebrochen …")).toHaveProperty("disabled", true);
-    expect(posts(calls, "/api/dkim/recheck/stop")).toHaveLength(1);
+    expect(posts(calls, "/api/dkim/recheck/stop").map((call) => call.body)).toEqual([{}]);
   });
 
   it("tells how the latest DKIM run ended", async () => {

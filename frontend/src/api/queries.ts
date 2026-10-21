@@ -419,7 +419,7 @@ export function useStartImport() {
 export function usePauseImport() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<ImportJob>("/api/import/pause"),
+    mutationFn: () => apiPost<ImportJob>("/api/import/pause", {}),
     onSuccess: (job) => showRun(queryClient, { import_job: job }),
   });
 }
@@ -446,7 +446,7 @@ export function useStartDkimRun() {
 export function useStopDkimRun() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<DkimJob>("/api/dkim/recheck/stop"),
+    mutationFn: () => apiPost<DkimJob>("/api/dkim/recheck/stop", {}),
     onSuccess: (job) => showRun(queryClient, { dkim_job: job }),
   });
 }
