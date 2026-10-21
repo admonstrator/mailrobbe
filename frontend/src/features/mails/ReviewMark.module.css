@@ -1,0 +1,28 @@
+.mark {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 10px;
+  height: 16px;
+  vertical-align: -3px;
+}
+
+.mark::before {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 100%;
+  margin: 0 auto;
+  border-radius: 2px;
+}
+
+.seen::before {
+  background: var(--color-unsigned);
+}
+
+.relevant::before {
+  background: var(--color-accent);
+}
+
+.irrelevant::before {
+  background: var(--color-border-strong);
+}

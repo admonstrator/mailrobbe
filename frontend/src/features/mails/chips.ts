@@ -1,9 +1,10 @@
 // The active filters above the table: one chip per search term and per sidebar filter, each
 // with the list state that removing it leads to.
 
-import type { PersonRole, QueryKey, QueryTerm } from "../../api/types";
+import type { PersonRole, QueryKey, QueryTerm, TagColor, TagRef } from "../../api/types";
 import { DKIM_FILTER_LABELS } from "../../lib/dkim";
 import { formatDay } from "../../lib/format";
+import { REVIEW_LABELS } from "../../lib/research";
 import { withFilters, type ListState } from "./listState";
 import { removeTerm } from "./queryText";
 
@@ -11,12 +12,16 @@ export interface FilterChip {
   id: string;
   label: string;
   next: ListState;
+  /** A tag's colour, shown as a dot. */
+  color?: TagColor;
 }
 
-/** Display names for ids the list state carries. */
+/** Display names for ids the list state carries; undefined for an id not known (any more). */
 export interface ChipNames {
   person: (id: number) => string;
   mboxFile: (id: number) => string;
+  tag: (id: number) => TagRef | undefined;
+  collection: (id: number) => string | undefined;
 }
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
@@ -48,6 +53,7 @@ const BOOLEAN_LABELS = [
   ["external", "Nur extern ↔ intern"],
   ["hide_duplicates", "Ohne Doppelte"],
   ["flagged", "Nur markierte"],
+  ["has_note", "Mit Notiz"],
 ] as const;
 
 function shortList(values: string[]): string {
@@ -118,6 +124,30 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: "between",
       label: `Zwischen ${state.between.map(names.person).join(" und ")}`,
       next: withFilters(state, { between: [] }),
+    });
+  }
+  if (state.review.length) {
+    chips.push({
+      id: "review",
+      label: `Status: ${state.review.map((key) => REVIEW_LABELS[key]).join(", ")}`,
+      next: withFilters(state, { review: [] }),
+    });
+  }
+  for (const id of state.tag) {
+    const tag = names.tag(id);
+    chips.push({
+      id: `tag-${id}`,
+      label: tag ? `Schlagwort: ${tag.name}` : `Schlagwort #${id}`,
+      color: tag?.color,
+      next: withFilters(state, { tag: state.tag.filter((other) => other !== id) }),
+    });
+  }
+  for (const id of state.collection) {
+    const name = names.collection(id);
+    chips.push({
+      id: `collection-${id}`,
+      label: name ? `Akte: ${name}` : `Akte #${id}`,
+      next: withFilters(state, { collection: state.collection.filter((other) => other !== id) }),
     });
   }
   return chips;

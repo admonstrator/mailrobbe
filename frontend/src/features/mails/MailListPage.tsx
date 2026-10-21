@@ -1,8 +1,21 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { ApiError, buildQuery } from "../../api/client";
-import { useMailPage, useMailSummary, useMboxFiles, useStats } from "../../api/queries";
-import type { MailPage, MailSummary } from "../../api/types";
+import {
+  useMailPage,
+  useMailSummary,
+  useMboxFiles,
+  useResearch,
+  useStats,
+} from "../../api/queries";
+import {
+  LABEL_LIMIT,
+  type BulkResult,
+  type MailPage,
+  type MailSelection,
+  type MailSummary,
+} from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { Chip } from "../../components/Chip";
@@ -11,6 +24,9 @@ import { ErrorState } from "../../components/ErrorState";
 import { Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { TAG_PALETTE } from "../../lib/research";
+import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
+import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
 import { ColumnMenu } from "./ColumnMenu";
 import { useColumns } from "./columns";
@@ -25,8 +41,9 @@ import {
   type ListState,
 } from "./listState";
 import styles from "./MailListPage.module.css";
-import { MailTable } from "./MailTable";
+import { MailTable, type TableSelection } from "./MailTable";
 import { invalidTerm } from "./queryText";
+import { SaveSearchDialog } from "./SaveSearchDialog";
 import { formatTotal, SummaryTiles } from "./SummaryTiles";
 import { useListState } from "./useListState";
 
@@ -52,22 +69,70 @@ function personName(page: MailPage | undefined, id: number): string {
   return `#${id}`;
 }
 
-/** The mail list (SPEC 5.1): filters, figures, active filters, one page of mails. */
+/** Mails checked in one view of the list (its query string), or every match of its filters. */
+interface Picked {
+  view: string;
+  ids: number[];
+  all: boolean;
+}
+
+/** "3 Mails geändert", "10 von 12 Mails geändert" when some had the change already. */
+function changedText({ mails, changed }: BulkResult): string {
+  const noun = mails === 1 ? "Mail" : "Mails";
+  return changed === mails
+    ? `${formatNumber(changed)} ${noun} geändert`
+    : `${formatNumber(changed)} von ${formatNumber(mails)} ${noun} geändert`;
+}
+
+/** The mail list (SPEC 5.1): filters, figures, active filters, one page of mails, and the
+ *  research file's work on them: selection and bulk changes, saved searches, export. */
 export function MailListPage() {
   const [state, setState] = useListState();
   const stats = useStats();
   const mboxFiles = useMboxFiles();
+  const research = useResearch();
   const page = useMailPage(toListParams(state));
   const summary = useMailSummary(toFilters(state));
   const [columns, setColumn] = useColumns();
+  const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
+  const [notice, setNotice] = useState<{ text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState<Omit<ExportDialogProps, "onClose"> | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4_000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const mboxPath = (id: number) =>
     mboxFiles.data?.find((file) => file.id === id)?.path ?? `Datei #${id}`;
   const chips = filterChips(state, page.data?.query_terms ?? [], {
     person: (id) => personName(page.data, id),
     mboxFile: mboxPath,
+    tag: (id) => research.data?.tags.find((tag) => tag.id === id),
+    collection: (id) => research.data?.collections.find((other) => other.id === id)?.name,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
+  const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);
+  const exactTotal = summary.data?.exact ? summary.data.total : null;
+
+  // The selection belongs to this view: other filters, search, sort or page start empty.
+  const view = listSearch(state).toString();
+  const items = page.data?.items ?? [];
+  const current = picked.view === view ? picked : { view, ids: [], all: false };
+  const selectedIds = current.all ? items.map((mail) => mail.id) : current.ids;
+  const pick = (ids: number[], all = false) => setPicked({ view, ids, all });
+  const tableSelection: TableSelection = {
+    ids: new Set(selectedIds),
+    onToggle: (id, on) =>
+      pick(on ? [...selectedIds, id] : selectedIds.filter((other) => other !== id)),
+    onTogglePage: (on) => pick(on ? items.map((mail) => mail.id) : []),
+  };
+  // A page has at most 200 mails, below SELECTION_IDS_LIMIT; every match goes as the filters.
+  const selection: MailSelection = current.all
+    ? { filters: toFilters(state) }
+    : { ids: selectedIds };
 
   return (
     <div className={styles.layout}>
@@ -77,6 +142,7 @@ export function MailListPage() {
         onChange={setState}
         stats={stats.data}
         mboxFiles={mboxFiles.data}
+        research={research.data}
       />
       <main className={styles.main}>
         <h1 className="sr-only">Mails</h1>
@@ -84,8 +150,18 @@ export function MailListPage() {
 
         <div className={styles.toolbar}>
           {chips.map((chip) => (
-            <Chip key={chip.id} label={chip.label} onRemove={() => setState(chip.next)} />
+            <Chip
+              key={chip.id}
+              label={chip.label}
+              color={chip.color && TAG_PALETTE[chip.color].text}
+              onRemove={() => setState(chip.next)}
+            />
           ))}
+          {hasFilters(state) && (
+            <Button variant="link" size="sm" onClick={() => setSaving(true)}>
+              Suche speichern
+            </Button>
+          )}
           <span className={styles.hits} aria-live="polite">
             {hitText(summary.data, state)}
           </span>
@@ -112,8 +188,43 @@ export function MailListPage() {
             >
               Export CSV
             </a>
+            <Button
+              onClick={() =>
+                setExporting({ selection: { filters: toFilters(state) }, count: exactTotal, label })
+              }
+            >
+              Exportieren
+            </Button>
           </div>
         </div>
+
+        {selectedIds.length > 0 ? (
+          <BulkBar
+            selected={selectedIds.length}
+            all={current.all}
+            summary={summary.data}
+            selection={selection}
+            onSelectAll={() => pick([], true)}
+            onClear={() => pick([])}
+            onDone={(result) => {
+              pick([]);
+              setNotice({ text: changedText(result) });
+            }}
+            onExport={() =>
+              setExporting({
+                selection,
+                count: current.all ? exactTotal : selectedIds.length,
+                label,
+              })
+            }
+          />
+        ) : (
+          notice && (
+            <p className={styles.notice} role="status">
+              {notice.text}
+            </p>
+          )
+        )}
 
         <Card className={styles.tableCard}>
           {page.isPending ? (
@@ -141,9 +252,10 @@ export function MailListPage() {
             <MailTable
               items={page.data.items}
               columns={columns}
-              detailSearch={listSearch(state).toString()}
+              detailSearch={view}
               mboxPath={mboxPath}
               stale={page.isPlaceholderData}
+              selection={tableSelection}
             />
           )}
         </Card>
@@ -162,6 +274,15 @@ export function MailListPage() {
           />
         )}
       </main>
+
+      {saving && (
+        <SaveSearchDialog
+          query={listSearch({ ...state, cursor: null, page: 1 }).toString()}
+          suggestedName={state.q || chips.map((chip) => chip.label).join(" · ")}
+          onClose={() => setSaving(false)}
+        />
+      )}
+      {exporting && <ExportDialog {...exporting} onClose={() => setExporting(null)} />}
     </div>
   );
 }

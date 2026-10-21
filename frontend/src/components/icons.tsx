@@ -142,3 +142,12 @@ export function CopyIcon(props: IconProps) {
     </Icon>
   );
 }
+
+export function NoteIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z" />
+      <path d="M8 8h8M8 12h5" />
+    </Icon>
+  );
+}
