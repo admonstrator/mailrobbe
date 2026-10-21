@@ -13,6 +13,7 @@ import { PersonsPage } from "./features/persons/PersonsPage";
 import { NotFoundPage } from "./features/placeholder/Placeholders";
 import { AktenPage } from "./features/research/AktenPage";
 import { CollectionPage } from "./features/research/CollectionPage";
+import { SignalsRoute } from "./features/signals/lazyPages";
 import { TimelineRoute } from "./features/timeline/lazyPages";
 
 /** One entry per screen, all inside the shell. */
@@ -29,6 +30,7 @@ export const routes: RouteObject[] = [
       { path: "/anhaenge/:id", element: <DocumentDetailRoute /> },
       { path: "/entitaeten", element: <EntityListRoute /> },
       { path: "/entitaeten/:id", element: <EntityDetailRoute /> },
+      { path: "/auffaelligkeiten", element: <SignalsRoute /> },
       { path: "/karte", element: <GraphPage /> },
       { path: "/zeitachse", element: <TimelineRoute /> },
       { path: "/akten", element: <AktenPage /> },

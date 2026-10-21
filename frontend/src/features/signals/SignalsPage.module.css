@@ -1,0 +1,368 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 24px 24px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+/* What signals are and how to search with them, side by side where both fit. */
+.intro {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 12px 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 16px 24px;
+  background: var(--color-surface);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.introPart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.introPart p {
+  margin: 0;
+  max-width: 75ch;
+}
+
+.introTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.loading {
+  align-items: center;
+  padding: 48px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Settings: when the figures were computed, then the rules' values in a compact grid. */
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.computed {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.notice {
+  margin: 0;
+  border: 1px solid var(--color-no-key);
+  border-radius: var(--radius-control);
+  padding: 8px 12px;
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-size: 13px;
+}
+
+.notice p {
+  margin: 0;
+}
+
+.notice p + p {
+  margin-top: 4px;
+}
+
+.inline {
+  display: block;
+  margin-top: 4px;
+}
+
+.rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 6px 32px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.setting {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.setting dt {
+  color: var(--color-muted);
+}
+
+.setting dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.footnote {
+  margin: 0;
+  max-width: 110ch;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+/* A group of signals: each signal a row with its rule, figures and links, its senders below. */
+.groupNote {
+  margin: -4px 0 0;
+  max-width: 110ch;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.signals {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.signal {
+  display: grid;
+  grid-template-areas:
+    "about figures links"
+    "senders senders senders";
+  grid-template-columns: minmax(0, 1fr) 210px 150px;
+  gap: 4px 24px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 12px 0;
+  scroll-margin-top: 16px;
+}
+
+.signal:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+/* The entry a facet's link leads to. */
+.target {
+  margin-inline: -12px;
+  border-radius: var(--radius-control);
+  padding-inline: 12px;
+  background: var(--color-accent-soft);
+}
+
+.about {
+  grid-area: about;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.rule {
+  margin: 0;
+  max-width: 80ch;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.reason {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.off .name,
+.off .rule {
+  color: var(--color-unsigned);
+}
+
+.figures {
+  grid-area: figures;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.figures strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.share {
+  color: var(--color-muted);
+}
+
+.persons {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.links {
+  grid-area: links;
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.senders {
+  grid-area: senders;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.sendersLabel {
+  color: var(--color-muted);
+}
+
+.senderList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.senderList a:first-child {
+  color: var(--color-text);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Persons fallen silent. */
+.silentHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  scroll-margin-top: 16px;
+}
+
+.silentHead.target {
+  padding-block: 8px;
+}
+
+.silentList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.silentRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px 280px 90px;
+  gap: 4px 24px;
+  align-items: baseline;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 8px 0;
+}
+
+.silentRow:first-child {
+  border-top: 0;
+}
+
+.personName,
+.personName:hover {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personName:hover {
+  text-decoration: underline;
+}
+
+.before {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline {
+  text-align: right;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 899px) {
+  .signal {
+    grid-template-areas:
+      "about"
+      "figures"
+      "links"
+      "senders";
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .figures {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0 8px;
+    text-align: left;
+  }
+
+  .links {
+    justify-content: flex-start;
+  }
+
+  .silentRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 759px) {
+  .page {
+    padding: 16px;
+  }
+
+  .setting {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
