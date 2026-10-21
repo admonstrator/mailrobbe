@@ -78,7 +78,7 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     assert _import(database_url, mbox_dir) == 0
     out = capsys.readouterr().out
     assert "2 MBOX files, 0 new, 0 to import" in caplog.text
-    assert "updated duplicates, threads and display names" in caplog.text
+    assert "updated duplicates, threads, display names and aggregates" in caplog.text
     assert "mails:         50 (0 imported in this run)" in out
 
 
