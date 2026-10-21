@@ -94,6 +94,7 @@ async def test_node_figures_cover_all_counted_edges(db_session: AsyncSession) ->
         "mails": 6,  # 1-3 is below the threshold but counted
         "contacts": 2,
         "center": True,
+        "label": None,
     }
     assert (nodes[2].mails, nodes[2].contacts, nodes[2].center) == (7, 2, False)
     assert graph.mails == 5

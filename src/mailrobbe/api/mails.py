@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
 from mailrobbe import aggregates
+from mailrobbe.api import events, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.filters import (
     Cursor,
@@ -77,6 +78,7 @@ from mailrobbe.db.models import (
     Tag,
 )
 from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import member_ids
 from mailrobbe.signals.model import rules
 
@@ -201,14 +203,20 @@ async def list_mails(
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
     items = [_item(row, people.get(row.id, []), members) for row in rows]
     through_attachments = await _found_through_attachments(session, terms, ids)
+    near_counts = await near.near_counts(session, ids)
+    event_kinds = await events.event_kinds(session, ids)
     for item in items:
         item.attachment_match = item.id in through_attachments
-    return MailPage(
+        item.near_count = near_counts.get(item.id, 0)
+        item.event = event_kinds.get(item.id)
+    page = MailPage(
         items=items,
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         query_terms=terms,
     )
+    await attach_labels(session, page)
+    return page
 
 
 async def _found_through_attachments(

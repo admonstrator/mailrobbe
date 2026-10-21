@@ -3,10 +3,12 @@
 
 import { buildQuery } from "../../api/client";
 import {
+  EVENT_KEYS,
   MAIL_SIGNAL_KINDS,
   PAGE_SIZE,
   type DkimKey,
   type EntityContextKey,
+  type EventKey,
   type MailFilters,
   type MailListParams,
   type MailOrderParams,
@@ -52,6 +54,12 @@ export interface ListState {
   amount_context: EntityContextKey[];
   /** Signals (D136): each of these holds for the mail. */
   signal: SignalKey[];
+  /** Near duplicates (D153): one mail per group; the mails of one group. */
+  collapse_near: boolean;
+  near_group: number | null;
+  /** Calendar invitations (D155): any of these kinds; the mails of one event (its UID). */
+  event: EventKey[];
+  event_uid: string | null;
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -87,6 +95,10 @@ export const DEFAULT_LIST_STATE: ListState = {
   amount_min: null,
   amount_context: [],
   signal: [],
+  collapse_near: false,
+  near_group: null,
+  event: [],
+  event_uid: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -99,6 +111,7 @@ const BOOLEAN_KEYS = [
   "hide_duplicates",
   "external",
   "flagged",
+  "collapse_near",
 ] as const;
 const MAX_LIMIT = 200;
 export const PERSON_ROLES: readonly PersonRole[] = ["sent", "received", "cc"];
@@ -163,6 +176,9 @@ export function parseListState(search: URLSearchParams): ListState {
     search.getAll("amount_context").includes(key),
   );
   state.signal = unique(search.getAll("signal").filter(isSignalKey));
+  state.near_group = positiveInt(search.get("near_group"));
+  state.event = EVENT_KEYS.filter((key) => search.getAll("event").includes(key));
+  state.event_uid = search.get("event_uid")?.trim() || null;
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -195,6 +211,9 @@ export function toFilters(state: ListState): MailFilters {
   if (state.amount_min !== null) filters.amount_min = state.amount_min;
   if (state.amount_context.length) filters.amount_context = state.amount_context;
   if (state.signal.length) filters.signal = state.signal;
+  if (state.near_group !== null) filters.near_group = state.near_group;
+  if (state.event.length) filters.event = state.event;
+  if (state.event_uid) filters.event_uid = state.event_uid;
   return filters;
 }
 

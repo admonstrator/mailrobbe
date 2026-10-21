@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 13): query parameters and responses.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 14): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -115,6 +115,17 @@ Signals (milestone 12, D130 to D139):
     GET  /api/mails/{id}/signals                 MailSignals: the signals of one mail, with why
     GET  /api/persons/{id}/signals               PersonSignals: of the root when id is an alias
 
+Milestone 14 (D150 to D157): quoted text, near duplicates, calendar invitations, named accounts.
+MailText has the text's segments (D151), MailDetail the near duplicates and the events, the
+mail list filters both (collapse_near, near_group, event, event_uid), and every PersonRef,
+PersonSummary and GraphNode carries the label of its address (D156, persons.labels):
+
+    GET  /api/persons/{id}/events                PersonEvents: events the person organised or
+                                                 was invited to (D155), of the root for an alias
+    PUT  /api/persons/{id}/label                 PersonLabelUpdate -> PersonProfile; sets the
+                                                 label of the root's address, or removes it when
+                                                 every field is empty (D156)
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -173,6 +184,11 @@ NOTE_LIMIT = 10_000  # characters of a note
 
 # What an amount, IBAN or account number is written next to (D82; enums.EntityContext).
 EntityContextKey = Literal["cash", "donation", "receipt"]
+
+# Kinds of calendar events (D154): request (an invitation or update: METHOD REQUEST, PUBLISH, ADD
+# or none), reply (an answer: REPLY, COUNTER, DECLINECOUNTER), cancel (CANCEL, or STATUS
+# CANCELLED). Filter, count and display keys.
+EventKey = Literal["request", "reply", "cancel"]
 
 # Review statuses as filter and count keys (D55); unreviewed stands for no status.
 ReviewKey = Literal["unreviewed", "seen", "relevant", "irrelevant"]
@@ -257,6 +273,13 @@ class MailFilters(BaseModel):
     # Signals (D136): each of these holds for the mail; SignalKind values of mails or
     # "term:<theme key>" (signals.model); an unknown key is invalid_filter.
     signal: list[str] = []
+    # Near duplicates (D153): only mails in no group and the first of each group (its
+    # group_id), so a group shows as one mail; the mails of this group.
+    collapse_near: bool = False
+    near_group: int | None = None
+    # Calendar (D155): the mail carries an event of any of these kinds; an event with this UID.
+    event: list[EventKey] = []
+    event_uid: str | None = None
 
 
 class MailOrderParams(MailFilters):
@@ -271,10 +294,20 @@ class MailListParams(MailOrderParams):
 # Mail list ------------------------------------------------------------------------------------
 
 
+class AccountLabel(BaseModel):
+    """The team's label of an address (D156), shown with the person wherever it appears."""
+
+    name: str | None  # Klarname
+    role: str | None  # Rolle
+
+
 class PersonRef(BaseModel):
     person_id: int
     email: str
     name: str | None  # the display name used in this mail, else the person's display name
+    # The label of this address, else of its root, else the newest of the root's other
+    # addresses (D156); set by persons.labels.attach_labels.
+    label: AccountLabel | None = None
 
 
 class QueryTerm(BaseModel):
@@ -307,6 +340,8 @@ class MailListItem(BaseModel):
     notes: int = 0  # notes on the mail
     # q has full text words and the text of one of the mail's attachments matches them (D73)
     attachment_match: bool = False
+    near_count: int = 0  # the other mails of its group of near duplicates (D153); 0: none
+    event: EventKey | None = None  # the kind of the mail's first calendar event (D155)
 
 
 class MailPage(BaseModel):
@@ -349,6 +384,14 @@ class ImportState(BaseModel):
     progress: float  # bytes done / bytes of all files, 0 to 1; 1 without files
 
 
+class NearFigures(BaseModel):
+    """What the last near phase found (D153), from global_stats 'near'."""
+
+    groups: int  # groups of near duplicates
+    mails: int  # mails in them that are no duplicates
+    hidden: int  # mails that collapse_near leaves out (duplicates in a group included)
+
+
 class Stats(BaseModel):
     """Whole-archive figures from global_stats (D19), import state live from mbox_file."""
 
@@ -364,6 +407,9 @@ class Stats(BaseModel):
     internal_domains: list[str]  # MAILROBBE_INTERNAL_DOMAINS; empty: no external filter
     importer: ImportState
     updated_at: datetime | None  # when global_stats were computed; None: never
+    near: NearFigures | None = None  # None: the near phase never ran (D153)
+    # Mails with an event of each kind at the last calendar phase (D155); every key present.
+    events: dict[EventKey, int] = {}
 
 
 class MboxFileInfo(BaseModel):
@@ -529,6 +575,51 @@ class MailResearch(BaseModel):
     notes: list[NoteInfo]  # oldest first
 
 
+class NearMail(ThreadMail):
+    """Another mail of the same group of near duplicates (D153)."""
+
+    recipients: list[PersonRef]  # To, then Cc, then Bcc; at most RECIPIENT_PREVIEW
+    recipient_count: int
+    is_duplicate: bool  # an exact duplicate (D16) of a mail of the group
+
+
+class CalendarAttendee(BaseModel):
+    """An organizer or attendee of an event (D154), as the iCalendar part names it."""
+
+    email: str | None  # lower case; None: no mailto address
+    name: str | None  # CN
+    role: str | None  # ROLE: CHAIR, REQ-PARTICIPANT, OPT-PARTICIPANT, NON-PARTICIPANT
+    partstat: str | None  # PARTSTAT: ACCEPTED, DECLINED, TENTATIVE, NEEDS-ACTION, DELEGATED
+    person: PersonRef | None  # the archive's person of the address; None: not in the archive
+
+
+class CalendarEventInfo(BaseModel):
+    """One event of an iCalendar part of a mail (D154, D155)."""
+
+    id: int
+    mail_id: int
+    kind: EventKey
+    method: str | None  # METHOD as written, upper case
+    uid: str | None
+    sequence: int | None
+    status: str | None  # STATUS: CONFIRMED, TENTATIVE, CANCELLED
+    summary: str | None
+    location: str | None
+    description: str | None  # at most ical.model.DESCRIPTION_LIMIT characters
+    # The wall time as written (no zone, ISO without offset) and its TZID ("UTC" for a time in
+    # UTC); starts_at and ends_at the instant when the zone is known, else None.
+    starts_local: datetime | None
+    ends_local: datetime | None
+    time_zone: str | None
+    starts_at: datetime | None
+    ends_at: datetime | None
+    all_day: bool  # DTSTART is a date: starts_local and ends_local at midnight
+    recurrence: str | None  # RRULE as written
+    organizer: CalendarAttendee | None
+    attendees: list[CalendarAttendee]  # in the order of the part
+    uid_mails: int  # mails with an event of this UID, this one included; 0 without a UID
+
+
 class MailDetail(BaseModel):
     id: int
     subject: str | None
@@ -549,9 +640,31 @@ class MailDetail(BaseModel):
     duplicate_of: int | None
     duplicates: list[int]  # mails that are duplicates of this one; at most DUPLICATES_LIMIT
     research: MailResearch
+    # Near duplicates (D153): its group (the group's first mail id; None: in no group), the
+    # other mails of the group, oldest first, at most NEAR_LIMIT, and the group's size with
+    # this mail (0: in no group).
+    near_group: int | None = None
+    near: list[NearMail] = []
+    near_size: int = 0
+    events: list[CalendarEventInfo] = []  # its calendar events in mail order (D155)
 
 
 # Bodies, read on demand from the MBOX file -------------------------------------------------
+
+
+# Segments of a mail's text (D151): its own words, a quote ('>' lines with the attribution above
+# them), an original message (Outlook's header block and everything after it), a forwarded
+# message (the forward's header block and everything after it), and a signature ("-- " on a
+# line, up to the next segment of another kind or the end).
+SegmentKind = Literal["text", "quote", "original", "forward", "signature"]
+
+
+class TextSegment(BaseModel):
+    kind: SegmentKind
+    start: int  # character offset in MailText.text
+    end: int  # exclusive; the segments cover the text in order, without gaps
+    lines: int  # lines of the segment that are not blank
+    folded: bool  # shown folded at first (D151); the UI opens one holding a search word
 
 
 class MailText(BaseModel):
@@ -559,6 +672,7 @@ class MailText(BaseModel):
     truncated: bool
     source: Literal["text/plain", "text/html", "none"]  # text/html: converted to text
     has_html: bool  # an HTML part exists, so format=html has something to show
+    segments: list[TextSegment] = []  # quotes.split_text (D151); one text segment without any
 
 
 class HeaderField(BaseModel):
@@ -583,14 +697,29 @@ class MailRaw(BaseModel):
 # of mails, which name the address used.
 
 TOP_CONTACTS = 10  # in PersonProfile; all of them come from /api/persons/{id}/contacts
+NEAR_LIMIT = 50  # other mails of a group of near duplicates in MailDetail (D153)
+PERSON_EVENT_LIMIT = 50  # events in PersonEvents (D155)
+LABEL_NAME_LIMIT = 200  # characters of a label's name and of its role (D156)
+LABEL_NOTE_LIMIT = 10_000  # characters of a label's note
 DISPLAY_NAME_LIMIT = 10  # display names listed in PersonProfile
 SUGGESTION_LIMIT = 10  # open alias suggestions listed in PersonProfile
 MERGE_LIMIT = 50  # sources of one merge request
 
 
+class PersonLabelUpdate(BaseModel):
+    """The label of a person's root address (D156); blank fields are removed, all blank removes
+    the label."""
+
+    name: str = Field("", max_length=LABEL_NAME_LIMIT)
+    role: str = Field("", max_length=LABEL_NAME_LIMIT)
+    note: str = Field("", max_length=LABEL_NOTE_LIMIT)
+
+
 class PersonListParams(BaseModel):
-    # Part of an address or display name of the person or of one of its aliases, any case.
+    # Part of an address, display name, label name or role (D157) of the person or of one of
+    # its aliases, any case.
     q: str = ""
+    labelled: bool = False  # only persons with a label (D157)
     sort: PersonSort = "mails"
     cursor: str | None = None  # next_cursor or prev_cursor of a PersonPage with the same q, sort
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
@@ -642,6 +771,7 @@ class PersonSummary(BaseModel):
     domain: str
     aliases: int  # addresses merged into this person
     figures: PersonFigures
+    label: AccountLabel | None = None  # D156, as PersonRef.label for the root
 
 
 class PersonPage(BaseModel):
@@ -675,6 +805,7 @@ class AliasAddress(BaseModel):
     email: str
     name: str | None
     mails: int  # mails this address takes part in that are not duplicates
+    label: AccountLabel | None = None  # the label of this address itself (D156)
 
 
 class DisplayNameCount(BaseModel):
@@ -709,6 +840,15 @@ class SuggestionPage(BaseModel):
     total: int  # every open suggestion
 
 
+class PersonLabel(AccountLabel):
+    """A label with its note and who set it (D156), in the profile."""
+
+    email: str  # the address it belongs to: the root's own, or one of its aliases'
+    note: str | None
+    editor: str | None  # D54
+    updated_at: datetime
+
+
 class PersonProfile(BaseModel):
     id: int  # the root; differs from the requested id when that was an alias
     name: str | None
@@ -720,6 +860,21 @@ class PersonProfile(BaseModel):
     years: list[YearActivity]  # oldest first; only years with mails
     top_contacts: list[Contact]  # most mails first, at most TOP_CONTACTS
     suggestions: list[AliasCandidate]  # most mails first, at most SUGGESTION_LIMIT
+    label: PersonLabel | None = None  # D156: the label the person shows, with its note
+
+
+class PersonEvent(BaseModel):
+    """An event of a person (D155): one per UID, the latest mail carrying it."""
+
+    event: CalendarEventInfo
+    organizer: bool  # the person (one of its addresses) organised it; else it is an attendee
+    partstat: str | None  # the person's answer as an attendee, from the latest reply or the event
+    mail: ThreadMail  # the mail carrying the event
+
+
+class PersonEvents(BaseModel):
+    items: list[PersonEvent]  # latest start first (undated last), at most PERSON_EVENT_LIMIT
+    total: int  # distinct events of the person
 
 
 class PersonMailCounts(BaseModel):
@@ -774,6 +929,7 @@ class GraphNode(BaseModel):
     mails: int  # weight of all the person's counted edges, shown or not (D37)
     contacts: int  # persons with a counted edge to this one
     center: bool  # a center of the ego mode
+    label: AccountLabel | None = None  # D156, as PersonRef.label for the root
 
 
 class GraphEdge(BaseModel):

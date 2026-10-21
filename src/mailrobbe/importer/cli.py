@@ -1,16 +1,17 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction, entities, signals and topics.
+text extraction, calendar, near duplicates, entities, signals and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
 it, D52), import, finalize, attachments (only when documents wait for their text, D72),
-entities (only when texts wait for their scan, D84), signals (always, D135) and topics (only
-when the archive changed since they were computed, D146), and reports its figures
+calendar (only when mails wait for a look, D154), near (fingerprints when mails wait for one,
+groups always, D153), entities (only when texts wait for their scan, D84), signals (always,
+D135) and topics (only when the archive changed since they were computed, D146), and reports
+its figures
 (ImportFigures) every few seconds, with one step per phase and per part of the finalize and the
 topics (STEPS, D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the
 workers store their batch, the files pause, the global figures count what is stored, and the
-finalize, the attachments, the entities, the signals and the topics are left to the next run;
-during the attachments, entities and signals phases, what is stored so far stays, and the topics
-stay as last computed.
+finalize and every later phase are left to the next run; during the attachments, calendar, near,
+entities and signals phases, what is stored so far stays, and the topics stay as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error, the signals phase failed (a time zone PostgreSQL does not know, D133) or the
@@ -37,6 +38,7 @@ from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.entities import phase as entities
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
+from mailrobbe.ical import phase as calendar
 from mailrobbe.importer import finalize, headers
 from mailrobbe.importer.runner import (
     DEFAULT_PIPELINE,
@@ -48,6 +50,7 @@ from mailrobbe.importer.runner import (
 from mailrobbe.importer.scan import ScanReport, find_mbox_files, scan
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
 from mailrobbe.jobs import ImportOptions, application_name
+from mailrobbe.near import phase as near
 from mailrobbe.signals import phase as signals
 from mailrobbe.signals.model import rules as signal_rules
 from mailrobbe.topics import phase as topics
@@ -62,6 +65,8 @@ STEPS = (
     "import",
     *finalize.STEPS,
     "attachments",
+    "calendar",
+    *near.STEPS,
     "entities",
     "signals",
     *topics.STEPS,
@@ -193,6 +198,10 @@ async def _import(
         extracted = await _extract_texts(
             sessionmaker, settings, mbox_dir, workers, job, figures, extract
         )
+    if not stop.is_set():
+        await _scan_calendar(sessionmaker, mbox_dir, workers, job)
+    if not stop.is_set():
+        await _find_near(sessionmaker, job)
     scanned = 0
     if not stop.is_set():
         scanned = await _scan_entities(sessionmaker, workers, job)
@@ -306,6 +315,36 @@ async def _extract_texts(
     return result.stored
 
 
+async def _scan_calendar(
+    sessionmaker: async_sessionmaker[AsyncSession], mbox_dir: Path, workers: int, job: JobRun
+) -> None:
+    """The calendar phase (D154), when mails wait for a look at their calendar parts."""
+    async with sessionmaker() as session:
+        waiting = await calendar.waiting(session)
+    if not waiting:
+        job.steps.skip("calendar")
+        return
+    job.set_phase("calendar")
+    with job.steps.step("calendar", unit="mails", total=waiting) as step:
+        await calendar.scan_calendar(sessionmaker, mbox_dir, workers, job.stop, step)
+
+
+async def _find_near(sessionmaker: async_sessionmaker[AsyncSession], job: JobRun) -> None:
+    """The near phase (D153): fingerprints when mails wait for one, then the groups."""
+    job.set_phase("near")
+    async with sessionmaker() as session:
+        waiting = await near.waiting(session)
+    if waiting:
+        with job.steps.step("near_texts", unit="mails", total=waiting) as step:
+            await near.fingerprint_mails(sessionmaker, job.stop, step)
+    else:
+        job.steps.skip("near_texts")
+    if job.stop.is_set():
+        return
+    with job.steps.step("near_groups") as step:
+        await near.group_mails(sessionmaker, job.stop, step)
+
+
 async def _scan_entities(
     sessionmaker: async_sessionmaker[AsyncSession], workers: int, job: JobRun
 ) -> int:
@@ -409,6 +448,17 @@ async def _summary(
     ).one()
     persons = await session.scalar(text("SELECT count(*) FROM person"))
     found = await session.scalar(text("SELECT count(*) FROM entity"))
+    events, invited = (
+        await session.execute(text("SELECT count(*), count(DISTINCT mail_id) FROM calendar_event"))
+    ).one()
+    groups, grouped = (
+        await session.execute(
+            text(
+                "SELECT count(DISTINCT group_id), count(*) FROM mail_near "
+                "WHERE group_id IS NOT NULL"
+            )
+        )
+    ).one()
     signalled = await session.scalar(text("SELECT count(DISTINCT mail_id) FROM mail_signal"))
     silent = await session.scalar(
         text("SELECT count(*) FROM person_signal WHERE signal = 'silent'")
@@ -440,6 +490,8 @@ async def _summary(
         f"import errors: {errors}" + (f" ({by_kind})" if kinds else ""),
         f"documents:     {documents.total()} ({with_text} with text, {waiting} waiting; "
         f"{extracted} stored in this run)",
+        f"calendar:      {events} events in {invited} mails",
+        f"near:          {groups} groups of near duplicates, {grouped} mails in them",
         f"entities:      {found} ({scanned} texts scanned in this run)",
         f"signals:       {signalled} mails with a signal, {silent} persons silent",
         f"topics:        {_topics_line(computed)}",

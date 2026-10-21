@@ -81,6 +81,8 @@ async def test_stats_are_the_figures_of_the_archive(
             "files_done": figures.done,
             "progress": min(1.0, figures.progress),
         },
+        "near": None,  # until an import computed near duplicates (D153)
+        "events": {"request": 0, "reply": 0, "cancel": 0},
     }
     assert len(stats["dkim"]) == 7
 

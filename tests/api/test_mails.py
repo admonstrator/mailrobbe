@@ -437,7 +437,12 @@ async def test_items_show_the_mail_and_its_participants(
     assert any(len(order.get(mail_id, [])) > RECIPIENT_PREVIEW + 1 for mail_id in items)
 
     def ref(person: Any) -> dict[str, Any]:
-        return {"person_id": person.id, "email": person.canonical_email, "name": person.name}
+        return {
+            "person_id": person.id,
+            "email": person.canonical_email,
+            "name": person.name,
+            "label": None,
+        }
 
     for mail in mails:
         item = items[mail.id]
@@ -465,6 +470,8 @@ async def test_items_show_the_mail_and_its_participants(
             "tags": [],
             "notes": 0,
             "attachment_match": False,
+            "near_count": 0,
+            "event": None,
         }
 
 

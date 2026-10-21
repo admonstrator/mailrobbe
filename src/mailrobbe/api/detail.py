@@ -21,7 +21,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from mailrobbe.api import body
+from mailrobbe.api import body, events, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.schemas import (
     DUPLICATES_LIMIT,
@@ -76,6 +76,7 @@ from mailrobbe.dkim.keys.store import load_candidates
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
 from mailrobbe.mbox import read_verified
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
 from mailrobbe.preview.kinds import preview_kind
 
@@ -152,7 +153,8 @@ async def mail_detail(mail_id: MailId, session: Session, settings: AppSettings) 
     if mail is None:
         raise _not_found(mail_id)
     thread, thread_size = await _thread(session, mail_id, mail.thread_id)
-    return MailDetail(
+    group = await near.near_group(session, mail_id)
+    detail = MailDetail(
         id=mail.id,
         subject=mail.subject,
         date=mail.date_utc,
@@ -189,7 +191,13 @@ async def mail_detail(mail_id: MailId, session: Session, settings: AppSettings) 
             collections=await collection_refs(session, mail.raw_sha256),
             notes=await mail_notes(session, mail.raw_sha256),
         ),
+        near_group=group.group_id,
+        near=group.mails,
+        near_size=group.size,
+        events=await events.mail_events(session, mail_id),
     )
+    await attach_labels(session, detail)
+    return detail
 
 
 @router.get("/mails/{mail_id}/body", response_model=None)

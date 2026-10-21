@@ -85,7 +85,12 @@ async def stored(url: str, mail_id: int) -> set[str]:
 
 
 def person(row: Any) -> dict[str, Any]:
-    return {"person_id": row.id, "email": row.canonical_email, "name": row.display_name}
+    return {
+        "person_id": row.id,
+        "email": row.canonical_email,
+        "name": row.display_name,
+        "label": None,
+    }
 
 
 # Overview ------------------------------------------------------------------------------------
@@ -388,7 +393,7 @@ def expected_persons(
     for row in chosen:
         once.setdefault(row.id, row)
     return [
-        {"person_id": row.id, "email": row.canonical_email, "name": row.name}
+        {"person_id": row.id, "email": row.canonical_email, "name": row.name, "label": None}
         for row in once.values()
     ]
 

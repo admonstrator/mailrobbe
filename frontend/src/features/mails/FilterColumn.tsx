@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { DkimKey, MboxFileInfo, ResearchOverview, Stats } from "../../api/types";
+import {
+  EVENT_KEYS,
+  type DkimKey,
+  type MboxFileInfo,
+  type ResearchOverview,
+  type Stats,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { DkimDot } from "../../components/DkimDot";
@@ -8,6 +14,7 @@ import { DKIM_FILTER_LABELS, DKIM_KEYS } from "../../lib/dkim";
 import { formatNumber, utcDay } from "../../lib/format";
 import { parseAmount } from "../entities/amount";
 import { CONTEXT_LABELS, ENTITY_CONTEXTS } from "../entities/labels";
+import { EVENT_LABELS } from "./chips";
 import { DomainDialog } from "./DomainDialog";
 import styles from "./FilterColumn.module.css";
 import { withFilters, withoutSidebarFilters, type FilterPatch, type ListState } from "./listState";
@@ -157,7 +164,17 @@ export function FilterColumn({
         >
           Doppelte ausblenden
         </Checkbox>
+        {((stats?.near?.groups ?? 0) > 0 || state.collapse_near) && (
+          <Checkbox
+            checked={state.collapse_near}
+            onChange={(collapse_near) => change({ collapse_near })}
+          >
+            Dubletten zusammenfassen
+          </Checkbox>
+        )}
       </fieldset>
+
+      <EventFilters state={state} change={change} stats={stats} />
 
       <div className={styles.group}>
         <label htmlFor="filter-mbox" className={styles.legend}>
@@ -329,6 +346,41 @@ function AmountFilters({
           </Checkbox>
         ))}
       </div>
+    </fieldset>
+  );
+}
+
+/** Calendar mails (D155), shown once the archive holds any. */
+function EventFilters({
+  state,
+  change,
+  stats,
+}: {
+  state: ListState;
+  change: (patch: FilterPatch) => void;
+  stats: Stats | undefined;
+}) {
+  const shown = EVENT_KEYS.filter(
+    (key) => (stats?.events[key] ?? 0) > 0 || state.event.includes(key),
+  );
+  if (shown.length === 0) return null;
+  function toggle(key: (typeof EVENT_KEYS)[number], checked: boolean) {
+    const next = checked ? [...state.event, key] : state.event.filter((other) => other !== key);
+    change({ event: EVENT_KEYS.filter((other) => next.includes(other)) });
+  }
+  return (
+    <fieldset className={styles.group}>
+      <legend className={styles.legend}>Termine</legend>
+      {shown.map((key) => (
+        <Checkbox
+          key={key}
+          checked={state.event.includes(key)}
+          onChange={(checked) => toggle(key, checked)}
+          count={stats?.events[key]}
+        >
+          {EVENT_LABELS[key]}
+        </Checkbox>
+      ))}
     </fieldset>
   );
 }

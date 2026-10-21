@@ -131,6 +131,7 @@ class Seed:
             "domain": person.domain,
             "aliases": len(self.aliases.get(person_id, [])),
             "figures": self.figures(person_id),
+            "label": None,
         }
 
     def mails(self, person_id: int) -> int:
@@ -151,6 +152,7 @@ class Seed:
                         "person_id": other,
                         "email": person.canonical_email,
                         "name": person.display_name,
+                        "label": None,
                     },
                     "domain": person.domain,
                     "mails": edge["a_to_b"] + edge["b_to_a"] + edge["cc"],
@@ -535,6 +537,7 @@ async def expected_aliases(seed: Seed, root: int) -> list[Json]:
             "email": row.canonical_email,
             "name": row.display_name,
             "mails": row.mails,
+            "label": None,
         }
         for row in sorted(found, key=lambda row: (row.mails, row.id), reverse=True)
     ]
@@ -577,6 +580,7 @@ async def test_the_profile_of_a_person_with_aliases(seeded: httpx.AsyncClient, s
         ],
         "top_contacts": contacts[:TOP_CONTACTS],
         "suggestions": seed.candidates(root),
+        "label": None,
     }
     assert len(expected["suggestions"]) == 3
     for requested in (root, *seed.aliases[root]):

@@ -138,6 +138,8 @@ export const stats: Stats = {
   internal_domains: ["nordlicht-gmbh.example"],
   importer: { running: true, files_total: 72, files_done: 51, progress: 0.713 },
   updated_at: "2026-10-20T01:14:00Z",
+  near: { groups: 1840, mails: 4120, hidden: 2510 },
+  events: { request: 312, reply: 148, cancel: 21 },
 };
 
 export const mboxFiles: MboxFileInfo[] = [
@@ -215,6 +217,8 @@ function item(
     tags: [],
     notes: 0,
     attachment_match: false,
+    near_count: 0,
+    event: null,
     ...extra,
   };
 }
@@ -482,6 +486,10 @@ export const mailDetail: MailDetail = {
       },
     ],
   },
+  near_group: null,
+  near: [],
+  near_size: 0,
+  events: [],
 };
 
 /** The hits of "Haftung" in mailDetail (D79): its text, its quoted part, two attachments. */
@@ -524,6 +532,7 @@ export const mailText: MailText = {
   truncated: false,
   source: "text/plain",
   has_html: true,
+  segments: [],
 };
 
 export const mailHeaders: MailHeaders = {
@@ -773,6 +782,7 @@ export const annaProfile: PersonProfile = {
     { person: ps.annaPost, same_name: "anna keller", same_local_part: null },
     { person: ps.annaShort, same_name: null, same_local_part: "a.keller" },
   ],
+  label: null,
 };
 
 /** Anna's profile after merging keller.anna@post.example (23) into her. */

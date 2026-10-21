@@ -9,7 +9,8 @@ attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL O
 (full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
 mail's own text alone. The entity and amount filters (D86) take the same two forms over the
 mentions of the mail and of its attachments' documents (_mentioned), the signal filter (D136)
-over the rows the last signals phase stored in mail_signal (_signal).
+over the rows the last signals phase stored in mail_signal (_signal). Near duplicates (D153)
+and calendar events (D155) are EXISTS subqueries on mail_near and calendar_event.
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -69,6 +70,7 @@ from mailrobbe.db.models import (
     TEXT_SEARCH_CONFIG,
     TIMESTAMPTZ,
     Attachment,
+    CalendarEvent,
     CollectionMail,
     Document,
     DocumentEntity,
@@ -76,6 +78,7 @@ from mailrobbe.db.models import (
     Mail,
     MailEntity,
     MailMark,
+    MailNear,
     MailSignal,
     MailTag,
     Note,
@@ -181,6 +184,15 @@ def mail_conditions(
         where.append(_mentions_amount(filters.amount_min, filters.amount_context))
     # Signals (D136): each listed signal.
     where += [_signal(key) for key in sorted(set(filters.signal))]
+    # Near duplicates (D153) and calendar events (D155).
+    if filters.collapse_near:
+        where.append(_near_first())
+    if filters.near_group is not None:
+        where.append(_near(MailNear.group_id == filters.near_group))
+    if filters.event:
+        where.append(_event(CalendarEvent.kind.in_(sorted(set(filters.event)))))
+    if filters.event_uid is not None:
+        where.append(_event(CalendarEvent.uid == filters.event_uid))
     return where
 
 
@@ -494,6 +506,24 @@ def _signal(key: str) -> ColumnElement[bool]:
     )
     _WALK_FORMS[found] = func.coalesce(held, false())
     return found
+
+
+# Near duplicates (D153) and calendar events (D155) -------------------------------------------
+
+
+def _near_first() -> ColumnElement[bool]:
+    """collapse_near (D153): the mail is in no group, or no earlier mail of its group meets the
+    other conditions. Placeholder until then: the group's first mail."""
+    return ~exists().where(MailNear.mail_id == Mail.id, MailNear.group_id != Mail.id)
+
+
+def _near(condition: ColumnElement[bool]) -> ColumnElement[bool]:
+    return exists().where(MailNear.mail_id == Mail.id, condition)
+
+
+def _event(condition: ColumnElement[bool]) -> ColumnElement[bool]:
+    """One of the mail's calendar events meets the condition."""
+    return exists().where(CalendarEvent.mail_id == Mail.id, condition)
 
 
 # Order and keyset ----------------------------------------------------------------------------

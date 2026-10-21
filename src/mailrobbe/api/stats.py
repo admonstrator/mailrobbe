@@ -15,9 +15,18 @@ from mailrobbe import aggregates, jobs
 from mailrobbe.api.deps import AppSettings, Session
 from mailrobbe.api.filters import internal_domains
 from mailrobbe.api.query import DKIM_KEYS
-from mailrobbe.api.schemas import TOP_SENDER_DOMAINS, DomainCount, ImportState, MboxFileInfo, Stats
+from mailrobbe.api.schemas import (
+    TOP_SENDER_DOMAINS,
+    DomainCount,
+    ImportState,
+    MboxFileInfo,
+    NearFigures,
+    Stats,
+)
 from mailrobbe.db.models import MboxFile
 from mailrobbe.enums import JobKind
+from mailrobbe.ical import model as calendar
+from mailrobbe.near import model as near
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
@@ -35,6 +44,8 @@ async def stats(session: Session, settings: AppSettings) -> Stats:
     figures = await aggregates.current_global_stats(session, settings.stats_max_age)
     top = await aggregates.read_sender_domains(session, limit=TOP_SENDER_DOMAINS)
     files, done, bytes_done, size = (await session.execute(_IMPORT_STATE)).one()
+    near_figures = await near.read_figures(session)
+    events = await calendar.read_figures(session)
     return Stats(
         mails=figures.mails,
         persons=figures.persons,
@@ -53,6 +64,12 @@ async def stats(session: Session, settings: AppSettings) -> Stats:
             progress=min(1.0, bytes_done / size) if size else 1.0,
         ),
         updated_at=figures.updated_at,
+        near=None
+        if near_figures is None
+        else NearFigures(
+            groups=near_figures.groups, mails=near_figures.mails, hidden=near_figures.hidden
+        ),
+        events={kind: events.mails[kind] if events else 0 for kind in calendar.EVENT_KINDS},
     )
 
 

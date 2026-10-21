@@ -94,6 +94,7 @@ async def test_ego_graph(graph_client: httpx.AsyncClient) -> None:
         "mails": 14,
         "contacts": 3,
         "center": True,
+        "label": None,
     }
     assert [(n["id"], n["kind"], n["center"]) for n in graph["nodes"]] == [
         (1, None, True),

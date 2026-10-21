@@ -38,6 +38,10 @@ export type SortOrder = "date_desc" | "date_asc";
 export type ReviewStatus = "seen" | "relevant" | "irrelevant";
 /** Filter and count keys: the statuses plus "unreviewed" for mails without one. */
 export type ReviewKey = "unreviewed" | ReviewStatus;
+/** Kinds of calendar events (D154): request (an invitation or update), reply (an answer),
+ *  cancel (a cancellation). */
+export type EventKey = "request" | "reply" | "cancel";
+export const EVENT_KEYS: readonly EventKey[] = ["request", "reply", "cancel"];
 /** Tag colours (D57); lib/research.ts maps them to colour pairs. */
 export type TagColor = "blue" | "teal" | "green" | "amber" | "red" | "pink" | "violet" | "gray";
 
@@ -114,6 +118,11 @@ export interface MailFilters {
   amount_min?: number; // an amount of at least this value is mentioned, any currency
   amount_context?: EntityContextKey[]; // such an amount next to any of these contexts
   signal?: SignalKey[]; // each of these signals holds for the mail (D136)
+  /** Only mails in no group of near duplicates and the first of each group (D153). */
+  collapse_near?: boolean;
+  near_group?: number; // the mails of this group of near duplicates (its first mail's id)
+  event?: EventKey[]; // carries a calendar event of any of these kinds (D155)
+  event_uid?: string; // carries a calendar event with this UID
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -127,10 +136,19 @@ export interface MailListParams extends MailOrderParams {
 
 // Mail list -------------------------------------------------------------------------------------
 
+/** The team's label of an address (D156): Klarname and Rolle. */
+export interface AccountLabel {
+  name: string | null;
+  role: string | null;
+}
+
 export interface PersonRef {
   person_id: number;
   email: string;
-  name: string | null;
+  name: string | null; // the display name used in this mail, else the person's
+  /** The label of the address, else of its root, else the newest of the root's other
+   *  addresses (D156); lib/person.ts reads it. */
+  label?: AccountLabel | null;
 }
 
 export interface QueryTerm {
@@ -160,6 +178,8 @@ export interface MailListItem {
   notes: number;
   /** q has full text words and the text of one of its attachments matches them (D73). */
   attachment_match: boolean;
+  near_count: number; // the other mails of its group of near duplicates (D153); 0: none
+  event: EventKey | null; // the kind of the mail's first calendar event (D155)
 }
 
 export interface MailPage {
@@ -212,6 +232,15 @@ export interface Stats {
   internal_domains: string[];
   importer: ImportState;
   updated_at: string | null;
+  near: NearFigures | null; // null: the near phase never ran (D153)
+  events: Record<EventKey, number>; // mails with an event of each kind (D155)
+}
+
+/** What the last near phase found (D153). */
+export interface NearFigures {
+  groups: number;
+  mails: number; // in groups, duplicates not counted
+  hidden: number; // mails collapse_near leaves out
 }
 
 export interface MboxFileInfo {
@@ -356,15 +385,76 @@ export interface MailDetail {
   duplicate_of: number | null;
   duplicates: number[];
   research: MailResearch;
+  /** Near duplicates (D153): the group's first mail id (null: in no group), the other mails of
+   *  the group, oldest first, at most NEAR_LIMIT, and the group's size with this mail. */
+  near_group: number | null;
+  near: NearMail[];
+  near_size: number;
+  events: CalendarEventInfo[]; // its calendar events in mail order (D155)
+}
+
+export const NEAR_LIMIT = 50;
+
+export interface NearMail extends ThreadMail {
+  recipients: PersonRef[]; // at most RECIPIENT_PREVIEW
+  recipient_count: number;
+  is_duplicate: boolean;
+}
+
+/** An organizer or attendee of an event (D154). */
+export interface CalendarAttendee {
+  email: string | null;
+  name: string | null; // CN
+  role: string | null; // CHAIR, REQ-PARTICIPANT, OPT-PARTICIPANT, NON-PARTICIPANT
+  partstat: string | null; // ACCEPTED, DECLINED, TENTATIVE, NEEDS-ACTION, DELEGATED
+  person: PersonRef | null; // the archive's person of the address
+}
+
+/** One event of an iCalendar part of a mail (D154, D155). */
+export interface CalendarEventInfo {
+  id: number;
+  mail_id: number;
+  kind: EventKey;
+  method: string | null;
+  uid: string | null;
+  sequence: number | null;
+  status: string | null;
+  summary: string | null;
+  location: string | null;
+  description: string | null;
+  /** Wall time as written, ISO without offset, and its TZID ("UTC" for a time in UTC); the
+   *  instants when the zone is known. */
+  starts_local: string | null;
+  ends_local: string | null;
+  time_zone: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  all_day: boolean;
+  recurrence: string | null; // RRULE as written
+  organizer: CalendarAttendee | null;
+  attendees: CalendarAttendee[];
+  uid_mails: number; // mails with an event of this UID, this one included; 0 without a UID
 }
 
 // Bodies --------------------------------------------------------------------------------------
+
+/** Segments of a mail's text (D151). */
+export type SegmentKind = "text" | "quote" | "original" | "forward" | "signature";
+
+export interface TextSegment {
+  kind: SegmentKind;
+  start: number; // character offset in MailText.text
+  end: number; // exclusive; the segments cover the text in order, without gaps
+  lines: number; // lines that are not blank
+  folded: boolean; // shown folded at first; the UI opens one holding a search word
+}
 
 export interface MailText {
   text: string;
   truncated: boolean;
   source: "text/plain" | "text/html" | "none";
   has_html: boolean;
+  segments: TextSegment[];
 }
 
 export interface HeaderField {
@@ -391,7 +481,9 @@ export const SUGGESTION_LIMIT = 10;
 export const MERGE_LIMIT = 50;
 
 export interface PersonListParams {
-  q?: string; // part of an address or display name of the person or an alias
+  /** Part of an address, display name, label name or role of the person or an alias. */
+  q?: string;
+  labelled?: boolean; // only persons with a label (D157)
   sort?: PersonSort;
   cursor?: string;
   limit?: number;
@@ -439,6 +531,7 @@ export interface PersonSummary {
   domain: string;
   aliases: number;
   figures: PersonFigures;
+  label?: AccountLabel | null; // D156
 }
 
 export interface PersonPage {
@@ -470,6 +563,7 @@ export interface AliasAddress {
   email: string;
   name: string | null;
   mails: number;
+  label?: AccountLabel | null; // the label of this address itself (D156)
 }
 
 export interface DisplayNameCount {
@@ -513,6 +607,40 @@ export interface PersonProfile {
   years: YearActivity[]; // oldest first
   top_contacts: Contact[];
   suggestions: AliasCandidate[];
+  label: PersonLabel | null; // the label the person shows, with its note (D156)
+}
+
+export const LABEL_NAME_LIMIT = 200;
+export const LABEL_NOTE_LIMIT = 10_000;
+
+/** A label with its note and who set it (D156). */
+export interface PersonLabel extends AccountLabel {
+  email: string; // the address it belongs to: the root's own or an alias's
+  note: string | null;
+  editor: string | null;
+  updated_at: string;
+}
+
+/** PUT /api/persons/{id}/label: blank fields are removed, all blank removes the label. */
+export interface PersonLabelUpdate {
+  name: string;
+  role: string;
+  note: string;
+}
+
+export const PERSON_EVENT_LIMIT = 50;
+
+/** An event of a person (D155): one per UID, the latest mail carrying it. */
+export interface PersonEvent {
+  event: CalendarEventInfo;
+  organizer: boolean; // the person organised it; else it is an attendee
+  partstat: string | null; // its answer as an attendee
+  mail: ThreadMail;
+}
+
+export interface PersonEvents {
+  items: PersonEvent[]; // latest start first, undated last
+  total: number;
 }
 
 /** Mails per tab; null where counting ran out of time. */
@@ -558,6 +686,7 @@ export interface GraphNode {
   mails: number; // weight of all the person's counted edges, shown or not
   contacts: number;
   center: boolean;
+  label?: AccountLabel | null; // D156
 }
 
 export interface GraphEdge {
@@ -597,7 +726,16 @@ export type JobKind = "import" | "dkim" | "dkim_keys";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
 export type ImportPhase =
-  "scan" | "headers" | "import" | "finalize" | "attachments" | "entities" | "signals" | "topics";
+  | "scan"
+  | "headers"
+  | "import"
+  | "finalize"
+  | "attachments"
+  | "calendar"
+  | "near"
+  | "entities"
+  | "signals"
+  | "topics";
 export type DkimPhase = "check" | "aggregates";
 export type DnsStatus = "found" | "not_found" | "temp_error";
 export type ImportErrorKind =

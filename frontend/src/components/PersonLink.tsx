@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 
 import type { PersonRef } from "../api/types";
+import { personName } from "../lib/person";
 
 export function personPath(personId: number): string {
   return `/personen/${personId}`;
@@ -10,7 +11,7 @@ export function personPath(personId: number): string {
 export function PersonLink({ person, className }: { person: PersonRef; className?: string }) {
   return (
     <Link to={personPath(person.person_id)} className={className}>
-      {person.name || person.email}
+      {personName(person)}
     </Link>
   );
 }
