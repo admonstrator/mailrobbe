@@ -25,7 +25,8 @@ const distance = (positions: Positions, a: number, b: number) => {
 function synthetic(n: number): LayoutInput {
   const nodes = Array.from({ length: n }, (_, i) => ({
     id: i + 1,
-    size: 12 + ((i * 37) % 50),
+    size: 12 + ((i * 37) % 29), // the diameters of elements.ts, 12 to 40
+
     domain: `d${i % 7}.example`,
     mails: n - i,
   }));
@@ -68,6 +69,43 @@ describe("layouts", () => {
     expect(kept.get(12)).toEqual({ x: 650, y: -150 });
     // The others start next to their fixed neighbours and stay near them.
     expect(distance(kept, 11, 18)).toBeLessThan(800);
+  });
+
+  it("keep the nodes of a skewed excerpt apart in every layout", () => {
+    // One person with a thousand times the mails of the others, joined to all of them.
+    const skewed = graphVisuals(
+      {
+        ...graph,
+        centers: [],
+        nodes: Array.from({ length: 40 }, (_, i) => ({
+          ...graph.nodes[1],
+          id: i + 1,
+          center: false,
+          domain: `d${i % 3}.example`,
+          mails: i === 0 ? 100_000 : 100 - i,
+        })),
+        edges: Array.from({ length: 39 }, (_, i) => ({
+          source: 1,
+          target: i + 2,
+          a_to_b: 90,
+          b_to_a: 0,
+          cc: 0,
+          weight: 90,
+        })),
+      },
+      { color: true },
+    );
+    const skewedInput = { nodes: skewed.nodes, edges: skewed.edges, roots: skewed.roots };
+    for (const layout of ["force", "domains", "circle", "tree"] as const) {
+      const positions = computeLayout(layout, skewedInput);
+      for (const a of skewed.nodes) {
+        for (const b of skewed.nodes) {
+          if (a.id < b.id) {
+            expect(distance(positions, a.id, b.id), layout).toBeGreaterThan((a.size + b.size) / 2);
+          }
+        }
+      }
+    }
   });
 
   it("force copes with 2,000 nodes", () => {
