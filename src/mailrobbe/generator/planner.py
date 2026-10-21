@@ -554,6 +554,9 @@ class Planner:
         references = (*thread.references, parent.message_id)
         if len(references) > MAX_REFERENCES:
             references = (references[0], *references[-(MAX_REFERENCES - 1) :])
+        # The main rng draws subject, Message-ID, then attachments, in this order.
+        subject = reply_subject(parent.subject, client, replier.language, rng)
+        message_id = self._message_id(client, sender.domain, when)
         attachments = self._attachments(MailKind.REPLY, when, client)
         if attachments and not self._large_now:
             attachments = self._documents.again(parent.attachments, attachments)
@@ -564,8 +567,8 @@ class Planner:
             sender=sender,
             to=to,
             cc=cc,
-            subject=reply_subject(parent.subject, client, replier.language, rng),
-            message_id=self._message_id(client, sender.domain, when),
+            subject=subject,
+            message_id=message_id,
             in_reply_to=parent.message_id,
             references=references,
             thread_index=thread.root,
@@ -752,10 +755,12 @@ class Planner:
             shared = f"{sender}:{filename}" if name.startswith("Katalog") else None
             return (documents.attach(spec, name, when, circulate=False, shared=shared),)
         specs: list[AttachmentSpec] = []
+        planned: set[str] = set()  # the drawn names: the pool may hand out others
         for _ in range(_weighted(rng, _ATTACHMENT_COUNTS)):
             name, mime, median, spread = _weighted(rng, _ATTACHMENT_TEMPLATES)
             filename = self._file_name(name, when)
-            if all(spec.filename != filename for spec in specs):
+            if filename not in planned:
+                planned.add(filename)
                 spec = AttachmentSpec(filename, mime, _size(rng, median, spread))
                 specs.append(documents.attach(spec, name, when, specs))
         if client in ("outlook", "apple") and rng.random() < 0.25:

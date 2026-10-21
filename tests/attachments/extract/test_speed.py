@@ -45,7 +45,7 @@ def test_long_pdfs_are_read_page_by_page(pages: int) -> None:
 
 def test_a_typical_mix_of_documents() -> None:
     rng = random.Random(1)
-    templates = [t for t in ATTACHMENT_TYPES if t[0] in documents.TEMPLATES]
+    templates = [t for t in (*ATTACHMENT_TYPES, *documents.PAPERS) if t[0] in documents.TEMPLATES]
     when = datetime(2021, 5, 4, tzinfo=UTC)
     mix = []
     for seed in range(150):

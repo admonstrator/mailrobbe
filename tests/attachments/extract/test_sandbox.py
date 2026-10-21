@@ -1,6 +1,7 @@
 """The child process of the text extraction (D72): time and memory limits, crashes, partial
 text, and no child left behind, also when the caller is interrupted or killed."""
 
+import faulthandler
 import multiprocessing
 import os
 import signal
@@ -87,6 +88,7 @@ def _allocate(sink: Sink) -> DocumentTextStatus | None:
 
 def _segfault(sink: Sink) -> DocumentTextStatus | None:
     sink.set_pages(7)
+    faulthandler.disable()  # pytest's traceback dump would only clutter the output
     os.kill(os.getpid(), signal.SIGSEGV)
     return None
 

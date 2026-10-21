@@ -57,6 +57,7 @@ OCTET_SHARE = 0.06  # new documents declared as application/octet-stream
 ENCRYPTED_SHARE = 0.05  # text PDFs with a user password
 DAMAGED_SHARE = 0.04  # text PDFs cut short
 EMPTY_TEXT_SHARE = 0.15  # notes files without any text
+PAPER_SHARE = 0.13  # new documents of people that are association papers (PAPERS)
 RECENT_DOCUMENTS = 200  # documents that may be passed on again
 _TEXT_SIZE_CAP = 200_000  # text formats are written, not padded: their size is their content
 _CACHE_BYTES = 96 * 1024**2  # built documents kept per process
@@ -89,6 +90,20 @@ TEMPLATES: dict[str, tuple[str, tuple[str, ...]]] = {
     "Export_{n}.csv": ("csv", ("export",)),
     "Termin.ics": ("ics", ("calendar",)),
 }
+_ODT = "application/vnd.oasis.opendocument.text"
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+# Association papers, templates of documents only: a share of the new documents people send is
+# one of them instead of the template the plan drew (decided by the pool, so the plan's own
+# random stream stays as it is). As vocabulary.ATTACHMENT_TYPES: (file name pattern, MIME
+# type, median size, spread, weight).
+PAPERS = (
+    ("Protokoll_{year}-{month2}-{day2}.odt", _ODT, 30_000, 0.7, 0.6),
+    ("Kassenbericht_{year}.pdf", "application/pdf", 80_000, 0.7, 0.6),
+    ("Spendenliste_{year}.xlsx", _XLSX, 30_000, 0.8, 0.6),
+    ("Mitgliederliste_{year}.csv", "text/csv", 8_000, 0.8, 0.4),
+    ("Schreiben_{word}.docx", _DOCX, 40_000, 0.7, 0.8),
+)
 
 _KINDS = {
     "pdf": DocumentKind.PDF,
@@ -165,15 +180,19 @@ class DocumentPool:
         if shared is not None and shared in self._shared:
             return self._shared[shared]
         rng = self._rng
+        names = {a.filename for a in taken}
         if circulate and shared is None and self._recent and rng.random() < REUSE_SHARE:
             back = min(len(self._recent) - 1, int(rng.expovariate(1 / 12)))
             again = self._recent[-1 - back]
             if rng.random() < RENAME_SHARE:
                 again = replace(again, filename=_renamed(again.filename, rng))
-            names = {a.filename for a in taken}
             documents = {a.document for a in taken}
             if again.filename not in names and again.document not in documents:
                 return again
+        if circulate and shared is None and rng.random() < PAPER_SHARE:
+            spec, template = _paper(spec, when, rng)
+        while spec.filename in names:  # a document passed on before took the planned name
+            spec = replace(spec, filename=_renamed(spec.filename, rng))
         form, themes = template
         theme = rng.choice(themes)
         if form == "pdf":
@@ -201,11 +220,26 @@ class DocumentPool:
         self, parent: Sequence[AttachmentSpec], own: tuple[AttachmentSpec, ...]
     ) -> tuple[AttachmentSpec, ...]:
         """The attachments of a reply: its own, or the documents of the mail it answers again
-        (the share of mails with attachments stays the configured one)."""
+        next to its own inline pictures (the share of mails with attachments stays the
+        configured one)."""
         documents = tuple(a for a in parent if a.document is not None and not a.inline)
         if documents and self._rng.random() < AGAIN_SHARE:
-            return documents
+            return (*(a for a in own if a.inline), *documents)
         return own
+
+
+def _paper(
+    spec: AttachmentSpec, when: datetime, rng: random.Random
+) -> tuple[AttachmentSpec, tuple[str, tuple[str, ...]]]:
+    pattern, mime_type, median, spread, _ = rng.choices(PAPERS, [p[4] for p in PAPERS])[0]
+    filename = pattern.format(
+        year=when.year,
+        month2=f"{when.month:02d}",
+        day2=f"{when.day:02d}",
+        word=rng.choice(vocab.SURNAMES_DE).replace(" ", "_"),
+    )
+    size = max(120, int(median * math.exp(spread * rng.gauss(0, 1))))  # as planner._size
+    return replace(spec, filename=filename, mime_type=mime_type, size=size), TEMPLATES[pattern]
 
 
 _RENAMES = ("_Kopie", "_final", "_neu", "_v2", "_überarbeitet", " (1)")
