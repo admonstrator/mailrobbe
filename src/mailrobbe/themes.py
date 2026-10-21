@@ -16,6 +16,7 @@ from urllib.parse import urlencode
 
 from mailrobbe.api.query import QueryError, parse_query
 from mailrobbe.api.schemas import TagColor
+from mailrobbe.enums import EntityContext
 
 THEMES_FILE = Path(__file__).with_name("themes.toml")
 
@@ -87,3 +88,38 @@ def _theme(entry: dict[str, Any]) -> Theme:
         except QueryError as error:
             raise ThemesError(f"theme {key}, search {search.name}: {error}") from None
     return theme
+
+
+# The lists of [entity_context] (D82), by the context they mark.
+ENTITY_CONTEXT_LISTS = {
+    "cash": EntityContext.CASH,
+    "donation": EntityContext.DONATION,
+    "receipt": EntityContext.RECEIPT,
+}
+
+
+@cache
+def load_entity_context(path: Path = THEMES_FILE) -> dict[EntityContext, tuple[str, ...]]:
+    """The words of [entity_context] that mark an amount, IBAN or account number (D82): each of
+    the three lists present, with words that are non-empty and not used twice in one list."""
+    with path.open("rb") as file:
+        data = tomllib.load(file)
+    table = data.get("entity_context")
+    if not isinstance(table, dict):
+        raise ThemesError(f"{path.name}: the table [entity_context] is missing")
+    contexts: dict[EntityContext, tuple[str, ...]] = {}
+    for name, context in ENTITY_CONTEXT_LISTS.items():
+        words = table.get(name)
+        if not isinstance(words, list) or not words:
+            raise ThemesError(f"[entity_context]: the list {name} is missing or empty")
+        if not all(isinstance(word, str) and word.strip() for word in words):
+            raise ThemesError(f"[entity_context] {name}: every word must be a non-empty text")
+        folded = [word.casefold() for word in words]
+        duplicates = sorted({word for word in folded if folded.count(word) > 1})
+        if duplicates:
+            raise ThemesError(f"[entity_context] {name}: used twice: {', '.join(duplicates)}")
+        contexts[context] = tuple(words)
+    unknown = sorted(set(table) - set(ENTITY_CONTEXT_LISTS))
+    if unknown:
+        raise ThemesError(f"[entity_context]: unknown lists {', '.join(unknown)}")
+    return contexts

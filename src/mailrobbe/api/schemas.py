@@ -90,6 +90,15 @@ Research file (milestone 8, D53 to D63); writes take the editor from X-Mailrobbe
     GET    /api/exports                          list[ExportInfo], newest first
     GET    /api/exports/{id}/download            application/zip, the export (D62)
 
+Entities (milestone 10, D80 to D89):
+
+    GET  /api/entities?EntityListParams          EntityPage (D88)
+    GET  /api/entities/summary                   EntitySummary: entities per kind, texts waiting
+    GET  /api/entities/refs?id=                  list[EntityRef] of these ids, for filter chips
+    GET  /api/entities/{id}                      EntityDetail (D88)
+    GET  /api/mails/facets?EntityFacetParams     EntityFacets: top entities of a filter (D87)
+    GET  /api/mails/{id}/entities                list[MailEntity], what was found in one mail
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -114,6 +123,7 @@ from mailrobbe.enums import (
     DnsStatus,
     DocumentKind,
     DocumentTextStatus,
+    EntityKind,
     ImportErrorKind,
     JobKind,
     JobOrigin,
@@ -143,6 +153,9 @@ DUPLICATES_LIMIT = 50
 TEXT_LIMIT = 1_000_000  # characters of MailText.text
 RAW_LIMIT = 2 * 1024**2  # bytes of the message shown as MailRaw.raw; the EML has all
 NOTE_LIMIT = 10_000  # characters of a note
+
+# What an amount, IBAN or account number is written next to (D82; enums.EntityContext).
+EntityContextKey = Literal["cash", "donation", "receipt"]
 
 # Review statuses as filter and count keys (D55); unreviewed stands for no status.
 ReviewKey = Literal["unreviewed", "seen", "relevant", "irrelevant"]
@@ -215,6 +228,12 @@ class MailFilters(BaseModel):
     has_note: bool = False
     document: int | None = None  # one of the mail's attachments is this document (D75)
     thread: int | None = None  # the mail's thread_id is this one (D17, D95)
+    # Entities (D86): each of these entities is mentioned in the mail's subject or text or in
+    # one of its attachments; an amount of at least amount_min (any currency) is mentioned,
+    # and, with amount_context, one such amount next to any of these contexts.
+    entity: list[int] = []
+    amount_min: float | None = Field(default=None, ge=0)
+    amount_context: list[EntityContextKey] = []
 
 
 class MailOrderParams(MailFilters):
@@ -767,7 +786,9 @@ class GraphSize(BaseModel):
 # Import dashboard (milestone 7, D46 to D50) ------------------------------------------------
 
 ERROR_PAGE_SIZE = 50  # default page of /api/import/errors
-ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments"]  # jobs.ImportPhase
+ImportPhase = Literal[
+    "scan", "headers", "import", "finalize", "attachments", "entities"
+]  # jobs.ImportPhase
 DkimPhase = Literal["check", "aggregates"]  # jobs.DkimPhase
 
 
@@ -1518,3 +1539,130 @@ class FirstMentions(BaseModel):
     items: list[FirstMention]  # earliest first (date, then mail id, then person id)
     persons: int | None  # persons with a first mention in all; None: out of time
     timed_out: bool  # the search ran out of MAILROBBE_API_COUNT_TIMEOUT; items is then empty
+
+
+# Entities (milestone 10, D80 to D89) ---------------------------------------------------------
+#
+# An entity is one kind and normalised key (D81) found in the subject and text of mails and in
+# the extracted text of documents; a mention in a document counts for every mail carrying it.
+# entity.mails and the dates count the mentioning mails that are not duplicates, as documents
+# do (D70, D85); facets count the mails of the filter as the list shows them.
+
+EntitySort = Literal["mails", "recent", "oldest", "value", "label"]
+FACET_MAILS = 10_000  # mails of a filter the facets count over at most (D87)
+FACET_LIMIT = 8  # entities per kind in EntityFacets by default
+MAX_FACET_LIMIT = 50
+ENTITY_PERSONS_LIMIT = 10  # senders and recipients in EntityDetail
+ENTITY_RELATED_LIMIT = 20  # entities mentioned in the same mails, in EntityDetail
+ENTITY_SAMPLES = 5  # earliest mentions in EntityDetail
+ENTITY_SNIPPET_LENGTH = 200  # characters of EntitySample.snippet
+ENTITY_REFS_LIMIT = 100  # ids in one /api/entities/refs request
+
+
+class EntityRef(BaseModel):
+    id: int
+    kind: EntityKind
+    label: str  # display form: "5.000,00 EUR", "DE89 3704 0044 0532 0130 00", "Muster GmbH"
+    # term: theme key (themes.toml); place: "city" or "country"; iban, phone: country code
+    # (ISO 3166, e.g. "DE"); url: host; None otherwise
+    detail: str | None
+
+
+class EntityListParams(BaseModel):
+    """Filters of the entity list (D88); every given one must hold. Lists repeat the parameter."""
+
+    kind: list[EntityKind] = []  # any of these; empty: all
+    q: str = ""  # part of the label, any case (pg_trgm)
+    detail: str | None = None  # exactly this detail, e.g. a theme key
+    value_min: float | None = None  # amounts of at least this value (any currency)
+    value_max: float | None = None
+    sort: EntitySort = "mails"  # most mails, latest or earliest first mention, value, A to Z
+    cursor: str | None = None  # next_cursor or prev_cursor of an EntityPage with the same sort
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class EntityListItem(EntityRef):
+    value: float | None  # amount: the sum
+    currency: str | None  # amount: ISO 4217 code (EUR, USD, CHF, GBP, DEM)
+    mails: int  # mentioning mails, duplicates not counted
+    documents: int  # documents whose text mentions it
+    first_date: datetime | None  # earliest mentioning mail
+    last_date: datetime | None
+
+
+class EntityPage(BaseModel):
+    items: list[EntityListItem]
+    next_cursor: str | None
+    prev_cursor: str | None
+
+
+class EntitySummary(BaseModel):
+    """What the entity list and the dashboard show beside it (D84)."""
+
+    kinds: dict[EntityKind, int]  # entities per kind, every kind present
+    mails_waiting: int  # mails not scanned by the current extraction yet; the next import does
+    documents_waiting: int  # document texts not scanned yet (or extracted again since)
+
+
+class EntityCount(BaseModel):
+    entity: EntityRef
+    mails: int  # distinct mails
+
+
+class EntityFacetParams(MailFilters):
+    kind: list[EntityKind] = []  # only these kinds; empty: all
+    limit: int = Field(FACET_LIMIT, ge=1, le=MAX_FACET_LIMIT)  # entities per kind
+
+
+class EntityFacets(BaseModel):
+    """The entities most mentioned in the mails of a filter (D87).
+
+    Without filters the counts are entity.mails; with filters they count the matching mails,
+    all of them up to FACET_MAILS, else FACET_MAILS of them (sampled).
+    """
+
+    kinds: dict[EntityKind, list[EntityCount]]  # kinds with entities only; most mails first
+    mails: int | None  # mails the counts are over; None without filters (the whole archive)
+    sampled: bool  # the filter matches more than FACET_MAILS mails
+
+
+class EntityYear(BaseModel):
+    year: int  # UTC
+    mails: int
+
+
+class EntitySample(BaseModel):
+    """A mail mentioning the entity, with the text around its first mention."""
+
+    mail: ThreadMail
+    snippet: str | None  # at most ENTITY_SNIPPET_LENGTH characters; None without stored text
+    document_id: int | None  # found in this attachment's document; None: in the mail itself
+    document_name: str | None
+
+
+class EntityDetail(EntityListItem):
+    key: str  # normalised form (D81)
+    contexts: dict[EntityContextKey, int]  # mentioning mails per context (D82), every key present
+    years: list[EntityYear]  # mentioning mails per year, oldest first, years without mails left out
+    # Root persons who sent or received the mentioning mails, most mails first; counted over
+    # the same mails as related, at most FACET_MAILS of them (persons_sampled).
+    senders: list[PersonCount]
+    sender_count: int
+    recipients: list[PersonCount]
+    recipient_count: int
+    related: list[EntityCount]  # mentioned in the same mails most often, other entities only
+    persons_sampled: bool  # senders, recipients and related count FACET_MAILS of the mails
+    samples: list[EntitySample]  # the earliest mentions, oldest first
+    # The archive's person with this address (email) or, when exactly one has it, this display
+    # name (person); None otherwise.
+    archive_person: PersonRef | None
+
+
+class MailEntity(BaseModel):
+    """An entity found in one mail (GET /api/mails/{id}/entities)."""
+
+    entity: EntityRef
+    occurrences: int
+    context: list[EntityContextKey]
+    document_id: int | None  # found in this attachment's document; None: in the mail's text
+    document_name: str | None

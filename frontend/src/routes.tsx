@@ -2,6 +2,7 @@ import { Navigate, type RouteObject } from "react-router";
 
 import { AppShell } from "./components/AppShell";
 import { DocumentDetailRoute, DocumentListRoute } from "./features/documents/lazyPages";
+import { EntityDetailRoute, EntityListRoute } from "./features/entities/lazyPages";
 import { GraphPage } from "./features/graph/GraphPage";
 import { ImportPage } from "./features/import/ImportPage";
 import { SelectorDetailRoute, SelectorListRoute } from "./features/keys/lazyPages";
@@ -27,6 +28,8 @@ export const routes: RouteObject[] = [
       { path: "/personen/:id", element: <PersonProfilePage /> },
       { path: "/anhaenge", element: <DocumentListRoute /> },
       { path: "/anhaenge/:id", element: <DocumentDetailRoute /> },
+      { path: "/entitaeten", element: <EntityListRoute /> },
+      { path: "/entitaeten/:id", element: <EntityDetailRoute /> },
       { path: "/karte", element: <GraphPage /> },
       { path: "/zeitachse", element: <TimelineRoute /> },
       { path: "/akten", element: <AktenPage /> },

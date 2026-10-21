@@ -1,0 +1,41 @@
+# Words that start an organisation's name before one to three capitalised words
+# (entities/names.py): Stiftung Warentest, Kreisverband Meißen, Staatsanwaltschaft Berlin,
+# Amtsgericht Frankfurt am Main. A place among the words ends the name.
+
+# Associations and parties
+Stiftung
+Förderverein
+Freundeskreis
+Bundesverband
+Landesverband
+Bezirksverband
+Kreisverband
+Stadtverband
+Ortsverband
+Ortsgruppe
+Arbeitskreis
+
+# Courts and prosecutors
+Amtsgericht
+Landgericht
+Oberlandesgericht
+Verwaltungsgericht
+Oberverwaltungsgericht
+Arbeitsgericht
+Sozialgericht
+Finanzgericht
+Staatsanwaltschaft
+Generalstaatsanwaltschaft
+
+# Authorities
+Finanzamt
+Polizeipräsidium
+Polizeidirektion
+Polizeiinspektion
+Landeskriminalamt
+Landratsamt
+Bezirksamt
+Bezirksregierung
+Regierungspräsidium
+Stadtverwaltung
+Kreisverwaltung

@@ -1,0 +1,1147 @@
+# Towns for the place finder (entities/names.py), detail "city": German towns of about 20,000
+# inhabitants and more and the seats of districts, by state; Austrian and Swiss towns; the
+# world's capitals and large cities, in German and English where the names differ. Written as in
+# texts; the longest name wins (Frankfurt am Main before Frankfurt). Names that are common words
+# too are listed again in ambiguous_places.txt.
+
+# Baden-Württemberg
+Aalen
+Achern
+Albstadt
+Backnang
+Bad Mergentheim
+Bad Rappenau
+Bad Saulgau
+Baden-Baden
+Balingen
+Biberach an der Riß
+Biberach
+Bietigheim-Bissingen
+Böblingen
+Bretten
+Bruchsal
+Bühl
+Calw
+Crailsheim
+Ditzingen
+Donaueschingen
+Ehingen
+Ellwangen
+Emmendingen
+Eppingen
+Esslingen am Neckar
+Esslingen
+Ettlingen
+Fellbach
+Filderstadt
+Freiburg im Breisgau
+Freiburg
+Freudenstadt
+Friedrichshafen
+Gaggenau
+Gerlingen
+Göppingen
+Heidelberg
+Heidenheim an der Brenz
+Heidenheim
+Heilbronn
+Herrenberg
+Hockenheim
+Karlsruhe
+Kehl
+Kirchheim unter Teck
+Konstanz
+Kornwestheim
+Künzelsau
+Lahr
+Leimen
+Leinfelden-Echterdingen
+Leonberg
+Lörrach
+Ludwigsburg
+Mannheim
+Metzingen
+Mosbach
+Mühlacker
+Neckarsulm
+Nürtingen
+Offenburg
+Öhringen
+Ostfildern
+Pforzheim
+Radolfzell
+Rastatt
+Ravensburg
+Remseck am Neckar
+Reutlingen
+Rheinfelden
+Rheinstetten
+Rottenburg am Neckar
+Rottweil
+Schorndorf
+Schramberg
+Schwäbisch Gmünd
+Schwäbisch Hall
+Schwetzingen
+Sigmaringen
+Sindelfingen
+Singen
+Sinsheim
+Stuttgart
+Tauberbischofsheim
+Tübingen
+Tuttlingen
+Überlingen
+Ulm
+Vaihingen an der Enz
+Villingen-Schwenningen
+Waiblingen
+Waldkirch
+Waldshut-Tiengen
+Wangen im Allgäu
+Weil am Rhein
+Weingarten
+Weinheim
+Weinstadt
+Wiesloch
+Winnenden
+
+# Bayern
+Aichach
+Altötting
+Amberg
+Ansbach
+Aschaffenburg
+Augsburg
+Bad Kissingen
+Bad Neustadt an der Saale
+Bad Reichenhall
+Bad Tölz
+Bamberg
+Bayreuth
+Burghausen
+Cham
+Coburg
+Dachau
+Deggendorf
+Dillingen an der Donau
+Dingolfing
+Donauwörth
+Ebersberg
+Eichstätt
+Erding
+Erlangen
+Forchheim
+Freising
+Freyung
+Friedberg
+Fürstenfeldbruck
+Fürth
+Garmisch-Partenkirchen
+Germering
+Gersthofen
+Günzburg
+Haßfurt
+Herzogenaurach
+Hof
+Ingolstadt
+Karlstadt
+Kaufbeuren
+Kelheim
+Kempten
+Kitzingen
+Königsbrunn
+Kronach
+Kulmbach
+Landsberg am Lech
+Landshut
+Lauf an der Pegnitz
+Lichtenfels
+Lindau
+Marktoberdorf
+Memmingen
+Miesbach
+Miltenberg
+Mindelheim
+Mühldorf am Inn
+München
+Neuburg an der Donau
+Neumarkt in der Oberpfalz
+Neusäß
+Neustadt an der Aisch
+Neustadt an der Waldnaab
+Neu-Ulm
+Nürnberg
+Olching
+Passau
+Pfaffenhofen an der Ilm
+Pfarrkirchen
+Puchheim
+Regen
+Regensburg
+Rosenheim
+Roth
+Schwabach
+Schwandorf
+Senden
+Schweinfurt
+Sonthofen
+Starnberg
+Straubing
+Sulzbach-Rosenberg
+Tirschenreuth
+Traunstein
+Unterschleißheim
+Waldkraiburg
+Weiden in der Oberpfalz
+Weiden
+Weilheim in Oberbayern
+Weißenburg in Bayern
+Würzburg
+Wunsiedel
+
+# Berlin, Bremen, Hamburg
+Berlin
+Bremen
+Bremerhaven
+Hamburg
+
+# Brandenburg
+Bad Belzig
+Beeskow
+Bernau bei Berlin
+Blankenfelde-Mahlow
+Brandenburg an der Havel
+Cottbus
+Eberswalde
+Eisenhüttenstadt
+Falkensee
+Finsterwalde
+Forst
+Frankfurt (Oder)
+Fürstenwalde
+Hennigsdorf
+Herzberg
+Kleinmachnow
+Königs Wusterhausen
+Luckenwalde
+Ludwigsfelde
+Lübben
+Neuruppin
+Oranienburg
+Perleberg
+Potsdam
+Prenzlau
+Rathenow
+Schwedt
+Seelow
+Senftenberg
+Spremberg
+Strausberg
+Teltow
+Werder
+
+# Hessen
+Alsfeld
+Bad Hersfeld
+Bad Homburg vor der Höhe
+Bad Homburg
+Bad Nauheim
+Bad Soden am Taunus
+Bad Vilbel
+Baunatal
+Bensheim
+Büdingen
+Butzbach
+Darmstadt
+Dietzenbach
+Dillenburg
+Dreieich
+Erbach
+Eschborn
+Eschwege
+Flörsheim am Main
+Frankfurt am Main
+Frankfurt
+Friedberg (Hessen)
+Fulda
+Gelnhausen
+Gießen
+Griesheim
+Groß-Gerau
+Hanau
+Hattersheim am Main
+Heppenheim
+Herborn
+Hochheim am Main
+Hofheim am Taunus
+Homberg
+Idstein
+Kassel
+Kelkheim
+Königstein im Taunus
+Korbach
+Kronberg im Taunus
+Lampertheim
+Langen
+Lauterbach
+Limburg an der Lahn
+Limburg
+Maintal
+Marburg
+Mörfelden-Walldorf
+Mühlheim am Main
+Neu-Isenburg
+Oberursel
+Obertshausen
+Offenbach am Main
+Offenbach
+Pfungstadt
+Rodgau
+Rüsselsheim am Main
+Rüsselsheim
+Schwalbach am Taunus
+Seligenstadt
+Stadtallendorf
+Taunusstein
+Vellmar
+Viernheim
+Weiterstadt
+Wetzlar
+Wiesbaden
+
+# Mecklenburg-Vorpommern
+Anklam
+Bergen auf Rügen
+Greifswald
+Güstrow
+Ludwigslust
+Neubrandenburg
+Neustrelitz
+Parchim
+Pasewalk
+Rostock
+Schwerin
+Stralsund
+Waren
+Wismar
+
+# Niedersachsen
+Achim
+Aurich
+Bad Harzburg
+Barsinghausen
+Bramsche
+Braunschweig
+Brake
+Bückeburg
+Burgdorf
+Buxtehude
+Celle
+Cloppenburg
+Cuxhaven
+Dannenberg
+Delmenhorst
+Diepholz
+Duderstadt
+Einbeck
+Emden
+Garbsen
+Georgsmarienhütte
+Gifhorn
+Goslar
+Göttingen
+Hameln
+Hann. Münden
+Hannover
+Helmstedt
+Hildesheim
+Holzminden
+Jever
+Laatzen
+Langenhagen
+Leer
+Lehrte
+Lingen
+Lüchow
+Lüneburg
+Melle
+Meppen
+Neustadt am Rübenberge
+Nienburg
+Norden
+Nordhorn
+Northeim
+Oldenburg
+Osnabrück
+Osterholz-Scharmbeck
+Osterode am Harz
+Papenburg
+Peine
+Rinteln
+Rotenburg
+Salzgitter
+Sarstedt
+Seelze
+Soltau
+Springe
+Stade
+Stadthagen
+Syke
+Uelzen
+Varel
+Vechta
+Verden
+Walsrode
+Westerstede
+Wildeshausen
+Wilhelmshaven
+Winsen
+Wittmund
+Wolfenbüttel
+Wolfsburg
+Wunstorf
+
+# Nordrhein-Westfalen
+Aachen
+Ahlen
+Alsdorf
+Altena
+Arnsberg
+Attendorn
+Bad Berleburg
+Bad Oeynhausen
+Bad Salzuflen
+Baesweiler
+Beckum
+Bergheim
+Bergisch Gladbach
+Bergkamen
+Bielefeld
+Bocholt
+Bochum
+Bonn
+Borken
+Bornheim
+Bottrop
+Brilon
+Brühl
+Bünde
+Castrop-Rauxel
+Coesfeld
+Datteln
+Delbrück
+Detmold
+Dinslaken
+Dormagen
+Dorsten
+Dortmund
+Duisburg
+Dülmen
+Düren
+Düsseldorf
+Emmerich am Rhein
+Emsdetten
+Ennepetal
+Erftstadt
+Erkelenz
+Erkrath
+Eschweiler
+Espelkamp
+Essen
+Euskirchen
+Frechen
+Geilenkirchen
+Geldern
+Gelsenkirchen
+Gevelsberg
+Gladbeck
+Goch
+Greven
+Grevenbroich
+Gronau
+Gummersbach
+Gütersloh
+Haan
+Hagen
+Haltern am See
+Hamm
+Harsewinkel
+Hattingen
+Heiligenhaus
+Heinsberg
+Hennef
+Herdecke
+Herford
+Herne
+Herten
+Herzogenrath
+Hilden
+Höxter
+Hückelhoven
+Hürth
+Ibbenbüren
+Iserlohn
+Jülich
+Kaarst
+Kamen
+Kamp-Lintfort
+Kempen
+Kerpen
+Kevelaer
+Kleve
+Köln
+Königswinter
+Korschenbroich
+Krefeld
+Kreuztal
+Langenfeld
+Leichlingen
+Lemgo
+Lengerich
+Lennestadt
+Leverkusen
+Lippstadt
+Lohmar
+Löhne
+Lübbecke
+Lüdenscheid
+Lünen
+Marl
+Meerbusch
+Meinerzhagen
+Menden
+Meschede
+Mettmann
+Minden
+Moers
+Mönchengladbach
+Monheim am Rhein
+Mülheim an der Ruhr
+Münster
+Netphen
+Nettetal
+Neukirchen-Vluyn
+Neuss
+Niederkassel
+Oberhausen
+Oelde
+Olpe
+Overath
+Paderborn
+Plettenberg
+Porta Westfalica
+Pulheim
+Radevormwald
+Ratingen
+Recklinghausen
+Remscheid
+Rheda-Wiedenbrück
+Rheinberg
+Rheine
+Rietberg
+Rösrath
+Salzkotten
+Sankt Augustin
+Schwelm
+Schwerte
+Siegburg
+Siegen
+Soest
+Solingen
+Sprockhövel
+Steinfurt
+Stolberg
+Sundern
+Tönisvorst
+Troisdorf
+Unna
+Velbert
+Verl
+Viersen
+Voerde
+Waltrop
+Warburg
+Warendorf
+Wegberg
+Werl
+Wermelskirchen
+Werne
+Wesel
+Wesseling
+Wetter
+Willich
+Wipperfürth
+Witten
+Wülfrath
+Wuppertal
+Würselen
+Xanten
+
+# Rheinland-Pfalz
+Altenkirchen
+Alzey
+Andernach
+Bad Dürkheim
+Bad Ems
+Bad Kreuznach
+Bad Neuenahr-Ahrweiler
+Bingen am Rhein
+Bitburg
+Cochem
+Daun
+Frankenthal
+Germersheim
+Idar-Oberstein
+Ingelheim am Rhein
+Kaiserslautern
+Koblenz
+Kusel
+Lahnstein
+Landau in der Pfalz
+Landau
+Ludwigshafen am Rhein
+Ludwigshafen
+Mainz
+Mayen
+Montabaur
+Neustadt an der Weinstraße
+Neuwied
+Pirmasens
+Simmern
+Speyer
+Trier
+Wittlich
+Worms
+Zweibrücken
+
+# Saarland
+Blieskastel
+Dillingen
+Homburg
+Merzig
+Neunkirchen
+Saarbrücken
+Saarlouis
+Sankt Ingbert
+St. Ingbert
+Sankt Wendel
+St. Wendel
+Völklingen
+
+# Sachsen
+Annaberg-Buchholz
+Aue
+Auerbach
+Bautzen
+Borna
+Chemnitz
+Coswig
+Crimmitschau
+Delitzsch
+Döbeln
+Dresden
+Freiberg
+Freital
+Glauchau
+Görlitz
+Grimma
+Großenhain
+Hoyerswerda
+Kamenz
+Leipzig
+Limbach-Oberfrohna
+Löbau
+Marienberg
+Markkleeberg
+Meißen
+Mittweida
+Niesky
+Oschatz
+Pirna
+Plauen
+Radebeul
+Reichenbach im Vogtland
+Riesa
+Schneeberg
+Torgau
+Weißwasser
+Werdau
+Zittau
+Zwickau
+
+# Sachsen-Anhalt
+Aschersleben
+Bernburg
+Bitterfeld-Wolfen
+Burg
+Dessau-Roßlau
+Dessau
+Eisleben
+Gardelegen
+Genthin
+Halberstadt
+Haldensleben
+Halle (Saale)
+Halle
+Hettstedt
+Köthen
+Lutherstadt Eisleben
+Lutherstadt Wittenberg
+Magdeburg
+Merseburg
+Naumburg
+Quedlinburg
+Salzwedel
+Sangerhausen
+Schönebeck
+Staßfurt
+Stendal
+Weißenfels
+Wernigerode
+Wittenberg
+Zeitz
+Zerbst
+
+# Schleswig-Holstein
+Ahrensburg
+Bad Oldesloe
+Bad Segeberg
+Bargteheide
+Eckernförde
+Elmshorn
+Eutin
+Flensburg
+Geesthacht
+Glinde
+Heide
+Henstedt-Ulzburg
+Husum
+Itzehoe
+Kaltenkirchen
+Kiel
+Lübeck
+Mölln
+Neumünster
+Neustadt in Holstein
+Norderstedt
+Pinneberg
+Plön
+Quickborn
+Ratzeburg
+Reinbek
+Rendsburg
+Schleswig
+Uetersen
+Wedel
+
+# Thüringen
+Altenburg
+Apolda
+Arnstadt
+Bad Langensalza
+Bad Salzungen
+Eisenach
+Eisenberg
+Erfurt
+Gera
+Gotha
+Greiz
+Heilbad Heiligenstadt
+Hildburghausen
+Ilmenau
+Jena
+Leinefelde-Worbis
+Meiningen
+Mühlhausen
+Nordhausen
+Pößneck
+Rudolstadt
+Saalfeld
+Schleiz
+Schmalkalden
+Sömmerda
+Sondershausen
+Sonneberg
+Suhl
+Weimar
+Zeulenroda-Triebes
+
+# Österreich
+Amstetten
+Ansfelden
+Bad Ischl
+Baden
+Bludenz
+Braunau am Inn
+Bregenz
+Bruck an der Mur
+Dornbirn
+Eisenstadt
+Feldbach
+Feldkirch
+Gänserndorf
+Gmunden
+Graz
+Hall in Tirol
+Hallein
+Hohenems
+Hollabrunn
+Horn
+Innsbruck
+Judenburg
+Kapfenberg
+Kitzbühel
+Klagenfurt am Wörthersee
+Klagenfurt
+Klosterneuburg
+Knittelfeld
+Korneuburg
+Krems an der Donau
+Krems
+Kufstein
+Leoben
+Leonding
+Liezen
+Lienz
+Linz
+Lustenau
+Melk
+Mistelbach
+Mödling
+Perchtoldsdorf
+Ried im Innkreis
+Saalfelden
+Salzburg
+Sankt Pölten
+St. Pölten
+Schwaz
+Schwechat
+Spittal an der Drau
+Steyr
+Stockerau
+Telfs
+Ternitz
+Traiskirchen
+Traun
+Tulln an der Donau
+Villach
+Vöcklabruck
+Wels
+Wien
+Wiener Neustadt
+Wolfsberg
+Wörgl
+Zell am See
+Zwettl
+
+# Schweiz
+Aarau
+Allschwil
+Altdorf
+Appenzell
+Baar
+Basel
+Bellinzona
+Bern
+Biel/Bienne
+Biel
+Bülach
+Carouge
+Chur
+Davos
+Dietikon
+Dübendorf
+Emmen
+Frauenfeld
+Fribourg
+Genf
+Genève
+Geneva
+Glarus
+Herisau
+Horgen
+Kloten
+Köniz
+Kreuzlingen
+Kriens
+La Chaux-de-Fonds
+Lancy
+Lausanne
+Liestal
+Locarno
+Lugano
+Luzern
+Montreux
+Neuchâtel
+Olten
+Rapperswil-Jona
+Renens
+Riehen
+Sankt Gallen
+St. Gallen
+St. Moritz
+Sarnen
+Schaffhausen
+Schwyz
+Sion
+Sitten
+Solothurn
+Stans
+Thun
+Uster
+Vernier
+Wädenswil
+Wetzikon
+Wil
+Winterthur
+Yverdon-les-Bains
+Zug
+Zürich
+
+# Liechtenstein
+Vaduz
+Schaan
+
+# Capitals and large cities
+Abidjan
+Abu Dhabi
+Abuja
+Accra
+Addis Abeba
+Addis Ababa
+Algier
+Algiers
+Amman
+Amsterdam
+Ankara
+Antalya
+Antwerpen
+Antwerp
+Aschgabat
+Astana
+Asunción
+Athen
+Athens
+Bagdad
+Baghdad
+Baku
+Bamako
+Bangkok
+Barcelona
+Beirut
+Belfast
+Belgrad
+Belgrade
+Birmingham
+Bischkek
+Bogotá
+Bologna
+Boston
+Bozen
+Brasília
+Bratislava
+Brazzaville
+Breslau
+Brno
+Brünn
+Brüssel
+Brussels
+Budapest
+Buenos Aires
+Bukarest
+Bucharest
+Canberra
+Caracas
+Cardiff
+Casablanca
+Chicago
+Chișinău
+Colombo
+Conakry
+Dakar
+Damaskus
+Damascus
+Danzig
+Gdańsk
+Daressalam
+Den Haag
+Dhaka
+Doha
+Donezk
+Dubai
+Dublin
+Duschanbe
+Edinburgh
+Florenz
+Freetown
+Gaborone
+Genua
+Glasgow
+Hanoi
+Harare
+Havanna
+Havana
+Helsinki
+Hongkong
+Hong Kong
+Islamabad
+Istanbul
+Izmir
+Jakarta
+Jerewan
+Yerevan
+Jerusalem
+Johannesburg
+Kabul
+Kairo
+Cairo
+Kaliningrad
+Kampala
+Kapstadt
+Cape Town
+Kathmandu
+Kiew
+Kyjiw
+Kyiv
+Kiev
+Kigali
+Kinshasa
+Kischinau
+Königsberg
+Kopenhagen
+Copenhagen
+Krakau
+Kraków
+Kuala Lumpur
+Kuwait-Stadt
+La Paz
+Lagos
+Lemberg
+Lwiw
+Lima
+Lissabon
+Lisbon
+Liverpool
+Ljubljana
+London
+Los Angeles
+Luanda
+Luhansk
+Lusaka
+Lyon
+Madrid
+Mailand
+Milan
+Málaga
+Manchester
+Manila
+Mariupol
+Marrakesch
+Marseille
+Maskat
+Muscat
+Melbourne
+Mexiko-Stadt
+Mexico City
+Miami
+Minsk
+Monrovia
+Montevideo
+Montreal
+Moskau
+Moscow
+Mumbai
+Nairobi
+Neapel
+Naples
+Neu-Delhi
+New Delhi
+New York
+Niamey
+Nikosia
+Nicosia
+Odessa
+Oslo
+Ottawa
+Ouagadougou
+Palermo
+Paris
+Peking
+Beijing
+Phnom Penh
+Pilsen
+Pjöngjang
+Pyongyang
+Podgorica
+Porto
+Posen
+Poznań
+Prag
+Prague
+Pressburg
+Pretoria
+Pristina
+Quito
+Rabat
+Reykjavík
+Reykjavik
+Riad
+Riyadh
+Riga
+Rom
+Rome
+Rotterdam
+San Francisco
+Sanaa
+Sankt Petersburg
+St. Petersburg
+Santiago de Chile
+Sarajevo
+Seoul
+Sevilla
+Shanghai
+Skopje
+Sofia
+Stettin
+Szczecin
+Stockholm
+Straßburg
+Strasbourg
+Sydney
+Taipeh
+Taipei
+Tallinn
+Taschkent
+Tashkent
+Tbilisi
+Teheran
+Tehran
+Tel Aviv
+Thessaloniki
+Tiflis
+Tirana
+Tokio
+Tokyo
+Toronto
+Tripolis
+Tripoli
+Triest
+Tunis
+Turin
+Ulaanbaatar
+Valencia
+Valletta
+Vancouver
+Venedig
+Venice
+Verona
+Vientiane
+Vilnius
+Warschau
+Warsaw
+Washington
+Wellington
+Windhoek
+Wrocław
+Zagreb

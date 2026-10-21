@@ -33,6 +33,7 @@ import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
 import { ColumnMenu } from "./ColumnMenu";
 import { useColumns } from "./columns";
+import { EntityFacets, useEntityChipNames } from "./EntityFacets";
 import { FilterColumn } from "./FilterColumn";
 import {
   hasFilters,
@@ -101,6 +102,7 @@ export function MailListPage() {
   const filtered = useDocument(state.document ?? 0, state.document !== null);
   // The thread filter's chip is named by the subject of the thread's first mail (D95).
   const threadMail = useMailDetail(state.thread ?? 0, state.thread !== null);
+  const entityNames = useEntityChipNames(state.entity);
   const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -123,6 +125,7 @@ export function MailListPage() {
       filtered.data?.id === id ? (filtered.data.name ?? "(ohne Dateinamen)") : `#${id}`,
     thread: (id) =>
       threadMail.data?.id === id ? threadMail.data.subject || "(kein Betreff)" : undefined,
+    entity: entityNames,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);
@@ -242,6 +245,7 @@ export function MailListPage() {
           )
         )}
 
+        <EntityFacets state={state} onChange={setState} placement="top" />
         <Card className={styles.tableCard}>
           {page.isPending ? (
             <div className={styles.loading}>
@@ -290,6 +294,7 @@ export function MailListPage() {
           />
         )}
       </main>
+      <EntityFacets state={state} onChange={setState} placement="column" />
 
       {saving && (
         <SaveSearchDialog

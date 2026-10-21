@@ -107,6 +107,9 @@ export interface MailFilters {
   has_note?: boolean;
   document?: number; // one of the mail's attachments is this document (D75)
   thread?: number; // the mail's thread_id is this one (D95)
+  entity?: number[]; // each of these entities is mentioned, in the mail or an attachment (D86)
+  amount_min?: number; // an amount of at least this value is mentioned, any currency
+  amount_context?: EntityContextKey[]; // such an amount next to any of these contexts
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -583,7 +586,7 @@ export const ERROR_PAGE_SIZE = 50;
 export type JobKind = "import" | "dkim" | "dkim_keys";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
-export type ImportPhase = "scan" | "headers" | "import" | "finalize" | "attachments";
+export type ImportPhase = "scan" | "headers" | "import" | "finalize" | "attachments" | "entities";
 export type DkimPhase = "check" | "aggregates";
 export type DnsStatus = "found" | "not_found" | "temp_error";
 export type ImportErrorKind =
@@ -1407,4 +1410,118 @@ export interface FirstMentions {
   items: FirstMention[]; // earliest first
   persons: number | null; // null: out of time
   timed_out: boolean;
+}
+
+// Entities (milestone 10, D80 to D89) -------------------------------------------------------
+
+export const FACET_MAILS = 10_000;
+export const FACET_LIMIT = 8;
+export const MAX_FACET_LIMIT = 50;
+export const ENTITY_REFS_LIMIT = 100;
+
+export type EntityKind =
+  | "amount"
+  | "iban"
+  | "account"
+  | "organization"
+  | "person"
+  | "place"
+  | "phone"
+  | "email"
+  | "url"
+  | "domain"
+  | "date"
+  | "term";
+/** What an amount, IBAN or account number is written next to (D82). */
+export type EntityContextKey = "cash" | "donation" | "receipt";
+export type EntitySort = "mails" | "recent" | "oldest" | "value" | "label";
+
+export interface EntityRef {
+  id: number;
+  kind: EntityKind;
+  label: string; // display form: "5.000,00 EUR", "DE89 3704 0044 0532 0130 00", "Muster GmbH"
+  /** term: theme key; place: "city" or "country"; iban, phone: country code; url: host. */
+  detail: string | null;
+}
+
+export interface EntityListParams {
+  kind?: EntityKind[];
+  q?: string; // part of the label, any case
+  detail?: string;
+  value_min?: number; // amounts, any currency
+  value_max?: number;
+  sort?: EntitySort;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface EntityListItem extends EntityRef {
+  value: number | null; // amount: the sum
+  currency: string | null; // amount: EUR, USD, CHF, GBP, DEM
+  mails: number; // duplicates not counted
+  documents: number;
+  first_date: string | null;
+  last_date: string | null;
+}
+
+export interface EntityPage {
+  items: EntityListItem[];
+  next_cursor: string | null;
+  prev_cursor: string | null;
+}
+
+export interface EntitySummary {
+  kinds: Record<EntityKind, number>;
+  mails_waiting: number; // not scanned yet; the next import does
+  documents_waiting: number;
+}
+
+export interface EntityCount {
+  entity: EntityRef;
+  mails: number;
+}
+
+export interface EntityFacetParams extends MailFilters {
+  kind?: EntityKind[];
+  limit?: number; // per kind
+}
+
+export interface EntityFacets {
+  kinds: Partial<Record<EntityKind, EntityCount[]>>; // kinds with entities only
+  mails: number | null; // null without filters: the whole archive
+  sampled: boolean; // counted over FACET_MAILS of more matching mails
+}
+
+export interface EntityYear {
+  year: number;
+  mails: number;
+}
+
+export interface EntitySample {
+  mail: ThreadMail;
+  snippet: string | null;
+  document_id: number | null; // found in this attachment's document
+  document_name: string | null;
+}
+
+export interface EntityDetail extends EntityListItem {
+  key: string;
+  contexts: Record<EntityContextKey, number>;
+  years: EntityYear[]; // oldest first
+  senders: PersonCount[];
+  sender_count: number;
+  recipients: PersonCount[];
+  recipient_count: number;
+  related: EntityCount[];
+  persons_sampled: boolean;
+  samples: EntitySample[]; // earliest mentions first
+  archive_person: PersonRef | null;
+}
+
+export interface MailEntity {
+  entity: EntityRef;
+  occurrences: number;
+  context: EntityContextKey[];
+  document_id: number | null; // found in this attachment's document
+  document_name: string | null;
 }

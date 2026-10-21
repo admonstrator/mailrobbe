@@ -20,6 +20,7 @@ from mailrobbe.enums import (
     DnsStatus,
     DocumentKind,
     DocumentTextStatus,
+    EntityKind,
     JobKind,
     JobStatus,
     KeyOrigin,
@@ -57,6 +58,11 @@ TABLES = {
     "saved_search",
     "mail_export",
     "document",
+    "entity",
+    "mail_entity",
+    "document_entity",
+    "mail_entity_scan",
+    "document_entity_scan",
     "dkim_key",
     "dkim_key_lookup",
     "dkim_key_evidence",
@@ -105,6 +111,23 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
             "unreadable",
         ],
     ),
+    "entity_kind": (
+        EntityKind,
+        [
+            "amount",
+            "iban",
+            "account",
+            "organization",
+            "person",
+            "place",
+            "phone",
+            "email",
+            "url",
+            "domain",
+            "date",
+            "term",
+        ],
+    ),
 }
 
 # pg_get_indexdef() output: method, column order and operator class in one string.
@@ -148,6 +171,22 @@ INDEXES = {
     "ON public.document USING btree (sha256)",
     "ix_attachment_document_id": "CREATE INDEX ix_attachment_document_id "
     "ON public.attachment USING btree (document_id, mail_id)",
+    "uq_entity_kind_key": "CREATE UNIQUE INDEX uq_entity_kind_key "
+    "ON public.entity USING btree (kind, key)",
+    "ix_entity_kind_mails": "CREATE INDEX ix_entity_kind_mails "
+    "ON public.entity USING btree (kind, mails, id)",
+    "ix_entity_first_date": "CREATE INDEX ix_entity_first_date ON public.entity "
+    "USING btree (COALESCE(first_date, '-infinity'::timestamp with time zone), id)",
+    "ix_entity_value": "CREATE INDEX ix_entity_value ON public.entity "
+    "USING btree (value, id) WHERE (value IS NOT NULL)",
+    "ix_entity_label_trgm": "CREATE INDEX ix_entity_label_trgm "
+    "ON public.entity USING gin (label gin_trgm_ops)",
+    "pk_mail_entity": "CREATE UNIQUE INDEX pk_mail_entity "
+    "ON public.mail_entity USING btree (entity_id, mail_id)",
+    "ix_mail_entity_mail_id": "CREATE INDEX ix_mail_entity_mail_id "
+    "ON public.mail_entity USING btree (mail_id, entity_id)",
+    "ix_document_entity_document_id": "CREATE INDEX ix_document_entity_document_id "
+    "ON public.document_entity USING btree (document_id, entity_id)",
     "ix_dkim_result_key_id": "CREATE INDEX ix_dkim_result_key_id ON public.dkim_result "
     "USING btree (key_id) WHERE (key_id IS NOT NULL)",
 }
@@ -182,7 +221,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0010"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0011"
 
 
 @pytest.mark.db
@@ -339,6 +378,10 @@ def test_upgrade_renders_offline_without_database() -> None:
         "UPDATE alembic_version SET version_num='0010' WHERE alembic_version.version_num = '0009'"
         in sql
     )
+    assert (
+        "UPDATE alembic_version SET version_num='0011' WHERE alembic_version.version_num = '0010'"
+        in sql
+    )
 
 
 @pytest.mark.db
@@ -417,10 +460,10 @@ async def test_0008_numbers_the_attachments_of_older_imports(empty_database_url:
     assert rows == [(1, "x", 0, None), (2, "p", 0, None), (1, "y", 1, None), (1, "z", 2, None)]
 
 
-async def test_0010_marks_older_results_as_dns_and_forgets_other_keys_on_downgrade(
+async def test_0011_marks_older_results_as_dns_and_forgets_other_keys_on_downgrade(
     empty_database_url: str,
 ) -> None:
-    """Results before 0010 rest on today's DNS where they rest on a key; a downgrade forgets
+    """Results before 0011 rest on today's DNS where they rest on a key; a downgrade forgets
     the results that rest on a key from another source, so `mailrobbe dkim` checks them again."""
 
     async def sql(statement: str) -> list[tuple[Any, ...]]:
@@ -432,7 +475,7 @@ async def test_0010_marks_older_results_as_dns_and_forgets_other_keys_on_downgra
         finally:
             await engine.dispose()
 
-    await asyncio.to_thread(migrate.upgrade, "0009", empty_database_url)
+    await asyncio.to_thread(migrate.upgrade, "0010", empty_database_url)
     await sql(
         "INSERT INTO mbox_file (id, path, size_bytes) OVERRIDING SYSTEM VALUE VALUES (1, 'a', 9)"
     )
@@ -461,7 +504,7 @@ async def test_0010_marks_older_results_as_dns_and_forgets_other_keys_on_downgra
         " key_origin = 'reconstructed' WHERE mail_id = 3"
     )
     await sql("UPDATE mail SET dkim_status = 'consistent' WHERE id = 3")
-    await asyncio.to_thread(migrate.downgrade, "0009", empty_database_url)
+    await asyncio.to_thread(migrate.downgrade, "0010", empty_database_url)
     assert await sql("SELECT id, dkim_status::text FROM mail ORDER BY id") == [
         (1, "pass"),
         (2, "fail"),

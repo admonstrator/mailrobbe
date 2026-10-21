@@ -35,13 +35,18 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - job holds one row per run of `mailrobbe import` and `mailrobbe dkim` with its live figures
   and the dashboard's stop request (migration 0006, D47); mbox_file.header_version says whether
   the mails of a file have every parsed header field (HEADER_VERSION, D52).
-- Keys of deleted selectors (migration 0010, D100 to D103): dkim_key holds every key known from
+- Entities (migration 0010, D80 to D85): entity holds one row per kind and normalised key with
+  its figures; mail_entity and document_entity record where each is mentioned (the mail's own
+  subject and text, or a document's extracted text); mail_entity_scan and document_entity_scan
+  record which mails and document texts were scanned, by which scan version.
+- Keys of deleted selectors (migration 0011, D100 to D103): dkim_key holds every key known from
   a source other than today's DNS, dkim_key_lookup every question to a source with its answer
   unchanged, dkim_key_evidence what a lookup says about a key; dkim_result.key_id and key_origin
   name the key a result rests on (key_id NULL for today's DNS).
 """
 
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
@@ -57,6 +62,7 @@ from sqlalchemy import (
     Index,
     Integer,
     LargeBinary,
+    Numeric,
     SmallInteger,
     Text,
     UniqueConstraint,
@@ -72,6 +78,7 @@ from mailrobbe.enums import (
     DnsStatus,
     DocumentKind,
     DocumentTextStatus,
+    EntityKind,
     JobKind,
     JobStatus,
     KeyOrigin,
@@ -101,6 +108,7 @@ job_status_enum = _pg_enum(JobStatus, "job_status")
 review_status_enum = _pg_enum(ReviewStatus, "review_status")
 document_kind_enum = _pg_enum(DocumentKind, "document_kind")
 document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
+entity_kind_enum = _pg_enum(EntityKind, "entity_kind")
 key_origin_enum = _pg_enum(KeyOrigin, "key_origin")
 
 TIMESTAMPTZ = DateTime(timezone=True)
@@ -140,7 +148,13 @@ DOCUMENT_TSV_EXPRESSION = (
     "COALESCE(extracted_text, ''::text)), 'B'::\"char\")"
 )
 # Sort key of the document list by first appearance (D74): documents without a dated mail last.
+# The entity list sorts by the same expression over entity.first_date (D88).
 FIRST_DATE_SORT_KEY = "COALESCE(first_date, '-infinity'::timestamp with time zone)"
+
+# Version of the entity extraction's code (migration 0010, D84): raising it scans every mail and
+# document again at the next import. The scan tables store entities.model.scan_version(), which
+# also changes when the word lists or gazetteers change.
+ENTITY_VERSION = 1
 
 
 class MboxFile(Base):
@@ -672,7 +686,100 @@ class MailExport(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
 
 
-# Keys of deleted selectors (migration 0010, D100 to D103).
+class Entity(Base):
+    """One thing found in the texts (D80, D81): a kind and its normalised key, with figures."""
+
+    __tablename__ = "entity"
+    __table_args__ = (
+        UniqueConstraint("kind", "key"),
+        Index("ix_entity_kind_mails", "kind", "mails", "id"),
+        Index("ix_entity_mails", "mails", "id"),
+        Index("ix_entity_first_date", text(FIRST_DATE_SORT_KEY), "id"),
+        Index("ix_entity_value", "value", "id", postgresql_where=text("value IS NOT NULL")),
+        Index(
+            "ix_entity_label_trgm",
+            "label",
+            postgresql_using="gin",
+            postgresql_ops={"label": "gin_trgm_ops"},
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[EntityKind] = mapped_column(entity_kind_enum)
+    key: Mapped[str] = mapped_column(Text)  # normalised, unique within the kind (D81)
+    label: Mapped[str] = mapped_column(Text)  # the display form, as first stored
+    value: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))  # amount: the sum
+    currency: Mapped[str | None] = mapped_column(Text)  # amount: ISO 4217 code
+    # term: theme key; place: city or country; iban, phone: country code; url: host
+    detail: Mapped[str | None] = mapped_column(Text)
+    # Figures over the mentioning mails that are not duplicates (D85), set at the end of the
+    # entities phase; documents: documents whose text mentions it.
+    mails: Mapped[int] = mapped_column(Integer, server_default="0")
+    documents: Mapped[int] = mapped_column(Integer, server_default="0")
+    first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+class MailEntity(Base):
+    """An entity mentioned in a mail's own subject or text (entities.model.scanned_text)."""
+
+    __tablename__ = "mail_entity"
+    __table_args__ = (Index("ix_mail_entity_mail_id", "mail_id", "entity_id"),)
+
+    entity_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("entity.id", ondelete="CASCADE"), primary_key=True
+    )
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    occurrences: Mapped[int] = mapped_column(Integer)
+    context: Mapped[int] = mapped_column(SmallInteger, server_default="0")  # EntityContext
+    position: Mapped[int] = mapped_column(Integer)  # of the first occurrence in the scanned text
+
+
+class DocumentEntity(Base):
+    """An entity mentioned in a document's extracted text; it counts for every mail carrying
+    the document (D80)."""
+
+    __tablename__ = "document_entity"
+    __table_args__ = (Index("ix_document_entity_document_id", "document_id", "entity_id"),)
+
+    entity_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("entity.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="CASCADE"), primary_key=True
+    )
+    occurrences: Mapped[int] = mapped_column(Integer)
+    context: Mapped[int] = mapped_column(SmallInteger, server_default="0")  # EntityContext
+    position: Mapped[int] = mapped_column(Integer)  # of the first occurrence in extracted_text
+
+
+class MailEntityScan(Base):
+    """A mail whose text the entities phase scanned, by which scan version (D84)."""
+
+    __tablename__ = "mail_entity_scan"
+
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer)  # entities.model.scan_version()
+
+
+class DocumentEntityScan(Base):
+    """A document text the entities phase scanned: by which scan version, and the document's
+    extracted_at of that text, so that a text extracted again is scanned again (D84)."""
+
+    __tablename__ = "document_entity_scan"
+
+    document_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer)  # entities.model.scan_version()
+    extracted_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+# Keys of deleted selectors (migration 0011, D100 to D103).
 
 
 class DkimKey(Base):

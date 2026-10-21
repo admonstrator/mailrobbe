@@ -82,9 +82,9 @@ Jede Signatur, die ein Schlüssel verifiziert, bekommt die Herkunft dieses Schl�
 
 ## Was gebaut ist
 
-Alles läuft als Nachlauf über den vorhandenen Bestand; ein Neuimport ist nicht nötig. Die Migration 0010 legt die Tabellen an und setzt bei älteren Ergebnissen, die auf einem Schlüssel aus dem DNS beruhen, `key_origin = dns`.
+Alles läuft als Nachlauf über den vorhandenen Bestand; ein Neuimport ist nicht nötig. Die Migration 0011 legt die Tabellen an und setzt bei älteren Ergebnissen, die auf einem Schlüssel aus dem DNS beruhen, `key_origin = dns`.
 
-### Datenmodell (Migration 0010)
+### Datenmodell (Migration 0011)
 
 - `dkim_key`: ein Schlüssel je Name und Inhalt (`name`, `domain`, `selector`, `key_type`, `bits`, `key_sha256`, `record`, `origin` als stärkste Herkunft seiner Belege, `factorable`); `key_sha256` ist bei RSA der SHA-256 des DER-SubjectPublicKeyInfo, gleich, ob `p=` als SPKI oder als nacktes RSAPublicKey kam.
 - `dkim_key_lookup`: jede Frage an eine Quelle, auch ohne Treffer und bei Fehlern: `source` (`reconstruction`, `archive_text`, `manual`, `zkemail`, `dns`), `query` (nie mit Zugangsdaten), `asked_at`, `outcome`, `http_status`, `raw` unverändert mit `raw_sha256`, Medientyp und Dateiname, `message`, `tool_version`, `editor`.

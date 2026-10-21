@@ -1,7 +1,7 @@
 """Status vocabularies shared by the database, the importer, DKIM checks and the generator."""
 
 from collections.abc import Iterable
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 
 
 class DkimStatus(StrEnum):
@@ -165,6 +165,36 @@ class DocumentTextStatus(StrEnum):
     FAILED = "failed"  # the file is damaged or the extractor failed; text_error says why
     TIMEOUT = "timeout"  # stopped at the time limit; the text read until then is kept
     UNREADABLE = "unreadable"  # its MBOX file is missing or changed; tried again next import
+
+
+class EntityKind(StrEnum):
+    """entity.kind (milestone 10, D80, D81): what an entity found in a text is.
+
+    Found by mailrobbe.entities in the subject and text of every mail and in the extracted text
+    of every document; the key of each kind is normalised as D81 describes.
+    """
+
+    AMOUNT = "amount"  # a sum of money with its currency
+    IBAN = "iban"  # an IBAN with valid check digits
+    ACCOUNT = "account"  # an account number written as such (Konto, Kto.), with its bank code
+    ORGANIZATION = "organization"  # a company, association or party, by its legal form or name
+    PERSON = "person"  # a person's name in the text (not a sender or recipient)
+    PLACE = "place"  # a town or country
+    PHONE = "phone"  # a telephone or fax number
+    EMAIL = "email"  # an e-mail address in the text
+    URL = "url"  # a web address
+    DOMAIN = "domain"  # the domain of a web or e-mail address in the text
+    DATE = "date"  # a calendar day written in the text
+    TERM = "term"  # a word of a research theme's word field (themes.toml, D83)
+
+
+class EntityContext(IntFlag):
+    """mail_entity.context and document_entity.context (D82): what an amount, IBAN or account
+    number is written next to, from the word lists of themes.toml; 0 for none."""
+
+    CASH = 1  # Bargeld, bar, Barzahlung, cash
+    DONATION = 2  # Spende, Zuwendung, donation
+    RECEIPT = 4  # Quittung, Spendenbescheinigung, Zuwendungsbestätigung, receipt
 
 
 class KeyOrigin(StrEnum):
