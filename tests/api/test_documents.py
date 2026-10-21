@@ -651,7 +651,7 @@ async def test_pages_of_undated_unnamed_and_image_documents(
 
 async def test_the_text_of_a_document(crafted_client: httpx.AsyncClient, crafted: Crafted) -> None:
     notes = await get(crafted_client, f"/api/documents/{crafted.documents['notes']}/text")
-    assert notes == {"text": NOTES, "truncated": False, "text_status": "text"}
+    assert notes == {"text": NOTES.strip(), "truncated": False, "text_status": "text"}
     (png,) = await rows(
         crafted.url,
         "SELECT text_status::text AS status FROM document WHERE id = :id",

@@ -147,7 +147,7 @@ async def test_each_document_is_extracted_once_and_stored_as_the_extraction_give
         for name, row in documents.items()
     }
     assert shown == {
-        "Spenden.txt": ("text", NOTES.decode(), False, None, None, "text"),
+        "Spenden.txt": ("text", NOTES.decode().strip(), False, None, None, "text"),
         "leer.txt": ("empty", None, False, None, None, "text"),
         "Foto.jpg": ("unsupported", None, False, None, None, "image"),  # by kind, finalize
         "Protokoll.pdf": ("failed", None, False, "damaged file", None, "pdf"),
@@ -205,7 +205,7 @@ async def test_documents_above_the_size_limit_are_read_once_the_limit_admits_the
     documents = await _documents(engine)
     assert (documents["gross.txt"]["status"], documents["gross.txt"]["extracted_text"]) == (
         "text",
-        large.decode(),
+        large.decode().strip(),
     )
     assert recorded(calls) == [digest(NOTES), digest(large)]
 
@@ -315,7 +315,7 @@ async def test_a_text_whose_tsvector_is_too_long_is_halved_alone(
     )
     assert await _import(database_url, mbox_dir, 1) == 0  # one worker: one batch
     documents = await _documents(engine)
-    assert documents["a.txt"]["extracted_text"] == NOTES.decode()
+    assert documents["a.txt"]["extracted_text"] == NOTES.decode().strip()
     huge = documents["riesig.txt"]
     assert (huge["status"], huge["text_truncated"]) == ("text", True)
     assert len(huge["extracted_text"]) == HUGE_LENGTH // 2
