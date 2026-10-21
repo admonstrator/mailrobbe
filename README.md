@@ -26,6 +26,7 @@ Die Rohmails bleiben unverändert in den MBOX-Dateien, die read-only eingebunden
 | Wer hat mit wem wie oft geschrieben?                   | Beziehungskarte (`/karte`), Top-Kontakte im Personenprofil                                           |
 | Ist diese Mail echt?                                   | DKIM-Ergebnis je Signatur im Mail-Detail, Filter `dkim:pass` und `dkim:fail`                         |
 | Wer steckt hinter mehreren Adressen?                   | Alias-Vorschläge unter Personen; zusammengeführt wird nur von Hand                                   |
+| Wer wusste was wann?                                   | Zeitachse (`/zeitachse`): Verlauf, Ausreißer, Verstummen, erste Erwähnung je Person                 |
 | Wer hat dieses Dokument wann an wen geschickt?         | Anhänge (`/anhaenge`) und die Seite des Dokuments                                                    |
 | Wo steht ein Begriff, auch in PDFs und Tabellen?       | Volltextsuche über Mails und Anhänge, dazu `from:`, `to:`, `subject:`, `has:attachment`, `after:`    |
 | Womit fange ich an?                                    | Themen unter Akten: Wortfelder und 18 Suchvorlagen zu den Schwerpunkten der Recherche                |
@@ -51,6 +52,10 @@ Aus Absendern und Empfängern werden Personen mit Kennzahlen, Top-Kontakten und 
 ### Die Karte zeigt, wer mit wem
 
 Die Beziehungskarte zeichnet Ausschnitte um eine oder mehrere Personen, die aktivsten Personen oder den Verkehr zwischen zwei Domains, Jahr für Jahr. Verteiler und Automaten lassen sich ausblenden, ein Klick auf eine Verbindung öffnet die Mails dazwischen. Für Gephi gibt es GraphML.
+
+### Die Zeitachse zeigt, wer was wann wusste
+
+Für jede Suche zeigt die Zeitachse das Mailaufkommen je Tag, Woche oder Monat, auf Wunsch getrennt nach Personen, Threads oder Suchbegriffen. Ungewöhnlich viele oder wenige Mails und Personen, die plötzlich verstummen, sind markiert, nach einfachen, nachlesbaren Regeln. Für einen Begriff listet sie, wer ihn wann zuerst geschrieben oder bekommen hat. Ein Klick auf einen Balken öffnet genau diese Mails.
 
 ### Anhänge sind Teil der Suche
 
@@ -147,6 +152,7 @@ Nach dem Import zeigt http://127.0.0.1:8000 die Mailliste. Alles läuft lokal: k
 - **Zugriffsschutz**: ohne Login, solange nichts eingestellt ist. `MAILROBBE_BASIC_AUTH_USER` und `MAILROBBE_BASIC_AUTH_PASSWORD` in der `.env` schalten HTTP Basic Auth ein (nur `/api/health` bleibt für den Container-Healthcheck offen).
 - **Intern/extern**: Mit `MAILROBBE_INTERNAL_DOMAINS=firma.de,firma.ch` erscheint der Filter „Nur extern ↔ intern“ (Mails, bei denen eine Seite intern und die andere extern ist; Subdomains zählen als intern).
 - **Beziehungskarte** (`/karte`): wer mit wem wie oft geschrieben hat, als Ausschnitt um eine oder mehrere Personen (bis Tiefe 3), als die aktivsten Personen des Archivs oder zwischen zwei Domains. Mindestanzahl Mails je Verbindung, Zeitraum in ganzen Jahren, nur DKIM-gültige Mails, Cc mitzählen, Verteiler und Automaten ausblenden; Knoten lassen sich aufklappen und ausblenden, ein Klick auf eine Verbindung öffnet die Mails zwischen beiden. Vier Layouts, Einfärben nach Domain, Pfeile in Senderichtung, Zeitverlauf Jahr für Jahr, Export als PNG, SVG und GraphML. Mehr als 2.000 Personen zeichnet die Karte nicht; die Vorschau neben der Schwelle sagt vorher, wie groß der Ausschnitt wird. Auch dieser Zustand steht in der Adresszeile.
+- **Zeitachse** (`/zeitachse`): das Mailaufkommen der aktuellen Suche und Filter der Mailliste über die Zeit, je Tag, Woche oder Monat (automatisch nach Zeitraum gewählt), insgesamt und auf Wunsch je Person (die sechs häufigsten oder selbst gewählte), je Thread oder je Suchbegriff (bis zu sechs, in der Suchsyntax der Mailliste). Markiert sind Abschnitte mit mindestens dreimal so vielen Mails wie im gleitenden Mittel davor (▲) oder höchstens einem Drittel davon (▽) und Reihen, die bis zum Ende des Archivs verstummen; die Regeln stehen unter dem Diagramm. „Wer taucht wann zuerst auf“ listet je Person die früheste Mail unter den Treffern, mit ihrer Rolle. Ein Klick auf einen Balken öffnet die Mailliste mit genau diesem Zeitraum und Filter. Über der Mailliste und im Personenprofil steht dieselbe Zeitachse als kleines Histogramm; ein Klick grenzt den Zeitraum ein. Die Zeitachse zählt bei jedem Aufruf direkt in der Datenbank und braucht keinen Neuimport. Der Filter `thread=<id>` zeigt alle Mails eines Threads (Link in der Thread-Karte des Mail-Details).
 - **Zahlen**: Gesamtzahlen und die Zähler neben den Filtern werden nach jedem Import und jeder DKIM-Nachprüfung neu berechnet, sonst spätestens alle fünf Minuten. Die Zahlen je Person entstehen am Ende jedes Imports und jeder DKIM-Nachprüfung, nach einem Zusammenführen sofort für die betroffenen Personen; die Personen eines laufenden Imports erscheinen also erst, wenn er fertig ist. Trefferzahlen eines Filters sind exakt, solange die Zählung höchstens zwei Sekunden dauert (`MAILROBBE_API_COUNT_TIMEOUT`), sonst steht dort „mehr als 10.000“.
 
 - **Import** (`/import`): das Dashboard aus dem Abschnitt Import, mit Fehlerprotokoll nach Art und Datei.
@@ -180,7 +186,7 @@ Ausgelegt für macOS oder Linux mit etwa 10 GB RAM für Datenbank und Importer z
 
 ## Stand
 
-Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads), Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl), Meilenstein 4 (API, Mailliste und Mail-Detail), Meilenstein 5 (Personen, Personenprofil, Alias-Vorschläge und Zusammenführen), Meilenstein 6 (Beziehungskarte mit GraphML-Export), Meilenstein 7 (Import-Dashboard und Lasttest mit 400.000 Mails), Meilenstein 8 (Rechercheakte) und Meilenstein 9 (Anhänge mit Volltext, Dokumentliste und Dokumentseite) sind fertig. Den Lasttest aus [docs/LOADTEST.md](docs/LOADTEST.md) gibt es für die Auswertung der Anhänge noch nicht. Offen ist die Abnahme mit dem echten Archiv auf der Zielmaschine.
+Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads), Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl), Meilenstein 4 (API, Mailliste und Mail-Detail), Meilenstein 5 (Personen, Personenprofil, Alias-Vorschläge und Zusammenführen), Meilenstein 6 (Beziehungskarte mit GraphML-Export), Meilenstein 7 (Import-Dashboard und Lasttest mit 400.000 Mails), Meilenstein 8 (Rechercheakte), Meilenstein 9 (Anhänge mit Volltext, Dokumentliste und Dokumentseite) und Meilenstein 11 (Zeitachse mit Ausreißern, Verstummen und erster Erwähnung je Person) sind fertig. Den Lasttest aus [docs/LOADTEST.md](docs/LOADTEST.md) gibt es für die Auswertung der Anhänge noch nicht. Offen ist die Abnahme mit dem echten Archiv auf der Zielmaschine.
 
 ---
 
