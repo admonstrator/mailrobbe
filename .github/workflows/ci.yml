@@ -54,7 +54,7 @@ jobs:
         run: |
           health=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/health)
           echo "$health"
-          test "$(echo "$health" | jq -r .schema_revision)" = 0001
+          test "$(echo "$health" | jq -r .schema_revision)" = 0002
       - name: MBOX mount is read-only
         run: |
           if output=$(docker compose exec -T backend sh -c 'touch /data/mbox/x' 2>&1); then
@@ -63,8 +63,14 @@ jobs:
           fi
           echo "$output"
           echo "$output" | grep -q 'Read-only file system'
-      - name: Generator CLI runs in the image
-        run: docker compose run --rm backend mailrobbe generate --help
+      - name: Generate test data
+        run: docker compose run --rm generator --mails 1000
+      - name: Import over the read-only mount stores every generated mail
+        run: |
+          docker compose run --rm backend mailrobbe import
+          sql() { docker compose exec -T db psql -U mailrobbe -d mailrobbe -tAc "$1"; }
+          test "$(sql 'SELECT count(*) FROM mail')" = "$(wc -l < data/mbox/_generator/manifest.jsonl)"
+          test "$(sql "SELECT count(*) FROM mail WHERE dkim_status = 'pass'")" -gt 0
       - name: Logs
         if: failure()
         run: docker compose logs

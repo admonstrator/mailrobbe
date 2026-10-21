@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from mailrobbe.dkim import cli as dkim_cli
 from mailrobbe.generator import cli as generator_cli
+from mailrobbe.importer import cli as importer_cli
 
 
 def _serve(args: argparse.Namespace) -> int:
@@ -28,11 +29,6 @@ def _migrate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _import(args: argparse.Namespace) -> int:
-    print("The importer is not implemented yet (milestone 2).", file=sys.stderr)
-    return 2
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mailrobbe")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -50,8 +46,9 @@ def build_parser() -> argparse.ArgumentParser:
     generator_cli.add_arguments(generate)
     generate.set_defaults(handler=generator_cli.run)
 
-    importer = commands.add_parser("import", help="import MBOX files (milestone 2)")
-    importer.set_defaults(handler=_import)
+    importer = commands.add_parser("import", help="import MBOX files into the database")
+    importer_cli.add_arguments(importer)
+    importer.set_defaults(handler=importer_cli.run)
 
     check = commands.add_parser("dkim", help="check the DKIM signatures of imported mails")
     dkim_cli.add_arguments(check)

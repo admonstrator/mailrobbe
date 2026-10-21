@@ -39,6 +39,9 @@ services:
       MAILROBBE_MBOX_DIR: /data/mbox
       # Empty means the default, min(8, CPU count).
       MAILROBBE_IMPORT_WORKERS: ${MAILROBBE_IMPORT_WORKERS:-}
+      # Empty means the defaults, 50MiB (no hash above) and 128MiB (headers only above).
+      MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT: ${MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT:-}
+      MAILROBBE_IMPORT_MAX_MAIL_SIZE: ${MAILROBBE_IMPORT_MAX_MAIL_SIZE:-}
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
     ports:

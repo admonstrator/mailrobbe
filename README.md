@@ -30,6 +30,23 @@ docker compose run --rm generator --mails 10000   # ohne lokales Python
 
 Die Dateien landen in `data/mbox/` (Standard: Teildateien zu je höchstens 128 MB), dazu unter `data/mbox/_generator/` ein Manifest mit dem erwarteten Ergebnis jeder Mail, die DNS-Override-Tabelle für die DKIM-Prüfung und die Testschlüssel. 10.000 Mails ergeben rund 1,1 GB und brauchen auf vier Kernen etwa 20 Sekunden; 400.000 Mails für den Lasttest ergeben rund 35 GB, hochgerechnet in 10 bis 15 Minuten. Gleiche Parameter und gleicher `--seed` ergeben bytegleiche MBOX-Dateien und Manifeste. `--help` zeigt alle Parameter (Personen, Domains, Zeitraum, Anhänge, Dateigröße, DKIM-Anteil, Fehler- und Duplikatquote, Seed, Prozesse).
 
+## Import
+
+```sh
+docker compose run --rm backend mailrobbe import   # liest /data/mbox im Container
+uv run mailrobbe import --dir data/mbox            # mit lokalem Python und uv
+```
+
+Der Importer liest jede MBOX-Datei unterhalb des Verzeichnisses (erkannt am Inhalt, nicht an der Endung) in einem eigenen Worker-Prozess, sequenziell und in großen Blöcken. Je Mail speichert er Kopfdaten, Byte-Offset und Länge in der MBOX-Datei, SHA-256, Personen, Anhänge (Name, Typ, Größe, Hash) und den Text für die Volltextsuche; die Rohmail selbst bleibt in der Datei. Die DKIM-Prüfung läuft dabei mit. Am Ende markiert er Duplikate, bildet Threads aus Message-ID, In-Reply-To und References und setzt die Anzeigenamen der Personen.
+
+- Worker: `--workers` oder `MAILROBBE_IMPORT_WORKERS`, Standard min(8, CPU-Kerne). Jeder Worker braucht normal rund 200 MB, bei sehr großen Mails bis etwa 1 GB.
+- Fortsetzen: Ctrl-C beendet die laufenden Stapel sauber, ein zweites Ctrl-C (mindestens eine Sekunde später) bricht sofort ab. Der nächste Aufruf macht in beiden Fällen dort weiter, wo zuletzt gespeichert wurde, und speichert keine Mail doppelt. Gewachsene Dateien werden ab ihrem Ende fortgesetzt, veränderte neu eingelesen. Es läuft immer nur ein Import gleichzeitig.
+- Fehler: Kaputte Mails halten den Import nicht auf. Jedes Problem (Trennzeile, Zeichensatz, Datum, Adressen, Größe, DKIM, Lesefehler) landet mit Datei und Byte-Position in der Tabelle `import_error`; die Zusammenfassung am Ende zählt sie nach Art.
+- Grenzen: Mails über 128 MB werden nur mit ihren Kopfdaten übernommen, Anhänge über 50 MB nicht gehasht (`MAILROBBE_IMPORT_MAX_MAIL_SIZE`, `MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT`).
+- Exit-Status: 0 fertig, 1 eine Datei endete mit Fehler oder der Import konnte nicht starten, 130 unterbrochen.
+
+In der Entwicklungsumgebung schaffte der Import 10.000 Testmails (1,1 GB) mit vier Workern in rund 15 Sekunden, etwa 700 Mails/s. Mit echtem DNS für die DKIM-Schlüssel und einem Bind-Mount unter macOS wird es langsamer; wie stark, zeigt erst das echte Archiv.
+
 ## DKIM-Prüfung
 
 Mailrobbe prüft jede DKIM-Signatur einer Mail und speichert das Ergebnis je Signatur: gültig, ungültig (mit Grund, etwa geänderter Body), Schlüssel fehlt, unsigniert oder DNS-Fehler. Die Schlüssel kommen aus dem DNS und werden in der Datenbank zwischengespeichert, so dass jeder Selector nur einmal abgefragt wird. Bei den Testdaten des Generators liest Mailrobbe die DNS-Override-Tabelle aus `data/mbox/_generator/` automatisch, die erfundenen Domains gehen nie ins Netz.
@@ -52,9 +69,9 @@ Ausgelegt für macOS oder Linux mit etwa 10 GB RAM für Datenbank und Importer z
 
 - [docs/SPEC.md](docs/SPEC.md): Spezifikation mit Architektur, Datenmodell, API und Meilensteinen
 - [docs/mockup/](docs/mockup/): klickbarer UI-Prototyp der fünf Screens (HTML-Datei im Browser öffnen)
-- [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware)
+- [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware, DKIM, Import)
 - [CLAUDE.md](CLAUDE.md): Entwicklungshinweise (Befehle, Konventionen, Tests)
 
 ## Stand
 
-Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator) und Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl) sind fertig. Importer und Web-Oberfläche folgen in den nächsten Meilensteinen.
+Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads) und Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl) sind fertig. Die Web-Oberfläche folgt in den nächsten Meilensteinen.

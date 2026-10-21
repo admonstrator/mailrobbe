@@ -8,7 +8,12 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - mail.dkim_status is NULL until the DKIM check has run.
 - mail_header and dkim_result carry a position/signature_index as part of the primary key, since
   headers repeat and a mail can carry several DKIM signatures.
-- mbox_file has started_at/finished_at for the import dashboard.
+- mbox_file has started_at/finished_at and worker_id (the importer worker reading it) for the
+  import dashboard; path is relative to MAILROBBE_MBOX_DIR.
+- mail.reference_ids holds the References header for threading; participation.display_name the
+  name shown with the address in that mail, from which person_email.display_names is derived.
+- mail.tsv is a stored generated column over subject (weight A) and body_text (weight B) with
+  the TEXT_SEARCH_CONFIG configuration; queries must use the same configuration.
 - edge.mails_total is a stored generated column (sum of all three counters) for the index the
   spec asks for.
 """
@@ -57,6 +62,14 @@ dns_status_enum = _pg_enum(DnsStatus, "dns_status")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
+# Full text search configuration of mail.tsv (migration 0002); search queries must use it too.
+TEXT_SEARCH_CONFIG = "german"
+TSV_EXPRESSION = " || ".join(
+    f"setweight(to_tsvector('{TEXT_SEARCH_CONFIG}'::regconfig, COALESCE({column}, ''::text)), "
+    f"'{weight}'::\"char\")"
+    for column, weight in (("subject", "A"), ("body_text", "B"))
+)
+
 
 class MboxFile(Base):
     __tablename__ = "mbox_file"
@@ -71,6 +84,7 @@ class MboxFile(Base):
     error_count: Mapped[int] = mapped_column(Integer, server_default="0")
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    worker_id: Mapped[int | None] = mapped_column(SmallInteger)
 
 
 class Mail(Base):
@@ -83,6 +97,11 @@ class Mail(Base):
         Index("ix_mail_thread_id", "thread_id"),
         Index("ix_mail_dkim_status", "dkim_status"),
         Index("ix_mail_tsv", "tsv", postgresql_using="gin"),
+        Index(
+            "ix_mail_is_duplicate_of",
+            "is_duplicate_of",
+            postgresql_where=text("is_duplicate_of IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -99,11 +118,12 @@ class Mail(Base):
     raw_sha256: Mapped[str] = mapped_column(Text)
     has_attachments: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     body_text: Mapped[str | None] = mapped_column(Text)
-    tsv: Mapped[Any | None] = mapped_column(TSVECTOR)
+    tsv: Mapped[Any | None] = mapped_column(TSVECTOR, Computed(TSV_EXPRESSION, persisted=True))
     dkim_status: Mapped[DkimStatus | None] = mapped_column(dkim_status_enum)
     is_duplicate_of: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("mail.id", ondelete="SET NULL")
     )
+    reference_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
 
 class MailHeader(Base):
@@ -173,6 +193,7 @@ class Participation(Base):
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
     )
     role: Mapped[ParticipationRole] = mapped_column(participation_role_enum, primary_key=True)
+    display_name: Mapped[str | None] = mapped_column(Text)
 
 
 class Attachment(Base):

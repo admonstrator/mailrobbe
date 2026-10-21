@@ -1,4 +1,4 @@
-"""Database fixtures.
+"""Shared fixtures: PostgreSQL databases and a generated MBOX archive.
 
 Database tests need a PostgreSQL server: MAILROBBE_TEST_DATABASE_URL is an asyncpg URL such as
 postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe. Without it they skip, unless
@@ -11,16 +11,22 @@ Alembic's env.py calls asyncio.run, so migrations run in sync fixtures, or in a 
 """
 
 import asyncio
+import json
 import os
 import secrets
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import make_url, pool, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from mailrobbe import migrate
+from mailrobbe.generator.config import DNS_OVERRIDE_NAME, MANIFEST_NAME, GeneratorConfig
+from mailrobbe.generator.pipeline import generate
 
 TEST_DATABASE_URL_ENV = "MAILROBBE_TEST_DATABASE_URL"
 REQUIRE_DB_ENV = "MAILROBBE_REQUIRE_DB"
@@ -95,3 +101,41 @@ async def db_session(migrated_database_url: str) -> AsyncIterator[AsyncSession]:
         await transaction.rollback()
         await connection.close()
         await engine.dispose()
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedArchive:
+    """Output of one generator run: the MBOX directory and its manifest (one dict per mail)."""
+
+    mbox_dir: Path
+    manifest: list[dict[str, Any]]
+    config: GeneratorConfig
+
+    @property
+    def dns_override(self) -> Path:
+        return self.config.meta_dir / DNS_OVERRIDE_NAME
+
+
+@pytest.fixture(scope="session")
+def generated_archive(tmp_path_factory: pytest.TempPathFactory) -> GeneratedArchive:
+    """600 generated mails in several small files, with many faults and duplicates.
+
+    Built once per test session and shared, so tests must not change the files. The manifest
+    (data/mbox/_generator/manifest.jsonl format) is the ground truth for every mail.
+    """
+    out_dir = tmp_path_factory.mktemp("archive") / "mbox"
+    config = GeneratorConfig(
+        out_dir=out_dir,
+        meta_dir=out_dir / "_generator",
+        mails=600,
+        persons=150,
+        domains=20,
+        file_size=8 * 1024**2,
+        large_attachments=1,
+        large_attachment_size=2 * 1024**2,
+        fault_rate=0.2,
+        duplicate_rate=0.05,
+    )
+    generate(config)
+    lines = (config.meta_dir / MANIFEST_NAME).read_text(encoding="utf-8").splitlines()
+    return GeneratedArchive(out_dir, [json.loads(line) for line in lines], config)
