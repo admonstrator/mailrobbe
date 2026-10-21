@@ -36,6 +36,9 @@ const full: ListState = {
   collection: [3],
   has_note: true,
   document: 5101,
+  entity: [31, 7],
+  amount_min: 10000.5,
+  amount_context: ["cash", "receipt"],
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -79,6 +82,9 @@ describe("list state in the URL", () => {
       "collection",
       "has_note",
       "document",
+      "entity",
+      "amount_min",
+      "amount_context",
       "sort",
       "cursor",
       "limit",
@@ -114,6 +120,10 @@ describe("list state in the URL", () => {
         "has_note=1",
         "sender_domain=%20",
         "sender_domain=Nordlicht-GmbH.example",
+        "entity=0",
+        "entity=x",
+        "amount_min=10.000%2C00",
+        "amount_context=bribe",
         "unknown=1",
       ].join("&"),
     );
@@ -124,6 +134,26 @@ describe("list state in the URL", () => {
       sender_domain: ["nordlicht-gmbh.example"],
       review: ["seen"],
     });
+  });
+
+  it("carries the entity and amount filters with the API's names (D86)", () => {
+    const state = parse(
+      "entity=31&entity=7&entity=31&amount_min=0&amount_context=donation&amount_context=cash",
+    );
+    expect(state.entity).toEqual([31, 7]);
+    expect(state.amount_min).toBe(0);
+    // Contexts in their fixed order, whatever the URL's.
+    expect(state.amount_context).toEqual(["cash", "donation"]);
+    expect(toFilters(state)).toEqual({
+      entity: [31, 7],
+      amount_min: 0,
+      amount_context: ["cash", "donation"],
+    });
+    expect(search(state)).toBe(
+      "entity=31&entity=7&amount_min=0&amount_context=cash&amount_context=donation",
+    );
+    expect(parse("amount_min=2500.5").amount_min).toBe(2500.5);
+    expect(withoutSidebarFilters(state)).toEqual(DEFAULT_LIST_STATE);
   });
 
   it("keeps a person's role only together with exactly one person", () => {

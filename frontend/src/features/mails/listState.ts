@@ -5,6 +5,7 @@ import { buildQuery } from "../../api/client";
 import {
   PAGE_SIZE,
   type DkimKey,
+  type EntityContextKey,
   type MailFilters,
   type MailListParams,
   type MailOrderParams,
@@ -14,6 +15,8 @@ import {
 } from "../../api/types";
 import { DKIM_KEYS } from "../../lib/dkim";
 import { REVIEW_KEYS } from "../../lib/research";
+import { amountParam } from "../entities/amount";
+import { ENTITY_CONTEXTS } from "../entities/labels";
 
 export interface ListState {
   q: string;
@@ -38,6 +41,11 @@ export interface ListState {
   has_note: boolean;
   /** Mails carrying this document (D75). */
   document: number | null;
+  /** Entities (D86): each of these is mentioned; an amount of at least amount_min (any
+   *  currency) is mentioned; such an amount stands next to any of these contexts. */
+  entity: number[];
+  amount_min: number | null;
+  amount_context: EntityContextKey[];
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -68,6 +76,9 @@ export const DEFAULT_LIST_STATE: ListState = {
   collection: [],
   has_note: false,
   document: null,
+  entity: [],
+  amount_min: null,
+  amount_context: [],
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -129,6 +140,11 @@ export function parseListState(search: URLSearchParams): ListState {
   state.collection = ids(search, "collection");
   state.has_note = search.get("has_note") === "true";
   state.document = positiveInt(search.get("document"));
+  state.entity = ids(search, "entity");
+  state.amount_min = amountParam(search.get("amount_min"));
+  state.amount_context = ENTITY_CONTEXTS.filter((key) =>
+    search.getAll("amount_context").includes(key),
+  );
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -156,6 +172,9 @@ export function toFilters(state: ListState): MailFilters {
   if (state.collection.length) filters.collection = state.collection;
   if (state.has_note) filters.has_note = true;
   if (state.document !== null) filters.document = state.document;
+  if (state.entity.length) filters.entity = state.entity;
+  if (state.amount_min !== null) filters.amount_min = state.amount_min;
+  if (state.amount_context.length) filters.amount_context = state.amount_context;
   return filters;
 }
 

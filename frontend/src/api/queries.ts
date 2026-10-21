@@ -13,6 +13,7 @@ import {
 } from "@tanstack/react-query";
 
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./client";
+import { ENTITY_REFS_LIMIT } from "./types";
 import type {
   BulkRequest,
   BulkResult,
@@ -30,6 +31,13 @@ import type {
   DocumentSummary,
   DocumentText,
   DomainCount,
+  EntityDetail,
+  EntityFacetParams,
+  EntityFacets,
+  EntityListParams,
+  EntityPage,
+  EntityRef,
+  EntitySummary,
   ExportInfo,
   ExportRequest,
   Graph,
@@ -44,6 +52,7 @@ import type {
   LinkChange,
   MailDetail,
   MailDkim,
+  MailEntity,
   MailFilters,
   MailHeaders,
   MailListParams,
@@ -734,5 +743,77 @@ export function useDocumentText(id: number, enabled: boolean) {
     queryKey: queryKeys.documentText(id),
     queryFn: ({ signal }) => apiGet<DocumentText>(`/api/documents/${id}/text`, undefined, signal),
     enabled,
+  });
+}
+
+// Entities (D80 to D89) -------------------------------------------------------------------------
+
+export const entityKeys = {
+  /** Prefix of everything about entities; an import's entities phase changes them. */
+  entities: ["entities"] as const,
+  page: (params: EntityListParams) => ["entities", "page", params] as const,
+  summary: ["entities", "summary"] as const,
+  refs: (ids: number[]) => ["entities", "refs", ids] as const,
+  detail: (id: number) => ["entities", "detail", id] as const,
+  /** Under the mail list's prefix: the facets count the mails of a filter (D87), so whatever
+   *  changes the list's contents changes them. */
+  facets: (params: EntityFacetParams) => ["mails", "facets", params] as const,
+  mail: (id: number) => ["mail", id, "entities"] as const,
+};
+
+/** The top entities of the mail list's filters (D87), in a query of its own, so the list never
+ *  waits for them; the previous ones stay while the next load. */
+export function useEntityFacets(params: EntityFacetParams, enabled = true) {
+  return useQuery({
+    queryKey: entityKeys.facets(params),
+    queryFn: ({ signal }) => apiGet<EntityFacets>("/api/mails/facets", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Entities per kind and the texts not scanned yet. */
+export function useEntitySummary(enabled = true) {
+  return useQuery({
+    queryKey: entityKeys.summary,
+    queryFn: ({ signal }) => apiGet<EntitySummary>("/api/entities/summary", undefined, signal),
+    enabled,
+  });
+}
+
+/** Label and kind of the entities of a filter, for its chips: one request for all ids, sorted
+ *  so that the same ids share it. The names stay while those of a changed filter load. */
+export function useEntityRefs(ids: number[]) {
+  const sorted = [...ids].sort((a, b) => a - b).slice(0, ENTITY_REFS_LIMIT);
+  return useQuery({
+    queryKey: entityKeys.refs(sorted),
+    queryFn: ({ signal }) => apiGet<EntityRef[]>("/api/entities/refs", { id: sorted }, signal),
+    enabled: sorted.length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+  });
+}
+
+export function useEntityPage(params: EntityListParams) {
+  return useQuery({
+    queryKey: entityKeys.page(params),
+    queryFn: ({ signal }) => apiGet<EntityPage>("/api/entities", params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** An entity page (D88). */
+export function useEntity(id: number) {
+  return useQuery({
+    queryKey: entityKeys.detail(id),
+    queryFn: ({ signal }) => apiGet<EntityDetail>(`/api/entities/${id}`, undefined, signal),
+  });
+}
+
+/** What was found in one mail and its attachments (D89). */
+export function useMailEntities(id: number) {
+  return useQuery({
+    queryKey: entityKeys.mail(id),
+    queryFn: ({ signal }) => apiGet<MailEntity[]>(`/api/mails/${id}/entities`, undefined, signal),
   });
 }
