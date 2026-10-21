@@ -1,5 +1,22 @@
-/* The group "Suche" of the filter column; group, legend, sub-group and field come from
-   FilterColumn.module.css, so it looks like the groups below it. */
+/* The options and the syntax of the search menu (features/search/SearchMenu.tsx). */
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.places {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
 
 /* Under "Ganzes Wort", aligned with its label. */
 .hint {
@@ -17,34 +34,49 @@
 }
 
 /* Room for three digits, MIN_HITS_LIMIT has three. */
-.minHits .minHitsInput {
-  width: 48px;
+.minHitsInput {
+  box-sizing: border-box;
+  width: 52px;
+  height: 32px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 8px;
+  background: var(--color-surface);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--transition-fast);
+}
+
+.minHitsInput:hover {
+  border-color: var(--color-muted);
+}
+
+.minHitsInput:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 0;
 }
 
 .syntax {
-  font-size: 12px;
-}
-
-.summary {
-  width: fit-content;
-  color: var(--color-accent);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.summary:hover {
-  color: var(--color-accent-hover);
-}
-
-.syntaxList {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
+  margin: 0;
   color: var(--color-muted);
+  font-size: 12px;
   line-height: 1.4;
+}
+
+.syntaxLine {
+  display: grid;
+  grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.syntaxLine dt,
+.syntaxLine dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .code {
