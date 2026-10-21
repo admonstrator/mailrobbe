@@ -15,6 +15,7 @@ import { ActionsCard } from "./ActionsCard";
 import { AttachmentsCard } from "./AttachmentsCard";
 import { BodyCard, type BodyTab } from "./BodyCard";
 import { DkimCard } from "./DkimCard";
+import { EntitiesCard } from "./EntitiesCard";
 import { HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
 import { ParticipantsCard } from "./ParticipantsCard";
@@ -139,6 +140,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             <ResearchCard mail={detail.data} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
+            <EntitiesCard mailId={id} />
             <ActionsCard
               mail={detail.data}
               onShowRaw={() => {
