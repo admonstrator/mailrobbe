@@ -4,7 +4,8 @@ themes.toml is the one source of the themes and their word fields; the research 
 tag and saved searches from each theme on request, the Akten screen shows the word fields, and
 later milestones (entities, anomalies, topic discovery) read them here too. load_themes checks
 the file: keys and names unique, colours from TagColor, every search understood by the search
-syntax. load_entity_context reads the context words of amounts (D82), load_signal_lists the
+syntax, its options (places, whole words, minimum hits, D178) those of the mail list.
+load_entity_context reads the context words of amounts (D82), load_signal_lists the
 settings of the signals (D131 to D133).
 """
 
@@ -15,8 +16,9 @@ from pathlib import Path
 from typing import Any, cast, get_args
 from urllib.parse import urlencode
 
+from mailrobbe.api.fulltext import FIELDS
 from mailrobbe.api.query import QueryError, parse_query
-from mailrobbe.api.schemas import TagColor
+from mailrobbe.api.schemas import MIN_HITS_LIMIT, SearchField, TagColor
 from mailrobbe.enums import EntityContext
 
 THEMES_FILE = Path(__file__).with_name("themes.toml")
@@ -30,11 +32,21 @@ class ThemesError(ValueError):
 class ThemeSearch:
     name: str
     q: str  # text of the search field
+    # The full text options of the mail list (D178): places in FIELDS order, () for everywhere.
+    scope: tuple[SearchField, ...] = ()
+    whole_word: bool = False
+    min_hits: int | None = None
 
     @property
     def query(self) -> str:
-        """The query string of the mail list for this search (SavedSearch.query)."""
-        return urlencode({"q": self.q})
+        """The query string of the mail list for this search (SavedSearch.query), as the mail
+        list writes it: places repeated, whole_word=true, defaults left out."""
+        params = [("q", self.q), *(("scope", place) for place in self.scope)]
+        if self.whole_word:
+            params.append(("whole_word", "true"))
+        if self.min_hits is not None:
+            params.append(("min_hits", str(self.min_hits)))
+        return urlencode(params)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,10 +88,7 @@ def _theme(entry: dict[str, Any]) -> Theme:
             color=cast(TagColor, color),
             description=str(entry.get("description", "")),
             terms=tuple(str(term) for term in entry.get("terms", [])),
-            searches=tuple(
-                ThemeSearch(name=str(search["name"]), q=str(search["q"]))
-                for search in entry.get("search", [])
-            ),
+            searches=tuple(_search(key, search) for search in entry.get("search", [])),
         )
     except (KeyError, TypeError) as error:
         raise ThemesError(f"theme {key}: missing or wrong field {error}") from None
@@ -89,6 +98,40 @@ def _theme(entry: dict[str, Any]) -> Theme:
         except QueryError as error:
             raise ThemesError(f"theme {key}, search {search.name}: {error}") from None
     return theme
+
+
+def _search(key: str, entry: dict[str, Any]) -> ThemeSearch:
+    """A [[theme.search]] with its options checked (D178): scope a list of places (all four
+    mean everywhere, as an empty one), whole_word true or false, min_hits from 1 to
+    MIN_HITS_LIMIT."""
+    name = str(entry["name"])
+    where = f"theme {key}, search {name}"
+    scope = entry.get("scope", [])
+    if not isinstance(scope, list) or not all(isinstance(place, str) for place in scope):
+        raise ThemesError(f"{where}: scope must be a list of places")
+    unknown = sorted(set(scope) - set(FIELDS))
+    if unknown:
+        raise ThemesError(
+            f"{where}: unknown places {', '.join(unknown)}, known are {', '.join(FIELDS)}"
+        )
+    whole_word = entry.get("whole_word", False)
+    if not isinstance(whole_word, bool):
+        raise ThemesError(f"{where}: whole_word must be true or false")
+    min_hits = entry.get("min_hits")
+    if min_hits is not None and (
+        not isinstance(min_hits, int)
+        or isinstance(min_hits, bool)
+        or not 1 <= min_hits <= MIN_HITS_LIMIT
+    ):
+        raise ThemesError(f"{where}: min_hits must be a whole number from 1 to {MIN_HITS_LIMIT}")
+    places = tuple(place for place in FIELDS if place in scope)
+    return ThemeSearch(
+        name=name,
+        q=str(entry["q"]),
+        scope=() if len(places) == len(FIELDS) else places,
+        whole_word=whole_word,
+        min_hits=min_hits,
+    )
 
 
 # The lists of [entity_context] (D82), by the context they mark.
