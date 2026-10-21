@@ -21,6 +21,7 @@ TABLES = {
     "mbox_file",
     "mail",
     "mail_header",
+    "mail_note",
     "person",
     "person_email",
     "participation",
@@ -51,6 +52,10 @@ INDEXES = {
     "ix_mail_tsv": "CREATE INDEX ix_mail_tsv ON public.mail USING gin (tsv)",
     "ix_mail_is_duplicate_of": "CREATE INDEX ix_mail_is_duplicate_of ON public.mail "
     "USING btree (is_duplicate_of) WHERE (is_duplicate_of IS NOT NULL)",
+    "ix_mail_sort": "CREATE INDEX ix_mail_sort ON public.mail "
+    "USING btree (COALESCE(date_utc, '-infinity'::timestamp with time zone), id)",
+    "ix_mail_subject_trgm": "CREATE INDEX ix_mail_subject_trgm "
+    "ON public.mail USING gin (subject gin_trgm_ops)",
     "uq_person_canonical_email": "CREATE UNIQUE INDEX uq_person_canonical_email "
     "ON public.person USING btree (canonical_email)",
     "ix_person_domain": "CREATE INDEX ix_person_domain ON public.person USING btree (domain)",
@@ -96,7 +101,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0002"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0003"
 
 
 @pytest.mark.db
@@ -217,5 +222,9 @@ def test_upgrade_renders_offline_without_database() -> None:
     assert "INSERT INTO alembic_version (version_num) VALUES ('0001')" in sql
     assert (
         "UPDATE alembic_version SET version_num='0002' WHERE alembic_version.version_num = '0001'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0003' WHERE alembic_version.version_num = '0002'"
         in sql
     )
