@@ -25,6 +25,10 @@ FULL = bench.Samples(
     middle_rank=75,
     ego_thresholds={1: 1, 2: 4},
     domains_threshold=2,
+    documents=40,
+    document_id=12,
+    text_document_id=13,
+    document_words=["spenden", "quittung"],
 )
 
 
@@ -42,7 +46,7 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
     found, skipped = bench.scenarios(FULL)
     names = [scenario.name for scenario in found]
     assert skipped == []
-    assert len(names) == len(set(names)) == 42
+    assert len(names) == len(set(names)) == 53
     paths = {scenario.name: scenario.paths for scenario in found}
     assert paths["mail list, next page"] == ("/api/mails?cursor=abc",)
     assert paths["filter full text word"] == ("/api/mails?q=vertrag", "/api/mails?q=angebot")
@@ -54,6 +58,22 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
     assert paths["map, ego depth 2"] == ("/api/graph?mode=ego&center=3&depth=2&min_edge=4",)
     assert paths["map, two domains"] == (
         "/api/graph?mode=domains&domain=a.example&domain=b.example&min_edge=2",
+    )
+    assert paths["documents by size"] == ("/api/documents?sort=size",)
+    assert paths["documents, full text word"] == (
+        "/api/documents?q=spenden",
+        "/api/documents?q=quittung",
+    )
+    assert paths["documents summary, full text word"] == (
+        "/api/documents/summary?q=spenden",
+        "/api/documents/summary?q=quittung",
+    )
+    assert paths["document page"] == ("/api/documents/12",)
+    assert paths["document text"] == ("/api/documents/12/text",)
+    assert paths["mails of a document, oldest first"] == ("/api/mails?document=12&sort=date_asc",)
+    assert paths["mail search through attachments"] == (
+        "/api/mails?q=spenden",
+        "/api/mails?q=quittung",
     )
     with_export, _ = bench.scenarios(FULL, with_export=True)
     assert with_export[-1].name == "CSV export, every mail"
@@ -74,8 +94,8 @@ def test_an_empty_archive_skips_what_needs_a_sample() -> None:
         "import summary",
         "import errors",
     ]
-    assert "profile, top person" in skipped
-    assert len(found) + len(skipped) == 42
+    assert "profile, top person" in skipped and "documents, newest first" in skipped
+    assert len(found) + len(skipped) == 53
 
 
 def test_table_rows_mark_slow_and_failed_scenarios() -> None:
