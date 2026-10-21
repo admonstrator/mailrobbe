@@ -286,7 +286,7 @@ async def test_status_shows_what_a_dead_run_left_running_in_the_database(
 ) -> None:
     url = dashboard.url
     engine = create_async_engine(url, poolclass=pool.NullPool)
-    # The connections of a run whose process died, as after a restart of the server (D110).
+    # The connections of a run whose process died, as after a restart of the server (D113).
     dead = create_async_engine(
         url,
         poolclass=pool.NullPool,

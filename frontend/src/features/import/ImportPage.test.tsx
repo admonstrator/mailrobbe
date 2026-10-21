@@ -43,6 +43,12 @@ async function heading(name: string) {
   return screen.findByRole("heading", { level: 1, name });
 }
 
+/** What follows the label in a step's row of a run's list. */
+function stepDetail(label: string): string {
+  const row = screen.getByText(label).closest("li")!;
+  return row.textContent!.slice(label.length);
+}
+
 function figures(): string[] {
   const list = screen.getByRole("list", { name: "Importfortschritt" });
   return within(list)
@@ -64,12 +70,12 @@ describe("run card", () => {
     expect(
       screen.getByText(`Quelle: /data/mbox · 72 Dateien · ${formatBytes(totals.size_bytes)}`),
     ).toBeTruthy();
-    expect(screen.getByText("Gestartet 20.10.2026 01:02 · Restzeit ca. 1 h 40 min")).toBeTruthy();
+    expect(screen.getByText("Gestartet 20.10.2026 01:02 · letzte Meldung vor 1 s")).toBeTruthy();
     const percent = Math.floor((totals.bytes_done / totals.size_bytes) * 100);
     expect(
       screen.getByRole("progressbar", { name: "Gesamtfortschritt" }).getAttribute("aria-valuenow"),
     ).toBe(String(percent));
-    expect(await screen.findByText(/Duplikate/)).toBeTruthy();
+    expect(await screen.findByText(/Duplikate \(/)).toBeTruthy();
     expect(figures()).toEqual([
       `313.491 von ca. 430.996 Mails geparst (${percent} %)`,
       "1.420 Mails/s Parsing",
@@ -77,6 +83,17 @@ describe("run card", () => {
       "1.912 Duplikate (Message-ID + Hash)",
       "58 Importfehler",
     ]);
+
+    const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
+    expect(steps.closest("details")).toBeNull(); // open while the run lives
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(12);
+    expect(stepDetail("Verzeichnis scannen")).toBe("fertig in 4 s");
+    expect(stepDetail("Header älterer Mails nachlesen")).toBe("nicht nötig");
+    expect(stepDetail("Mails einlesen")).toBe(
+      "28,0 GB von 108,0 GB · 13,4 MB/s · Restzeit geschätzt 1 h 40 min · läuft seit 2 h 11 min",
+    );
+    expect(stepDetail("Duplikate erkennen")).toBe("wartet");
+    expect(stepDetail("Text aus Anhängen lesen")).toBe("wartet");
 
     expect(button("Pausieren")).toHaveProperty("disabled", false);
     for (const name of [/DKIM für/, "Verzeichnis neu scannen"]) {
@@ -86,30 +103,49 @@ describe("run card", () => {
     expect(screen.queryByRole("button", { name: /Import (starten|fortsetzen)/ })).toBeNull();
   });
 
-  it("names the phase of a live import", async () => {
+  it("shows what the database does for a step that counts nothing", async () => {
+    const running = new Set(["duplicates", "threads"]);
     const status = {
       ...importStatus,
       import_job: {
         ...importJob,
-        phase: "headers" as const,
+        phase: "finalize" as const,
         progress: {
           ...importJob.progress,
           workers: 0,
-          headers_done: 81_200,
-          headers_total: 292_746,
+          steps: importJob.progress.steps.map((step) =>
+            step.key === "duplicates"
+              ? { ...step, status: "done" as const, seconds: 3 }
+              : step.key === "threads"
+                ? { ...step, status: "running" as const, seconds: 70 }
+                : running.has(step.key) || step.status !== "running"
+                  ? step
+                  : { ...step, status: "done" as const, rate: null, eta_seconds: null },
+          ),
+          database: { seconds: 69, wait: "Lock" },
         },
       },
     };
     renderApp("/import", backend(status).api);
     await heading("Import läuft");
+    expect(stepDetail("Threads bilden")).toBe(
+      "läuft seit 1 min 11 s · Datenbank wartet seit 1 min 10 s auf eine Sperre",
+    );
+    expect(stepDetail("Mails einlesen")).toBe("fertig in 2 h 11 min · 28,0 GB");
+    expect(screen.queryByText(/Worker aktiv/)).toBeNull();
+    expect(screen.queryByText(/Mails\/s Parsing/)).toBeNull(); // no throughput beside importing
+  });
+
+  it("warns when a live run has not reported for a while", async () => {
+    const status = { ...importStatus, import_job: { ...importJob, report_age_seconds: 45 } };
+    renderApp("/import", backend(status).api);
+    await heading("Import läuft");
+    expect(screen.getByText(/letzte Meldung vor 45 s/)).toBeTruthy();
     expect(
       screen.getByText(
-        "Header älterer Mails werden neu gelesen (Verteiler und Automaten), 81.200 von 292.746",
+        "Seit 45 s keine Meldung, obwohl der Prozess noch läuft. Details stehen im Server-Log (docker compose logs backend).",
       ),
     ).toBeTruthy();
-    expect(screen.queryByText(/Worker aktiv/)).toBeNull();
-    expect(screen.getByText("Gestartet 20.10.2026 01:02")).toBeTruthy(); // no remaining time
-    expect(screen.queryByText(/Mails\/s Parsing/)).toBeNull(); // nor throughput
   });
 
   it("pauses the import and waits for it to stop", async () => {
@@ -132,7 +168,13 @@ describe("run card", () => {
     renderApp("/import", backend(importStatusPaused).api);
     await heading("Import pausiert");
     expect(screen.getByText("Gestartet 20.10.2026 01:02 · pausiert 20.10.2026 03:15")).toBeTruthy();
-    await screen.findByText(/Duplikate/);
+    const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
+    expect(steps.closest("details")?.open).toBe(false); // folded once the run ended
+    expect(stepDetail("Mails einlesen")).toBe(
+      "angehalten bei 28,0 GB von 108,0 GB nach 2 h 13 min",
+    );
+    expect(stepDetail("Duplikate erkennen")).toBe("nicht erreicht");
+    await screen.findByText(/Duplikate \(/);
     expect(figures().some((text) => text.includes("Mails/s"))).toBe(false);
     for (const name of ["Import fortsetzen", /DKIM für/, "Verzeichnis neu scannen"]) {
       expect(button(name)).toHaveProperty("disabled", false);
@@ -159,14 +201,33 @@ describe("run card", () => {
     expect(button("Import starten")).toBeTruthy();
   });
 
-  it("shows a run whose process died as aborted", async () => {
-    renderApp(
-      "/import",
-      backend(withJob({ status: "running", finished_at: null, message: null })).api,
-    );
-    await heading("Import abgebrochen");
-    expect(screen.getByText(/Der Importprozess endete, ohne sein Ende zu melden/)).toBeTruthy();
+  it("shows a run whose process died as orphaned, with what it left in the database", async () => {
+    const orphaned = withJob({
+      status: "running",
+      finished_at: null,
+      message: null,
+      progress: importJob.progress,
+      leftover: { seconds: 190, wait: null },
+    });
+    renderApp("/import", backend(orphaned).api);
+    await heading("Import verwaist");
+    expect(
+      screen.getByText(
+        "Der Importprozess endete, ohne sein Ende zu melden, etwa weil der Server oder der Container neu gestartet wurde. Zuletzt lief „Mails einlesen“.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "In der Datenbank läuft seine letzte Anweisung noch (rechnet seit 3 min 10 s). Sie kann Sperren halten, die der nächste Lauf braucht; der nächste Start beendet sie zuerst.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText(/letzte Meldung 20\.10\.2026 03:15/)).toBeTruthy();
+    const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
+    expect(steps.closest("details")).toBeNull(); // open: it tells where the run stopped
+    expect(stepDetail("Mails einlesen")).toBe(
+      "abgebrochen bei 28,0 GB von 108,0 GB nach 2 h 11 min",
+    );
+    expect(stepDetail("Duplikate erkennen")).toBe("nicht erreicht");
     expect(button("Import fortsetzen")).toBeTruthy();
   });
 
@@ -351,11 +412,10 @@ describe("actions", () => {
     await heading("Import pausiert");
     fireEvent.click(button(/DKIM für/));
 
-    expect(
-      await screen.findByText(
-        "DKIM-Prüfung läuft: 12.408 von 64.790 Mails · 312 Mails/s · Restzeit ca. 3 min",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText("DKIM-Prüfung läuft")).toBeTruthy();
+    expect(stepDetail("Signaturen prüfen")).toBe(
+      "12.408 von 64.790 Mails · 312 Mails/s · Restzeit geschätzt 3 min · läuft seit 40 s",
+    );
     expect(posts(calls, "/api/dkim/recheck").map((call) => call.body)).toEqual([{}]);
     for (const name of ["Import fortsetzen", /DKIM für/, "Verzeichnis neu scannen"]) {
       expect(button(name)).toHaveProperty("disabled", true);
@@ -383,12 +443,27 @@ describe("actions", () => {
     ).toBeTruthy();
   });
 
+  it("shows a DKIM run whose process died as orphaned", async () => {
+    const orphaned = {
+      ...dkimJobRunning,
+      alive: false,
+      leftover: { seconds: 4, wait: "Lock" },
+    };
+    renderApp("/import", backend({ ...importStatusPaused, dkim_job: orphaned }).api);
+    expect(
+      await screen.findByText(
+        "DKIM-Prüfung verwaist: Der Prozess endete ohne Meldung · letzte Meldung 20.10.2026 03:20",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/noch \(wartet seit 4 s auf eine Sperre\)/)).toBeTruthy();
+  });
+
   it("loads everything again when a run ends", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const server = backend(importStatus);
     const { calls } = renderApp("/import", server.api);
     await heading("Import läuft");
-    await screen.findByText(/Duplikate/);
+    await screen.findByText(/Duplikate \(/);
     const count = (path: string) => calls.filter((call) => call.url.pathname === path).length;
     expect(count("/api/stats")).toBe(1);
     expect(count("/api/import/summary")).toBe(1);

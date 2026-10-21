@@ -23,7 +23,7 @@ async def sync_rows(
     updated, missing ones inserted, and rows matching scope (a condition on the table, alias t)
     that fresh lacks are deleted; unchanged rows are not written at all. keys are the table's
     primary key: the INSERT skips existing rows through it, since an anti join with the table
-    it fills scans that table once per row when its statistics say it is empty (D110).
+    it fills scans that table once per row when its statistics say it is empty (D112).
     """
     key_list, value_list = ", ".join(keys), ", ".join(values)
     same_key = " AND ".join(f"t.{key} = f.{key}" for key in keys)

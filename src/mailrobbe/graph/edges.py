@@ -128,7 +128,8 @@ def _sync(table: str, key: tuple[str, ...], columns: tuple[str, ...]) -> tuple[s
 
     The INSERT skips existing rows through the primary key rather than an anti join with the
     table it fills: with statistics of an empty table, PostgreSQL scans the growing table once
-    per inserted row, which made the first refresh of 30,000 edges take 5 s instead of 0.1 s.
+    per inserted row, which made the first refresh of 30,000 edges take 5 s instead of 0.1 s
+    (D112).
     """
     match = " AND ".join(f"n.{c} = t.{c}" for c in key)
     old = ", ".join(f"t.{c}" for c in columns)

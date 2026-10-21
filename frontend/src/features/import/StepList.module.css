@@ -1,0 +1,85 @@
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 8px;
+  align-items: start;
+}
+
+.mark {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+  color: var(--color-unsigned);
+}
+
+.done {
+  color: var(--color-pass);
+}
+
+.failed {
+  color: var(--color-fail);
+}
+
+.ring {
+  width: 10px;
+  height: 10px;
+  margin-top: 2px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: 50%;
+}
+
+.text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+}
+
+.label {
+  min-width: 17em;
+  color: var(--color-text);
+}
+
+.running .label {
+  font-weight: 600;
+}
+
+.quiet {
+  color: var(--color-muted);
+}
+
+.detail {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  grid-column: 2;
+  display: flex;
+  height: 4px;
+  max-width: 480px;
+  margin: 4px 0 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-border-subtle);
+}
+
+.fill {
+  background: var(--color-accent);
+  transition: width 0.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill {
+    transition: none;
+  }
+}

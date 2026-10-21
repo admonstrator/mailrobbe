@@ -69,7 +69,7 @@ class StepProgress(BaseModel):
 
 
 class DbActivity(BaseModel):
-    """The run's longest running statement, from pg_stat_activity (D110)."""
+    """The run's longest running statement, from pg_stat_activity (D111)."""
 
     seconds: float  # since it started
     # pg_stat_activity.wait_event_type: None while it computes, "IO" while it reads or writes,
@@ -257,9 +257,10 @@ async def job_alive(db: Executor, kind: JobKind) -> bool:
     return bool(held)
 
 
-# What the database does for a run (D110). A run names its connections after its kind and process
-# (application_name), so its statements show in pg_stat_activity even after the process died: a
-# statement keeps running on the server until it would send its result to the client that left.
+# What the database does for a run (D111, D113). A run names its connections after its kind and
+# process (application_name), so its statements show in pg_stat_activity even after the process
+# died: a statement keeps running on the server until it would send its result to the client that
+# left.
 _ACTIVITY = """
     SELECT extract(epoch FROM clock_timestamp() - query_start)::float8, wait_event_type
     FROM pg_stat_activity

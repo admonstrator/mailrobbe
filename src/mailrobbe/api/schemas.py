@@ -712,12 +712,12 @@ class JobInfo(BaseModel):
     stop_requested: bool  # a stop was asked for; the run ends at its next report
     started_at: datetime
     updated_at: datetime  # its last report
-    report_age_seconds: float  # since its last report, by the database's clock (D110)
+    report_age_seconds: float  # since its last report, by the database's clock (D111)
     finished_at: datetime | None
     message: str | None  # English one-line summary or failure reason, for the log view
     # The longest statement a run left running in the database although its process ended
     # (alive false with status running): it runs until it would send its result, holding its
-    # locks; the next run of the kind ends it. None otherwise (D110).
+    # locks; the next run of the kind ends it. None otherwise (D113).
     leftover: DbActivity | None
 
 

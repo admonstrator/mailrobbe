@@ -55,6 +55,21 @@ export function formatRemaining(seconds: number): string {
   return rest ? `${hours} ${rest} min` : hours;
 }
 
+/** An elapsed time to the second: "unter 1 s", "12 s", "3 min 7 s", "1 h 5 min". */
+export function formatElapsed(seconds: number): string {
+  const whole = Math.floor(seconds);
+  if (whole < 1) return "unter 1 s";
+  if (whole < 60) return `${whole} s`;
+  if (whole < 3600) {
+    const rest = whole % 60;
+    const minutes = `${Math.floor(whole / 60)} min`;
+    return rest ? `${minutes} ${rest} s` : minutes;
+  }
+  const rest = Math.floor((whole % 3600) / 60);
+  const hours = `${Math.floor(whole / 3600)} h`;
+  return rest ? `${hours} ${rest} min` : hours;
+}
+
 type Parts = Record<Intl.DateTimeFormatPartTypes, string>;
 
 function partsOf(format: Intl.DateTimeFormat, date: Date): Parts {

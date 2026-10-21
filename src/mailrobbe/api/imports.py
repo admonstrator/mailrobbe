@@ -5,7 +5,7 @@
 The status is polled every 2 s while a run is alive (D48), so it reads mbox_file and the latest
 job rows only, never mail. A run is alive while its process holds the advisory lock of its kind
 (jobs.job_alive); a row still running without it belongs to a process that died, and may have
-left a statement running in the database (JobInfo.leftover, D110).
+left a statement running in the database (JobInfo.leftover, D113).
 
 Starting a run starts a child process (processes.py) and answers with the job row it recorded;
 one run at a time, of either kind. Pausing and stopping set job.stop_requested, which the run

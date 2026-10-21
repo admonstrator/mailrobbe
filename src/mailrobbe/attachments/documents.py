@@ -113,7 +113,7 @@ async def refresh_documents(session: AsyncSession) -> DocumentRefresh:
     assigned += await _changed(session, _ASSIGN_UNHASHED)
     if assigned:
         # The statistics may still say no attachment has a document (the first finalize after
-        # an import): planned on them, _FIGURES reads every attachment once per document (D110).
+        # an import): planned on them, _FIGURES reads every attachment once per document (D112).
         await session.execute(text("ANALYZE attachment"))
     changed = await _changed(session, _FIGURES)
     rows = (await session.execute(_UNCLASSIFIED)).all()
