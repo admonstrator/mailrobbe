@@ -12,6 +12,7 @@ from mailrobbe.timeline.buckets import (
     bucket_count,
     bucket_start,
     choose,
+    covered,
     position,
     sum_days,
 )
@@ -130,3 +131,22 @@ def test_position_finds_the_bucket_of_a_day() -> None:
     assert position(starts, D(2021, 2, 28)) == 1
     assert position(starts, D(2021, 4, 30)) == 3
     assert position([], D(2021, 1, 1)) == -1
+
+
+def test_covered_buckets_lie_wholly_within_the_days() -> None:
+    months = axis(D(2021, 1, 1), D(2021, 6, 30), "month")  # January to June
+    assert covered(months, "month", None, D(2021, 6, 30)) == range(6)  # June's last day
+    assert covered(months, "month", None, D(2021, 6, 29)) == range(5)  # June is cut
+    assert covered(months, "month", None, D(2021, 4, 30)) == range(4)  # May, June after the end
+    assert covered(months, "month", D(2021, 1, 1), D(2021, 6, 30)) == range(6)
+    assert covered(months, "month", D(2021, 1, 2), D(2021, 6, 30)) == range(1, 6)  # January cut
+    assert covered(months, "month", D(2021, 1, 15), D(2021, 1, 20)) == range(0)
+    assert covered(months, "month", None, D(2020, 12, 31)) == range(0)  # the end before the axis
+    assert covered(months, "month", None, None) == range(0)
+    assert covered([], "month", None, D(2021, 6, 30)) == range(0)
+    weeks = axis(D(2020, 12, 28), D(2021, 1, 17), "week")
+    assert covered(weeks, "week", D(2020, 12, 28), D(2021, 1, 17)) == range(3)  # Monday, Sunday
+    assert covered(weeks, "week", D(2020, 12, 29), D(2021, 1, 16)) == range(1, 2)
+    days = axis(D(2021, 3, 1), D(2021, 3, 5), "day")
+    assert covered(days, "day", D(2021, 3, 2), D(2021, 3, 4)) == range(1, 4)
+    assert covered([D(9999, 12, 1)], "month", None, D(9999, 12, 31)) == range(1)

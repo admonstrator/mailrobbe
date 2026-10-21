@@ -81,3 +81,18 @@ def sum_days(days: Mapping[date, int], starts: Sequence[date], bucket: TimelineB
 def position(starts: Sequence[date], day: date) -> int:
     """The index of the bucket of starts holding day (not after the axis); -1 before it."""
     return bisect.bisect_right(starts, day) - 1
+
+
+def covered(
+    starts: Sequence[date], bucket: TimelineBucket, first: date | None, end: date | None
+) -> range:
+    """The indexes of the buckets of starts that lie wholly within the days from first (None: no
+    bound) to end (None: no day at all): not the first bucket when first cuts it, not the bucket
+    holding end unless end is its last day, none after it."""
+    if end is None or not starts:
+        return range(0)
+    low = 0 if first is None or starts[0] >= first else 1
+    high = position(starts, end)
+    if end < date.max and bucket_start(end + timedelta(days=1), bucket) <= end:
+        high -= 1  # the day after end is in its bucket: end is not the bucket's last day
+    return range(low, high + 1)

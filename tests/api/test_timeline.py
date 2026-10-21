@@ -69,12 +69,16 @@ def counted(timeline: Json, series: Json) -> dict[date, int]:
     return {date.fromisoformat(start): count for start, count in pairs if count}
 
 
-def assert_marks(timeline: Json, series: Json, end_day: date | None) -> None:
-    """The series carries the marks of timeline.marks for its counts, silent up to end_day."""
+def assert_marks(
+    timeline: Json, series: Json, end_day: date | None, date_from: date | None = None
+) -> None:
+    """The series carries the marks of timeline.marks for its counts: silent up to end_day, low
+    only in the buckets wholly from date_from to end_day."""
     bucket, counts = timeline["bucket"], series["counts"]
     assert series["total"] == sum(counts)
-    assert series["outliers"] == [mark.model_dump() for mark in marks.outliers(counts, bucket)]
     starts = [date.fromisoformat(start) for start in timeline["starts"]]
+    low = buckets.covered(starts, bucket, date_from, end_day)
+    assert series["outliers"] == [mark.model_dump() for mark in marks.outliers(counts, bucket, low)]
     end = -1 if end_day is None else buckets.position(starts, end_day)
     silent = marks.silent_from(counts, bucket, end)
     assert series["silent_from"] == (None if silent is None else starts[silent].isoformat())
@@ -169,7 +173,7 @@ async def test_the_total_counts_what_sql_counts(
             [],
         )
         assert timeline["archive_end"] == end.isoformat()
-        assert_marks(timeline, total, min(end, given.get("date_to", end)))
+        assert_marks(timeline, total, min(end, given.get("date_to", end)), given.get("date_from"))
 
 
 async def test_the_span_chooses_the_bucket_and_a_fine_one_is_coarsened(
@@ -196,6 +200,10 @@ async def test_the_span_chooses_the_bucket_and_a_fine_one_is_coarsened(
         True,
         "1980-01-01",
     )
+    # The calendar's last day as date_to: months up to it, the mails as without it.
+    last = await get(client, "/api/timeline", [("date_to", "9999-12-31"), ("bucket", "day")])
+    assert (last["bucket"], last["coarsened"], last["starts"][-1]) == ("month", True, "9999-12-01")
+    assert last["total"]["total"] == whole["total"]["total"]
 
 
 async def test_no_match_gives_an_empty_axis(

@@ -125,9 +125,10 @@ async def timeline(
         last = params.date_to or max(max(known), archive_end or date.min)
         bucket, coarsened = buckets.choose(first, last, params.bucket)
         starts = buckets.axis(first, last, bucket)
-    end = -1  # the bucket up to which a series may be silent (D93)
-    if archive_end is not None:
-        end = buckets.position(starts, min(archive_end, params.date_to or archive_end))
+    # The end of the days a series can show (D93): the archive's end, or date_to before it.
+    end_day = None if archive_end is None else min(archive_end, params.date_to or archive_end)
+    end = -1 if end_day is None else buckets.position(starts, end_day)
+    low = buckets.covered(starts, bucket, params.date_from, end_day)
 
     def laid_out(each: _Series) -> TimelineSeries:
         counts = buckets.sum_days(each.days, starts, bucket)
@@ -140,7 +141,7 @@ async def timeline(
             term=each.term,
             counts=counts,
             total=sum(counts),
-            outliers=marks.outliers(counts, bucket),
+            outliers=marks.outliers(counts, bucket, low),
             silent_from=None if silent is None else starts[silent],
         )
 

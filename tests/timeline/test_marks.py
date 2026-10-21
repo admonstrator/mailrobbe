@@ -18,8 +18,12 @@ from mailrobbe.timeline.marks import (
 )
 
 
-def marked(counts: list[int], bucket: TimelineBucket = "month") -> list[tuple[int, str, float]]:
-    return [(mark.index, mark.kind, mark.expected) for mark in outliers(counts, bucket)]
+def marked(
+    counts: list[int], bucket: TimelineBucket = "month", low: range | None = None
+) -> list[tuple[int, str, float]]:
+    """The marks as tuples; low may be marked everywhere unless `low` says otherwise."""
+    allowed = range(len(counts)) if low is None else low
+    return [(mark.index, mark.kind, mark.expected) for mark in outliers(counts, bucket, allowed)]
 
 
 def test_thresholds_are_those_of_d93() -> None:
@@ -79,9 +83,22 @@ def test_the_mean_is_that_of_the_buckets_before() -> None:
     assert marked(counts) == [(6, "high", 31 / 6)]
     rising = marked([10] * 6 + [40, 40])  # the second 40 is compared with a mean of 15
     assert rising == [(6, "high", 10.0)]
-    assert outliers([10] * 6 + [40], "month") == [
+    assert outliers([10] * 6 + [40], "month", range(7)) == [
         TimelineOutlier(index=6, kind="high", expected=10.0)
     ]
+
+
+def test_low_only_in_wholly_covered_buckets_high_everywhere() -> None:
+    def kinds(counts: list[int], low: range | None = None) -> list[tuple[int, str]]:
+        return [(index, kind) for index, kind, _ in marked(counts, low=low)]
+
+    counts = [6] * 6 + [1, 30, 1, 1]
+    assert kinds(counts) == [(6, "low"), (7, "high"), (8, "low"), (9, "low")]
+    # The end lies in bucket 8 before its last day, bucket 9 is after it: neither is low.
+    assert kinds(counts, range(8)) == [(6, "low"), (7, "high")]
+    # date_from cuts bucket 6 as well (bucket 0 on the real axis): only the high one is left.
+    assert kinds(counts, range(7, 8)) == [(7, "high")]
+    assert kinds(counts, range(0)) == [(7, "high")]
 
 
 @pytest.mark.parametrize(
