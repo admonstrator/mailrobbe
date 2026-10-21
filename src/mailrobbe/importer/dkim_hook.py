@@ -1,10 +1,12 @@
 """Seam to the DKIM check of milestone 3 (mailrobbe.dkim), agreed with that milestone.
 
 The importer sees DKIM only through these protocols and three functions: the main process loads
-the cached DNS answers once, every worker process builds one checker from them, and each batch
+the cached DNS answers and the candidate keys of deleted selectors once (D101: new mails are
+checked against them too), every worker process builds one checker from them, and each batch
 persists the answers its checker had to look up, inside the batch transaction.
 """
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -12,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.config import Settings
 from mailrobbe.dkim import checker, store
+from mailrobbe.dkim.keys.store import load_candidates
+from mailrobbe.dkim.model import DnsAnswer, KeyCandidates
 from mailrobbe.enums import DkimStatus
 
 
@@ -36,14 +40,24 @@ class DkimChecker(Protocol):
         ...
 
 
-async def load_preload(session: AsyncSession) -> Any:
-    """Main process, once per run: the cached DNS answers handed to every worker (picklable)."""
-    return await store.load_dns_cache(session)
+@dataclass(frozen=True, slots=True)
+class Preload:
+    """What every worker's checker starts from (picklable)."""
+
+    answers: list[DnsAnswer]  # dns_cache
+    candidates: KeyCandidates = field(default_factory=dict)  # keys of deleted selectors by name
 
 
-def create_checker(settings: Settings, preload: Any) -> DkimChecker | None:
+async def load_preload(session: AsyncSession) -> Preload:
+    """Main process, once per run: the cached DNS answers and candidate keys for every worker."""
+    return Preload(await store.load_dns_cache(session), await load_candidates(session))
+
+
+def create_checker(settings: Settings, preload: Preload) -> DkimChecker | None:
     """Once per worker process; None means mails are imported without a DKIM check."""
-    return checker.DkimChecker.from_settings(settings, preload=preload)
+    return checker.DkimChecker.from_settings(
+        settings, preload=preload.answers, candidates=preload.candidates
+    )
 
 
 async def save_answers(session: AsyncSession, answers: list[Any]) -> None:

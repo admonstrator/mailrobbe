@@ -22,7 +22,7 @@ from mailrobbe import migrate
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import ImportErrorKind, MboxStatus
-from mailrobbe.importer import runner
+from mailrobbe.importer import dkim_hook, runner
 from mailrobbe.importer.model import Issue
 from mailrobbe.importer.runner import FileOutcome, ImportFigures, Pipeline, _Worker, run_files
 from mailrobbe.importer.scan import ScanReport, scan
@@ -272,7 +272,10 @@ class _RaisingChecker:
 
 def test_a_failing_dkim_check_becomes_an_issue(tmp_path: Path) -> None:
     context = multiprocessing.get_context("spawn")
-    worker = _Worker(Settings(), (), tmp_path, PIPELINE, 1, context.Event(), context.Value("q", 0))
+    preload = dkim_hook.Preload([])
+    worker = _Worker(
+        Settings(), preload, tmp_path, PIPELINE, 1, context.Event(), context.Value("q", 0)
+    )
     worker.checker = _RaisingChecker()
     mail, verdict, issues = worker.examine(make_record(0, message(1)))
     assert mail.message_id == "<1@a.example>"
