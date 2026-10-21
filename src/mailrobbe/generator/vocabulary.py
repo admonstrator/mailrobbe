@@ -703,7 +703,9 @@ _PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentati
 
 # Attachment templates: (file name pattern, MIME type, median size, spread, weight). Sizes are
 # log-normal around the median; office files and PDFs are common, videos and archives rare.
-# Placeholders: {year}, {month2}, {day2}, {n}, {project}, {word}.
+# Placeholders: {year}, {month2}, {day2}, {n}, {project}, {word}. Office files, PDFs, CSV, text,
+# calendar, vCard and ZIP templates carry real documents (generator.documents.TEMPLATES, which
+# also adds association papers of its own).
 ATTACHMENT_TYPES = (
     ("Angebot_{project}.pdf", "application/pdf", 90_000, 0.9, 3.0),
     ("Rechnung_{year}-{month2}.pdf", "application/pdf", 50_000, 0.6, 2.0),

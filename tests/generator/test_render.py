@@ -1,4 +1,5 @@
 import email.policy
+import hashlib
 import re
 from collections import Counter
 from email.message import EmailMessage, Message
@@ -103,21 +104,28 @@ def test_received_hosts_are_reserved(parsed: list[tuple[RenderedMail, EmailMessa
 
 
 def test_attachments_as_planned(parsed: list[tuple[RenderedMail, EmailMessage]]) -> None:
-    with_files = 0
+    """Every planned attachment is in the mail, and RenderedMail.documents states each in
+    document order with its decoded size and SHA-256; filler keeps its planned size."""
+    with_files = with_documents = 0
     for mail, message in parsed:
         files = [part for part in message.walk() if part.get_filename()]
         planned = mail.planned.attachments
         assert sorted(part.get_filename() or "" for part in files) == sorted(
             a.filename for a in planned
         )
-        sizes = []
-        for part in files:
+        assert [part.get_filename() for part in files] == [t.filename for t in mail.documents]
+        for part, truth in zip(files, mail.documents, strict=True):
             payload = part.get_payload(decode=True)
             assert isinstance(payload, bytes)
-            sizes.append(len(payload))
-        assert sorted(sizes) == sorted(a.size for a in planned)
+            assert (len(payload), hashlib.sha256(payload).hexdigest()) == (truth.size, truth.sha256)
+        by_name = {t.filename: t for t in mail.documents}
+        for spec in planned:
+            if spec.document is None:
+                assert by_name[spec.filename].size == spec.size
         with_files += bool(files)
+        with_documents += any(spec.document is not None for spec in planned)
     assert with_files > 0.08 * len(parsed)
+    assert with_documents > 0.8 * with_files
 
 
 def test_large_attachment(parsed: list[tuple[RenderedMail, EmailMessage]]) -> None:

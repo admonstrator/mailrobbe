@@ -17,6 +17,7 @@ from datetime import UTC, date, datetime, time, timedelta, timezone
 
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.documents import DocumentPool
 from mailrobbe.generator.model import (
     Address,
     AttachmentSpec,
@@ -260,6 +261,7 @@ class Planner:
         self._recent: deque[PlannedMail] = deque(maxlen=RECENT_MAILS)
         self._tz: dict[timedelta, timezone] = {}
         self._large_now = False  # the mail being built gets the very large attachment
+        self._documents = DocumentPool(config.seed)
         self.max_open_threads = 0  # largest number of open threads seen, for tests
 
     @property
@@ -493,7 +495,7 @@ class Planner:
             list_id=f"{local}.{sender.domain}" if kind is MailKind.NEWSLETTER else None,
             automated=True,
             language=service.language,
-            attachments=self._attachments(kind, when, client),
+            attachments=self._attachments(kind, when, client, sender.email),
             kind=kind,
             client=client,
         )
@@ -552,6 +554,12 @@ class Planner:
         references = (*thread.references, parent.message_id)
         if len(references) > MAX_REFERENCES:
             references = (references[0], *references[-(MAX_REFERENCES - 1) :])
+        # The main rng draws subject, Message-ID, then attachments, in this order.
+        subject = reply_subject(parent.subject, client, replier.language, rng)
+        message_id = self._message_id(client, sender.domain, when)
+        attachments = self._attachments(MailKind.REPLY, when, client)
+        if attachments and not self._large_now:
+            attachments = self._documents.again(parent.attachments, attachments)
         mail = PlannedMail(
             index=index,
             seed=derive_seed(self.config.seed, index),
@@ -559,14 +567,14 @@ class Planner:
             sender=sender,
             to=to,
             cc=cc,
-            subject=reply_subject(parent.subject, client, replier.language, rng),
-            message_id=self._message_id(client, sender.domain, when),
+            subject=subject,
+            message_id=message_id,
             in_reply_to=parent.message_id,
             references=references,
             thread_index=thread.root,
             list_id=parent.list_id,
             language=parent.language,
-            attachments=self._attachments(MailKind.REPLY, when, client),
+            attachments=attachments,
             kind=MailKind.REPLY,
             client=client,
             quoted=parent,
@@ -723,9 +731,12 @@ class Planner:
         return f"<{bits(128):032x}@{domain}>"  # webmail
 
     def _attachments(
-        self, kind: MailKind, when: datetime, client: str
+        self, kind: MailKind, when: datetime, client: str, sender: str = ""
     ) -> tuple[AttachmentSpec, ...]:
+        """Attachments of a new mail; documents (generator.documents) for the templates that
+        have them. Automated mail sends its own documents, which do not circulate."""
         rng = self._rng
+        documents = self._documents
         if self._large_now:
             name, mime = rng.choice(vocab.LARGE_ATTACHMENT_NAMES)
             filename = name.format(year=when.year, month2=f"{when.month:02d}")
@@ -734,17 +745,24 @@ class Planner:
             return ()
         if kind is MailKind.INVOICE:
             name = f"Rechnung_{when.year}-{when.month:02d}.pdf"
-            return (AttachmentSpec(name, "application/pdf", _size(rng, 60_000, 0.5)),)
+            spec = AttachmentSpec(name, "application/pdf", _size(rng, 60_000, 0.5))
+            pattern = "Rechnung_{year}-{month2}.pdf"
+            return (documents.attach(spec, pattern, when, circulate=False),)
         if kind in (MailKind.NEWSLETTER, MailKind.NOTIFICATION):
             name, mime, median, spread = rng.choice(_AUTOMATED_ATTACHMENTS)
             filename = name.format(year=when.year, n=rng.randint(10_000, 99_999))
-            return (AttachmentSpec(filename, mime, _size(rng, median, spread)),)
+            spec = AttachmentSpec(filename, mime, _size(rng, median, spread))
+            shared = f"{sender}:{filename}" if name.startswith("Katalog") else None
+            return (documents.attach(spec, name, when, circulate=False, shared=shared),)
         specs: list[AttachmentSpec] = []
+        planned: set[str] = set()  # the drawn names: the pool may hand out others
         for _ in range(_weighted(rng, _ATTACHMENT_COUNTS)):
             name, mime, median, spread = _weighted(rng, _ATTACHMENT_TEMPLATES)
             filename = self._file_name(name, when)
-            if all(spec.filename != filename for spec in specs):
-                specs.append(AttachmentSpec(filename, mime, _size(rng, median, spread)))
+            if filename not in planned:
+                planned.add(filename)
+                spec = AttachmentSpec(filename, mime, _size(rng, median, spread))
+                specs.append(documents.attach(spec, name, when, specs))
         if client in ("outlook", "apple") and rng.random() < 0.25:
             name, mime = rng.choice(vocab.INLINE_IMAGE_NAMES)
             specs.insert(0, AttachmentSpec(name, mime, _size(rng, 12_000, 0.6), inline=True))
