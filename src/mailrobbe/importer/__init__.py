@@ -7,13 +7,14 @@
                                -> store: one transaction per batch, including bytes_done
       -> finalize (main)       duplicates, threads, display names, documents, aggregates
       -> attachments (N workers)  the text of each document waiting for it (attachments.phase)
+      -> entities (N workers)     the entities of each text not scanned yet (entities.phase)
 
 Every batch commits its mails together with the file's progress, so an interrupted import
 resumes at the last committed record and never stores a mail twice. Raw mails never reach the
 database (SPEC 2): it gets metadata, byte offsets and the text for the full text index.
 
 A run holds the import lock and records itself in `job` (mailrobbe.jobrun, D47): its phase
-(scan, headers, import, finalize, attachments), live figures every few seconds, and how it
+(scan, headers, import, finalize, attachments, entities), live figures every few seconds, and how it
 ended. A stop request from the dashboard ends it like Ctrl-C.
 
 Modules: split (MBOX framing), parse (one message -> ParsedMail), text (charsets, encoded

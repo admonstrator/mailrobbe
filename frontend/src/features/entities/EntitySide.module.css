@@ -1,0 +1,114 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.name,
+.name:hover {
+  min-width: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.name:hover {
+  text-decoration: underline;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.related {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One line per entity: the chip shortens its label, the link keeps its place on the right. */
+.relatedItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.relatedItem .chip {
+  justify-self: start;
+}
+
+.chip,
+.chip:hover {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: var(--color-field);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.4;
+  text-decoration: none;
+}
+
+.chip:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-hover);
+}
+
+.chip > svg {
+  color: var(--color-muted);
+}
+
+.chipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipCount {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.both {
+  font-size: 12px;
+  white-space: nowrap;
+}

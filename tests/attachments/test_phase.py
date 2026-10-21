@@ -167,7 +167,7 @@ async def test_each_document_is_extracted_once_and_stored_as_the_extraction_give
     assert "extracting the text of 5 documents (0.0 MB) with 2 workers" in caplog.text
     assert "attachments done: 5 of 5 documents stored in " in caplog.text
     [job] = await _jobs(engine)
-    assert (job["status"], job["phase"]) == ("done", "attachments")
+    assert (job["status"], job["phase"]) == ("done", "entities")  # after the attachments
     assert (
         "; 4 mails, 0 import errors; 2 of 6 documents with text, 0 waiting; files: "
         in (job["message"])

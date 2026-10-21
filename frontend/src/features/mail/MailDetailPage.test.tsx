@@ -130,14 +130,16 @@ describe("mail detail", () => {
     const quoted = screen.getByText(/danke für den Entwurf/);
     expect(within(quoted).getByText("Haftung").tagName).toBe("MARK");
 
-    const pdf = screen
+    // The entities card names the attachment too.
+    const card = within(screen.getByRole("heading", { name: /^Anhänge/ }).closest("section")!);
+    const pdf = card
       .getByText("Rahmenvereinbarung_2026_final.pdf", { selector: "span *, span" })
       .closest("li")!;
     expect([...pdf.querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual([
       "Haftung",
       "Haftung",
     ]);
-    const sheet = screen
+    const sheet = card
       .getByText("Aenderungsprotokoll.xlsx", { selector: "span *, span" })
       .closest("li")!;
     expect(within(sheet).getByText("Suchwort im Text, in einer anderen Wortform")).toBeTruthy();

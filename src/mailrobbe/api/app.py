@@ -11,6 +11,7 @@ from mailrobbe.api import (
     auth,
     detail,
     documents,
+    entities,
     exports,
     frontend,
     graph,
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(marks.router)  # before detail: /api/mails/bulk is no mail id
     app.include_router(notes.router)
     app.include_router(exports.router)
+    app.include_router(entities.router)  # before detail: /api/mails/facets is no mail id
     app.include_router(detail.router)
     app.include_router(persons.router)
     app.include_router(graph.router)
