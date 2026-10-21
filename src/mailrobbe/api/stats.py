@@ -1,24 +1,30 @@
 """Whole-archive figures and the MBOX file list: GET /api/stats, /api/stats/sender-domains,
-/api/mbox-files (D19)."""
+/api/mbox-files (D19).
+
+importer.running tells whether an import run is alive (D47: its process holds the import lock),
+not whether some file has status running, which stays so after a crash until the next scan.
+"""
 
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe import aggregates
+from mailrobbe import aggregates, jobs
 from mailrobbe.api.deps import AppSettings, Session
 from mailrobbe.api.filters import internal_domains
 from mailrobbe.api.query import DKIM_KEYS
 from mailrobbe.api.schemas import TOP_SENDER_DOMAINS, DomainCount, ImportState, MboxFileInfo, Stats
 from mailrobbe.db.models import MboxFile
+from mailrobbe.enums import JobKind
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
 MAX_SENDER_DOMAINS = 2000  # limit of /api/stats/sender-domains
 
 _IMPORT_STATE = text("""
-    SELECT bool_or(status = 'running'), count(*), count(*) FILTER (WHERE status = 'done'),
+    SELECT count(*), count(*) FILTER (WHERE status = 'done'),
            COALESCE(sum(bytes_done), 0), COALESCE(sum(size_bytes), 0)
     FROM mbox_file
 """)
@@ -28,7 +34,7 @@ _IMPORT_STATE = text("""
 async def stats(session: Session, settings: AppSettings) -> Stats:
     figures = await aggregates.current_global_stats(session, settings.stats_max_age)
     top = await aggregates.read_sender_domains(session, limit=TOP_SENDER_DOMAINS)
-    running, files, done, bytes_done, size = (await session.execute(_IMPORT_STATE)).one()
+    files, done, bytes_done, size = (await session.execute(_IMPORT_STATE)).one()
     return Stats(
         mails=figures.mails,
         persons=figures.persons,
@@ -41,7 +47,7 @@ async def stats(session: Session, settings: AppSettings) -> Stats:
         mbox_files=figures.mbox_files,
         internal_domains=internal_domains(settings.internal_domains),
         importer=ImportState(
-            running=bool(running),
+            running=await jobs.job_alive(session, JobKind.IMPORT),
             files_total=files,
             files_done=done,
             progress=min(1.0, bytes_done / size) if size else 1.0,
@@ -64,6 +70,11 @@ async def sender_domains(
 
 @router.get("/mbox-files")
 async def mbox_files(session: Session) -> list[MboxFileInfo]:
+    return await read_mbox_files(session)
+
+
+async def read_mbox_files(session: AsyncSession) -> list[MboxFileInfo]:
+    """Every mbox_file row by path, also for /api/import/status."""
     files = await session.scalars(select(MboxFile).order_by(MboxFile.path.collate("C")))
     return [
         MboxFileInfo(
