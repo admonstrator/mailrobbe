@@ -109,9 +109,12 @@ describe("entity list", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Entitäten durchsuchen" }), {
       target: { value: " DE89 " },
     });
+    // The page has rendered with the search once its request asks for it; a change before that
+    // would start from the render without it.
     await waitFor(() =>
-      expect(router.state.location.search).toBe("?kind=iban&kind=account&q=DE89"),
+      expect(listCalls(calls).at(-1)!.url.search).toBe("?kind=iban&kind=account&q=DE89"),
     );
+    expect(router.state.location.search).toBe("?kind=iban&kind=account&q=DE89");
     expect(router.state.historyAction).toBe("REPLACE");
 
     const sort = screen.getByRole("combobox", { name: "Sortierung" });
