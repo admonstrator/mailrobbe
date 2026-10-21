@@ -1,7 +1,7 @@
 // The active filters above the table: one chip per search term and per sidebar filter, each
 // with the list state that removing it leads to.
 
-import type { QueryKey, QueryTerm } from "../../api/types";
+import type { PersonRole, QueryKey, QueryTerm } from "../../api/types";
 import { DKIM_FILTER_LABELS } from "../../lib/dkim";
 import { formatDay } from "../../lib/format";
 import { withFilters, type ListState } from "./listState";
@@ -33,6 +33,13 @@ const TERM_LABELS: Record<QueryKey, (value: string) => string> = {
   before: (value) => `vor ${day(value)}`,
   after: (value) => `ab ${day(value)}`,
   message_id: (value) => `Message-ID: ${value}`,
+};
+
+/** The tabs of a person's mail list (D32), also in the person's chip. */
+export const PERSON_ROLE_LABELS: Record<PersonRole, string> = {
+  sent: "Gesendet",
+  received: "Empfangen",
+  cc: "Nur Cc",
 };
 
 const BOOLEAN_LABELS = [
@@ -96,10 +103,14 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
     });
   }
   for (const id of state.person) {
+    const role = state.person_role ? ` · ${PERSON_ROLE_LABELS[state.person_role]}` : "";
     chips.push({
       id: `person-${id}`,
-      label: `Person: ${names.person(id)}`,
-      next: withFilters(state, { person: state.person.filter((other) => other !== id) }),
+      label: `Person: ${names.person(id)}${role}`,
+      next: withFilters(state, {
+        person: state.person.filter((other) => other !== id),
+        person_role: null,
+      }),
     });
   }
   if (state.between.length) {

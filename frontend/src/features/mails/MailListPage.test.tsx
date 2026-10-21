@@ -81,6 +81,20 @@ describe("mail list", () => {
     expect(router.state.location.search).toBe("");
   });
 
+  it("keeps a person's role from the profile and names it in the person's chip", async () => {
+    const { router, calls } = renderApp("/mails?person=11&person_role=sent&hide_duplicates=true");
+    const chip = await screen.findByRole("button", {
+      name: "Filter entfernen: Person: Anna Keller · Gesendet",
+    });
+    const page = calls.find((call) => call.url.pathname === "/api/mails")!;
+    expect(page.url.search).toBe("?hide_duplicates=true&person=11&person_role=sent");
+    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
+      "/api/mails/export.csv?hide_duplicates=true&person=11&person_role=sent",
+    );
+    fireEvent.click(chip);
+    expect(router.state.location.search).toBe("?hide_duplicates=true");
+  });
+
   it("explains a query the backend did not understand", async () => {
     renderApp("/mails?q=Vertrag+after%3A2026-13-01", (call) =>
       call.url.pathname === "/api/mails" || call.url.pathname === "/api/mails/summary"

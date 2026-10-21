@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatBytes,
+  formatDate,
   formatDateTime,
   formatDateTimeLong,
   formatDay,
@@ -79,6 +80,7 @@ describe("dates", () => {
     expect(utcDay("2014-03-01T23:30:00Z")).toBe("2014-03-01");
     expect(utcDay("2014-03-02T00:30:00+02:00")).toBe("2014-03-01");
     expect(formatDay("2026-10-20")).toBe("20.10.2026");
+    expect(formatDate("2014-03-01T23:30:00Z")).toBe("02.03.2014");
   });
 
   it("count calendar days, months and years back from now", () => {

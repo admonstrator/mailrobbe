@@ -1,3 +1,4 @@
+import { cx } from "../lib/cx";
 import styles from "./Avatar.module.css";
 
 // Dark enough for white initials; a person keeps their colour everywhere (by id).
@@ -31,18 +32,21 @@ function firstLetter(word: string): string {
   return word.match(/\p{L}/u)?.[0] ?? "";
 }
 
+/** The initials on the person's colour; "lg" is the profile's header. */
 export function Avatar({
   personId,
   name,
   email,
+  size = "md",
 }: {
   personId: number;
   name: string | null;
   email: string;
+  size?: "md" | "lg";
 }) {
   return (
     <span
-      className={styles.avatar}
+      className={cx(styles.avatar, size === "lg" && styles.lg)}
       style={{ background: PALETTE[personId % PALETTE.length] }}
       aria-hidden="true"
     >

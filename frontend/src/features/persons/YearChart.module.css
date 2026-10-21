@@ -1,0 +1,104 @@
+.card {
+  flex: 1 1 420px;
+  gap: 10px;
+  padding: 18px 20px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.sent {
+  background: var(--color-accent);
+}
+
+.received {
+  background: color-mix(in srgb, var(--color-accent) 43%, white);
+}
+
+.chart {
+  display: grid;
+}
+
+.year {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 4px 0 2px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.year:hover {
+  background: var(--color-hover);
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 180px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bars > span {
+  flex: 1;
+  border-radius: 2px 2px 0 0;
+}
+
+.label {
+  color: var(--color-muted);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.choosing .year:not(.selected) .bars > span {
+  opacity: 0.35;
+}
+
+.selected {
+  background: var(--color-accent-soft);
+}
+
+.selected:hover {
+  background: var(--color-accent-soft);
+}
+
+.selected .label {
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}

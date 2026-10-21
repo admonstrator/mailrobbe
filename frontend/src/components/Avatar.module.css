@@ -10,3 +10,10 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+.lg {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+  font-weight: 700;
+}

@@ -78,6 +78,17 @@ describe("filterChips", () => {
     expect(date.next.date_from).toBeNull();
   });
 
+  it("names the person's role and drops it with the person", () => {
+    const [chip] = filterChips(
+      { ...DEFAULT_LIST_STATE, person: [11], person_role: "sent" },
+      [],
+      names,
+    );
+    expect(chip.label).toBe("Person: Person 11 · Gesendet");
+    expect(chip.next.person).toEqual([]);
+    expect(chip.next.person_role).toBeNull();
+  });
+
   it("shows q as one chip while its terms are unknown", () => {
     const chips = filterChips({ ...DEFAULT_LIST_STATE, q: "after:2026-13-01" }, [], names);
     expect(chips.map((chip) => chip.label)).toEqual(["Suche: „after:2026-13-01“"]);
