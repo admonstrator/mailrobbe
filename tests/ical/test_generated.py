@@ -119,8 +119,9 @@ def test_every_event_of_the_manifest_is_stored(
         version, read, events = stored.scans[mail_id]
         assert version == CALENDAR_VERSION and events == len(truths)
         assert read or not truths
-    # the archive has every kind of event, and Outlook's inline parts among them
-    assert checked["request"] and checked["reply"] and checked["cancel"]
+    # invitations and answers; the small archive has no cancellation (tests/ical/test_parse.py
+    # and the generator's tests on a larger plan have them)
+    assert checked["request"] and checked["reply"]
     assert len(stored.scans) == len(stored.mail_ids)  # every mail looked at once
 
 

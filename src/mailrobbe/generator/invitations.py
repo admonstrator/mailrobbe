@@ -2,8 +2,10 @@
 updates and cancellations that follow in their threads, written as Outlook, a web calendar and
 Apple Calendar write them.
 
-The planner decides with a random stream of its own (meeting, moved, PARTSTATS and the shares);
-what a mail carries is PlannedMail.calendar (model.Invitation). Everything else is a pure
+The planner decides with a random stream of its own (meeting, moved, PARTSTATS and the shares)
+and dresses mails it has made; its own draws keep reading them as made, so every other mail of
+the plan is the same with or without invitations. What a mail carries is PlannedMail.calendar
+(model.Invitation). Everything else is a pure
 function of the plan, for the planner (subject, files) and the renderer (body_lines,
 calendar_part, has_inline_part, truth):
 
@@ -34,8 +36,7 @@ from mailrobbe.generator.model import (
 )
 from mailrobbe.generator.population import ZONES, utc_offset
 
-INVITATION_SHARE = 0.02  # new personal mails that invite to a meeting
-THREAD_SHARE = 0.7  # invitations whose thread goes on (personal mails: planner, 0.32)
+INVITATION_SHARE = 0.03  # new personal mails that invite to a meeting
 ANSWER_SHARE = 0.75  # an attendee's mail in the thread answers the invitation
 UPDATE_SHARE = 0.35  # the organiser's mail in the thread moves the meeting
 CANCEL_SHARE = 0.25  # or cancels it; the thread then goes on without calendar parts

@@ -172,6 +172,7 @@ class _Thread:
     entry: int = -1  # sequence number of the live heap entry
     meeting: Meeting | None = None  # the meeting the thread's first mail invited to, as of now
     cancelled: bool = False  # the organiser cancelled it: the thread goes on in plain mails
+    planned: PlannedMail | None = None  # `last` before the calendar dressed it; None: `last`
 
 
 _REPLY_COUNTS = ((1, 0.45), (2, 0.25), (3, 0.12), (4, 0.05), (5, 0.04), (6, 0.03), (8, 0.03),
@@ -265,6 +266,10 @@ class Planner:
         self._unanswered: dict[int, None] = {}  # roots without a reply yet, oldest first
         self._sequence = 0
         self._recent: deque[PlannedMail] = deque(maxlen=RECENT_MAILS)
+        # Calendar mails (D154) dress mails the plan has made; the plan's own draws keep reading
+        # the mails as made, so the stream is the same with or without invitations.
+        self._recent_planned: deque[PlannedMail | None] = deque(maxlen=RECENT_MAILS)
+        self._dressed: dict[int, PlannedMail] = {}  # index -> the mail as made, until yielded
         self._tz: dict[timedelta, timezone] = {}
         self._large_now = False  # the mail being built gets the very large attachment
         self._documents = DocumentPool(config.seed)
@@ -282,8 +287,10 @@ class Planner:
             if self._large_now:
                 next_large = next(large, -1)
             mail = self._next(index, self._clock.at(index))
+            planned = self._dressed.pop(index, None)
             if not mail.automated:
                 self._recent.append(_strip(mail))
+                self._recent_planned.append(planned)
             self.max_open_threads = max(self.max_open_threads, len(self._threads))
             yield mail
 
@@ -456,13 +463,15 @@ class Planner:
             if sender.internal and from_address.domain == sender.domain.name
             else None
         )
+        planned = _strip(mail)
         meeting = invitations.meeting(self._calendar_rng, mail, sender.index, sender.zone, room)
         mail.bcc = ()
         self._carry(mail, Invitation("REQUEST", meeting, invitations.style(client)))
-        self._open_thread(mail, remaining, invitations.THREAD_SHARE)
+        self._dressed[index] = planned
+        self._open_thread(mail, remaining, _PERSONAL_THREAD_SHARE)
         thread = self._threads.get(index)
         if thread is not None:
-            thread.meeting = meeting
+            thread.meeting, thread.planned = meeting, planned
         return mail
 
     def _list_post(self, index: int, when: datetime, remaining: int) -> PlannedMail:
@@ -522,10 +531,12 @@ class Planner:
 
     def _forward(self, index: int, when: datetime, remaining: int) -> PlannedMail | None:
         rng = self._rng
-        source = self._recent[-1 - min(len(self._recent) - 1, int(rng.expovariate(0.15)))]
+        back = -1 - min(len(self._recent) - 1, int(rng.expovariate(0.15)))
+        source = self._recent[back]  # forwarded as sent
+        planned = self._recent_planned[back] or source  # as made: what the draws below read
         involved = {
             self._owners[a.email]
-            for a in (source.sender, *source.to, *source.cc)
+            for a in (planned.sender, *planned.to, *planned.cc)
             if a.email in self._owners
         }
         insiders = sorted(o for o in involved if self.population.persons[o[0]].internal)
@@ -538,8 +549,8 @@ class Planner:
             return None
         client = self._client(forwarder, when)
         sender = forwarder.address(mailbox, rng, sender=True)
-        carried = source.attachments[:-1] if source.large_attachment else source.attachments
-        carried = tuple(a for a in carried if not a.inline and a.content is None)
+        carried = planned.attachments[:-1] if planned.large_attachment else planned.attachments
+        carried = tuple(a for a in carried if not a.inline)
         if self._large_now or not carried:
             carried = self._attachments(MailKind.FORWARD, when, client)
         mail = PlannedMail(
@@ -562,11 +573,12 @@ class Planner:
 
     def _reply(self, index: int, when: datetime, thread: _Thread) -> PlannedMail:
         rng = self._rng
-        parent = thread.last
+        parent = thread.last  # answered and quoted as sent
+        planned = thread.planned or parent  # as made: what the draws of the plan read
         mailing_list = self._list_by_id.get(parent.list_id or "")
-        replier, mailbox = self._replier(parent, mailing_list, when)
+        replier, mailbox = self._replier(planned, mailing_list, when)
         sender = replier.address(mailbox, rng, sender=True)
-        to, cc = self._reply_recipients(parent, sender, replier, mailing_list, when)
+        to, cc = self._reply_recipients(planned, sender, replier, mailing_list, when)
         client = "webmail" if mailbox == replier.private else self._client(replier, when)
         # A reply is never older than its parent, even when the parent was back-dated.
         not_before = parent.date.astimezone(UTC) + timedelta(seconds=30)
@@ -575,11 +587,11 @@ class Planner:
         if len(references) > MAX_REFERENCES:
             references = (references[0], *references[-(MAX_REFERENCES - 1) :])
         # The main rng draws subject, Message-ID, then attachments, in this order.
-        subject = reply_subject(parent.subject, client, replier.language, rng)
+        subject = reply_subject(planned.subject, client, replier.language, rng)
         message_id = self._message_id(client, sender.domain, when)
         attachments = self._attachments(MailKind.REPLY, when, client)
         if attachments and not self._large_now:
-            attachments = self._documents.again(parent.attachments, attachments)
+            attachments = self._documents.again(planned.attachments, attachments)
         mail = PlannedMail(
             index=index,
             seed=derive_seed(self.config.seed, index),
@@ -600,8 +612,14 @@ class Planner:
             quoted=parent,
             large_attachment=self._large_now,
         )
-        if thread.meeting is not None and not thread.cancelled and not self._large_now:
-            self._follow_up(mail, thread, replier)
+        thread.planned = None
+        if thread.meeting is not None:  # the thread of an invitation: dress the mail as made
+            thread.planned = self._dressed[index] = _strip(mail)
+            if parent.subject != planned.subject:  # "AW: Einladung: ..."
+                rng = self._calendar_rng
+                mail.subject = reply_subject(parent.subject, client, replier.language, rng)
+            if not thread.cancelled and not self._large_now:
+                self._follow_up(mail, thread, replier)
         thread.last = _strip(mail)
         thread.references = references
         thread.remaining -= 1

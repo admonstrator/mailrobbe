@@ -6,6 +6,7 @@ import email.policy
 import itertools
 import random
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from email.message import Message
 from email.parser import BytesParser
@@ -14,6 +15,7 @@ from typing import Any
 import pytest
 
 from mailrobbe.generator import invitations
+from mailrobbe.generator.config import GeneratorConfig
 from mailrobbe.generator.faults import inject_fault
 from mailrobbe.generator.model import (
     Address,
@@ -25,6 +27,7 @@ from mailrobbe.generator.model import (
     PlannedMail,
     RenderedMail,
 )
+from mailrobbe.generator.planner import plan
 from mailrobbe.generator.population import Population
 from mailrobbe.generator.render import render
 from mailrobbe.generator.writer import manifest_record
@@ -121,6 +124,32 @@ def test_answers_updates_and_cancellations_follow_their_invitation(
         assert mail.subject == invitations.subject(invitation, mail.language)
     assert plain > 0  # "AW: Einladung: ..." without a calendar part
     assert any(cancelled for _, cancelled in state.values())
+
+
+def test_invitations_dress_mails_the_plan_has_made(
+    gen_config: GeneratorConfig,
+    gen_population: Population,
+    gen_plan: list[PlannedMail],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The plan draws invitations from a stream of its own and keeps reading the mails as it
+    made them: without invitations it is the same, but for the calendar mails and the subjects
+    of the plain replies in their threads, so every other generated mail stays as it was."""
+    monkeypatch.setattr(invitations, "INVITATION_SHARE", 0.0)
+    made = list(plan(gen_config, gen_population))
+    fields = ("seed", "date", "sender", "message_id", "in_reply_to", "references",
+              "thread_index", "kind", "client", "language")  # fmt: skip
+    subjects = 0
+    for dressed, plain in zip(gen_plan, made, strict=True):
+        assert plain.calendar is None
+        assert [getattr(dressed, f) for f in fields] == [getattr(plain, f) for f in fields]
+        if dressed.calendar is not None:
+            continue
+        if dressed.subject != plain.subject:  # "AW: Einladung: ..." where it was "AW: ..."
+            subjects += 1
+            dressed = replace(dressed, subject=plain.subject)
+        assert replace(dressed, quoted=None) == replace(plain, quoted=None)
+    assert subjects > 0
 
 
 def _parts(message: Message) -> list[tuple[Message, Message | None]]:
