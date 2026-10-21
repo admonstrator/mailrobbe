@@ -47,24 +47,39 @@ PIDS_ENV = "MAILROBBE_TEST_PIDS"
 FAST_ENV = "MAILROBBE_TEST_FAST"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-Attached = tuple[str, str, bytes]  # file name, MIME type, content
+Attached = tuple[str | None, str, bytes]  # file name (None: sent without one), MIME type, content
+FIRST_DAY = datetime(2024, 1, 1, 10, tzinfo=UTC)  # the date of mail 0; mail n is n days later
 
 
-def attachment_mail(index: int, files: Sequence[Attached], subject: str | None = None) -> bytes:
-    """A mail from anna@a.example to bert@b.example with these attachments, base64-encoded."""
+def attachment_mail(
+    index: int,
+    files: Sequence[Attached],
+    subject: str | None = None,
+    *,
+    sender: str = "Anna <anna@a.example>",
+    to: Sequence[str] = ("Bert <bert@b.example>",),
+    body: str | None = None,
+    dated: bool = True,
+) -> bytes:
+    """A mail with these attachments, base64-encoded; by default from anna@a.example to
+    bert@b.example, dated FIRST_DAY plus index days."""
     message = MIMEMultipart()
     message["Message-ID"] = f"<{index}@a.example>"
-    message["From"] = "Anna <anna@a.example>"
-    message["To"] = "Bert <bert@b.example>"
+    message["From"] = sender
+    message["To"] = ", ".join(to)
     message["Subject"] = subject or f"Mail {index}"
-    message["Date"] = format_datetime(datetime(2024, 1, 1, 10, tzinfo=UTC) + timedelta(days=index))
-    message.attach(MIMEText(f"Body of mail {index}.\n", "plain", "utf-8"))
+    if dated:
+        message["Date"] = format_datetime(FIRST_DAY + timedelta(days=index))
+    message.attach(MIMEText(body or f"Body of mail {index}.\n", "plain", "utf-8"))
     for name, mime_type, data in files:
         major, minor = mime_type.split("/")
         part = MIMEBase(major, minor)
         part.set_payload(data)
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", "attachment", filename=name)
+        if name is None:
+            part.add_header("Content-Disposition", "attachment")
+        else:
+            part.add_header("Content-Disposition", "attachment", filename=name)
         message.attach(part)
     return message.as_bytes()
 

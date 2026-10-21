@@ -7,7 +7,18 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import event, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from mailrobbe.api import auth, detail, frontend, graph, imports, mails, persons, processes, stats
+from mailrobbe.api import (
+    auth,
+    detail,
+    documents,
+    frontend,
+    graph,
+    imports,
+    mails,
+    persons,
+    processes,
+    stats,
+)
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 
@@ -53,6 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(persons.router)
     app.include_router(graph.router)
     app.include_router(imports.router)
+    app.include_router(documents.router)  # /api/documents/summary before {id}, as for mails
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app
