@@ -1,6 +1,15 @@
-// German texts for DKIM statuses and reason codes (enums.py DkimStatus, DkimReason).
+// German texts for DKIM statuses and reason codes (enums.py DkimStatus, DkimReason), and for
+// the origin of a signature's key (KeyOrigin, KeyLookupSource; D100, D101).
 
-import type { DkimKey, DkimReason, DkimStatus } from "../api/types";
+import type {
+  DkimKey,
+  DkimReason,
+  DkimStatus,
+  KeyEvidenceInfo,
+  KeyLookupSource,
+  KeyOrigin,
+} from "../api/types";
+import { formatDate } from "./format";
 
 /** Filter order of the list's DKIM checkboxes. */
 export const DKIM_KEYS: readonly DkimKey[] = [
@@ -54,4 +63,81 @@ export const DKIM_REASON_TEXTS: Record<DkimReason, string> = {
 /** The filter and count key of a mail's status; null means not checked yet. */
 export function dkimKey(status: DkimStatus | null): DkimKey {
   return status ?? "unchecked";
+}
+
+/** Strongest first, as the backend ranks them (D100). */
+export const KEY_ORIGINS: readonly KeyOrigin[] = ["dns", "observed", "documented", "reconstructed"];
+
+/** The badge of a key's origin, beside a signature's status. */
+export const KEY_ORIGIN_LABELS: Record<KeyOrigin, string> = {
+  dns: "DNS heute",
+  observed: "im DNS beobachtet",
+  documented: "dokumentiert",
+  reconstructed: "rekonstruiert",
+};
+
+/** What each origin shows, in one sentence: the badge's tooltip. */
+export const KEY_ORIGIN_TEXTS: Record<KeyOrigin, string> = {
+  dns: "Die Domain veröffentlicht diesen Schlüssel heute im DNS.",
+  observed: "Ein Dritter hat diesen Schlüssel im DNS der Domain gesehen.",
+  documented: "Ein Dokument enthält diesen Schlüssel: ein Fund im Archiv oder ein Beleg von Hand.",
+  reconstructed:
+    "Aus Signaturen berechnet: Die Signaturen stammen vom selben privaten Schlüssel, an die Domain bindet ihn das nicht.",
+};
+
+/** Where a key was looked for and found: per lookup and per piece of evidence. */
+export const KEY_SOURCE_LABELS: Record<KeyLookupSource, string> = {
+  reconstruction: "Rekonstruktion",
+  archive_text: "Fund im Archiv",
+  manual: "Von Hand eingetragen",
+  zkemail: "ZK-Email-Archiv",
+  dns: "DNS eines anderen Selektors",
+};
+
+/** What happened at a piece of evidence's asked_at, per source. */
+export const KEY_SOURCE_VERBS: Record<KeyLookupSource, string> = {
+  reconstruction: "berechnet",
+  archive_text: "gefunden",
+  manual: "eingetragen",
+  zkemail: "abgefragt",
+  dns: "abgefragt",
+};
+
+/** The source's own times, apart from when Mailrobbe asked (D101): "laut Quelle 01.03.2024 bis
+ *  30.09.2025"; null when it names none. */
+export function evidenceTimes(from: string | null, to: string | null): string | null {
+  if (from && to) return `laut Quelle ${formatDate(from)} bis ${formatDate(to)}`;
+  if (from) return `laut Quelle ab ${formatDate(from)}`;
+  return to ? `laut Quelle bis ${formatDate(to)}` : null;
+}
+
+/** One piece of evidence in one line: "ZK-Email-Archiv · abgefragt 21.10.2026 · laut Quelle
+ *  01.03.2024 bis 30.09.2025". */
+export function evidenceLine(evidence: KeyEvidenceInfo): string {
+  const used = evidence.signatures.length;
+  return [
+    KEY_SOURCE_LABELS[evidence.source],
+    `${KEY_SOURCE_VERBS[evidence.source]} ${formatDate(evidence.asked_at)}`,
+    evidence.editor && `von ${evidence.editor}`,
+    evidenceTimes(evidence.observed_from, evidence.observed_to),
+    used > 0 && `aus ${used} ${used === 1 ? "Signatur" : "Signaturen"}`,
+    evidence.reference && `Beleg: ${evidence.reference}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The plain sentence for a signature that only a reconstructed key verifies (D100). */
+export const CONSISTENT_TEXT =
+  "Die Signatur passt zu einem aus Signaturen berechneten Schlüssel. Das zeigt, dass diese Mails mit demselben privaten Schlüssel signiert wurden, nicht, dass die Domain ihn veröffentlicht hat.";
+
+/** A signature's key name as the API names selectors: "<selector>._domainkey.<domain>" in
+ *  lower case; null without both parts. */
+export function keyName(selector: string | null, domain: string | null): string | null {
+  return selector && domain ? `${selector}._domainkey.${domain}`.toLowerCase() : null;
+}
+
+/** The page of a key name: its keys with their evidence, the lookups, its mails. */
+export function selectorPath(name: string): string {
+  return `/import/selektoren/${encodeURIComponent(name)}`;
 }
