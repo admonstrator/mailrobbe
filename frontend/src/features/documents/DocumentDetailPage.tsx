@@ -100,7 +100,7 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
         {hasStoredText(document.text_status) && <DocumentTextCard document={document} />}
       </main>
       <aside className={styles.side} aria-label="Zum Dokument">
-        {document.preview && <DocumentPreview key={document.id} document={document} />}
+        {document.preview === "image" && <DocumentPreview key={document.id} document={document} />}
         <DocumentNames document={document} />
         <DocumentPersons
           id="document-senders-title"

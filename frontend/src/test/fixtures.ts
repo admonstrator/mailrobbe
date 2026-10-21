@@ -352,6 +352,7 @@ export const mailDetail: MailDetail = {
       text_status: "text",
       pages: 14,
       document_mails: 6,
+      preview: "pdf",
     },
     {
       id: 902,
@@ -364,6 +365,7 @@ export const mailDetail: MailDetail = {
       text_status: "text",
       pages: 2,
       document_mails: 1,
+      preview: null,
     },
   ],
   thread_id: 184001,
@@ -1613,7 +1615,7 @@ export const documentDetail: DocumentDetail = {
   ),
   recipient_count: 14,
   attachment_id: 901,
-  preview: false,
+  preview: null,
 };
 
 /** A photo: no text, shown as a preview. */
@@ -1636,7 +1638,7 @@ export const imageDocument: DocumentDetail = {
   recipients: [{ person: anna, mails: 3 }],
   recipient_count: 1,
   attachment_id: 9105,
-  preview: true,
+  preview: "image",
 };
 
 export const documentText: DocumentText = {

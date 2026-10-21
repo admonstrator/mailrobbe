@@ -109,3 +109,16 @@ export function apiDelete(path: string): Promise<void> {
 export function attachmentContentUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/content`;
 }
+
+/** A DOCX or ODT as sanitized HTML, converted on the server and cached (D122). */
+export function attachmentHtmlUrl(attachmentId: number): string {
+  return `/api/attachments/${attachmentId}/html`;
+}
+
+/** Audio or video for a media element, with Range requests (D123). */
+export function attachmentMediaUrl(attachmentId: number): string {
+  return `/api/attachments/${attachmentId}/media`;
+}
+
+/** The PDF viewer's page (D121): pdf.js on an opaque origin, given the PDF by postMessage. */
+export const PDF_VIEWER_URL = "/viewer/pdf.html";

@@ -43,6 +43,9 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
+    GET  /api/attachments/{id}/html              text/html of a DOCX or ODT for a sandboxed
+                                                 iframe, converted and cached (D122)
+    GET  /api/attachments/{id}/media             audio or video, with Range requests (D123)
     GET  /api/timeline?TimelineParams            Timeline: the matching mails over time (D90)
     GET  /api/timeline/first-mentions?FirstMentionParams  FirstMentions, earliest first (D94)
 
@@ -104,6 +107,7 @@ from mailrobbe.enums import (
     ReviewStatus,
 )
 from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
+from mailrobbe.preview.kinds import PreviewKind
 
 # Tag colours (D57): the UI maps each to a fixed pair of background and text colours.
 TagColor = Literal["blue", "teal", "green", "amber", "red", "pink", "violet", "gray"]
@@ -153,6 +157,9 @@ ErrorCode = Literal[
     "empty_selection",  # 400: the selection matches no mail
     "too_many_mails",  # 400: above BULK_LIMIT or EXPORT_LIMIT; message names the count
     "ambiguous_permalink",  # 409: the hash prefix fits mails with different contents
+    "no_preview",  # 415: the content is no format this preview shows (D120); message says what
+    "preview_too_large",  # 413: above MAILROBBE_PREVIEW_MAX_SIZE, or unhashed (D124)
+    "preview_failed",  # 422: the conversion failed, ran out of time or memory; message says why
 ]
 
 
@@ -368,6 +375,7 @@ class AttachmentInfo(BaseModel):
     text_status: DocumentTextStatus | None = None
     pages: int | None = None
     document_mails: int | None = None  # mails carrying the document, duplicates not counted
+    preview: PreviewKind | None = None  # how the browser shows it (D120); None: download only
 
 
 class ThreadMail(BaseModel):
@@ -1185,7 +1193,7 @@ class DocumentDetail(BaseModel):
     recipients: list[PersonCount]  # To, Cc or Bcc; most mails first, at most the limit
     recipient_count: int
     attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
-    preview: bool  # a raster image the browser shows from that content (PNG, JPEG, GIF, WebP)
+    preview: PreviewKind | None  # how the browser shows it (D120); None: download only
 
 
 class DocumentText(BaseModel):

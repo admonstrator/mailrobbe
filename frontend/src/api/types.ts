@@ -71,7 +71,10 @@ export type ErrorCode =
   | "invalid_selection"
   | "empty_selection"
   | "too_many_mails"
-  | "ambiguous_permalink";
+  | "ambiguous_permalink"
+  | "no_preview"
+  | "preview_too_large"
+  | "preview_failed";
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -256,6 +259,11 @@ export interface Participant extends PersonRef {
   mails_with_sender: number | null;
 }
 
+/** How the browser shows an attachment (D120): image in an <img>, pdf in the isolated PDF
+ *  viewer, html (DOCX, ODT converted on the server) in an iframe without scripts, audio and
+ *  video in the media elements. */
+export type PreviewKind = "image" | "pdf" | "html" | "audio" | "video";
+
 export interface AttachmentInfo {
   id: number;
   filename: string | null;
@@ -268,6 +276,7 @@ export interface AttachmentInfo {
   text_status: DocumentTextStatus | null;
   pages: number | null;
   document_mails: number | null; // mails carrying the document, duplicates not counted
+  preview: PreviewKind | null; // how the browser shows it (D120); null: download only
 }
 
 export interface ThreadMail {
@@ -1098,7 +1107,7 @@ export interface DocumentDetail {
   recipients: PersonCount[];
   recipient_count: number;
   attachment_id: number; // GET /api/attachments/{id}/content reads it
-  preview: boolean; // a raster image the browser can show
+  preview: PreviewKind | null; // how the browser shows it (D120); null: download only
 }
 
 export interface DocumentText {
