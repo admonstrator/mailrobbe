@@ -34,6 +34,7 @@ from mailrobbe.api.documents import (
     literal_pattern,
     search_words,
     snippet_around,
+    stem_pattern,
 )
 from mailrobbe.api.schemas import (
     DOCUMENT_PERSONS_LIMIT,
@@ -500,6 +501,29 @@ def test_the_snippet_pattern_takes_the_words_literally_in_any_case() -> None:
     assert re.compile(literal_pattern([special])).fullmatch(special)
 
 
+def test_the_stem_pattern_finds_words_a_stem_begins_as_written() -> None:
+    pattern = re.compile(stem_pattern(["spendenquitt", "ausser", "mull", "geb"]))
+    found = pattern.findall("Spendenquittungen, ÄUSSERST, äußere, Herrn Müller, geben")
+    assert found == ["Spendenquitt", "ÄUSSER", "äußer", "Müll"]  # "geb": too short to be safe
+    assert not pattern.search("Sachspendenquittung")  # inside a word: not a form of it
+    assert stem_pattern(["geb"]) == ""
+
+
+async def test_postgresql_reads_the_stem_pattern_as_python_does(crafted: Crafted) -> None:
+    pattern = stem_pattern(["spendenquitt", "ausser", "mull"])
+    sample = "-- SPENDENQUITTUNG -- äußerst -- Sachspendenquittung -- Müllers --"
+    expected = [match.start() + 1 for match in re.finditer(pattern, sample)]
+    assert len(expected) == 3
+    (row,) = await rows(
+        crafted.url,
+        "SELECT array(SELECT regexp_instr(:sample, :pattern, 1, n) FROM generate_series(1, 3) n)"
+        " AS found",
+        sample=sample,
+        pattern=pattern,
+    )
+    assert row.found == expected
+
+
 def test_snippets_are_cut_at_whole_words() -> None:
     sample = " ".join(f"wort{i}" for i in range(200))
     pattern = re.compile(literal_pattern(["wort100"]))
@@ -842,6 +866,57 @@ async def test_the_mail_search_finds_words_in_attachments_and_marks_those_mails(
     assert set((await search("has:attachment")).values()) == {False}  # no words, no mark
     summary = await get(crafted_client, "/api/mails/summary", [("q", "Weihnachtsgeld")])
     assert summary["total"] == 1
+
+
+async def test_the_hits_of_one_mail_say_where_the_words_occur(
+    crafted_client: httpx.AsyncClient, crafted: Crafted
+) -> None:
+    m = crafted.mails
+
+    async def hits(mail: int, q: str) -> Any:
+        return await get(crafted_client, f"/api/mails/{mail}/hits", [("q", q)])
+
+    async def attached(mail: int) -> list[int]:
+        found = await rows(crafted.url, f"SELECT id FROM attachment WHERE mail_id = {mail}")
+        return sorted(row.id for row in found)
+
+    foto = (await attached(m[0]))[1]
+    uebersicht = (await attached(m[4]))[1]
+    (protokoll,) = await attached(m[2])
+    assert await hits(m[4], "has:attachment Weihnachtsgeld") == {
+        "words": ["Weihnachtsgeld"],
+        "stems": ["weihnachtsgeld"],
+        "in_mail": False,
+        "attachments": [
+            {"attachment_id": uebersicht, "in_name": False, "snippet": UEBERSICHT.strip()}
+        ],
+    }
+    tannenbaum = await hits(m[2], "Tannenbaum")
+    assert tannenbaum["in_mail"] is True
+    assert [hit["attachment_id"] for hit in tannenbaum["attachments"]] == [protokoll]
+    assert "2024, der Tannenbaum" in tannenbaum["attachments"][0]["snippet"]
+    assert await hits(m[0], "Foto") == {
+        "words": ["Foto"],
+        "stems": ["foto"],
+        "in_mail": False,
+        "attachments": [{"attachment_id": foto, "in_name": True, "snippet": None}],
+    }
+    # Found as another form of the word (German stemming): the snippet around the word the stem
+    # begins, which the browser marks
+    stemmed = await hits(m[0], "Spendenquittungen")
+    assert stemmed["stems"] == ["spendenquitt"]
+    notes = " ".join(NOTES.split())
+    assert [(hit["in_name"], hit["snippet"]) for hit in stemmed["attachments"]] == [(False, notes)]
+    assert await hits(m[0], "has:attachment") == {
+        "words": [],
+        "stems": [],
+        "in_mail": False,
+        "attachments": [],
+    }
+    invalid = await crafted_client.get(f"/api/mails/{m[0]}/hits", params={"q": "dkim:egal"})
+    assert (invalid.status_code, invalid.json()["detail"]["code"]) == (400, "invalid_query")
+    unknown = await crafted_client.get("/api/mails/999999/hits", params={"q": "Foto"})
+    assert (unknown.status_code, unknown.json()["detail"]["code"]) == (404, "not_found")
 
 
 # The generated archive ------------------------------------------------------------------------

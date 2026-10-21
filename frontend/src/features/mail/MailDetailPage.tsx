@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
-import { useMailDetail, useMailNeighbors, useMailSummary } from "../../api/queries";
+import { useMailDetail, useMailHits, useMailNeighbors, useMailSummary } from "../../api/queries";
 import { buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
@@ -19,6 +19,7 @@ import { HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
 import { ParticipantsCard } from "./ParticipantsCard";
 import { ResearchCard } from "./ResearchCard";
+import { SearchHitsCard } from "./SearchHitsCard";
 import { ThreadCard } from "./ThreadCard";
 
 /** The mail detail (SPEC 5.2). The list's parameters travel in the query string, so Vorherige,
@@ -50,6 +51,10 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
   const detail = useMailDetail(id);
   const neighbors = useMailNeighbors(id, toOrderParams(list));
   const summary = useMailSummary(toFilters(list));
+  const hits = useMailHits(id, list.q);
+  // the search words of the list's query (D79); none without full text words
+  const marks =
+    hits.data && hits.data.words.length + hits.data.stems.length > 0 ? hits.data : undefined;
   const [tab, setTab] = useState<BodyTab>("text");
   const body = useRef<HTMLElement>(null);
   const prevId = neighbors.data?.prev_id ?? null;
@@ -128,11 +133,25 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
       ) : (
         <div className={styles.columns}>
           <main className={styles.main}>
-            <HeaderCard mail={detail.data} mailHref={mailHref} />
+            <HeaderCard mail={detail.data} mailHref={mailHref} marks={marks} />
+            {marks && (
+              <SearchHitsCard
+                hits={marks}
+                attachments={detail.data.attachments}
+                onShowText={() => {
+                  setTab("text");
+                  body.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+                }}
+              />
+            )}
             <DkimCard mail={detail.data} />
-            <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} />
+            <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
             {detail.data.attachments.length > 0 && (
-              <AttachmentsCard attachments={detail.data.attachments} />
+              <AttachmentsCard
+                attachments={detail.data.attachments}
+                hits={marks?.attachments}
+                marks={marks}
+              />
             )}
           </main>
           <aside className={styles.side} aria-label="Zur Mail">

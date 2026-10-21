@@ -332,7 +332,11 @@ def test_upgrade_renders_offline_without_database() -> None:
         in sql
     )
     assert (
-        "UPDATE alembic_version SET version_num='0010' WHERE alembic_version.version_num = '0008'"
+        "UPDATE alembic_version SET version_num='0009' WHERE alembic_version.version_num = '0008'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0010' WHERE alembic_version.version_num = '0009'"
         in sql
     )
 
@@ -428,7 +432,7 @@ async def test_0010_marks_older_results_as_dns_and_forgets_other_keys_on_downgra
         finally:
             await engine.dispose()
 
-    await asyncio.to_thread(migrate.upgrade, "0008", empty_database_url)
+    await asyncio.to_thread(migrate.upgrade, "0009", empty_database_url)
     await sql(
         "INSERT INTO mbox_file (id, path, size_bytes) OVERRIDING SYSTEM VALUE VALUES (1, 'a', 9)"
     )
@@ -457,7 +461,7 @@ async def test_0010_marks_older_results_as_dns_and_forgets_other_keys_on_downgra
         " key_origin = 'reconstructed' WHERE mail_id = 3"
     )
     await sql("UPDATE mail SET dkim_status = 'consistent' WHERE id = 3")
-    await asyncio.to_thread(migrate.downgrade, "0008", empty_database_url)
+    await asyncio.to_thread(migrate.downgrade, "0009", empty_database_url)
     assert await sql("SELECT id, dkim_status::text FROM mail ORDER BY id") == [
         (1, "pass"),
         (2, "fail"),
@@ -467,4 +471,39 @@ async def test_0010_marks_older_results_as_dns_and_forgets_other_keys_on_downgra
         (1,),
         (2,),
         (2,),
+    ]
+
+
+@pytest.mark.db
+async def test_0009_sends_texts_archives_and_xps_files_to_the_next_extraction(
+    empty_database_url: str,
+) -> None:
+    await asyncio.to_thread(migrate.upgrade, "0008", empty_database_url)
+    engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO document (name, mime_type, size_bytes, kind, text_status) VALUES "
+                    "('Logo', 'text/plain', 1, 'text', 'text'), "
+                    "('Brief.xps', 'application/zip', 1, 'archive', 'text'), "
+                    "('Druck.XPS', 'application/octet-stream', 1, 'other', 'unsupported'), "
+                    "(NULL, 'application/oxps', 1, 'other', 'unsupported'), "
+                    "('Vertrag.pdf', 'application/pdf', 1, 'pdf', 'text'), "
+                    "('Foto.jpg', 'image/jpeg', 1, 'image', 'unsupported'), "
+                    "('fehlt.txt', 'text/plain', 1, 'text', 'unreadable'), "
+                    "('gross.zip', 'application/zip', 1, 'archive', 'too_large')"
+                )
+            )
+        await asyncio.to_thread(migrate.upgrade, "head", empty_database_url)
+        async with engine.connect() as connection:
+            rows = await _rows(connection, "SELECT text_status::text FROM document ORDER BY id")
+    finally:
+        await engine.dispose()
+    assert [status for (status,) in rows] == [
+        *["pending"] * 4,
+        "text",
+        "unsupported",
+        "unreadable",
+        "too_large",
     ]

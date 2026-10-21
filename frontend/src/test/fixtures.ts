@@ -31,6 +31,7 @@ import type {
   KeyArchivePreview,
   MailDetail,
   MailHeaders,
+  MailHits,
   MailListItem,
   MailNeighbors,
   MailPage,
@@ -457,6 +458,23 @@ export const mailDetail: MailDetail = {
   },
 };
 
+/** The hits of "Haftung" in mailDetail (D79): its text, its quoted part, two attachments. */
+export const mailHits: MailHits = {
+  words: ["Haftung"],
+  stems: ["haftung"],
+  in_mail: true,
+  attachments: [
+    {
+      attachment_id: 901,
+      in_name: false,
+      snippet: "§ 6 Haftung: Die Haftung beider Seiten ist auf den Auftragswert begrenzt.",
+    },
+    { attachment_id: 902, in_name: false, snippet: null },
+  ],
+};
+
+export const noHits: MailHits = { words: [], stems: [], in_mail: false, attachments: [] };
+
 export const mailText: MailText = {
   text: [
     "Hallo Herr Brandt, hallo Herr Hofmann,",
@@ -472,7 +490,7 @@ export const mailText: MailText = {
     "Am 17.10.2026 um 09:05 schrieb Jonas Brandt <j.brandt@stadtwerke-beispiel.example>:",
     "> Hallo Frau Keller,",
     ">",
-    "> danke für den Entwurf. Zwei Punkte hätten wir noch zu § 4.",
+    "> danke für den Entwurf. Zwei Punkte hätten wir noch zu § 4 und zur Haftung.",
     ">",
     "> Viele Grüße",
     "> Jonas Brandt",

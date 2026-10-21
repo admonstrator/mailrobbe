@@ -18,6 +18,7 @@ from mailrobbe.attachments.extract.packages import (
     LineBuffer,
     Package,
     Paragraphs,
+    natural,
     relationship_id,
 )
 from mailrobbe.enums import DocumentTextStatus
@@ -26,12 +27,6 @@ MAX_GAP = 16  # empty cells kept between two values of a row
 _OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _ENCRYPTED_PACKAGE = "EncryptedPackage".encode("utf-16-le")
 _COLUMN = re.compile(r"[A-Za-z]+")
-_NUMBER = re.compile(r"(\d+)")
-
-
-def _natural(name: str) -> list[object]:
-    """Sort key: header2.xml before header10.xml."""
-    return [int(part) if part.isdigit() else part for part in _NUMBER.split(name)]
 
 
 def _ole(data: bytes) -> DocumentTextStatus:
@@ -54,7 +49,7 @@ def _related(package: Package, part: str, kind: str) -> list[str]:
         for rel_kind, member in package.relationships(part).values()
         if rel_kind.endswith(f"/{kind}") and member in package.names
     }
-    return sorted(members, key=_natural)
+    return sorted(members, key=natural)
 
 
 # DOCX

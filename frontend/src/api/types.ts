@@ -1124,6 +1124,28 @@ export interface DocumentText {
   text_status: DocumentTextStatus;
 }
 
+export interface AttachmentHit {
+  attachment_id: number;
+  /** One of its document's file names holds a word. */
+  in_name: boolean;
+  /** The text around the first place a word occurs as typed; null: only another form of a word
+   *  occurs (German stemming), or only the name holds it. */
+  snippet: string | null;
+}
+
+/** Where the full text words of a mail list's q occur in one mail (D79). */
+export interface MailHits {
+  /** The words and phrases as typed, which the browser marks; [] without any. */
+  words: string[];
+  /** The lexemes of the query (German stems, lower case, no umlauts); the browser marks the
+   *  words they begin. */
+  stems: string[];
+  /** The mail's own subject or text holds a word. */
+  in_mail: boolean;
+  /** The attachments whose document holds a word, in mail order. */
+  attachments: AttachmentHit[];
+}
+
 // Keys of deleted selectors (D100 to D104) ------------------------------------------------------
 // A key name is "<selector>._domainkey.<domain>", lowercase. A name is "concerned" when it has
 // signatures that are no_key, or fail with signature_mismatch and an intact body.

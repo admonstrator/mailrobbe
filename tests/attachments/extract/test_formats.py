@@ -12,12 +12,14 @@ from tests.attachments.extract.samples import (
     W,
     docx,
     extract,
+    glyphs,
     odf,
     ole,
     package,
     paragraph,
     pdf,
     rels,
+    xps,
 )
 
 TEXT = DocumentTextStatus.TEXT
@@ -282,6 +284,37 @@ def test_encrypted_odf_is_encrypted() -> None:
     assert extract(data, "a.odt").status is DocumentTextStatus.ENCRYPTED
 
 
+# XPS (D78)
+
+XPS = "application/vnd.ms-xpsdocument"
+IMAGE = (
+    '<Path Data="M 0,0 L 816,0 816,1056 0,1056 Z"><Path.Fill>'
+    '<ImageBrush ImageSource="/Resources/Images/1.png" Viewport="0,0,816,1056"/>'
+    "</Path.Fill></Path>"
+)
+
+
+def test_xps_pages_in_document_order_with_runs_joined_on_their_baseline() -> None:
+    first = glyphs("Spendenquittung", 100) + glyphs("Nr. 17", 100) + glyphs("{}{Betrag}: 5", 120)
+    second = IMAGE + glyphs(GERMAN, 100)
+    result = extract(xps([first, second], order=[2, 1]), "Quittung.xps", XPS)
+    assert (result.status, result.pages, result.kind) == (TEXT, 2, DocumentKind.DOCUMENT)
+    assert result.text.splitlines() == [GERMAN, "", "Spendenquittung Nr. 17", "{Betrag}: 5"]
+
+
+def test_xps_without_its_document_sequence_reads_the_pages_in_name_order() -> None:
+    pages = [glyphs(f"Seite {n}", 100) for n in range(1, 12)]
+    result = extract(xps(pages, chain=False), "Ausdruck.oxps")
+    assert result.text.split("\n\n") == [f"Seite {n}" for n in range(1, 12)]
+
+
+def test_xps_of_images_only_is_scanned_and_one_without_anything_empty() -> None:
+    result = extract(xps([IMAGE, IMAGE]), "Scan.xps", XPS)
+    assert (result.status, result.pages, result.text) == (DocumentTextStatus.SCANNED, 2, "")
+    result = extract(xps([""]), "leer.xps", XPS)
+    assert (result.status, result.pages) == (DocumentTextStatus.EMPTY, 1)
+
+
 # Other text formats
 
 
@@ -350,6 +383,13 @@ def test_xml_and_json_values() -> None:
     assert result.text.split("\n") == ["Jörg", "12.5", "1", "true", "DE02"]
     broken = extract('{"name": "Jörg", '.encode(), "a.json", "application/json")
     assert broken.text == '{"name": "Jörg",'
+
+
+def test_markup_declared_as_plain_text_is_read_without_its_attributes() -> None:
+    xml = b'<?xml version="1.0"?><daten><betrag waehrung="EUR">12.50</betrag></daten>'
+    assert extract(xml, "notiz.txt", "text/plain").text == "12.50"
+    page = b'<!DOCTYPE html><html><body><p style="color: red">Hallo</p></body></html>'
+    assert extract(page, "seite.txt", "text/plain").text == "Hallo"
 
 
 def test_calendar_and_vcard_properties() -> None:
@@ -434,8 +474,21 @@ def test_formats_without_text_extraction_are_unsupported() -> None:
         (b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 100, "Video.mp4", DocumentKind.MEDIA),
         (b"Rar!\x1a\x07\x00" + b"\x00" * 100, "a.rar", DocumentKind.ARCHIVE),
         (b"\x01\x02\x03\x04" * 100, "a.bin", DocumentKind.OTHER),
+        # D78: markup and encoded data without text a reader would search
+        (
+            b'<?xml version="1.0"?>\n<svg width="10"><path d="M1 2"/></svg>',
+            None,
+            DocumentKind.IMAGE,
+        ),
+        (
+            b"-----BEGIN PGP SIGNATURE-----\n\niQEzBAEBCAAdFiEE\n",
+            "signature.asc",
+            DocumentKind.OTHER,
+        ),
+        (b'body { font-family: "Arial"; }', "style.css", DocumentKind.OTHER),
+        (package({"META-INF/container.xml": "<c/>"}), "Buch.epub", DocumentKind.OTHER),
     ):
-        result = extract(data, name)
+        result = extract(data, name, "text/plain" if name is None else "application/octet-stream")
         assert (result.status, result.kind, result.text) == (
             DocumentTextStatus.UNSUPPORTED, kind, ""
         ), name  # fmt: skip
