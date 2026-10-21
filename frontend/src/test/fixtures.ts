@@ -1318,3 +1318,27 @@ export const permalink: PermalinkTarget = {
   mail_id: mailDetail.id,
   raw_sha256: mailDetail.raw_sha256,
 };
+
+const moreTag = (id: number, name: string, color: TagInfo["color"], mails: number): TagInfo => ({
+  ...tags[0],
+  id,
+  name,
+  color,
+  description: "",
+  mails,
+});
+
+/** The research overview with seven tags, more than the filter column lists at first; the mail
+ *  of mailDetail carries neither "Gewalt" (3) nor the others it adds. */
+export const researchWithTags: ResearchOverview = {
+  ...research,
+  tags: [
+    ...tags,
+    moreTag(3, "Gewalt", "amber", 8),
+    moreTag(4, "Rassismus", "red", 5),
+    moreTag(5, "Verschleierung", "violet", 19),
+    moreTag(6, "Für Anwalt", "pink", 4),
+    moreTag(7, "Prüfen", "gray", 41),
+  ].sort((a, b) => a.name.localeCompare(b.name)),
+  collections: [...collections, { ...collections[0], id: 2, name: "Spenden 2024", mails: 61 }],
+};
