@@ -148,6 +148,11 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   if (path === "/api/documents/summary") {
     return url.searchParams.size > 0 ? fx.documentSummaryFiltered : fx.documentSummary;
   }
+  if (path === "/api/documents/metadata-values") {
+    const search = (url.searchParams.get("search") ?? "").toLowerCase();
+    const values = fx.metadataValues.filter(({ value }) => value.toLowerCase().includes(search));
+    return { values };
+  }
   if (path === "/api/timeline") return timelineFor(url.searchParams);
   if (path === "/api/timeline/first-mentions") return fx.firstMentions;
   const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);

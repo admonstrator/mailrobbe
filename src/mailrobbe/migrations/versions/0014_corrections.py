@@ -17,6 +17,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 ALIAS_TIERS = ("certain", "uncertain")
+METADATA_STATUSES = ("pending", "found", "empty", "unsupported", "too_large", "failed")
 
 
 def upgrade() -> None:
@@ -90,10 +91,55 @@ def upgrade() -> None:
     )
     op.create_index("ix_person_merge_member_person_id", "person_merge_member", ["person_id"])
 
-    # Document metadata (D167): added by the metadata part of this revision.
+    # Document metadata (D167): what each file says about itself, read by the import's metadata
+    # step. Existing documents start unread (pending, version 0); the columns have constant
+    # defaults, so no row is rewritten, and nothing is read from the MBOX files here.
+    postgresql.ENUM(*METADATA_STATUSES, name="document_metadata_status").create(bind)
+    status = postgresql.ENUM(*METADATA_STATUSES, name="document_metadata_status", create_type=False)
+    op.add_column(
+        "document",
+        sa.Column("metadata_status", status, nullable=False, server_default="pending"),
+    )
+    op.add_column(
+        "document",
+        sa.Column("metadata_version", sa.SmallInteger(), nullable=False, server_default="0"),
+    )
+    op.add_column("document", sa.Column("metadata_error", sa.Text()))
+    op.add_column("document", sa.Column("metadata_fields", postgresql.JSONB()))
+    for column in ("author", "modified_by", "program", "device"):
+        op.add_column("document", sa.Column(f"metadata_{column}", sa.Text()))
+    op.add_column("document", sa.Column("metadata_created", sa.DateTime(timezone=True)))
+    op.add_column(
+        "document",
+        sa.Column("metadata_gps", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+    )
+    # The facets and filters of the document list by author and program (exact values).
+    for column in ("author", "program"):
+        op.create_index(
+            f"ix_document_metadata_{column}",
+            "document",
+            [f"metadata_{column}"],
+            postgresql_where=sa.text(f"metadata_{column} IS NOT NULL"),
+        )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_document_metadata_program", table_name="document")
+    op.drop_index("ix_document_metadata_author", table_name="document")
+    for column in (
+        "gps",
+        "created",
+        "device",
+        "program",
+        "modified_by",
+        "author",
+        "fields",
+        "error",
+        "version",
+        "status",
+    ):
+        op.drop_column("document", f"metadata_{column}")
+    op.execute("DROP TYPE document_metadata_status")
     op.drop_table("person_merge_member")
     op.drop_table("person_merge")
     op.drop_table("merge_batch")

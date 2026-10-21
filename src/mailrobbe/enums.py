@@ -174,6 +174,17 @@ class DocumentTextStatus(StrEnum):
     UNREADABLE = "unreadable"  # its MBOX file is missing or changed; tried again next import
 
 
+class DocumentMetadataStatus(StrEnum):
+    """document.metadata_status (D167): what reading a document's metadata gave."""
+
+    PENDING = "pending"  # not read yet (or by an older reader, METADATA_VERSION)
+    FOUND = "found"  # fields found; metadata_error notes a damaged part, if any
+    EMPTY = "empty"  # a format that can carry metadata, without any
+    UNSUPPORTED = "unsupported"  # a format whose metadata Mailrobbe does not read
+    TOO_LARGE = "too_large"  # above MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE, not read
+    FAILED = "failed"  # damaged, encrypted, or the reader failed; metadata_error says why
+
+
 class EntityKind(StrEnum):
     """entity.kind (milestone 10, D80, D81): what an entity found in a text is.
 

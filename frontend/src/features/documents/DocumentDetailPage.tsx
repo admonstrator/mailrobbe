@@ -18,6 +18,7 @@ import { DocumentNames, DocumentPersons, DocumentPreview } from "./DocumentSide"
 import { StatusLabel } from "./DocumentTable";
 import { DocumentTextCard } from "./DocumentTextCard";
 import { KindIcon } from "./KindIcon";
+import { MetadataCard } from "./MetadataCard";
 import {
   documentName,
   hasStoredText,
@@ -114,6 +115,7 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
       <aside className={styles.side} aria-label="Zum Dokument">
         {document.preview === "image" && <DocumentPreview key={document.id} document={document} />}
         <DocumentNames document={document} />
+        <MetadataCard document={document} />
         <DocumentPersons
           id="document-senders-title"
           title="Absender"

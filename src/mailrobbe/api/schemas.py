@@ -42,6 +42,8 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/documents/summary?DocumentFilters  DocumentSummary
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
+    GET  /api/documents/metadata-values?MetadataValueParams  MetadataValues: authors or
+                                                 programs of the filtered documents (D167)
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
     GET  /api/attachments/{id}/html              text/html of a DOCX or ODT for a sandboxed
                                                  iframe, converted and cached (D122)
@@ -138,6 +140,7 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMetadataStatus,
     DocumentTextStatus,
     EntityKind,
     ImportErrorKind,
@@ -1250,6 +1253,10 @@ class DocumentFilters(BaseModel):
     person_role: Literal["sent", "received"] | None = None  # how; None: either
     shared: bool = False  # carried by at least two mails
     external: bool = False  # in a mail between internal and external domains (D21)
+    # What the file says about itself (D167): any of these values, exact (MetadataSummary.author
+    # and .software as stored); empty: all.
+    author: list[str] = []
+    program: list[str] = []
 
 
 class DocumentListParams(DocumentFilters):
@@ -1283,6 +1290,14 @@ class DocumentPage(BaseModel):
     prev_cursor: str | None
 
 
+METADATA_VALUES_LIMIT = 20  # authors and programs in DocumentSummary and MetadataValues
+
+
+class MetadataValueCount(BaseModel):
+    value: str  # an author or a program as stored (MetadataSummary), as the file states it
+    documents: int  # filtered documents with this value
+
+
 class DocumentSummary(BaseModel):
     """Figures of the filtered document list under the count budget of D19."""
 
@@ -1290,6 +1305,10 @@ class DocumentSummary(BaseModel):
     exact: bool  # False: total is a lower bound
     kinds: dict[DocumentKind, int] | None  # every kind present; None: ran out of time
     text_status: dict[DocumentTextStatus, int] | None  # every status present
+    # The most frequent authors and programs (D167), most documents first, at most
+    # METADATA_VALUES_LIMIT each; None: ran out of time.
+    authors: list[MetadataValueCount] | None = None
+    programs: list[MetadataValueCount] | None = None
 
 
 class DocumentNameCount(BaseModel):
@@ -1300,6 +1319,25 @@ class DocumentNameCount(BaseModel):
 class PersonCount(BaseModel):
     person: PersonRef  # a root person; name is its display name
     mails: int  # mails carrying the document that it sent, or received
+
+
+# A metadata value as found (attachments.metadata.model): a text, a count, a number (GPS) or a
+# list of texts.
+MetadataValue = str | int | float | list[str]
+
+
+class DocumentMetadata(BaseModel):
+    """What the file says about itself (D167), every field as found and never rated, grouped by
+    where it stands in the file (attachments.metadata.model: exif, gps, xmp, png, pdf,
+    pdf_custom, office, office_custom, odf, odf_custom), each source with stable English keys
+    (png and the *_custom sources keep the file's own). Dates are ISO 8601 with the offset the
+    file gives, or without one when it gives none; a date that could not be read is the text as
+    found."""
+
+    status: DocumentMetadataStatus  # pending: not read yet (the next import's metadata step)
+    error: str | None  # English, technical: why it failed, or the part found damaged
+    fields: dict[str, dict[str, MetadataValue]]  # source -> key -> value; {} without any
+    summary: MetadataSummary | None  # the values the list filters by; None without fields
 
 
 class DocumentDetail(BaseModel):
@@ -1326,6 +1364,7 @@ class DocumentDetail(BaseModel):
     recipient_count: int
     attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
     preview: PreviewKind | None  # how the browser shows it (D120); None: download only
+    metadata: DocumentMetadata  # what the file says about itself (D167)
 
 
 class DocumentText(BaseModel):
@@ -1349,6 +1388,21 @@ class MailHits(BaseModel):
     stems: list[str]  # the lexemes of the query (German stems, lower case, no umlauts), ditto
     in_mail: bool  # the mail's own subject or text holds a word
     attachments: list[AttachmentHit]  # the attachments whose document holds a word, in mail order
+
+
+class MetadataValueParams(DocumentFilters):
+    """The authors or programs of the filtered documents whose value holds `search` (D167), for
+    the search within a facet of the document list."""
+
+    field: Literal["author", "program"]
+    search: str = ""  # part of the value, any case; empty: every value
+    limit: int = Field(METADATA_VALUES_LIMIT, ge=1, le=100)
+
+
+class MetadataValues(BaseModel):
+    """Under the count budget of D19."""
+
+    values: list[MetadataValueCount] | None  # most documents first; None: ran out of time
 
 
 # Keys of deleted selectors (D100 to D104) ------------------------------------------------------

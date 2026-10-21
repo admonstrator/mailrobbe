@@ -93,6 +93,7 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMetadataStatus,
     DocumentTextStatus,
     EntityKind,
     JobKind,
@@ -127,6 +128,7 @@ document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
 entity_kind_enum = _pg_enum(EntityKind, "entity_kind")
 key_origin_enum = _pg_enum(KeyOrigin, "key_origin")
 alias_tier_enum = _pg_enum(AliasTier, "alias_tier")
+document_metadata_status_enum = _pg_enum(DocumentMetadataStatus, "document_metadata_status")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -351,6 +353,16 @@ class Document(Base):
         Index("ix_document_size_bytes", "size_bytes", "id"),
         Index("ix_document_kind", "kind"),
         Index("ix_document_text_status", "text_status"),
+        Index(
+            "ix_document_metadata_author",
+            "metadata_author",
+            postgresql_where=text("metadata_author IS NOT NULL"),
+        ),
+        Index(
+            "ix_document_metadata_program",
+            "metadata_program",
+            postgresql_where=text("metadata_program IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -382,6 +394,21 @@ class Document(Base):
     tsv: Mapped[Any | None] = mapped_column(
         TSVECTOR, Computed(DOCUMENT_TSV_EXPRESSION, persisted=True)
     )
+    # What the file says about itself (migration 0014, D167), read by the import's metadata step:
+    # every field found (source -> key -> value, attachments.metadata.model) and the few the
+    # list's facets and the mail detail use, from attachments.metadata.model.summarize.
+    metadata_status: Mapped[DocumentMetadataStatus] = mapped_column(
+        document_metadata_status_enum, server_default="pending"
+    )
+    metadata_version: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    metadata_error: Mapped[str | None] = mapped_column(Text)  # English, one line
+    metadata_fields: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    metadata_author: Mapped[str | None] = mapped_column(Text)
+    metadata_modified_by: Mapped[str | None] = mapped_column(Text)
+    metadata_program: Mapped[str | None] = mapped_column(Text)
+    metadata_device: Mapped[str | None] = mapped_column(Text)
+    metadata_created: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    metadata_gps: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class DkimResult(Base):
