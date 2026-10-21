@@ -16,6 +16,12 @@ import { ApiError, apiGet, apiPost, apiPut } from "./client";
 import type {
   ContactPage,
   DkimJob,
+  DocumentDetail,
+  DocumentFilters,
+  DocumentListParams,
+  DocumentPage,
+  DocumentSummary,
+  DocumentText,
   DomainCount,
   Graph,
   GraphParams,
@@ -97,6 +103,12 @@ export const queryKeys = {
   importSummary: ["import", "summary"] as const,
   importErrors: (params: ImportErrorParams) => ["import", "errors", params] as const,
   importErrorPages: (filters: ImportErrorFilters) => ["import", "error-pages", filters] as const,
+  /** Prefix of everything about documents (D70); an import's attachments phase changes them. */
+  documents: ["documents"] as const,
+  documentPage: (params: DocumentListParams) => ["documents", "page", params] as const,
+  documentSummary: (filters: DocumentFilters) => ["documents", "summary", filters] as const,
+  document: (id: number) => ["documents", "detail", id] as const,
+  documentText: (id: number) => ["documents", "text", id] as const,
 };
 
 export function useStats() {
@@ -448,5 +460,43 @@ export function useStopDkimRun() {
   return useMutation({
     mutationFn: () => apiPost<DkimJob>("/api/dkim/recheck/stop", {}),
     onSuccess: (job) => showRun(queryClient, { dkim_job: job }),
+  });
+}
+
+// Attachments and documents (D70 to D77) --------------------------------------------------------
+
+export function useDocumentPage(params: DocumentListParams) {
+  return useQuery({
+    queryKey: queryKeys.documentPage(params),
+    queryFn: ({ signal }) => apiGet<DocumentPage>("/api/documents", params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The figures of the filtered document list (D74). The previous ones stay while the next load,
+ *  so the counters beside the filters keep their place. */
+export function useDocumentSummary(filters: DocumentFilters) {
+  return useQuery({
+    queryKey: queryKeys.documentSummary(filters),
+    queryFn: ({ signal }) => apiGet<DocumentSummary>("/api/documents/summary", filters, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** A document page (D75); also names the mail list's document filter. */
+export function useDocument(id: number, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.document(id),
+    queryFn: ({ signal }) => apiGet<DocumentDetail>(`/api/documents/${id}`, undefined, signal),
+    enabled,
+  });
+}
+
+/** A document's extracted text, up to 400,000 characters, so only loaded when asked for. */
+export function useDocumentText(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.documentText(id),
+    queryFn: ({ signal }) => apiGet<DocumentText>(`/api/documents/${id}/text`, undefined, signal),
+    enabled,
   });
 }
