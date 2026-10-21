@@ -62,11 +62,12 @@ from sqlalchemy.orm import QueryableAttribute, aliased
 from sqlalchemy.sql import operators
 from sqlalchemy.sql.util import ClauseAdapter
 
+from mailrobbe.api.fulltext import FullText, full_text_search, text_search, ts_query
+from mailrobbe.api.hits import hit_count
 from mailrobbe.api.query import parse_day
 from mailrobbe.api.schemas import MailFilters, PersonRole, QueryTerm, SortOrder
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
-    TEXT_SEARCH_CONFIG,
     TIMESTAMPTZ,
     Attachment,
     CollectionMail,
@@ -87,7 +88,6 @@ from mailrobbe.signals.model import signal_keys
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
 _NO_DATE = literal_column("'-infinity'::timestamp with time zone", TIMESTAMPTZ)
-_TEXT_SEARCH: ColumnElement[Any] = literal_column(f"'{TEXT_SEARCH_CONFIG}'::regconfig")
 # The table columns themselves, so that _ranges and _contents recognise conditions on them.
 _DKIM_STATUS: ColumnElement[DkimStatus | None] = Mail.__table__.c.dkim_status
 _mail_id: ColumnElement[int] = Mail.__table__.c.id
@@ -127,9 +127,11 @@ def mail_conditions(
 ) -> list[ColumnElement[bool]]:
     """Every condition of the filters and of q's terms; a mail matches when all hold."""
     where = [condition for term in terms for condition in _term(term)]
-    query = text_query(terms)
-    if query is not None:
-        where.append(full_text(query))
+    search = full_text_search(terms, filters.scope, filters.whole_word, filters.min_hits)
+    if search is not None:
+        where += text_conditions(search)
+        if search.min_hits is not None:  # D174
+            where.append(hit_count(search) >= search.min_hits)
     if filters.dkim:
         where.append(_dkim(filters.dkim))
     if filters.sender_domain:
@@ -184,17 +186,18 @@ def mail_conditions(
     return where
 
 
-def text_search(terms: Sequence[QueryTerm]) -> str:
-    """q's full text words as websearch_to_tsquery reads them; "" without any."""
-    return " ".join(_phrase(term) for term in terms if term.key == "text")
-
-
 def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
     """The tsquery of q's full text words; None without any."""
     words = text_search(terms)
     if not words:
         return None
-    return func.websearch_to_tsquery(_TEXT_SEARCH, words)
+    return ts_query(words)
+
+
+def text_conditions(search: FullText) -> list[ColumnElement[bool]]:
+    """The conditions of q's full text words (D73, D171 to D173, D175)."""
+    # Contract: the free words everywhere, by their German stems, as before D171.
+    return [full_text(ts_query(search.search))] if search.search else []
 
 
 def full_text(query: ColumnElement[Any]) -> ColumnElement[bool]:
@@ -255,11 +258,6 @@ def _term(term: QueryTerm) -> list[ColumnElement[bool]]:
         case "message_id":
             return [Mail.message_id == value]
     return []  # text: one tsquery for all words, built by the caller
-
-
-def _phrase(term: QueryTerm) -> str:
-    """A text term for websearch_to_tsquery: quoted tokens stay phrases."""
-    return f'"{term.value}"' if '"' in term.raw else term.value
 
 
 def _contains(value: str) -> str:

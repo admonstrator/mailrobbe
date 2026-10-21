@@ -54,11 +54,12 @@ describe("filterChips", () => {
     page: 2,
   };
   const terms = [
-    { key: "subject" as const, value: "Vertrag", raw: "subject:Vertrag" },
+    { key: "subject" as const, value: "Vertrag", raw: "subject:Vertrag", negated: false },
     {
       key: "to" as const,
       value: "@stadtwerke-beispiel.example",
       raw: "to:@stadtwerke-beispiel.example",
+      negated: false,
     },
   ];
 

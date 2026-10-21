@@ -55,6 +55,10 @@ const TERM_LABELS: Record<QueryKey, (value: string) => string> = {
   before: (value) => `vor ${day(value)}`,
   after: (value) => `ab ${day(value)}`,
   message_id: (value) => `Message-ID: ${value}`,
+  in_subject: (value) => `Im Betreff: „${value}“`,
+  in_body: (value) => `Im Mailtext: „${value}“`,
+  in_attachment: (value) => `Im Anhangstext: „${value}“`,
+  in_filename: (value) => `Im Dateinamen: „${value}“`,
 };
 
 /** The tabs of a person's mail list (D32), also in the person's chip. */

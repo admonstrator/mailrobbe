@@ -893,8 +893,17 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
         "stems": ["weihnachtsgeld"],
         "in_mail": False,
         "attachments": [
-            {"attachment_id": uebersicht, "in_name": False, "snippet": UEBERSICHT.strip()}
+            {
+                "attachment_id": uebersicht,
+                "in_name": False,
+                "snippet": UEBERSICHT.strip(),
+                "in_text": False,
+            }
         ],
+        "whole_word": False,
+        "in_subject": False,
+        "in_body": False,
+        "counts": None,
     }
     tannenbaum = await hits(m[2], "Tannenbaum")
     assert tannenbaum["in_mail"] is True
@@ -904,7 +913,13 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
         "words": ["Foto"],
         "stems": ["foto"],
         "in_mail": False,
-        "attachments": [{"attachment_id": foto, "in_name": True, "snippet": None}],
+        "attachments": [
+            {"attachment_id": foto, "in_name": True, "snippet": None, "in_text": False}
+        ],
+        "whole_word": False,
+        "in_subject": False,
+        "in_body": False,
+        "counts": None,
     }
     # Found as another form of the word (German stemming): the snippet around the word the stem
     # begins, which the browser marks
@@ -917,6 +932,10 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
         "stems": [],
         "in_mail": False,
         "attachments": [],
+        "whole_word": False,
+        "in_subject": False,
+        "in_body": False,
+        "counts": None,
     }
     invalid = await crafted_client.get(f"/api/mails/{m[0]}/hits", params={"q": "dkim:egal"})
     assert (invalid.status_code, invalid.json()["detail"]["code"]) == (400, "invalid_query")

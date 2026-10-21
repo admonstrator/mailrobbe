@@ -215,6 +215,7 @@ function item(
     tags: [],
     notes: 0,
     attachment_match: false,
+    hits: null,
     ...extra,
   };
 }
@@ -326,8 +327,13 @@ export const filteredQuery = "subject:Vertrag to:@stadtwerke-beispiel.example";
 export const filteredPage: MailPage = {
   ...mailPage,
   query_terms: [
-    { key: "subject", value: "Vertrag", raw: "subject:Vertrag" },
-    { key: "to", value: "@stadtwerke-beispiel.example", raw: "to:@stadtwerke-beispiel.example" },
+    { key: "subject", value: "Vertrag", raw: "subject:Vertrag", negated: false },
+    {
+      key: "to",
+      value: "@stadtwerke-beispiel.example",
+      raw: "to:@stadtwerke-beispiel.example",
+      negated: false,
+    },
   ],
 };
 
@@ -494,12 +500,26 @@ export const mailHits: MailHits = {
       attachment_id: 901,
       in_name: false,
       snippet: "§ 6 Haftung: Die Haftung beider Seiten ist auf den Auftragswert begrenzt.",
+      in_text: true,
     },
-    { attachment_id: 902, in_name: false, snippet: null },
+    { attachment_id: 902, in_name: false, snippet: null, in_text: true },
   ],
+  whole_word: false,
+  in_subject: false,
+  in_body: true,
+  counts: null,
 };
 
-export const noHits: MailHits = { words: [], stems: [], in_mail: false, attachments: [] };
+export const noHits: MailHits = {
+  words: [],
+  stems: [],
+  in_mail: false,
+  attachments: [],
+  whole_word: false,
+  in_subject: false,
+  in_body: false,
+  counts: null,
+};
 
 export const mailText: MailText = {
   text: [

@@ -73,8 +73,8 @@ from mailrobbe.api.filters import (
     internal_domains,
     mail_conditions,
     text_query,
-    text_search,
 )
+from mailrobbe.api.fulltext import text_search
 from mailrobbe.api.mails import _QUERY_CANCELED, _count_budget, _unless_canceled
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
 from mailrobbe.api.query import QueryError, parse_query
