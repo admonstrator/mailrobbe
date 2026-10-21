@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- The PDF viewer (D121), served as /viewer/pdf.html with a sandboxing policy that allows only
+     scripts carrying the nonce the server writes into the script tag for each response. The
+     script is a classic one (a module from an opaque origin would need CORS); it adds the styles
+     at once and starts the viewer once the page is parsed. -->
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PDF</title>
+    <script nonce="__CSP_NONCE__" src="pdf.js"></script>
+  </head>
+  <body>
+    <div class="toolbar" role="toolbar" aria-label="PDF">
+      <span class="group">
+        Seite
+        <input
+          id="page-number"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          value="1"
+          aria-label="Seite"
+          disabled
+        />
+        von <span id="page-count">–</span>
+      </span>
+      <span class="group">
+        <button id="zoom-out" type="button" aria-label="Verkleinern" title="Verkleinern" disabled>
+          −
+        </button>
+        <output id="zoom-value" aria-label="Zoom">100 %</output>
+        <button id="zoom-in" type="button" aria-label="Vergrößern" title="Vergrößern" disabled>
+          +
+        </button>
+        <button id="fit" type="button" aria-pressed="true" disabled>Seitenbreite</button>
+      </span>
+    </div>
+    <main id="scroller" class="scroller" tabindex="0" aria-label="Seiten">
+      <p id="status" class="status" role="status">PDF wird geladen …</p>
+      <div id="pages"></div>
+    </main>
+  </body>
+</html>

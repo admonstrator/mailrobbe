@@ -104,6 +104,14 @@ export function apiDelete(path: string): Promise<void> {
   return request<void>("DELETE", path);
 }
 
+/** A GET whose answer is no JSON (an attachment's bytes, a converted document): the response, or
+ *  an ApiError as apiGet throws it. */
+export async function apiFetch(path: string, signal?: AbortSignal): Promise<Response> {
+  const response = await fetch(path, { signal });
+  if (!response.ok) throw await toApiError(response);
+  return response;
+}
+
 /** An attachment's bytes, read from its MBOX file on request (D76): a download, or the image of
  *  a preview for raster images. */
 export function attachmentContentUrl(attachmentId: number): string {

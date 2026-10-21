@@ -1674,6 +1674,19 @@ export const documentText: DocumentText = {
   text_status: "text",
 };
 
+/** An attachment's bytes as the download endpoint gives them (D76): enough of a PDF for the
+ *  preview, which hands them to the viewer unread. */
+export const attachmentBytes = new TextEncoder().encode("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n");
+
+/** A DOCX converted for its preview (D122): a whole document with its own policy. */
+export const attachmentHtml = [
+  "<!doctype html>",
+  '<html lang="de"><head><meta charset="utf-8">',
+  "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'\">",
+  "</head><body><h1>Protokoll der Vorstandssitzung</h1>",
+  "<p>Die Spende über 12.500,00 EUR wird bestätigt.</p></body></html>",
+].join("\n");
+
 /** The mails carrying document 5101, oldest first. */
 export const documentMailPage: MailPage = {
   items: [
