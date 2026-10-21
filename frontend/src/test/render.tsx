@@ -15,6 +15,38 @@ export interface ApiCall {
 
 const FILTER_KEYS = ["q", "dkim", "sender_domain", "date_from", "date_to", "has_attachment"];
 
+/** Anna Keller and her two aliases, the persons the fixtures have a profile for. */
+const ANNA_IDS = [fx.annaProfile.id, ...fx.annaProfile.aliases.map((alias) => alias.person_id)];
+
+const notFound = (what: string) =>
+  Response.json({ detail: { code: "not_found", message: `no ${what}` } }, { status: 404 });
+
+/** The person list for q: the fixture page, or the persons whose name or address contain it. */
+function personsMatching(q: string): unknown {
+  if (!q) return fx.personPage;
+  const needle = q.toLowerCase();
+  const everyone = [...fx.personPage.items, ...fx.personSearch.items];
+  const items = [...new Map(everyone.map((person) => [person.id, person])).values()].filter(
+    (person) =>
+      [person.name ?? "", person.email].some((text) => text.toLowerCase().includes(needle)),
+  );
+  return { items, next_cursor: null, prev_cursor: null, total: items.length };
+}
+
+function personApi(method: string, url: URL, id: number, endpoint: string | undefined): unknown {
+  if (!ANNA_IDS.includes(id)) return notFound(`person with id ${id}`);
+  if (endpoint === undefined && method === "GET") return fx.annaProfile;
+  if (endpoint === "/contacts") {
+    return url.searchParams.has("cursor") ? fx.contactPage2 : fx.contactPage;
+  }
+  if (endpoint === "/mail-counts") return fx.personMailCounts;
+  if (endpoint === "/unmerge" && method === "POST") {
+    const aliases = fx.annaProfile.aliases.filter((alias) => alias.person_id !== id);
+    return { ...fx.annaProfile, aliases };
+  }
+  return notFound("such endpoint");
+}
+
 /** The fixture backend: every endpoint the screens use, answered from fixtures.ts. An answer is
  *  a JSON body, or a Response for anything else. */
 export function fixtureApi({ method, url }: ApiCall): unknown {
@@ -27,6 +59,7 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
       ? fx.summaryFiltered
       : fx.summaryAll;
   }
+  if (path === "/api/mails" && url.searchParams.has("person")) return fx.personMailPage;
   if (path === "/api/mails") {
     return (url.searchParams.get("q") ?? "").includes("subject:") ? fx.filteredPage : fx.mailPage;
   }
@@ -38,7 +71,14 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (method === "GET" && /^\/api\/mails\/\d+$/.test(path)) return fx.mailDetail;
   if (path === "/api/graph") return fx.graph;
   if (path === "/api/graph/size") return fx.graphSize;
-  if (path === "/api/persons") return fx.personSearch;
+  if (path === "/api/persons") return personsMatching(url.searchParams.get("q") ?? "");
+  if (path === "/api/persons/suggestions") {
+    return url.searchParams.has("cursor") ? fx.suggestionPage2 : fx.suggestionPage;
+  }
+  if (path === "/api/persons/suggestions/dismiss") return new Response(null, { status: 204 });
+  if (path === "/api/persons/merge") return fx.mergedProfile;
+  const person = /^\/api\/persons\/(\d+)(\/[a-z-]+)?$/.exec(path);
+  if (person) return personApi(method, url, Number(person[1]), person[2]);
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 

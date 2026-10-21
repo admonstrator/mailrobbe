@@ -2,7 +2,13 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  Contact,
+  ContactPage,
   DkimStatus,
+  Graph,
+  GraphEdge,
+  GraphNode,
+  GraphSize,
   MailDetail,
   MailHeaders,
   MailListItem,
@@ -12,11 +18,16 @@ import type {
   MailSummary,
   MailText,
   MboxFileInfo,
+  ParticipationRole,
+  PersonFigures,
+  PersonMailCounts,
+  PersonPage,
+  PersonProfile,
   PersonRef,
+  PersonSummary,
   Stats,
+  SuggestionPage,
 } from "../api/types";
-import type { Graph, GraphEdge, GraphNode, GraphSize } from "../api/types";
-import type { PersonSearchPage } from "../features/graph/personSearch";
 
 const person = (person_id: number, name: string | null, email: string): PersonRef => ({
   person_id,
@@ -120,6 +131,7 @@ function item(
     flagged: false,
     size: 48_213,
     mbox_file_id: 4,
+    person_role: null,
     ...extra,
   };
 }
@@ -403,6 +415,253 @@ export const mailRaw: MailRaw = {
   size: 188_416,
 };
 
+// Persons (milestone 5) -----------------------------------------------------------------------
+// Anna Keller (11) with two aliases, eleven years of mail, ten top contacts and two open alias
+// suggestions, as in the mockup's profile.
+
+export const otherPeople = {
+  annaWork: person(21, "Anna Keller", "a.keller@nordlicht-gmbh.example"),
+  annaPrivate: person(22, "Anna Keller", "annakeller78@mail.example"),
+  annaPost: person(23, "Anna Keller", "keller.anna@post.example"),
+  annaShort: person(24, "A. Keller", "a.keller@mail.example"),
+  jonasPrivate: person(25, "Jonas Brandt", "jonas.brandt@mail.example"),
+  peterPost: person(26, "Peter Hofmann", "p.hofmann@post.example"),
+  katrin: person(27, "Katrin Albers", "k.albers@verband.example"),
+  mehmet: person(28, "Mehmet Yilmaz", "m.yilmaz@lieferant-nordstahl.example"),
+  noreply: person(29, null, "noreply@bank.example"),
+};
+
+const domainOf = (ref: PersonRef) => ref.email.split("@")[1];
+
+function figures(
+  sent: number,
+  received: number,
+  extra: Partial<PersonFigures> = {},
+): PersonFigures {
+  return {
+    mails: sent + received,
+    sent,
+    received,
+    cc_only: Math.round(received / 6),
+    contacts: Math.max(1, Math.round((sent + received) / 40)),
+    first_date: "2016-03-11T08:14:00Z",
+    last_date: "2026-10-18T12:32:07Z",
+    dkim_pass_ratio: 0.93,
+    ...extra,
+  };
+}
+
+function summary(ref: PersonRef, figures: PersonFigures, aliases = 0): PersonSummary {
+  return {
+    id: ref.person_id,
+    name: ref.name,
+    email: ref.email,
+    domain: domainOf(ref),
+    aliases,
+    figures,
+  };
+}
+
+export const annaFigures: PersonFigures = {
+  mails: 11318,
+  sent: 3412,
+  received: 7906,
+  cc_only: 1204,
+  contacts: 214,
+  first_date: "2016-03-11T08:14:00Z",
+  last_date: "2026-10-18T12:32:07Z",
+  dkim_pass_ratio: 0.978,
+};
+
+const { annaWork, annaPrivate, annaPost, annaShort, jonasPrivate, peterPost } = otherPeople;
+const { katrin, mehmet, noreply } = otherPeople;
+
+export const personSummaries = {
+  anna: summary(anna, annaFigures, 2),
+  jonas: summary(jonas, figures(2210, 3190, { last_date: "2026-10-17T07:05:00Z" })),
+  lukas: summary(lukas, figures(1480, 2402, { last_date: "2026-10-14T09:20:00Z" })),
+  miriam: summary(miriam, figures(902, 1311, { dkim_pass_ratio: 0.412 })),
+  billing: summary(billing, figures(1720, 12, { dkim_pass_ratio: 1 })),
+  peter: summary(peter, figures(611, 984, { last_date: "2026-10-12T06:11:00Z" })),
+  sofia: summary(sofia, figures(204, 377, { first_date: "2019-05-02T18:00:00Z" })),
+  thomas: summary(thomas, figures(88, 140, { dkim_pass_ratio: null })),
+  purchasing: summary(purchasing, figures(0, 1460, { dkim_pass_ratio: null })),
+  katrin: summary(katrin, figures(61, 95, { last_date: "2025-06-30T10:00:00Z" })),
+  mehmet: summary(mehmet, figures(40, 52, { last_date: "2024-11-08T13:45:00Z" })),
+  noreply: summary(noreply, figures(420, 0, { contacts: 1, dkim_pass_ratio: 0.998 })),
+  annaPost: summary(annaPost, figures(34, 62, { first_date: "2021-02-01T09:00:00Z" })),
+  annaShort: summary(annaShort, figures(12, 19, { first_date: "2023-07-14T16:30:00Z" })),
+  jonasPrivate: summary(jonasPrivate, figures(18, 25)),
+  peterPost: summary(peterPost, figures(9, 14, { dkim_pass_ratio: null })),
+};
+
+const ps = personSummaries;
+
+export const personPage: PersonPage = {
+  items: [
+    ps.anna,
+    ps.jonas,
+    ps.lukas,
+    ps.miriam,
+    ps.billing,
+    ps.peter,
+    ps.purchasing,
+    ps.sofia,
+    ps.noreply,
+    ps.thomas,
+    ps.katrin,
+    ps.mehmet,
+  ],
+  next_cursor: "persons-page-2",
+  prev_cursor: null,
+  total: 1710,
+};
+
+export const suggestionPage: SuggestionPage = {
+  items: [
+    {
+      first: ps.peter,
+      second: ps.peterPost,
+      same_name: "peter hofmann",
+      same_local_part: "p.hofmann",
+    },
+    { first: ps.anna, second: ps.annaPost, same_name: "anna keller", same_local_part: null },
+    { first: ps.jonas, second: ps.jonasPrivate, same_name: "jonas brandt", same_local_part: null },
+  ],
+  next_cursor: "suggestions-page-2",
+  total: 4,
+};
+
+export const suggestionPage2: SuggestionPage = {
+  items: [{ first: ps.anna, second: ps.annaShort, same_name: null, same_local_part: "a.keller" }],
+  next_cursor: null,
+  total: 4,
+};
+
+function contact(
+  ref: PersonRef,
+  sent: number,
+  received: number,
+  cc: number,
+  last_date = "2026-10-18T12:32:07Z",
+): Contact {
+  return {
+    person: ref,
+    domain: domainOf(ref),
+    mails: sent + received + cc,
+    sent,
+    received,
+    cc,
+    first_date: "2016-04-02T09:12:00Z",
+    last_date,
+  };
+}
+
+export const topContacts: Contact[] = [
+  contact(jonas, 160, 181, 47),
+  contact(lukas, 121, 150, 34, "2026-10-14T09:20:00Z"),
+  contact(miriam, 40, 45, 12, "2026-10-15T15:48:00Z"),
+  contact(billing, 2, 80, 2, "2026-10-01T04:00:00Z"),
+  contact(peter, 25, 24, 12, "2026-10-12T06:11:00Z"),
+  contact(sofia, 20, 25, 2, "2026-10-07T19:44:00Z"),
+  contact(thomas, 11, 14, 6, "2026-09-25T17:58:00Z"),
+  contact(purchasing, 0, 28, 0, "2026-10-14T09:20:00Z"),
+  contact(katrin, 8, 9, 2, "2025-06-30T10:00:00Z"),
+  contact(mehmet, 5, 6, 1, "2024-11-08T13:45:00Z"),
+];
+
+export const contactPage: ContactPage = {
+  items: topContacts,
+  next_cursor: "contacts-page-2",
+  total: 214,
+};
+
+export const contactPage2: ContactPage = {
+  items: [contact(annaPost, 4, 3, 0, "2025-01-20T08:00:00Z"), contact(noreply, 0, 9, 0)],
+  next_cursor: null,
+  total: 214,
+};
+
+const YEARS: [number, number, number][] = [
+  [2016, 96, 210],
+  [2017, 241, 528],
+  [2018, 302, 694],
+  [2019, 318, 803],
+  [2020, 412, 1002],
+  [2021, 371, 868],
+  [2022, 356, 905],
+  [2023, 455, 1100],
+  [2024, 367, 788],
+  [2025, 312, 614],
+  [2026, 182, 394],
+];
+
+export const annaProfile: PersonProfile = {
+  id: anna.person_id,
+  name: anna.name,
+  email: anna.email,
+  domain: domainOf(anna),
+  aliases: [
+    { person_id: annaWork.person_id, email: annaWork.email, name: annaWork.name, mails: 1840 },
+    {
+      person_id: annaPrivate.person_id,
+      email: annaPrivate.email,
+      name: annaPrivate.name,
+      mails: 312,
+    },
+  ],
+  display_names: [
+    { name: "Anna Keller", mails: 3201 },
+    { name: "Keller, Anna", mails: 188 },
+    { name: "Nordlicht Einkauf", mails: 23 },
+  ],
+  figures: annaFigures,
+  years: YEARS.map(([year, sent, received]) => ({ year, sent, received })),
+  top_contacts: topContacts,
+  suggestions: [
+    { person: ps.annaPost, same_name: "anna keller", same_local_part: null },
+    { person: ps.annaShort, same_name: null, same_local_part: "a.keller" },
+  ],
+};
+
+/** Anna's profile after merging keller.anna@post.example (23) into her. */
+export const mergedProfile: PersonProfile = {
+  ...annaProfile,
+  aliases: [
+    ...annaProfile.aliases,
+    { person_id: annaPost.person_id, email: annaPost.email, name: annaPost.name, mails: 96 },
+  ],
+  suggestions: annaProfile.suggestions.filter(
+    (candidate) => candidate.person.id !== annaPost.person_id,
+  ),
+};
+
+/** Tab counts for a chosen year or contact; Cc ran out of time. */
+export const personMailCounts: PersonMailCounts = {
+  all: 1555,
+  sent: 455,
+  received: 1100,
+  cc: null,
+};
+
+const roleOfAnna = (mail: MailListItem): ParticipationRole | null =>
+  mail.sender?.person_id === anna.person_id
+    ? "from"
+    : mail.recipients.some((ref) => ref.person_id === anna.person_id)
+      ? "to"
+      : null;
+
+/** Anna's mails as GET /api/mails?person=11 answers them, with her role in each. */
+export const personMailPage: MailPage = {
+  items: mailItems.flatMap((mail) => {
+    const role = mail.id === 183870 ? "cc" : roleOfAnna(mail);
+    return role ? [{ ...mail, person_role: role }] : [];
+  }),
+  next_cursor: "person-mails-2",
+  prev_cursor: null,
+  query_terms: [],
+};
+
 // Relationship map: Anna's ego network of the mockup ("4 · Beziehungskarte").
 
 const graphNode = (
@@ -472,7 +731,7 @@ export const graph: Graph = {
 
 export const graphSize: GraphSize = { nodes: 9, edges: 12, mails: graph.mails, too_large: false };
 
-export const personSearch: PersonSearchPage = {
+export const personSearch: PersonPage = {
   items: [
     {
       id: miriam.person_id,

@@ -1,6 +1,6 @@
 """After importing: duplicates (D16), threads (D17) and display names, recomputed as a whole,
-then the aggregation tables: the edges of the relationship map (D36) and the global figures of
-the web UI (global_stats, D19).
+then every aggregation table (aggregates.refresh_aggregates: the edges of the relationship map,
+person figures, alias suggestions, global_stats; D19, D33, D36).
 
 Every step is set-based SQL apart from threading, a union-find in the main process over the
 Message-IDs of all mails that are not duplicates. Each step writes only rows whose value

@@ -102,6 +102,11 @@ export function formatDay(day: string): string {
   return `${date}.${month}.${year}`;
 }
 
+/** The local calendar day of an ISO time as "18.10.2026". */
+export function formatDate(iso: string): string {
+  return formatDay(formatIsoDay(iso));
+}
+
 const nearFormat = new Intl.RelativeTimeFormat(LOCALE, { numeric: "auto" });
 const relativeFormat = new Intl.RelativeTimeFormat(LOCALE, { numeric: "always" });
 

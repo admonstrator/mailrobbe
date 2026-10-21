@@ -435,6 +435,7 @@ async def test_items_show_the_mail_and_its_participants(
             "flagged": False,
             "size": mail.byte_length,
             "mbox_file_id": mail.mbox_file_id,
+            "person_role": None,
         }
 
 
@@ -764,3 +765,155 @@ async def test_person_filter_includes_merged_addresses(
     alone = await ids(mutable_database_url, takes_part("p.id = :a"), a=pair.a)
     assert len(expected) > len(alone)
     assert await listed(mutable_client, [("person", str(pair.a))]) == expected
+
+
+# A person's mails (D32) -----------------------------------------------------------------------
+
+ROLES = ["sent", "received", "cc"]
+
+
+def person_role(person: str, role: str) -> str:
+    """D29 in SQL for the person matching `person` (on person p): sent, received, Cc only."""
+    if role == "sent":
+        return takes_part(person, SENDER)
+    if role == "received":
+        return f"{takes_part(person, RECIPIENT)} AND NOT {takes_part(person, SENDER)}"
+    copied = takes_part(person, "pa.role = 'cc'")
+    return f"{copied} AND NOT {takes_part(person, "pa.role IN ('from', 'to', 'bcc')")}"
+
+
+async def first_roles(url: str, person: str, **params: Any) -> dict[int, str]:
+    """mail id -> the first role (from, to, cc, bcc) of the person matching `person` in it."""
+    found = await rows(
+        url,
+        "SELECT pa.mail_id, min(pa.role)::text AS role FROM participation pa"
+        f" JOIN person p ON p.id = pa.person_id WHERE {person} GROUP BY 1",
+        **params,
+    )
+    return {row.mail_id: row.role for row in found}
+
+
+async def items(client: httpx.AsyncClient, params: Params) -> list[Any]:
+    return [item for page in await pages(client, params) for item in page["items"]]
+
+
+async def cc_person(url: str) -> int:
+    """The address in Cc most often; it also sends and receives."""
+    found = await rows(
+        url,
+        "SELECT person_id FROM participation WHERE role = 'cc' GROUP BY 1"
+        " ORDER BY count(*) DESC, 1 LIMIT 1",
+    )
+    return int(found[0].person_id)
+
+
+@pytest.mark.parametrize("walk_rows", [filters.WALK_ROWS, 7])
+async def test_person_role_selects_what_sql_selects(
+    client: httpx.AsyncClient,
+    imported_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    walk_rows: int,
+) -> None:
+    monkeypatch.setattr(filters, "WALK_ROWS", walk_rows)
+    url = imported_database_url
+    person = await cc_person(url)
+    found: dict[str, list[int]] = {}
+    for role in ROLES:
+        params = [("person", str(person)), ("person_role", role)]
+        where = person_role("p.id = :a", role)
+        expected = await ids(url, where, a=person)
+        assert expected, role
+        found[role] = await listed(client, params)
+        assert found[role] == expected, role
+        originals = await ids(url, f"({where}) AND is_duplicate_of IS NULL", a=person)
+        assert await listed(client, [*params, ("hide_duplicates", "true")]) == originals, role
+    every = await ids(url, takes_part("p.id = :a"), a=person)
+    assert sorted(found["sent"] + found["received"]) == sorted(every)
+    assert set(found["cc"]) <= set(found["received"])
+
+
+async def test_person_role_in_summary_neighbours_and_export(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    params = [("person", str(await cc_person(imported_database_url))), ("person_role", "received")]
+    found = await listed(client, params)
+    assert len(found) > 3
+    assert (await get(client, "/api/mails/summary", params))["total"] == len(found)
+    neighbours = await get(client, f"/api/mails/{found[1]}/neighbors", params)
+    assert neighbours == {"prev_id": found[0], "next_id": found[2], "position": 2}
+    assert [int(row[0]) for row in await export(client, params)] == found
+
+
+async def test_items_name_the_person_role(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    person = await cc_person(imported_database_url)
+    expected = await first_roles(imported_database_url, "p.id = :a", a=person)
+    shown = {
+        item["id"]: item["person_role"] for item in await items(client, [("person", str(person))])
+    }
+    assert shown == expected
+    assert {"from", "to", "cc"} <= set(shown.values())
+    for role, first in (("sent", {"from"}), ("cc", {"cc"}), ("received", {"to", "cc", "bcc"})):
+        params = [("person", str(person)), ("person_role", role)]
+        assert {item["person_role"] for item in await items(client, params)} <= first, role
+    other = (
+        await rows(
+            imported_database_url,
+            "SELECT o.person_id FROM participation pa JOIN participation o ON o.mail_id ="
+            " pa.mail_id AND o.person_id <> pa.person_id WHERE pa.person_id = :a"
+            " GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 1",
+            a=person,
+        )
+    )[0].person_id
+    both = await get(client, "/api/mails", [("person", str(person)), ("person", str(other))])
+    assert both["items"]
+    assert {item["person_role"] for item in both["items"]} == {None}
+
+
+@pytest.mark.parametrize(
+    "params",
+    [[("person_role", "sent")], [("person_role", "cc"), ("person", "1"), ("person", "2")]],
+    ids=["no person", "two persons"],
+)
+async def test_person_role_needs_exactly_one_person(
+    client: httpx.AsyncClient, params: Params
+) -> None:
+    for path in ("/api/mails", "/api/mails/summary", "/api/mails/export.csv"):
+        error = await get(client, path, params, status=400)
+        assert error["detail"]["code"] == "invalid_filter"
+        assert "person_role" in error["detail"]["message"]
+    await get(client, "/api/mails", [("person_role", "everything"), ("person", "1")], status=422)
+
+
+async def test_person_role_counts_merged_addresses(
+    mutable_client: httpx.AsyncClient, mutable_database_url: str
+) -> None:
+    url = mutable_database_url
+    # a sends to b more often than anyone to anyone; b becomes an alias of a.
+    pair = (
+        await rows(
+            url,
+            "SELECT s.person_id AS a, r.person_id AS b FROM participation s"
+            " JOIN participation r ON r.mail_id = s.mail_id AND r.role = 'to'"
+            " WHERE s.role = 'from' AND r.person_id <> s.person_id"
+            " GROUP BY 1, 2 ORDER BY count(*) DESC, 1, 2 LIMIT 1",
+        )
+    )[0]
+    alone = {role: await ids(url, person_role("p.id = :a", role), a=pair.a) for role in ROLES}
+    of_a = await first_roles(url, "p.id = :a", a=pair.a)
+    await rows(url, "UPDATE person SET merged_into = :a WHERE id = :b", a=pair.a, b=pair.b)
+    members = "(p.id = :a OR p.merged_into = :a)"
+    changed = []
+    for role in ROLES:
+        expected = await ids(url, person_role(members, role), a=pair.a)
+        params = [("person", str(pair.a)), ("person_role", role)]
+        assert await listed(mutable_client, params) == expected, role
+        changed += [role] if expected != alone[role] else []
+    assert changed
+    shown = {
+        item["id"]: item["person_role"]
+        for item in await items(mutable_client, [("person", str(pair.a))])
+    }
+    assert shown == await first_roles(url, members, a=pair.a)
+    assert set(shown) - set(of_a)  # mails of b alone, with b's role

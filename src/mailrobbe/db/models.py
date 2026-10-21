@@ -19,12 +19,16 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - ix_mail_sort orders mails by MAIL_SORT_KEY (date, missing dates oldest) and id, for keyset
   paging in the mail list (D19), ix_mail_dkim_sort the same within one DKIM status (it replaced
   ix_mail_dkim_status); ix_mail_subject_trgm serves the subject: search (D20).
-- mail_note holds the flag and note a user sets on a mail (D23), the only user-written data.
+- mail_note holds the flag and note a user sets on a mail (D23); merges (person.merged_into)
+  and alias_dismissal are the other data users write (D28).
 - edge and edge_year carry the same counters (migration 0004, D36): mails_a_to_b/mails_b_to_a
   (To and Bcc), mails_cc (either direction) and their pass_* counterparts over the mails whose
   DKIM check passed; edge_year has no single count. Both join root persons only.
 - mail.list_id and mail.automated record List-Id and automation headers, person.kind marks
   lists and automated senders among the root persons (D39).
+- person_stats.mails is a stored generated column (sent + received); it and LAST_DATE_SORT_KEY
+  are the sort keys of the person list (migration 0005, D31). alias_suggestion holds the
+  computed suggestions (D30); both pair tables order their persons (person_a < person_b).
 """
 
 from datetime import datetime
@@ -84,6 +88,9 @@ TSV_EXPRESSION = " || ".join(
 # Sort key of the mail list (migration 0003, D19): mails without a date sort as the oldest.
 # Keyset conditions and ORDER BY must use exactly this expression to use ix_mail_sort.
 MAIL_SORT_KEY = "COALESCE(date_utc, '-infinity'::timestamp with time zone)"
+
+# Sort key of the person list by latest mail (migration 0005, D31): persons without one last.
+LAST_DATE_SORT_KEY = "COALESCE(last_date, '-infinity'::timestamp with time zone)"
 
 
 class MboxFile(Base):
@@ -346,6 +353,10 @@ class EdgeYear(Base):
 
 class PersonStats(Base):
     __tablename__ = "person_stats"
+    __table_args__ = (
+        Index("ix_person_stats_mails", "mails", "person_id"),
+        Index("ix_person_stats_last_date", text(LAST_DATE_SORT_KEY), "person_id"),
+    )
 
     person_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
@@ -357,6 +368,7 @@ class PersonStats(Base):
     first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     dkim_pass_ratio: Mapped[float | None] = mapped_column(REAL)
+    mails: Mapped[int] = mapped_column(Integer, Computed("sent + received", persisted=True))
 
 
 class PersonYear(Base):
@@ -368,6 +380,37 @@ class PersonYear(Base):
     year: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
     sent: Mapped[int] = mapped_column(Integer, server_default="0")
     received: Mapped[int] = mapped_column(Integer, server_default="0")
+
+
+class AliasSuggestion(Base):
+    __tablename__ = "alias_suggestion"
+    __table_args__ = (
+        CheckConstraint("person_a < person_b", name="ordered"),
+        CheckConstraint("same_name IS NOT NULL OR same_local_part IS NOT NULL", name="reason"),
+        Index("ix_alias_suggestion_person_b", "person_b"),
+    )
+
+    person_a: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    person_b: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    same_name: Mapped[str | None] = mapped_column(Text)  # the normalized display name both use
+    same_local_part: Mapped[str | None] = mapped_column(Text)  # the local part both addresses have
+
+
+class AliasDismissal(Base):
+    __tablename__ = "alias_dismissal"
+    __table_args__ = (CheckConstraint("person_a < person_b", name="ordered"),)
+
+    person_a: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    person_b: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
 
 
 class GlobalStats(Base):

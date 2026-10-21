@@ -1,14 +1,14 @@
 import { useId, useState, type KeyboardEvent } from "react";
 
 import { ApiError } from "../../api/client";
-import type { Graph } from "../../api/types";
+import type { Graph, PersonSummary } from "../../api/types";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { useDebounced } from "../../lib/useDebounced";
 import { nodeLabel } from "./elements";
 import styles from "./GraphSidebar.module.css";
-import { usePersonSearch, type PersonSearchItem } from "./personSearch";
+import { usePersonSearch } from "./personSearch";
 
 /** The centers of the ego network as chips, and "Person hinzufügen …" with a person search.
  *  Chips are named from the drawn graph, an earlier one or the search result picked, else by
@@ -44,7 +44,7 @@ export function CenterField({
     return node ? nodeLabel(node) : (known.get(id) ?? `#${id}`);
   }
 
-  function pick(person: PersonSearchItem) {
+  function pick(person: PersonSummary) {
     setKnown(new Map(known).set(person.id, nodeLabel(person)));
     onChange([...ids, person.id]);
     setText("");

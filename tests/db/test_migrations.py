@@ -34,6 +34,8 @@ TABLES = {
     "person_stats",
     "person_year",
     "global_stats",
+    "alias_suggestion",
+    "alias_dismissal",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -72,6 +74,10 @@ INDEXES = {
     "ix_edge_mails_total": "CREATE INDEX ix_edge_mails_total "
     "ON public.edge USING btree (mails_total)",
     "pk_edge": "CREATE UNIQUE INDEX pk_edge ON public.edge USING btree (person_a, person_b)",
+    "ix_person_stats_mails": "CREATE INDEX ix_person_stats_mails "
+    "ON public.person_stats USING btree (mails, person_id)",
+    "ix_person_stats_last_date": "CREATE INDEX ix_person_stats_last_date ON public.person_stats "
+    "USING btree (COALESCE(last_date, '-infinity'::timestamp with time zone), person_id)",
 }
 
 # Everything in the database apart from system catalogs: relations (tables, indexes, sequences),
@@ -104,7 +110,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
 
 
 @pytest.mark.db
@@ -233,5 +239,9 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num = '0003'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0005' WHERE alembic_version.version_num = '0004'"
         in sql
     )

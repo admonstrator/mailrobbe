@@ -414,7 +414,8 @@ async def _finalize(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
     async with sessionmaker() as session:
         result = await finalize(session)
     log.info(
-        "updated duplicates, threads and display names in %.1f s, %d of %d edges changed",
+        "updated duplicates, threads, display names and aggregates in %.1f s, "
+        "%d of %d edges changed",
         result.seconds,
         result.edges.changed,
         result.edges.pairs,

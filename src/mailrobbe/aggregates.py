@@ -1,5 +1,10 @@
 """Aggregation tables (SPEC 3.3, 6.3): figures read by the UI instead of counting mails.
 
+refresh_aggregates recomputes all of them in dependency order (D33): the edges between persons
+(graph.edges, D36), the person figures that count them as contacts and the alias
+suggestions (persons, milestone 5), then global_stats. It runs after each import
+(importer.finalize) and after `mailrobbe dkim`, and for the persons concerned after a merge.
+
 global_stats holds the whole-archive figures (D19), one row per key: mails, DKIM counts, persons,
 domains, date range, every sender domain with its mails and the number of MBOX files. They are
 recomputed after each import (importer.finalize), after `mailrobbe dkim` and by the API when they
@@ -7,9 +12,6 @@ are older than MAILROBBE_STATS_MAX_AGE.
 
 refresh_global_stats and the readers run in the caller's transaction and never commit;
 current_global_stats manages its own short transaction for the API.
-
-refresh_aggregates recomputes everything an import or a DKIM recheck changes: the edges of the
-relationship map (graph/edges.py, D36), then global_stats.
 """
 
 from collections.abc import Collection
@@ -24,6 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from mailrobbe.db.models import GlobalStats
 from mailrobbe.enums import DkimStatus
 from mailrobbe.graph.edges import EdgeRefresh, refresh_edges
+from mailrobbe.persons.stats import refresh_person_stats
+from mailrobbe.persons.suggestions import refresh_alias_suggestions
 
 Executor = AsyncSession | AsyncConnection
 
@@ -47,6 +51,11 @@ _SENDER_COUNTS = text("""
     WHERE p.role = 'from'
     GROUP BY s.domain
     ORDER BY mails DESC, s.domain
+""")
+_PERSON_COUNT = text("""
+    UPDATE global_stats
+    SET value = to_jsonb((SELECT count(*) FROM person WHERE merged_into IS NULL))
+    WHERE key = 'persons'
 """)
 _STATE = text("""
     SELECT count(*), bool_and(updated_at > now() - make_interval(secs => :max_age))
@@ -76,17 +85,26 @@ class GlobalFigures:
     updated_at: datetime  # when they were computed
 
 
+async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> EdgeRefresh:
+    """Every aggregation table; persons limits them to these persons after a merge (D33).
+
+    A merge changes no global figure but the number of persons, so only that one is counted
+    again then; the others stay as they are, and so does their updated_at.
+    """
+    edges = await refresh_edges(db, persons)
+    await refresh_person_stats(db, persons)
+    await refresh_alias_suggestions(db, persons)
+    if persons is None:
+        await refresh_global_stats(db)
+    else:
+        await db.execute(_PERSON_COUNT)
+    return edges
+
+
 async def refresh_global_stats(db: Executor) -> None:
     """Recompute every global_stats row; waits while another refresh holds the lock."""
     await db.execute(select(func.pg_advisory_xact_lock(_LOCK_KEY)))
     await _compute(db)
-
-
-async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> EdgeRefresh:
-    """Recompute edges (all, or those of some persons, see refresh_edges), then global_stats."""
-    edges = await refresh_edges(db, persons)
-    await refresh_global_stats(db)
-    return edges
 
 
 async def current_global_stats(session: AsyncSession, max_age: float) -> GlobalFigures:

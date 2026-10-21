@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiGet, apiPut, buildQuery, withQuery } from "./client";
+import { ApiError, apiGet, apiPost, apiPut, buildQuery, withQuery } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -76,5 +76,12 @@ describe("requests", () => {
     expect(init?.method).toBe("PUT");
     expect(init?.body).toBe('{"flagged":true,"note":"x"}');
     expect(init?.headers).toMatchObject({ "Content-Type": "application/json" });
+  });
+
+  it("resolves to undefined for 204 No Content", async () => {
+    stubFetch(new Response(null, { status: 204 }));
+    await expect(apiPost("/api/persons/suggestions/dismiss", { persons: [1, 2] })).resolves.toBe(
+      undefined,
+    );
   });
 });

@@ -26,6 +26,10 @@ export type DkimReason =
   | "dns_offline";
 
 export type ParticipationRole = "from" | "to" | "cc" | "bcc";
+/** Tabs of a person's mail list: sent = From; received = To, Cc or Bcc but not From;
+ *  cc = Cc only. */
+export type PersonRole = "sent" | "received" | "cc";
+export type PersonSort = "mails" | "name" | "recent";
 export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
 export type SortOrder = "date_desc" | "date_asc";
 
@@ -50,6 +54,7 @@ export type ErrorCode =
   | "no_html"
   | "source_missing"
   | "source_changed"
+  | "invalid_merge"
   | "graph_too_large";
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
@@ -75,6 +80,7 @@ export interface MailFilters {
   mbox_file?: number;
   person?: number[];
   between?: number[]; // exactly two person ids
+  person_role?: PersonRole; // role of the one person in `person`
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -119,6 +125,8 @@ export interface MailListItem {
   flagged: boolean;
   size: number;
   mbox_file_id: number;
+  /** With exactly one person filtered for: its first role in the mail, else null. */
+  person_role: ParticipationRole | null;
 }
 
 export interface MailPage {
@@ -288,6 +296,147 @@ export interface MailRaw {
   raw: string;
   truncated: boolean;
   size: number;
+}
+
+// Persons (milestone 5) -----------------------------------------------------------------------
+// A person is a root person: its own address plus the addresses merged into it (aliases).
+
+export const TOP_CONTACTS = 10;
+export const DISPLAY_NAME_LIMIT = 10;
+export const SUGGESTION_LIMIT = 10;
+export const MERGE_LIMIT = 50;
+
+export interface PersonListParams {
+  q?: string; // part of an address or display name of the person or an alias
+  sort?: PersonSort;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ContactListParams {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface SuggestionListParams {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface PersonMailCountParams {
+  year?: number; // UTC year
+  contact?: number; // person id: mails between both
+}
+
+export interface MergeRequest {
+  target: number; // stays
+  sources: number[]; // 1 to MERGE_LIMIT, merged with their aliases
+}
+
+export interface SuggestionDismiss {
+  persons: [number, number];
+}
+
+export interface PersonFigures {
+  mails: number; // sent + received
+  sent: number;
+  received: number; // To, Cc or Bcc, not From
+  cc_only: number; // part of received
+  contacts: number;
+  first_date: string | null;
+  last_date: string | null;
+  dkim_pass_ratio: number | null; // 0 to 1 among checked sent mails; null: none
+}
+
+export interface PersonSummary {
+  id: number;
+  name: string | null;
+  email: string;
+  domain: string;
+  aliases: number;
+  figures: PersonFigures;
+}
+
+export interface PersonPage {
+  items: PersonSummary[];
+  next_cursor: string | null;
+  prev_cursor: string | null;
+  total: number;
+}
+
+export interface Contact {
+  person: PersonRef;
+  domain: string;
+  mails: number;
+  sent: number; // from this person to the contact (To or Bcc)
+  received: number; // from the contact to this person (To or Bcc)
+  cc: number;
+  first_date: string | null;
+  last_date: string | null;
+}
+
+export interface ContactPage {
+  items: Contact[];
+  next_cursor: string | null;
+  total: number;
+}
+
+export interface AliasAddress {
+  person_id: number;
+  email: string;
+  name: string | null;
+  mails: number;
+}
+
+export interface DisplayNameCount {
+  name: string;
+  mails: number;
+}
+
+export interface YearActivity {
+  year: number;
+  sent: number;
+  received: number;
+}
+
+export interface AliasCandidate {
+  person: PersonSummary; // the other person
+  same_name: string | null;
+  same_local_part: string | null;
+}
+
+export interface AliasSuggestion {
+  first: PersonSummary; // more mails; stays by default when merging
+  second: PersonSummary;
+  same_name: string | null;
+  same_local_part: string | null;
+}
+
+export interface SuggestionPage {
+  items: AliasSuggestion[];
+  next_cursor: string | null;
+  total: number;
+}
+
+export interface PersonProfile {
+  id: number; // the root; differs from the requested id when that was an alias
+  name: string | null;
+  email: string;
+  domain: string;
+  aliases: AliasAddress[];
+  display_names: DisplayNameCount[];
+  figures: PersonFigures | null; // null until aggregated
+  years: YearActivity[]; // oldest first
+  top_contacts: Contact[];
+  suggestions: AliasCandidate[];
+}
+
+/** Mails per tab; null where counting ran out of time. */
+export interface PersonMailCounts {
+  all: number | null;
+  sent: number | null;
+  received: number | null;
+  cc: number | null;
 }
 
 // Relationship map (milestone 6, D36 to D38) --------------------------------------------------

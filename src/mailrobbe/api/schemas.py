@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestone 4): query parameters and response bodies.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 and 5): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -20,9 +20,20 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/mails/{id}/eml                     message/rfc822 download
     POST /api/mails/{id}/dkim/recheck            MailDkim, after checking the mail again
     PUT  /api/mails/{id}/note                    NoteUpdate -> Note (D23)
+    GET  /api/persons?PersonListParams           PersonPage (D31)
+    GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, every open one (D30)
+    POST /api/persons/suggestions/dismiss        SuggestionDismiss -> 204 (D28)
+    POST /api/persons/merge                      MergeRequest -> PersonProfile of the target (D28)
+    GET  /api/persons/{id}                       PersonProfile; of the root when id is an alias
+    GET  /api/persons/{id}/contacts?ContactListParams   ContactPage
+    GET  /api/persons/{id}/mail-counts?PersonMailCountParams  PersonMailCounts (D32)
+    POST /api/persons/{id}/unmerge               PersonProfile of the root it was merged into
     GET  /api/graph?GraphParams                  Graph (D37); graph_too_large above the limit
     GET  /api/graph/size?GraphParams             GraphSize, also above the limit
     GET  /api/graph/export.graphml?GraphParams   GraphML download of the same excerpt (D38)
+
+The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
+paging, neighbours and the CSV export work as for the mail list.
 
 Every other GET path outside /api serves the frontend (index.html for client-side routes).
 """
@@ -37,7 +48,7 @@ from mailrobbe.enums import DkimReason, DkimStatus, MboxStatus, ParticipationRol
 # Exact counts stop here (SPEC 6.6): MailSummary falls back to "more than COUNT_LIMIT" and
 # MailNeighbors.position is None beyond it.
 COUNT_LIMIT = 10_000
-PAGE_SIZE = 50
+PAGE_SIZE = 50  # also the page size of persons, contacts and suggestions
 MAX_PAGE_SIZE = 200
 RECIPIENT_PREVIEW = 3  # recipients listed per row of the mail list
 TOP_SENDER_DOMAINS = 10  # in Stats; the full list comes from /api/stats/sender-domains
@@ -53,14 +64,19 @@ SortOrder = Literal["date_desc", "date_asc"]
 QueryKey = Literal[
     "text", "from", "to", "cc", "subject", "domain", "has", "dkim", "before", "after", "message_id"
 ]
+# Tabs of a person's mail list (D29, D32): sent = From; received = To, Cc or Bcc but not From;
+# cc = Cc only (neither From, To nor Bcc).
+PersonRole = Literal["sent", "received", "cc"]
+PersonSort = Literal["mails", "name", "recent"]  # most mails first, A to Z, latest mail first
 ErrorCode = Literal[
-    "not_found",  # 404: no mail with this id
+    "not_found",  # 404: no mail or person with this id
     "invalid_query",  # 400: q has an operator with an unusable value; message names the term
     "invalid_cursor",  # 400: cursor not issued by this API, or for another sort order
     "invalid_filter",  # 400: a filter parameter cannot be used, e.g. between without two ids
     "no_html",  # 404: format=html for a mail without an HTML part
     "source_missing",  # 409: the mail's MBOX file is not there or cannot be read
     "source_changed",  # 409: the bytes at the stored offset are not the imported mail any more
+    "invalid_merge",  # 400: merging a person into itself, or unmerging one that is no alias
     "graph_too_large",  # 400: the excerpt has more than MAX_GRAPH_NODES nodes
 ]
 
@@ -89,6 +105,8 @@ class MailFilters(BaseModel):
     mbox_file: int | None = None
     person: list[int] = []  # each of these persons takes part, in any role
     between: list[int] = []  # exactly two persons: one sent it, the other received it (to/cc/bcc)
+    # The role of the person in `person`, which must then name exactly one (D32); None: any role.
+    person_role: PersonRole | None = None
 
 
 class MailOrderParams(MailFilters):
@@ -136,6 +154,9 @@ class MailListItem(BaseModel):
     flagged: bool
     size: int  # byte_length of the MBOX record
     mbox_file_id: int
+    # With exactly one person filtered for: that person's first role in the mail (from, to, cc,
+    # bcc, counting its aliases); None otherwise.
+    person_role: ParticipationRole | None = None
 
 
 class MailPage(BaseModel):
@@ -315,6 +336,161 @@ class MailRaw(BaseModel):
     raw: str  # the message as UTF-8 (invalid bytes replaced), at most RAW_LIMIT bytes of it
     truncated: bool
     size: int  # bytes of the whole message
+
+
+# Persons (milestone 5, D28 to D33) ----------------------------------------------------------
+#
+# A person is a root person (D28): its own address plus the addresses merged into it (aliases).
+# Every id a response names is a root, apart from AliasAddress.person_id and the PersonRef ids
+# of mails, which name the address used.
+
+TOP_CONTACTS = 10  # in PersonProfile; all of them come from /api/persons/{id}/contacts
+DISPLAY_NAME_LIMIT = 10  # display names listed in PersonProfile
+SUGGESTION_LIMIT = 10  # open alias suggestions listed in PersonProfile
+MERGE_LIMIT = 50  # sources of one merge request
+
+
+class PersonListParams(BaseModel):
+    # Part of an address or display name of the person or of one of its aliases, any case.
+    q: str = ""
+    sort: PersonSort = "mails"
+    cursor: str | None = None  # next_cursor or prev_cursor of a PersonPage with the same q, sort
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class ContactListParams(BaseModel):
+    cursor: str | None = None  # next_cursor of a ContactPage of the same person
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class SuggestionListParams(BaseModel):
+    cursor: str | None = None  # next_cursor of a SuggestionPage
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class PersonMailCountParams(BaseModel):
+    year: int | None = Field(None, ge=1, le=9999)  # mails dated in this UTC year
+    contact: int | None = None  # mails between both persons, as the between filter counts them
+
+
+class MergeRequest(BaseModel):
+    target: int  # the person that stays; its root when it is an alias
+    sources: list[int] = Field(min_length=1, max_length=MERGE_LIMIT)  # with all their aliases
+
+
+class SuggestionDismiss(BaseModel):
+    persons: list[int] = Field(min_length=2, max_length=2)  # the two persons of the suggestion
+
+
+class PersonFigures(BaseModel):
+    """person_stats of a root person (D29), over the mails that are not duplicates."""
+
+    mails: int  # sent + received
+    sent: int
+    received: int  # To, Cc or Bcc, not From
+    cc_only: int  # part of received: only in Cc
+    contacts: int  # edges of the person (persons it wrote to or got mail from)
+    first_date: datetime | None
+    last_date: datetime | None
+    dkim_pass_ratio: float | None  # 0 to 1, pass among the checked sent mails; None: none
+
+
+class PersonSummary(BaseModel):
+    """A root person in a list: the person list, suggestions, the graph's person search."""
+
+    id: int
+    name: str | None  # person.display_name, the name used most for its own address
+    email: str  # canonical_email
+    domain: str
+    aliases: int  # addresses merged into this person
+    figures: PersonFigures
+
+
+class PersonPage(BaseModel):
+    items: list[PersonSummary]
+    next_cursor: str | None  # None on the last page
+    prev_cursor: str | None  # None on the first page
+    total: int  # persons matching q
+
+
+class Contact(BaseModel):
+    """An edge of the person: the other root person and the mails between both (D29)."""
+
+    person: PersonRef  # the contact; name is its display name
+    domain: str
+    mails: int  # edge.mails_total
+    sent: int  # from this person to the contact (To or Bcc)
+    received: int  # from the contact to this person (To or Bcc)
+    cc: int  # one of both sent it, the other was in Cc
+    first_date: datetime | None
+    last_date: datetime | None
+
+
+class ContactPage(BaseModel):
+    items: list[Contact]  # most mails first, then person id
+    next_cursor: str | None
+    total: int  # all contacts of the person
+
+
+class AliasAddress(BaseModel):
+    person_id: int  # the alias's own person id, for unmerging it
+    email: str
+    name: str | None
+    mails: int  # mails this address takes part in that are not duplicates
+
+
+class DisplayNameCount(BaseModel):
+    name: str
+    mails: int  # mails using this name with one of the person's addresses
+
+
+class YearActivity(BaseModel):
+    year: int  # UTC
+    sent: int
+    received: int
+
+
+class AliasCandidate(BaseModel):
+    """An open alias suggestion (D30) seen from one of its two persons."""
+
+    person: PersonSummary  # the other person
+    same_name: str | None  # the normalized display name both use
+    same_local_part: str | None  # the local part both addresses have
+
+
+class AliasSuggestion(BaseModel):
+    first: PersonSummary  # the one with more mails; merging keeps it by default
+    second: PersonSummary
+    same_name: str | None
+    same_local_part: str | None
+
+
+class SuggestionPage(BaseModel):
+    items: list[AliasSuggestion]  # both reasons first, then by the mails of `first`, then ids
+    next_cursor: str | None
+    total: int  # every open suggestion
+
+
+class PersonProfile(BaseModel):
+    id: int  # the root; differs from the requested id when that was an alias
+    name: str | None
+    email: str
+    domain: str
+    aliases: list[AliasAddress]  # most mails first
+    display_names: list[DisplayNameCount]  # over all addresses, most used first, at most LIMIT
+    figures: PersonFigures | None  # None until the person's mails were aggregated (D33)
+    years: list[YearActivity]  # oldest first; only years with mails
+    top_contacts: list[Contact]  # most mails first, at most TOP_CONTACTS
+    suggestions: list[AliasCandidate]  # most mails first, at most SUGGESTION_LIMIT
+
+
+class PersonMailCounts(BaseModel):
+    """Mails of each tab for one person (D32) under the count budget of D19; None: ran out."""
+
+    all: int | None
+    sent: int | None
+    received: int | None
+    cc: int | None
 
 
 # Relationship map (milestone 6, D36 to D38) ------------------------------------------------

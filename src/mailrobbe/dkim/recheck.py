@@ -7,8 +7,8 @@ with mbox.read_message, makes sure they are still the bytes that were imported (
 checks them with its own DkimChecker, built once from the dns_cache rows the main process
 loaded. The main process writes every finished chunk (save_verdicts, upsert_dns_cache) and
 commits it, so an interrupted run keeps what it finished. A run that checked mails ends by
-recomputing the aggregates: the pass_* counters of the edges (D36) and global_stats, whose DKIM
-counts the mail list shows (D19).
+recomputing the aggregates (D33): the pass_* counters of the edges (D36), the person figures
+with their DKIM share and global_stats, whose DKIM counts the mail list shows (D19).
 
 A mail whose file is missing, whose record cannot be read or whose bytes changed is skipped:
 counted by kind and logged, never written, and the run goes on.

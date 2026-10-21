@@ -1,7 +1,7 @@
 // Screens of later milestones (SPEC 8) and the 404 page.
 
 import type { ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { Link } from "react-router";
 
 import { buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
@@ -31,33 +31,6 @@ function Placeholder({
         </div>
       </Card>
     </main>
-  );
-}
-
-export function PersonsPlaceholder() {
-  return (
-    <Placeholder title="Personen">
-      Die Personenübersicht mit Suche, Kennzahlen und Zusammenführung von Adressen folgt mit
-      Meilenstein 5.
-    </Placeholder>
-  );
-}
-
-export function PersonPlaceholder() {
-  const { id } = useParams();
-  if (!id || !/^\d+$/.test(id)) return <NotFoundPage />;
-  return (
-    <Placeholder
-      title="Personenprofil"
-      actions={
-        <Link to={`/mails?person=${id}`} className={buttonClass("primary")}>
-          Alle Mails dieser Person
-        </Link>
-      }
-    >
-      Das Profil mit Kennzahlen, wichtigsten Kontakten und Aktivität pro Jahr folgt mit Meilenstein
-      5.
-    </Placeholder>
   );
 }
 
