@@ -24,7 +24,22 @@ function since(iso: string, now = new Date()): string {
   return relative === "heute" ? `heute ${formatDateTime(iso).slice(-5)}` : relative;
 }
 
-/** The five archive figures of SPEC 5.5: sizes and DNS cache live, the rest from global_stats. */
+/** The attachments (D70) and the documents they make up, both counted live. */
+function attachmentsTile(summary: ImportSummary): Tile {
+  const documents = Object.values(summary.documents).reduce((sum, count) => sum + count, 0);
+  const sub =
+    summary.attachments === 0 ? (
+      "keine Anhänge"
+    ) : documents === 0 ? (
+      "werden beim nächsten Import ausgewertet"
+    ) : (
+      <Link to="/anhaenge">{`${formatNumber(documents)} ${documents === 1 ? "Dokument" : "verschiedene Dokumente"}`}</Link>
+    );
+  return { label: "Anhänge", value: formatNumber(summary.attachments), sub };
+}
+
+/** The archive figures of SPEC 5.5 and the attachments: sizes, DNS cache and attachments live,
+ *  the rest from global_stats. */
 export function ArchiveTiles({ summary }: { summary: ImportSummary }) {
   const { dns_cache, dns_hit_ratio, open_suggestions, edge_table } = summary;
   const suggestions =
@@ -73,6 +88,7 @@ export function ArchiveTiles({ summary }: { summary: ImportSummary }) {
         ? `Aktualisiert ${formatDateTime(edge_table.refreshed_at)}`
         : undefined,
     },
+    attachmentsTile(summary),
   ];
   return (
     <ul className={styles.tiles} aria-label="Kennzahlen des Archivs">
