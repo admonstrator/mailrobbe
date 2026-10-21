@@ -126,6 +126,7 @@ async def test_options(graph_client: httpx.AsyncClient) -> None:
     assert await edges(year_to=2020) == [(1, 2, 2)]
     assert await edges(hide=[2, 4], expand=[3]) == [(1, 3, 3)]
     assert await edges(depth=2, min_edge=10) == []
+    assert await edges(min_edge=2**40, expand=[2**64], hide=[-(2**64)]) == []
 
 
 async def test_top_and_domains(graph_client: httpx.AsyncClient) -> None:
@@ -172,6 +173,7 @@ async def test_graph_and_download_refuse_above_the_limit(
         ({"mode": "domains", "domain": "nord.example"}, 400, "invalid_filter"),
         ({"mode": "top", "year_from": 2021, "year_to": 2020}, 400, "invalid_filter"),
         ({"center": 99_999}, 404, "not_found"),
+        ({"center": 2**64}, 404, "not_found"),
         ({"center": 1, "depth": 4}, 422, None),
         ({"mode": "top", "limit": 0}, 422, None),
         ({"mode": "top", "limit": MAX_GRAPH_NODES + 1}, 422, None),

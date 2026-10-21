@@ -3,6 +3,9 @@
 Routes: GET /api/graph, /api/graph/size, /api/graph/export.graphml. All three take GraphParams
 and compute the excerpt with graph/excerpt.py, from the edge aggregation alone; the download is
 the same excerpt as /api/graph, so it is refused above MAX_GRAPH_NODES as well.
+
+The excerpt's queries run without JIT compilation: PostgreSQL compiles those that touch the
+larger part of the edge table, which costs more than it saves at a few hundred milliseconds.
 """
 
 from collections.abc import AsyncIterator, Iterable, Iterator
@@ -11,6 +14,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.api.deps import Session, api_error
 from mailrobbe.api.schemas import Graph, GraphParams, GraphSize
@@ -20,6 +25,7 @@ router = APIRouter(prefix="/api", tags=["graph"])
 
 GRAPHML_FILENAME = "mailrobbe-karte.graphml"
 _PIECE = 64 * 1024  # characters per piece of the download; graphml_chunks yields one element
+_NO_JIT = select(func.set_config("jit", "off", True))  # for the request's transaction
 
 
 @contextmanager
@@ -37,12 +43,12 @@ def _errors() -> Iterator[None]:
 
 @router.get("/graph")
 async def graph(params: Annotated[GraphParams, Query()], session: Session) -> Graph:
-    with _errors():
-        return await excerpt.build_graph(session, params)
+    return await _graph(session, params)
 
 
 @router.get("/graph/size")
 async def size(params: Annotated[GraphParams, Query()], session: Session) -> GraphSize:
+    await session.execute(_NO_JIT)
     with _errors():
         return await excerpt.graph_size(session, params)
 
@@ -51,8 +57,7 @@ async def size(params: Annotated[GraphParams, Query()], session: Session) -> Gra
 async def export_graphml(
     params: Annotated[GraphParams, Query()], session: Session
 ) -> StreamingResponse:
-    with _errors():
-        shown = await excerpt.build_graph(session, params)
+    shown = await _graph(session, params)
     nodes = (
         graphml.GraphmlNode(
             id=node.id,
@@ -80,6 +85,12 @@ async def export_graphml(
         media_type=graphml.MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="{GRAPHML_FILENAME}"'},
     )
+
+
+async def _graph(session: AsyncSession, params: GraphParams) -> Graph:
+    await session.execute(_NO_JIT)
+    with _errors():
+        return await excerpt.build_graph(session, params)
 
 
 async def _pieces(chunks: Iterable[str]) -> AsyncIterator[bytes]:
