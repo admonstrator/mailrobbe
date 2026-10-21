@@ -4,13 +4,15 @@ knows about it and the files that hold it.
 The models below are the format of manifest.json, version 1; times are ISO 8601 in UTC. The CSV
 holds the same per mail, in German, semicolon-separated UTF-8 with a byte order mark as the mail
 list's CSV (D25), below a few lines about the export. Research data (review status, bookmark,
-tags, Akten, notes) and the selection the mails were chosen by appear only when the export
-includes the research data: both are internal assessments (source protection).
+tags, Akten, notes), the signals of each mail (D139) and the selection the mails were chosen by
+appear only when the export includes the research data: they are internal assessments or,
+as the selection and the word field signals do, show what the team looks for (source
+protection).
 """
 
 import csv
 import io
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -141,6 +143,9 @@ class ManifestMail(BaseModel):
     attachments: list[ManifestAttachment] = []
     error: ManifestError | None = None
     research: ManifestResearch | None = None  # left out of the files without research data
+    # The German names of the stored signals (D139) in display order; like research, left out
+    # of the files without research data.
+    signals: list[str] = []
 
 
 class ManifestExport(BaseModel):
@@ -170,7 +175,10 @@ def mail_entry(
     folder: str | None = None,
     files: ManifestFiles | None = None,
     error: MailError | None = None,
+    signals: Sequence[str] = (),
 ) -> ManifestMail:
+    """signals: the German names of the mail's signals (ExportMail.signal_names), kept only
+    with research data."""
     entry = ManifestMail(
         number=number,
         folder=folder,
@@ -223,6 +231,8 @@ def mail_entry(
         ManifestAttachment(filename=a.filename, mime_type=a.mime_type, size=a.size, sha256=a.sha256)
         for a in mail.attachments
     ]
+    if research is not None:
+        entry.signals = list(signals)
     return entry
 
 
@@ -256,7 +266,7 @@ def _research(research: MailResearch) -> ManifestResearch:
 def manifest_json(manifest: Manifest) -> bytes:
     exclude: Any = None
     if not manifest.export.include_research:
-        exclude = {"export": {"selection"}, "mails": {"__all__": {"research"}}}
+        exclude = {"export": {"selection"}, "mails": {"__all__": {"research", "signals"}}}
     return (manifest.model_dump_json(indent=2, by_alias=True, exclude=exclude) + "\n").encode()
 
 
@@ -282,7 +292,7 @@ CSV_HEADER = (
     "DKIM-Signaturen",
     "Anhänge",
 )
-CSV_RESEARCH_HEADER = ("Bewertung", "Markiert", "Schlagworte", "Akten", "Notizen")
+CSV_RESEARCH_HEADER = ("Bewertung", "Markiert", "Schlagworte", "Akten", "Notizen", "Signale")
 
 
 def manifest_csv(manifest: Manifest) -> bytes:
@@ -324,7 +334,7 @@ def manifest_csv(manifest: Manifest) -> bytes:
             csv_cell(_attachments(mail.attachments)),
         ]
         if research:
-            row += _research_cells(mail.research)
+            row += _research_cells(mail)
         writer.writerow(row)
     return buffer.getvalue().encode()
 
@@ -374,7 +384,8 @@ def _attachments(attachments: list[ManifestAttachment]) -> str:
     )
 
 
-def _research_cells(research: ManifestResearch | None) -> list[str]:
+def _research_cells(mail: ManifestMail) -> list[str]:
+    research = mail.research
     if research is None:
         return [""] * len(CSV_RESEARCH_HEADER)
     review = REVIEW_TEXTS[research.review] if research.review else "Ungesichtet"
@@ -390,4 +401,5 @@ def _research_cells(research: ManifestResearch | None) -> list[str]:
         csv_cell(", ".join(research.tags)),
         csv_cell(", ".join(research.collections)),
         csv_cell(notes),
+        csv_cell(", ".join(mail.signals)),  # as in the mail list's CSV (D139)
     ]
