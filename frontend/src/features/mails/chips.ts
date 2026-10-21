@@ -1,11 +1,20 @@
 // The active filters above the table: one chip per search term and per sidebar filter, each
 // with the list state that removing it leads to.
 
-import type { EntityRef, PersonRole, QueryKey, QueryTerm, TagColor, TagRef } from "../../api/types";
+import type {
+  EntityRef,
+  PersonRole,
+  QueryKey,
+  QueryTerm,
+  SignalKey,
+  TagColor,
+  TagRef,
+} from "../../api/types";
 import { DKIM_FILTER_LABELS } from "../../lib/dkim";
 import { formatDay, formatNumber } from "../../lib/format";
 import { REVIEW_LABELS } from "../../lib/research";
 import { CONTEXT_LABELS, KIND_LABELS } from "../entities/labels";
+import { signalName } from "../signals/labels";
 import { withFilters, type ListState } from "./listState";
 import { removeTerm } from "./queryText";
 
@@ -27,6 +36,9 @@ export interface ChipNames {
   thread?: (id: number) => string | undefined;
   /** An entity of the filter (D86) and, for a theme's term, the theme's colour. */
   entity?: (id: number) => { ref: EntityRef; color?: TagColor } | undefined;
+  /** A signal's name (D136) and, for a theme's word field, the theme's colour; without it the
+   *  name of a term signal is its theme key. */
+  signal?: (key: SignalKey) => { name: string; color?: TagColor };
 }
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
@@ -193,6 +205,15 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       next: withFilters(state, {
         amount_context: state.amount_context.filter((other) => other !== key),
       }),
+    });
+  }
+  for (const key of state.signal) {
+    const signal = names.signal?.(key);
+    chips.push({
+      id: `signal-${key}`,
+      label: `Signal: ${signal?.name ?? signalName(key)}`,
+      color: signal?.color,
+      next: withFilters(state, { signal: state.signal.filter((other) => other !== key) }),
     });
   }
   return chips;

@@ -40,6 +40,7 @@ function personApi(method: string, url: URL, id: number, endpoint: string | unde
     return url.searchParams.has("cursor") ? fx.contactPage2 : fx.contactPage;
   }
   if (endpoint === "/mail-counts") return fx.personMailCounts;
+  if (endpoint === "/signals") return fx.personSignals;
   if (endpoint === "/unmerge" && method === "POST") {
     const aliases = fx.annaProfile.aliases.filter((alias) => alias.person_id !== id);
     return { ...fx.annaProfile, aliases };
@@ -129,6 +130,8 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (document) return documentApi(Number(document[1]), document[2]);
   const entities = entityApi(url);
   if (entities !== undefined) return entities;
+  const signals = signalApi(url);
+  if (signals !== undefined) return signals;
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 
@@ -190,5 +193,17 @@ function entityApi(url: URL): unknown {
     );
     return found ?? notFound(`entity with id ${detail[1]}`);
   }
+  return undefined;
+}
+
+/** The signal endpoints (milestone 12), or undefined for other paths; a person's signals are
+ *  answered with its profile. The facets of a filter are the filtered fixture whatever it is. */
+function signalApi(url: URL): unknown {
+  const path = url.pathname;
+  if (path === "/api/signals") return fx.signalOverview;
+  if (path === "/api/mails/signals") {
+    return url.searchParams.size > 0 ? fx.signalFacetsFiltered : fx.signalFacets;
+  }
+  if (/^\/api\/mails\/\d+\/signals$/.test(path)) return fx.mailSignals;
   return undefined;
 }
