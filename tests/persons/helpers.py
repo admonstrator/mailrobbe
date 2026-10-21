@@ -101,6 +101,17 @@ async def suggestions(session: AsyncSession) -> dict[tuple[str, str], tuple[str 
     return {(min(a, b), max(a, b)): (name, local_part) for a, b, name, local_part in rows}
 
 
+async def tiers(session: AsyncSession) -> dict[tuple[str, str], str]:
+    """The tier of each alias_suggestion (D160), by the addresses of both roots as above."""
+    rows = await fetch(
+        session,
+        "SELECT a.canonical_email, b.canonical_email, s.tier::text "
+        "FROM alias_suggestion s JOIN person a ON a.id = s.person_a "
+        "JOIN person b ON b.id = s.person_b",
+    )
+    return {(min(a, b), max(a, b)): tier for a, b, tier in rows}
+
+
 async def snapshot(session: AsyncSession) -> dict[str, list[tuple[Any, ...]]]:
     """Every row of the tables a merge refreshes, sorted: the edges and the persons tables."""
     return {
