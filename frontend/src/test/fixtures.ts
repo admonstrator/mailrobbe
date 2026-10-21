@@ -3025,3 +3025,20 @@ export const personSignals: PersonSignals = {
   silent_since: null,
   silent_mails: null,
 };
+
+// Search options (D171 to D177) -----------------------------------------------------------------
+
+/** A list searched for "Neger" (D176): where the word occurs in each mail; the second is found
+ *  through a file name only, the third through words that are not counted. */
+export const hitsPage: MailPage = {
+  ...mailPage,
+  items: mailItems.map((mail, index) => ({
+    ...mail,
+    hits: [
+      { subject: 1, body: 3, attachment: 2, filename: 2 },
+      { subject: 0, body: 0, attachment: 0, filename: 2 },
+      { subject: 0, body: 0, attachment: 0, filename: 0 },
+    ][index] ?? { subject: 0, body: 1, attachment: 0, filename: 0 },
+  })),
+  query_terms: [{ key: "text", value: "Neger", raw: "Neger", negated: false }],
+};

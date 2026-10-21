@@ -190,6 +190,16 @@
   color: var(--color-muted);
 }
 
+/* Where the search words occur (D176), a line under the subject, aligned with it after the
+   review mark (10px wide, 4px apart). */
+.hitPlaces {
+  display: block;
+  margin: 2px 0 0 14px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* A mail found through the text of one of its attachments (D73), beside the paperclip. */
 .icon:has(.inAttachment) {
   white-space: nowrap;

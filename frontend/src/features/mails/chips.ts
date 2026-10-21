@@ -6,6 +6,7 @@ import type {
   PersonRole,
   QueryKey,
   QueryTerm,
+  SearchField,
   SignalKey,
   TagColor,
   TagRef,
@@ -61,6 +62,26 @@ const TERM_LABELS: Record<QueryKey, (value: string) => string> = {
   in_filename: (value) => `Im Dateinamen: „${value}“`,
 };
 
+/** A term as its chip names it: a minus before an operator reads "Nicht …" (D175), before a
+ *  free word "Ohne: …", since the full text search leaves out what it excludes. */
+function termLabel(term: QueryTerm): string {
+  if (term.key === "text" && term.value.length > 1 && term.value.startsWith("-")) {
+    return `Ohne: „${term.value.slice(1)}“`;
+  }
+  const label = TERM_LABELS[term.key](term.value);
+  return term.negated
+    ? `Nicht ${label.replace(/^(Mit|Im) /, (word) => word.toLowerCase())}`
+    : label;
+}
+
+/** The places of q's free words (D171), as the filter column and the chips name them. */
+export const SEARCH_FIELD_LABELS: Record<SearchField, string> = {
+  subject: "Betreff",
+  body: "Mailtext",
+  attachment: "Anhangstext",
+  filename: "Dateiname",
+};
+
 /** The tabs of a person's mail list (D32), also in the person's chip. */
 export const PERSON_ROLE_LABELS: Record<PersonRole, string> = {
   sent: "Gesendet",
@@ -90,11 +111,33 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
   const known = terms.filter((term) => state.q.includes(term.raw));
   const chips: FilterChip[] = known.map((term, index) => ({
     id: `term-${index}`,
-    label: TERM_LABELS[term.key](term.value),
+    label: termLabel(term),
     next: withFilters(state, { q: removeTerm(state.q, term.raw) }),
   }));
   if (state.q && known.length === 0) {
     chips.push({ id: "q", label: `Suche: „${state.q}“`, next: withFilters(state, { q: "" }) });
+  }
+  // The search options (D177), next to the words they act on.
+  if (state.scope.length) {
+    chips.push({
+      id: "scope",
+      label: `Nur in: ${state.scope.map((key) => SEARCH_FIELD_LABELS[key]).join(", ")}`,
+      next: withFilters(state, { scope: [] }),
+    });
+  }
+  if (state.whole_word) {
+    chips.push({
+      id: "whole_word",
+      label: "Ganzes Wort",
+      next: withFilters(state, { whole_word: false }),
+    });
+  }
+  if (state.min_hits !== null) {
+    chips.push({
+      id: "min_hits",
+      label: `Mindestens ${formatNumber(state.min_hits)} Treffer`,
+      next: withFilters(state, { min_hits: null }),
+    });
   }
   if (state.dkim.length) {
     chips.push({
