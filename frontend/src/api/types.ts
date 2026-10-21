@@ -86,6 +86,7 @@ export interface MailFilters {
   person?: number[];
   between?: number[]; // exactly two person ids
   person_role?: PersonRole; // role of the one person in `person`
+  document?: number; // one of the mail's attachments is this document (D75)
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -132,6 +133,8 @@ export interface MailListItem {
   mbox_file_id: number;
   /** With exactly one person filtered for: its first role in the mail, else null. */
   person_role: ParticipationRole | null;
+  /** q has full text words and the text of one of its attachments matches them (D73). */
+  attachment_match: boolean;
 }
 
 export interface MailPage {
@@ -245,6 +248,12 @@ export interface AttachmentInfo {
   mime_type: string;
   size: number;
   sha256: string | null;
+  /** Its document (D70); null until the next finalize assigns it. */
+  document_id: number | null;
+  kind: DocumentKind | null;
+  text_status: DocumentTextStatus | null;
+  pages: number | null;
+  document_mails: number | null; // mails carrying the document, duplicates not counted
 }
 
 export interface ThreadMail {
@@ -521,7 +530,7 @@ export const ERROR_PAGE_SIZE = 50;
 export type JobKind = "import" | "dkim";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
-export type ImportPhase = "scan" | "headers" | "import" | "finalize";
+export type ImportPhase = "scan" | "headers" | "import" | "finalize" | "attachments";
 export type DkimPhase = "check" | "aggregates";
 export type DnsStatus = "found" | "not_found" | "temp_error";
 export type ImportErrorKind =
@@ -544,6 +553,8 @@ export interface ImportOptions {
   dkim_nameservers: string; // comma-separated; "" = system resolver
   dkim_offline: boolean;
   mbox_dir: string;
+  text_max_size: number; // bytes; larger documents are not read (D72)
+  text_timeout: number; // seconds per document
 }
 
 /** Live figures of an import run, reported every 2 s. */
@@ -559,6 +570,9 @@ export interface ImportProgress {
   eta_seconds: number | null;
   headers_total: number; // phase "headers": mails whose headers are read again
   headers_done: number;
+  documents_total: number; // phase "attachments": documents whose text this run extracts
+  documents_done: number;
+  documents_per_second: number;
 }
 
 export interface DkimOptions {
@@ -647,6 +661,8 @@ export interface ImportSummary {
   dkim: DkimCounts;
   fail_reasons: FailReasonCount[]; // most first
   updated_at: string | null;
+  attachments: number; // attachment rows, live (D70)
+  documents: Record<DocumentTextStatus, number>; // documents by text status, live
 }
 
 export interface ImportErrorParams {
@@ -696,4 +712,125 @@ export interface ScanResult {
   replaced: FileProblem[];
   missing: string[];
   unreadable: FileProblem[];
+}
+
+// Attachments and documents (milestone 9, D70 to D77) -------------------------------------------
+
+export const DOCUMENT_NAMES_LIMIT = 20;
+export const DOCUMENT_PERSONS_LIMIT = 10;
+
+export type DocumentKind =
+  | "pdf"
+  | "document"
+  | "spreadsheet"
+  | "presentation"
+  | "text"
+  | "email"
+  | "image"
+  | "archive"
+  | "media"
+  | "other";
+export type DocumentTextStatus =
+  | "pending"
+  | "text"
+  | "empty"
+  | "scanned" // a PDF of images without text: a scan, for a later OCR
+  | "encrypted"
+  | "unsupported"
+  | "too_large"
+  | "failed"
+  | "timeout" // stopped at the time limit; the text read until then is kept
+  | "unreadable"; // the MBOX file is missing or changed; tried again at the next import
+export type DocumentSort = "recent" | "oldest" | "mails" | "size";
+
+/** Filters of the document list (D74). Mail conditions hold for one carrying mail. */
+export interface DocumentFilters {
+  q?: string; // full text over content and file names
+  name?: string; // part of a file name
+  kind?: DocumentKind[];
+  text_status?: DocumentTextStatus[];
+  date_from?: string; // YYYY-MM-DD, UTC, inclusive
+  date_to?: string;
+  person?: number;
+  person_role?: "sent" | "received";
+  shared?: boolean; // carried by at least two mails
+  external?: boolean;
+}
+
+export interface DocumentListParams extends DocumentFilters {
+  sort?: DocumentSort;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface DocumentListItem {
+  id: number;
+  name: string | null;
+  names: number; // distinct file names
+  kind: DocumentKind | null;
+  mime_type: string;
+  size: number;
+  sha256: string | null;
+  pages: number | null;
+  text_status: DocumentTextStatus;
+  mails: number; // duplicates not counted
+  first_date: string | null;
+  last_date: string | null;
+  first_sender: PersonRef | null;
+  snippet: string | null; // with full text words in q: text around the first literal match
+}
+
+export interface DocumentPage {
+  items: DocumentListItem[];
+  next_cursor: string | null;
+  prev_cursor: string | null;
+}
+
+export interface DocumentSummary {
+  total: number | null; // null: counting ran out of time
+  exact: boolean;
+  kinds: Record<DocumentKind, number> | null;
+  text_status: Record<DocumentTextStatus, number> | null;
+}
+
+export interface DocumentNameCount {
+  name: string;
+  attachments: number;
+}
+
+export interface PersonCount {
+  person: PersonRef; // a root person
+  mails: number;
+}
+
+export interface DocumentDetail {
+  id: number;
+  name: string | null;
+  mime_type: string;
+  kind: DocumentKind | null;
+  size: number;
+  sha256: string | null;
+  pages: number | null;
+  text_status: DocumentTextStatus;
+  text_error: string | null; // English, technical
+  text_truncated: boolean;
+  extracted_at: string | null;
+  mails: number;
+  attachments: number; // duplicates included
+  first_date: string | null;
+  last_date: string | null;
+  first_mail: ThreadMail | null;
+  names: DocumentNameCount[]; // most used first
+  senders: PersonCount[]; // most mails first
+  sender_count: number;
+  recipients: PersonCount[];
+  recipient_count: number;
+  attachment_id: number; // GET /api/attachments/{id}/content reads it
+  preview: boolean; // a raster image the browser can show
+}
+
+export interface DocumentText {
+  text: string;
+  truncated: boolean;
+  text_status: DocumentTextStatus;
 }

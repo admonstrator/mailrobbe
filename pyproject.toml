@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.156.1",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
+    "pypdf>=6.19.0",
     "sqlalchemy[asyncio]>=2.1.5",
     "uvicorn[standard]>=0.54.0",
 ]

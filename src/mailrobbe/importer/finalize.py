@@ -1,6 +1,6 @@
-"""After importing: duplicates (D16), threads (D17) and display names, recomputed as a whole,
-then every aggregation table (aggregates.refresh_aggregates: the edges of the relationship map,
-person figures, alias suggestions, global_stats; D19, D33, D36).
+"""After importing: duplicates (D16), threads (D17), display names and documents (D70),
+recomputed as a whole, then every aggregation table (aggregates.refresh_aggregates: the edges of
+the relationship map, person figures, alias suggestions, global_stats; D19, D33, D36).
 
 Every step is set-based SQL apart from threading, a union-find in the main process over the
 Message-IDs of all mails that are not duplicates. Each step writes only rows whose value
@@ -19,6 +19,7 @@ from sqlalchemy import CursorResult, Executable, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.aggregates import refresh_aggregates
+from mailrobbe.attachments.documents import DocumentRefresh, refresh_documents
 from mailrobbe.graph.edges import EdgeRefresh
 from mailrobbe.importer.store import copy_rows
 
@@ -93,10 +94,12 @@ class FinalizeResult:
     display_names: int  # person and person_email rows whose display names changed
     seconds: float
     edges: EdgeRefresh
+    documents: DocumentRefresh
 
 
 async def finalize(session: AsyncSession) -> FinalizeResult:
-    """Recompute duplicates, then threads (which skip duplicates), display names, aggregates."""
+    """Recompute duplicates, then threads (which skip duplicates), display names, documents
+    (which count originals), aggregates."""
     started = time.monotonic()
     async with session.begin():
         duplicates = await _changed(session, _DUPLICATES)
@@ -108,8 +111,10 @@ async def finalize(session: AsyncSession) -> FinalizeResult:
         names = await _changed(session, _SET_NAME_COUNTS)
         names += await _changed(session, _SET_PERSON_NAMES)
     async with session.begin():
+        documents = await refresh_documents(session)
+    async with session.begin():
         edges = await refresh_aggregates(session)
-    return FinalizeResult(duplicates, threads, names, time.monotonic() - started, edges)
+    return FinalizeResult(duplicates, threads, names, time.monotonic() - started, edges, documents)
 
 
 class ThreadForest:

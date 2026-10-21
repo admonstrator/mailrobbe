@@ -146,6 +146,7 @@ function item(
     size: 48_213,
     mbox_file_id: 4,
     person_role: null,
+    attachment_match: false,
     ...extra,
   };
 }
@@ -318,6 +319,11 @@ export const mailDetail: MailDetail = {
       mime_type: "application/pdf",
       size: 172_032,
       sha256: "91ab44c0d2e8f1a37b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f40",
+      document_id: 5101,
+      kind: "pdf",
+      text_status: "text",
+      pages: 14,
+      document_mails: 6,
     },
     {
       id: 902,
@@ -325,6 +331,11 @@ export const mailDetail: MailDetail = {
       mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       size: 14_336,
       sha256: "5c07e2b9a4d13f8e6b0a7c9d2e4f61a3b5c7d9e0f1a2b3c4d5e6f708192a3b4c",
+      document_id: 5102,
+      kind: "spreadsheet",
+      text_status: "text",
+      pages: 2,
+      document_mails: 1,
     },
   ],
   thread_id: 184001,
@@ -942,6 +953,8 @@ export const importDefaults: ImportOptions = {
   dkim_nameservers: "1.1.1.1, 9.9.9.9",
   dkim_offline: false,
   mbox_dir: "/data/mbox",
+  text_max_size: 50 * MIB,
+  text_timeout: 60,
 };
 
 export const importJob: ImportJob = {
@@ -969,6 +982,9 @@ export const importJob: ImportJob = {
     eta_seconds: 6_012,
     headers_total: 0,
     headers_done: 0,
+    documents_total: 0,
+    documents_done: 0,
+    documents_per_second: 0,
   },
 };
 
@@ -1089,6 +1105,19 @@ export const importSummary: ImportSummary = {
     { reason: "key_too_short", mails: 12 },
   ],
   updated_at: "2026-10-20T01:12:30Z",
+  attachments: 118_204,
+  documents: {
+    pending: 0,
+    text: 41_380,
+    empty: 212,
+    scanned: 6_904,
+    encrypted: 87,
+    unsupported: 30_116,
+    too_large: 14,
+    failed: 391,
+    timeout: 6,
+    unreadable: 0,
+  },
 };
 
 /** A rescan that found two new files, a changed one and one it cannot read. */

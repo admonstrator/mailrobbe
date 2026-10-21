@@ -115,3 +115,37 @@ class JobOrigin(StrEnum):
 
     CLI = "cli"
     UI = "ui"
+
+
+class DocumentKind(StrEnum):
+    """document.kind (D71): what a document is, for the filters and icons of the UI.
+
+    Decided by mailrobbe.attachments.kinds from the content's first bytes, the file name's
+    extension and the declared MIME type.
+    """
+
+    PDF = "pdf"
+    DOCUMENT = "document"  # word processing: DOCX, ODT, RTF, legacy DOC
+    SPREADSHEET = "spreadsheet"  # XLSX, ODS, CSV, legacy XLS
+    PRESENTATION = "presentation"  # PPTX, ODP, legacy PPT
+    TEXT = "text"  # plain text, HTML, XML, JSON, Markdown, calendar, vCard
+    EMAIL = "email"  # an attached mail (message/rfc822, .eml, .msg)
+    IMAGE = "image"
+    ARCHIVE = "archive"  # ZIP and other containers
+    MEDIA = "media"  # audio and video
+    OTHER = "other"
+
+
+class DocumentTextStatus(StrEnum):
+    """document.text_status (D72): where the text extraction of a document stands."""
+
+    PENDING = "pending"  # not extracted yet (or by an older extractor, EXTRACTOR_VERSION)
+    TEXT = "text"  # text extracted; text_truncated says whether it was cut
+    EMPTY = "empty"  # a supported format without any text
+    SCANNED = "scanned"  # a PDF whose pages hold images but no text: a scan, for a later OCR
+    ENCRYPTED = "encrypted"  # password protected, cannot be read without the password
+    UNSUPPORTED = "unsupported"  # no text extraction for this format (images, media, ...)
+    TOO_LARGE = "too_large"  # above MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE, not read
+    FAILED = "failed"  # the file is damaged or the extractor failed; text_error says why
+    TIMEOUT = "timeout"  # stopped at the time limit; the text read until then is kept
+    UNREADABLE = "unreadable"  # its MBOX file is missing or changed; tried again next import

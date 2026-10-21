@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 7): query parameters and responses.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 9): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -39,9 +39,15 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     POST /api/import/rescan                      ScanResult (D50)
     POST /api/dkim/recheck                       DkimRecheckRequest -> 202 DkimJob (D46)
     POST /api/dkim/recheck/stop                  DkimJob, its stop requested
+    GET  /api/documents?DocumentListParams       DocumentPage (D74)
+    GET  /api/documents/summary?DocumentFilters  DocumentSummary
+    GET  /api/documents/{id}                     DocumentDetail (D75)
+    GET  /api/documents/{id}/text                DocumentText
+    GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
 
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
-paging, neighbours and the CSV export work as for the mail list.
+paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
+(D75) are GET /api/mails with document=<id>.
 
 Every other GET path outside /api serves the frontend (index.html for client-side routes).
 """
@@ -55,6 +61,8 @@ from mailrobbe.enums import (
     DkimReason,
     DkimStatus,
     DnsStatus,
+    DocumentKind,
+    DocumentTextStatus,
     ImportErrorKind,
     JobKind,
     JobOrigin,
@@ -132,6 +140,7 @@ class MailFilters(BaseModel):
     between: list[int] = []  # exactly two persons: one sent it, the other received it (to/cc/bcc)
     # The role of the person in `person`, which must then name exactly one (D32); None: any role.
     person_role: PersonRole | None = None
+    document: int | None = None  # one of the mail's attachments is this document (D75)
 
 
 class MailOrderParams(MailFilters):
@@ -182,6 +191,8 @@ class MailListItem(BaseModel):
     # With exactly one person filtered for: that person's first role in the mail (from, to, cc,
     # bcc, counting its aliases); None otherwise.
     person_role: ParticipationRole | None = None
+    # q has full text words and the text of one of the mail's attachments matches them (D73)
+    attachment_match: bool = False
 
 
 class MailPage(BaseModel):
@@ -304,6 +315,12 @@ class AttachmentInfo(BaseModel):
     mime_type: str
     size: int
     sha256: str | None  # None above the hash limit (D18)
+    # Its document (D70); None until the next finalize assigns it.
+    document_id: int | None = None
+    kind: DocumentKind | None = None
+    text_status: DocumentTextStatus | None = None
+    pages: int | None = None
+    document_mails: int | None = None  # mails carrying the document, duplicates not counted
 
 
 class ThreadMail(BaseModel):
@@ -601,7 +618,7 @@ class GraphSize(BaseModel):
 # Import dashboard (milestone 7, D46 to D50) ------------------------------------------------
 
 ERROR_PAGE_SIZE = 50  # default page of /api/import/errors
-ImportPhase = Literal["scan", "headers", "import", "finalize"]  # jobs.ImportPhase
+ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments"]  # jobs.ImportPhase
 DkimPhase = Literal["check", "aggregates"]  # jobs.DkimPhase
 
 
@@ -688,6 +705,8 @@ class ImportSummary(BaseModel):
     dkim: dict[DkimKey, int]  # every key present
     fail_reasons: list[FailReasonCount]  # most mails first
     updated_at: datetime | None  # when global_stats were computed; None: never
+    attachments: int = 0  # attachment rows, live (D70)
+    documents: dict[DocumentTextStatus, int] = {}  # documents by text status, every one, live
 
 
 class ImportErrorParams(BaseModel):
@@ -744,3 +763,115 @@ class ScanResult(BaseModel):
     replaced: list[FileProblem]  # changed files whose mails were removed, imported again
     missing: list[str]  # known files no longer there; their mails stay
     unreadable: list[FileProblem]  # skipped
+
+
+# Attachments and documents (milestone 9, D70 to D77) -----------------------------------------
+#
+# A document is one distinct attachment content (D70); the list, its figures and the search
+# read document rows, never the attachments one by one.
+
+DocumentSort = Literal["recent", "oldest", "mails", "size"]  # first seen, newest or oldest first
+DOCUMENT_NAMES_LIMIT = 20  # file names listed in DocumentDetail
+DOCUMENT_PERSONS_LIMIT = 10  # senders and recipients listed in DocumentDetail
+SNIPPET_LENGTH = 240  # characters of DocumentListItem.snippet
+
+
+class DocumentFilters(BaseModel):
+    """Filters of the document list (D74); every given one must hold. Lists repeat the parameter.
+
+    The conditions on mails (date, person, external) hold when one mail carrying the document
+    that is not a duplicate meets them all.
+    """
+
+    q: str = ""  # full text over content and file names (websearch_to_tsquery, German)
+    name: str = ""  # part of one of its file names, any case
+    kind: list[DocumentKind] = []  # any of these; empty: all
+    text_status: list[DocumentTextStatus] = []  # any of these; empty: all
+    date_from: date | None = None  # UTC day, inclusive: a mail carrying it is dated within
+    date_to: date | None = None
+    person: int | None = None  # this person (root, with its aliases) took part in such a mail
+    person_role: Literal["sent", "received"] | None = None  # how; None: either
+    shared: bool = False  # carried by at least two mails
+    external: bool = False  # in a mail between internal and external domains (D21)
+
+
+class DocumentListParams(DocumentFilters):
+    sort: DocumentSort = "recent"
+    cursor: str | None = None  # next_cursor or prev_cursor of a DocumentPage with the same sort
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class DocumentListItem(BaseModel):
+    id: int
+    name: str | None  # the file name used most; None when it was sent without one
+    names: int  # distinct file names it was sent under
+    kind: DocumentKind | None  # None: not classified yet
+    mime_type: str
+    size: int
+    sha256: str | None  # None above the hash limit (D18)
+    pages: int | None
+    text_status: DocumentTextStatus
+    mails: int  # mails carrying it, duplicates not counted
+    first_date: datetime | None  # earliest of those mails
+    last_date: datetime | None
+    first_sender: PersonRef | None  # the sender of the earliest mail
+    # With full text words in q: the extracted text around the first place one of them occurs
+    # literally, at most SNIPPET_LENGTH characters; None otherwise or when none occurs as typed.
+    snippet: str | None = None
+
+
+class DocumentPage(BaseModel):
+    items: list[DocumentListItem]
+    next_cursor: str | None
+    prev_cursor: str | None
+
+
+class DocumentSummary(BaseModel):
+    """Figures of the filtered document list under the count budget of D19."""
+
+    total: int | None  # None: counting ran out of time
+    exact: bool  # False: total is a lower bound
+    kinds: dict[DocumentKind, int] | None  # every kind present; None: ran out of time
+    text_status: dict[DocumentTextStatus, int] | None  # every status present
+
+
+class DocumentNameCount(BaseModel):
+    name: str
+    attachments: int  # attachments with this file name, duplicates included
+
+
+class PersonCount(BaseModel):
+    person: PersonRef  # a root person; name is its display name
+    mails: int  # mails carrying the document that it sent, or received
+
+
+class DocumentDetail(BaseModel):
+    id: int
+    name: str | None
+    mime_type: str
+    kind: DocumentKind | None
+    size: int
+    sha256: str | None
+    pages: int | None
+    text_status: DocumentTextStatus
+    text_error: str | None  # English, technical; the UI shows a German text per status
+    text_truncated: bool
+    extracted_at: datetime | None
+    mails: int  # duplicates not counted
+    attachments: int  # every occurrence, duplicates included
+    first_date: datetime | None
+    last_date: datetime | None
+    first_mail: ThreadMail | None  # the earliest mail carrying it
+    names: list[DocumentNameCount]  # most used first, at most DOCUMENT_NAMES_LIMIT
+    senders: list[PersonCount]  # most mails first, at most DOCUMENT_PERSONS_LIMIT
+    sender_count: int  # all distinct senders
+    recipients: list[PersonCount]  # To, Cc or Bcc; most mails first, at most the limit
+    recipient_count: int
+    attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
+    preview: bool  # a raster image the browser shows from that content (PNG, JPEG, GIF, WebP)
+
+
+class DocumentText(BaseModel):
+    text: str  # the stored text, at most DOCUMENT_TEXT_LIMIT characters; "" without text
+    truncated: bool  # the extraction stopped at the limit or the time limit
+    text_status: DocumentTextStatus

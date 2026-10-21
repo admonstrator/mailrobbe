@@ -436,6 +436,7 @@ async def test_items_show_the_mail_and_its_participants(
             "size": mail.byte_length,
             "mbox_file_id": mail.mbox_file_id,
             "person_role": None,
+            "attachment_match": False,
         }
 
 

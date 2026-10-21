@@ -38,7 +38,7 @@ DKIM_LOCK_KEY = int.from_bytes(b"mrdkimrn", "big")
 LOCK_KEYS: dict[JobKind, int] = {JobKind.IMPORT: IMPORT_LOCK_KEY, JobKind.DKIM: DKIM_LOCK_KEY}
 
 # The phases a run goes through, in order (job.phase).
-ImportPhase = Literal["scan", "headers", "import", "finalize"]
+ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments"]
 DkimPhase = Literal["check", "aggregates"]
 
 LOST_MESSAGE = "the run ended without recording its end"
@@ -53,6 +53,9 @@ class ImportOptions(BaseModel):
     dkim_nameservers: str  # comma-separated IP addresses; empty: the system resolver
     dkim_offline: bool
     mbox_dir: str
+    # Text extraction (D72); defaults for the rows of runs from before milestone 9.
+    text_max_size: int = 50 * 1024**2  # bytes; larger documents are not read
+    text_timeout: float = 60.0  # seconds per document
 
     @classmethod
     def from_settings(cls, settings: Settings, workers: int | None = None) -> "ImportOptions":
@@ -64,6 +67,8 @@ class ImportOptions(BaseModel):
             dkim_nameservers=settings.dkim_nameservers,
             dkim_offline=settings.dkim_offline,
             mbox_dir=str(settings.mbox_dir),
+            text_max_size=int(settings.attachment_text_max_size),
+            text_timeout=settings.attachment_text_timeout,
         )
 
 
@@ -81,6 +86,9 @@ class ImportProgress(BaseModel):
     eta_seconds: float | None = None  # bytes left in the queued files / bytes_per_second
     headers_total: int = 0  # phase headers: mails whose headers are read again (D52)
     headers_done: int = 0
+    documents_total: int = 0  # phase attachments: documents whose text this run extracts (D72)
+    documents_done: int = 0  # of those, the ones stored (with or without text)
+    documents_per_second: float = 0.0  # over the last RATE_WINDOW seconds
 
 
 class DkimOptions(BaseModel):

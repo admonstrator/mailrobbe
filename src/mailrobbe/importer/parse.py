@@ -15,7 +15,9 @@ list_fields reads these alone, for the header refresh of older imports (importer
 Defects never raise: they become issues and the mail is imported with what could be read.
 
 mime_parts, part_payload and part_text are shared with the mail detail view (api/body.py), so
-its text tab shows the part the full text index holds, decoded the same way.
+its text tab shows the part the full text index holds, decoded the same way; mime_parts and
+attachment_payload with mailrobbe.attachments.content, which reads an attachment back by its
+position among mime_parts(...).attachments (attachment.position).
 """
 
 import email.parser
@@ -281,12 +283,7 @@ class _MailParser:
             name = text.header_text(raw_name, where, self._issues)
             name = text.clean(text.decode_words(name, where, self._issues)).strip() or None
         content_type = part.get_content_type()
-        if part.is_multipart():
-            inner = part.get_payload(0)
-            data = inner.as_bytes() if isinstance(inner, Message) else b""
-        else:
-            where = f"attachment {_quote(name or content_type)}"
-            data = part_payload(part, where, self._issues)
+        data = attachment_payload(part, f"attachment {_quote(name or content_type)}", self._issues)
         digest = hashlib.sha256(data).hexdigest() if len(data) <= self._hash_limit else None
         return ParsedAttachment(name, content_type, len(data), digest)
 
@@ -372,6 +369,19 @@ def part_payload(part: Message, where: str, issues: list[Issue]) -> bytes:
         return data
     payload = part.get_payload(decode=True)
     return payload if isinstance(payload, bytes) else b""
+
+
+def attachment_payload(part: Message, where: str, issues: list[Issue]) -> bytes:
+    """The bytes of an attachment as the importer sizes and hashes them (attachment.sha256).
+
+    A leaf part gives its decoded payload; an attached message (message/rfc822) the message
+    itself, serialised again. Shared with mailrobbe.attachments.content, which reads attachments
+    back for downloads and the text extraction.
+    """
+    if part.is_multipart():
+        inner = part.get_payload(0)
+        return inner.as_bytes() if isinstance(inner, Message) else b""
+    return part_payload(part, where, issues)
 
 
 def part_text(

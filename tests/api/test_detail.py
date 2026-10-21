@@ -248,6 +248,11 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
                 "mime_type": row["mime_type"],
                 "size": row["size_bytes"],
                 "sha256": row["sha256"],
+                "document_id": None,
+                "kind": None,
+                "text_status": None,
+                "pages": None,
+                "document_mails": None,
             }
             for row in archive.attachments[mail_id]
         ]

@@ -47,7 +47,7 @@ MAIL_COLUMNS = (
     "automated",
 )
 PARTICIPATION_COLUMNS = ("mail_id", "person_id", "role", "display_name")
-ATTACHMENT_COLUMNS = ("mail_id", "filename", "mime_type", "size_bytes", "sha256")
+ATTACHMENT_COLUMNS = ("mail_id", "filename", "mime_type", "size_bytes", "sha256", "position")
 IMPORT_ERROR_COLUMNS = ("mbox_file_id", "byte_offset", "kind", "message")
 
 _NEXT_MAIL_IDS = text(
@@ -164,8 +164,8 @@ class Store:
                 mails.append(_mail_row(mail_id, mbox_file_id, entry))
                 participations.extend(_participation_rows(mail_id, entry.mail, person_ids))
                 attachments.extend(
-                    (mail_id, a.filename, a.mime_type, a.size_bytes, a.sha256)
-                    for a in entry.mail.attachments
+                    (mail_id, a.filename, a.mime_type, a.size_bytes, a.sha256, position)
+                    for position, a in enumerate(entry.mail.attachments)
                 )
                 errors.extend(
                     (mbox_file_id, entry.byte_offset, issue.kind.value, issue.message)
