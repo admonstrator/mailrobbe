@@ -1,0 +1,191 @@
+.card {
+  gap: 8px;
+  padding: 16px 20px 14px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.hint {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.silence {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.line {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.placeholder {
+  height: 98px;
+  border-radius: 6px;
+  background: var(--color-skeleton);
+  opacity: 0.6;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+/* The scale, the plot and the axis ends below it; the numbers sit at the top of the highest
+   bar (10 px down) and at the axis (70 px down). */
+.chart {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
+}
+
+.scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  height: 80px;
+  padding: 4px 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.plot {
+  position: relative;
+  height: 80px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.plot:focus-visible {
+  outline-offset: 0;
+}
+
+.plot svg {
+  display: block;
+  overflow: visible;
+}
+
+.ends {
+  display: flex;
+  grid-column: 2;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  fill: color-mix(in srgb, var(--color-accent) 55%, white);
+}
+
+.high {
+  fill: var(--color-no-key);
+}
+
+.up {
+  fill: var(--color-no-key-text);
+}
+
+.down {
+  fill: none;
+  stroke: var(--color-muted);
+  stroke-width: 1.2;
+}
+
+.hatch {
+  stroke: var(--color-border-strong);
+  stroke-width: 3;
+}
+
+.hover {
+  fill: var(--color-accent-soft);
+}
+
+.axis {
+  stroke: var(--color-border-strong);
+}
+
+.tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  z-index: 2;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 4px 8px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.tipStart {
+  transform: none;
+}
+
+.tipEnd {
+  transform: translateX(-100%);
+}
+
+.notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  list-style: none;
+}
+
+.upGlyph {
+  color: var(--color-no-key-text);
+}
+
+.downGlyph {
+  color: var(--color-muted);
+}
+
+.swatch {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-border-strong) 0 2px,
+    transparent 2px 5px
+  );
+  vertical-align: -1px;
+}

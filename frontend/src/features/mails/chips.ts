@@ -23,6 +23,7 @@ export interface ChipNames {
   tag: (id: number) => TagRef | undefined;
   collection: (id: number) => string | undefined;
   document?: (id: number) => string;
+  thread?: (id: number) => string | undefined;
 }
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
@@ -156,6 +157,14 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: "document",
       label: `Dokument: ${names.document?.(state.document) ?? `#${state.document}`}`,
       next: withFilters(state, { document: null }),
+    });
+  }
+  if (state.thread !== null) {
+    const name = names.thread?.(state.thread);
+    chips.push({
+      id: "thread",
+      label: name ? `Thread: ${name}` : `Thread #${state.thread}`,
+      next: withFilters(state, { thread: null }),
     });
   }
   return chips;

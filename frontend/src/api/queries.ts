@@ -198,10 +198,11 @@ export function useMailNeighbors(id: number, params: MailOrderParams) {
   });
 }
 
-export function useMailDetail(id: number) {
+export function useMailDetail(id: number, enabled = true) {
   return useQuery({
     queryKey: queryKeys.mail(id),
     queryFn: ({ signal }) => apiGet<MailDetail>(`/api/mails/${id}`, undefined, signal),
+    enabled,
   });
 }
 
