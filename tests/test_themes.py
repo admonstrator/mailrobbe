@@ -5,7 +5,7 @@ import pytest
 
 from mailrobbe.api.query import parse_query
 from mailrobbe.enums import EntityContext
-from mailrobbe.themes import ThemesError, load_entity_context, load_themes
+from mailrobbe.themes import ThemesError, load_entity_context, load_themes, load_topic_ignore
 
 
 def test_the_shipped_themes_load() -> None:
@@ -88,3 +88,25 @@ def test_the_shipped_entity_contexts_load() -> None:
 def test_wrong_entity_contexts_are_refused(tmp_path: Path, table: str, message: str) -> None:
     with pytest.raises(ThemesError, match=message):
         load_entity_context(_write(tmp_path, table))
+
+
+def test_the_shipped_topic_ignore_list_loads() -> None:
+    words = load_topic_ignore()
+    assert {"Gruß", "Montag", "Januar", "anbei", "Betreff"} <= set(words)
+    # No word of a research theme's word field is ignored (D141).
+    ignored = {word.casefold() for word in words}
+    assert not ignored & {term.casefold() for theme in load_themes() for term in theme.terms}
+
+
+@pytest.mark.parametrize(
+    ("table", "message"),
+    [
+        ("", "the table \\[topics\\] is missing"),
+        ('[topics]\nignore = ["Gruß", " "]\n', "every word must be a non-empty text"),
+        ('[topics]\nignore = ["Gruß", "GRUSS"]\n', "used twice: gruss"),
+        ('[topics]\nignore = []\nkeep = ["Spende"]\n', "unknown keys keep"),
+    ],
+)
+def test_wrong_topic_ignore_lists_are_refused(tmp_path: Path, table: str, message: str) -> None:
+    with pytest.raises(ThemesError, match=message):
+        load_topic_ignore(_write(tmp_path, table))

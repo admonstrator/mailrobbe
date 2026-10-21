@@ -1,14 +1,15 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction and entities.
+text extraction, entities and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize, attachments (only when documents wait for their text, D72) and
-entities (only when texts wait for their scan, D84), and reports its figures (ImportFigures)
-every few seconds, with one step per phase and per part of the finalize (STEPS, D110). It stops
-on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch, the
-files pause, the global figures count what is stored, and the finalize, the attachments and the
-entities are left to the next run; during the attachments and entities phases, what is stored
-so far stays.
+it, D52), import, finalize, attachments (only when documents wait for their text, D72),
+entities (only when texts wait for their scan, D84) and topics (only when the archive changed
+since they were computed, D146), and reports its figures (ImportFigures) every few seconds, with
+one step per phase and per part of the finalize and the topics (STEPS, D110). It stops on
+Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch, the files
+pause, the global figures count what is stored, and the finalize, the attachments, the entities
+and the topics are left to the next run; during the attachments and entities phases, what is
+stored so far stays, and the topics stay as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error or the import could not start, 130 when it was stopped; the next run resumes.
@@ -44,12 +45,21 @@ from mailrobbe.importer.runner import (
 from mailrobbe.importer.scan import ScanReport, find_mbox_files, scan
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
 from mailrobbe.jobs import ImportOptions, application_name
+from mailrobbe.topics import phase as topics
 
 log = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
-STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments", "entities")  # in order
+STEPS = (
+    "scan",
+    "headers",
+    "import",
+    *finalize.STEPS,
+    "attachments",
+    "entities",
+    *topics.STEPS,
+)  # in order
 
 
 def _worker_count(value: str) -> int:
@@ -179,6 +189,8 @@ async def _import(
     scanned = 0
     if not stop.is_set():
         scanned = await _scan_entities(sessionmaker, workers, job)
+    if not stop.is_set():
+        await _compute_topics(sessionmaker, job)
     async with sessionmaker() as session:
         summary = await _summary(
             session, report, outcomes, extracted, scanned, time.monotonic() - started
@@ -294,6 +306,17 @@ async def _scan_entities(
     with job.steps.step("entities", unit="bytes", total=waiting.bytes) as step:
         result = await entities.scan_entities(sessionmaker, workers, job.stop, step)
     return result.mails + result.documents
+
+
+async def _compute_topics(sessionmaker: async_sessionmaker[AsyncSession], job: JobRun) -> None:
+    """The topics phase (D146), when the archive changed since the topics were computed."""
+    async with sessionmaker() as session:
+        fingerprint = await topics.waiting(session)
+    if fingerprint is None:
+        job.steps.skip(*topics.STEPS)
+        return
+    job.set_phase("topics")
+    await topics.compute_topics(sessionmaker, fingerprint, job.stop, job.steps)
 
 
 def _log_scan(report: ScanReport, mbox_dir: Path) -> None:

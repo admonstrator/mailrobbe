@@ -14,6 +14,7 @@ import { NotFoundPage } from "./features/placeholder/Placeholders";
 import { AktenPage } from "./features/research/AktenPage";
 import { CollectionPage } from "./features/research/CollectionPage";
 import { TimelineRoute } from "./features/timeline/lazyPages";
+import { TopicsRoute } from "./features/topics/lazyPages";
 
 /** One entry per screen, all inside the shell. */
 export const routes: RouteObject[] = [
@@ -31,6 +32,7 @@ export const routes: RouteObject[] = [
       { path: "/entitaeten/:id", element: <EntityDetailRoute /> },
       { path: "/karte", element: <GraphPage /> },
       { path: "/zeitachse", element: <TimelineRoute /> },
+      { path: "/themen", element: <TopicsRoute /> },
       { path: "/akten", element: <AktenPage /> },
       { path: "/akten/:id", element: <CollectionPage /> },
       { path: "/m/:hash", element: <PermalinkPage /> },
