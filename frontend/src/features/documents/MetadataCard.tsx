@@ -53,7 +53,9 @@ export function MetadataCard({ document }: { document: DocumentDetail }) {
               <dl className={styles.fields}>
                 {group === "place" && place && (
                   <div className={styles.field}>
-                    <dt>Koordinaten</dt>
+                    <dt>
+                      Koordinaten <span className={styles.source}>GPS</span>
+                    </dt>
                     <dd>
                       <span className={styles.value}>
                         {`${place.latitude}, ${place.longitude}`}

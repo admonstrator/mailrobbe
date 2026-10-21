@@ -372,6 +372,13 @@ def test_a_docx_gives_its_properties_comments_and_tracked_changes() -> None:
     assert summary.created == datetime(2024, 4, 30, 8, 15, tzinfo=UTC)
 
 
+def test_a_docx_gives_its_custom_properties_under_their_own_names() -> None:
+    reading = read(s.docx("<w:p/>", custom=True), "bericht.docx")
+
+    assert reading.fields["office_custom"] == {"Abteilung": "Einkauf", "Geprüft": "true"}
+    assert reading.fields["office"]["creator"] == "Peter Hofmann"
+
+
 def test_a_docx_without_comments_or_changes_has_no_counts() -> None:
     office = read(s.docx("<w:p/>"), "brief.docx").fields["office"]
 
@@ -406,6 +413,10 @@ def test_an_odt_gives_its_meta() -> None:
         "<meta:keyword>Hafen</meta:keyword><meta:keyword>Spende</meta:keyword>"
         '<meta:template xlink:href="../Vorlagen/Brief.ott" xlink:title="Brief"/>'
         "<dc:title>Notiz</dc:title>"
+        '<meta:user-defined meta:name="Projekt">Neubau Halle 3</meta:user-defined>'
+        '<meta:user-defined meta:name="Geprüft" meta:value-type="boolean">true'
+        "</meta:user-defined>"
+        '<meta:user-defined meta:name="">ohne Namen</meta:user-defined>'
     )
 
     reading = read(data, "notiz.odt")
@@ -424,7 +435,8 @@ def test_an_odt_gives_its_meta() -> None:
             "template_location": "../Vorlagen/Brief.ott",
             "title": "Notiz",
             "keywords": ["Hafen", "Spende"],
-        }
+        },
+        "odf_custom": {"Projekt": "Neubau Halle 3", "Geprüft": "true"},
     }
     summary = summarize(reading.fields)
     assert (summary.author, summary.modified_by) == ("Peter Hofmann", "Anna Berg")

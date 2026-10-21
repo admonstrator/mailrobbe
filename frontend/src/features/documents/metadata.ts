@@ -41,7 +41,9 @@ export const SOURCE_LABELS: Record<string, string> = {
   pdf: "PDF",
   pdf_custom: "PDF",
   office: "Office",
+  office_custom: "Office",
   odf: "ODF",
+  odf_custom: "ODF",
 };
 
 type ValueKind = "text" | "date" | "number" | "minutes" | "metres";
@@ -215,8 +217,8 @@ export function openStreetMapUrl({ latitude, longitude }: Coordinates): string {
 }
 
 /** Every field of the file as a row: the known ones in the card's order, then the others (the
- *  file's own names in pdf_custom and png, keys a later reader adds) under "Weitere Angaben".
- *  Latitude and longitude are the card's "Ort" row, not rows of their own. */
+ *  file's own names in png and the *_custom sources, keys a later reader adds) under
+ *  "Weitere Angaben". Latitude and longitude are the card's "Ort" row, not rows of their own. */
 export function metadataRows(metadata: DocumentMetadata): MetadataRow[] {
   const rows: [order: number, row: MetadataRow][] = [];
   for (const [source, values] of Object.entries(metadata.fields)) {

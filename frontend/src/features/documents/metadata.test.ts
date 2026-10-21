@@ -56,13 +56,15 @@ describe("metadata of a file", () => {
         gps: { latitude: -33.8666667, longitude: -70.5, altitude: -12.25 },
         office: { total_time: 95, pages: 1200 },
         png: { "Creation Time": "Sat, 02 Nov 2023 14:05:09" },
+        odf_custom: { Projekt: "Neubau Halle 3" },
       }),
     );
-    expect(rows.map((row) => [row.label, row.value])).toEqual([
-      ["Höhe", "-12,25 m"],
-      ["Bearbeitungszeit", "95 Minuten"],
-      ["Erstellt", "Sat, 02 Nov 2023 14:05:09"],
-      ["Seiten", "1.200"],
+    expect(rows.map((row) => [row.label, row.source, row.value])).toEqual([
+      ["Höhe", "GPS", "-12,25 m"],
+      ["Bearbeitungszeit", "Office", "95 Minuten"],
+      ["Erstellt", "PNG", "Sat, 02 Nov 2023 14:05:09"],
+      ["Seiten", "Office", "1.200"],
+      ["Projekt", "ODF", "Neubau Halle 3"],
     ]);
   });
 

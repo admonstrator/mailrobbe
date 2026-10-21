@@ -4,10 +4,12 @@ docProps/core.xml (the core properties: creator, last modified by, created, modi
 printed, revision, title, subject, keywords, description, category, content status) and
 docProps/app.xml (the extended properties: application and its version, company, manager,
 template, total editing time in minutes, pages, words, characters, slides, notes, hidden
-slides), each found by its package relationship, else by its usual name. A DOCX also counts its
-comments (comments part) and the tracked changes of its body (insertions, deletions and moves,
-also of formatting), each with the authors named, where it has any. Parts are read within the
-document's XML budget and parsed safely, as the text extraction does.
+slides) to office, and docProps/custom.xml (the file's own properties, under their own names,
+the value as written) to office_custom, each found by its package relationship, else by its
+usual name. A DOCX also counts its comments (comments part) and the tracked changes of its body
+(insertions, deletions and moves, also of formatting), each with the authors named, where it
+has any. Parts are read within the document's XML budget and parsed safely, as the text
+extraction does.
 """
 
 from collections.abc import Callable
@@ -66,6 +68,7 @@ _CHANGES = frozenset(
 )
 _CORE_TYPE = "/metadata/core-properties"
 _APP_TYPE = "/extended-properties"
+_CUSTOM_TYPE = "/custom-properties"
 
 
 class Children:
@@ -91,6 +94,29 @@ class Children:
 
     def data(self, text: str) -> None:
         if self._text is not None:
+            self._text.append(text)
+
+
+class _Custom:
+    """The custom properties: (name, the text of its value, whatever its type)."""
+
+    def __init__(self) -> None:
+        self.found: list[tuple[str, str]] = []
+        self._name: str | None = None
+        self._text: list[str] = []
+
+    def start(self, name: str, attrs: dict[str, str]) -> None:
+        if name == "property":
+            self._name, self._text = attribute(attrs, "name"), []
+
+    def end(self, name: str) -> None:
+        if name == "property":
+            if self._name:
+                self.found.append((self._name, "".join(self._text)))
+            self._name = None
+
+    def data(self, text: str) -> None:
+        if self._name is not None:
             self._text.append(text)
 
 
@@ -143,6 +169,12 @@ def read_ooxml(data: bytes, out: Collector) -> Package:
         for name, _, value in properties.found:
             if name in keys:
                 store(out, "office", keys[name], value, DATES)
+    custom = next((m for k, m in parts.items() if k.endswith(_CUSTOM_TYPE)), "docProps/custom.xml")
+    if custom in package.names:
+        own = _Custom()
+        package.parse(custom, own)
+        for name, value in own.found:
+            out.text("office_custom", name, value)
     return package
 
 

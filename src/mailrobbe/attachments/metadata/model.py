@@ -10,14 +10,17 @@ Fields are grouped by where they stand in the file (source -> key -> value):
     pdf         the information dictionary, the PDF version, revisions and embedded files
     pdf_custom  the information dictionary's other entries, under their own names
     office      docProps of DOCX, XLSX and PPTX; comments and tracked changes of a DOCX
+    office_custom  their custom properties (docProps/custom.xml), under their own names
     odf         meta.xml of ODT, ODS and ODP
+    odf_custom  its user-defined properties, under their own names
 
-Keys are stable English snake_case names (png and pdf_custom keep the file's own). Values are
-as found: text trimmed, control characters removed, at most VALUE_LIMIT characters; lists of at
-most LIST_LIMIT texts; counts as integers. Dates are ISO 8601, with the offset the file gives
-or none: a time without a zone stays without one, nothing is guessed; a date that cannot be
-read stays the text as found. GPS coordinates are signed decimal degrees (south and west
-negative), altitude metres (below sea level negative), the GPS time UTC as the format defines it.
+Keys are stable English snake_case names (png and the *_custom sources keep the file's own).
+Values are as found: text trimmed, control characters removed, at most VALUE_LIMIT characters;
+lists of at most LIST_LIMIT texts; counts as integers. Dates are ISO 8601, with the offset the
+file gives or none: a time without a zone stays without one, nothing is guessed; a date that
+cannot be read stays the text as found. GPS coordinates are signed decimal degrees (south and
+west negative), altitude metres (below sea level negative), the GPS time UTC as the format
+defines it.
 """
 
 import re

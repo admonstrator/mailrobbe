@@ -266,9 +266,22 @@ APP = (
 )
 
 
-def docx(body: str, comments: Sequence[str] = ()) -> bytes:
-    """A DOCX with the core and app properties above, this body and comments by these
-    authors."""
+CUSTOM = (
+    '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties"'
+    ' xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'
+    '<property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="2" name="Abteilung">'
+    "<vt:lpwstr>Einkauf</vt:lpwstr></property>"
+    '<property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="3" name="Geprüft">'
+    "<vt:bool>true</vt:bool></property>"
+    '<property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="4" name="">'
+    "<vt:lpwstr>ohne Namen</vt:lpwstr></property>"
+    "</Properties>"
+)
+
+
+def docx(body: str, comments: Sequence[str] = (), custom: bool = False) -> bytes:
+    """A DOCX with the core and app properties above, this body, comments by these authors
+    and, if asked, the custom properties above (found by their relationship)."""
     root_rels = (
         f'<Relationships xmlns="{PR}">'
         f'<Relationship Id="rId1" Type="{R}/officeDocument" Target="word/document.xml"/>'
@@ -283,6 +296,13 @@ def docx(body: str, comments: Sequence[str] = ()) -> bytes:
         "docProps/core.xml": CORE,
         "docProps/app.xml": APP,
     }
+    if custom:
+        members["_rels/.rels"] = root_rels.replace(
+            "</Relationships>",
+            f'<Relationship Id="rId4" Type="{R}/custom-properties" Target="docProps/eigene.xml"/>'
+            "</Relationships>",
+        )
+        members["docProps/eigene.xml"] = CUSTOM
     if comments:
         members["word/_rels/document.xml.rels"] = (
             f'<Relationships xmlns="{PR}"><Relationship Id="rId9" Type="{R}/comments" '

@@ -4,7 +4,8 @@ The children of office:meta: meta:initial-creator (who made it), dc:creator (who
 meta:creation-date, dc:date (last saved), meta:generator (the program and its build),
 meta:editing-cycles, meta:editing-duration (ISO 8601, as found), meta:template (its title and
 location), meta:printed-by, meta:print-date, dc:title, dc:subject, dc:description and every
-meta:keyword. A file without meta.xml has no metadata.
+meta:keyword to odf; every meta:user-defined (the file's own properties) under its own name to
+odf_custom. A file without meta.xml has no metadata.
 """
 
 from mailrobbe.attachments.extract.packages import Package, attribute
@@ -45,6 +46,8 @@ def read_odf(data: bytes, out: Collector) -> None:
                 store(out, "odf", key, value, _DATES)
         elif name == "keyword":
             keywords.append(value)
+        elif name == "user-defined" and (own := attribute(attrs, "name")):
+            out.text("odf_custom", own, value)
         elif name == "template":
             out.text("odf", "template", attribute(attrs, "title") or attribute(attrs, "href"))
             out.text("odf", "template_location", attribute(attrs, "href"))

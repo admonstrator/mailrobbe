@@ -1,7 +1,11 @@
 import { useState } from "react";
 
 import { useMetadataValues } from "../../api/queries";
-import type { DocumentFilters, MetadataValueCount } from "../../api/types";
+import {
+  METADATA_VALUES_LIMIT,
+  type DocumentFilters,
+  type MetadataValueCount,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { Spinner } from "../../components/Spinner";
@@ -44,6 +48,8 @@ export function MetadataFacet({
   const open = values.filter(({ value }) => !selected.includes(value));
   const shown = searching || expanded ? open : open.slice(0, SHOWN);
   const nothing = top?.length === 0 && selected.length === 0 && !searching;
+  // The summary names the most frequent values only; the search finds the others.
+  const capped = (top?.length ?? 0) >= METADATA_VALUES_LIMIT;
 
   const pick = (value: string) => {
     onChange([...selected, value]);
@@ -106,8 +112,13 @@ export function MetadataFacet({
           aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? "weniger" : `alle ${open.length} anzeigen`}
+          {expanded ? "weniger" : capped ? "mehr anzeigen" : `alle ${open.length} anzeigen`}
         </Button>
+      )}
+      {!searching && expanded && capped && (
+        <p className={styles.note}>
+          Die {METADATA_VALUES_LIMIT} häufigsten; weitere über die Suche.
+        </p>
       )}
     </fieldset>
   );

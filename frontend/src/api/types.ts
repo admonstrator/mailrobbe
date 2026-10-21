@@ -1174,8 +1174,9 @@ export type DocumentMetadataStatus =
 export type MetadataValue = string | number | string[];
 
 /** What the file says about itself (D167), every field as found and never rated, grouped by
- *  where it stands in the file: exif, gps, xmp, png, pdf, pdf_custom, office, odf. Keys are
- *  stable English names (png and pdf_custom keep the file's own); dates are ISO 8601 with the
+ *  where it stands in the file: exif, gps, xmp, png, pdf, pdf_custom, office, office_custom,
+ *  odf, odf_custom. Keys are stable English names (png and the *_custom sources keep the
+ *  file's own); dates are ISO 8601 with the
  *  offset the file gives, or without one when it gives none. */
 export interface DocumentMetadata {
   status: DocumentMetadataStatus;

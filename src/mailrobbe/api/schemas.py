@@ -1329,9 +1329,10 @@ MetadataValue = str | int | float | list[str]
 class DocumentMetadata(BaseModel):
     """What the file says about itself (D167), every field as found and never rated, grouped by
     where it stands in the file (attachments.metadata.model: exif, gps, xmp, png, pdf,
-    pdf_custom, office, odf), each source with stable English keys (png and pdf_custom keep the
-    file's own). Dates are ISO 8601 with the offset the file gives, or without one when it gives
-    none; a date that could not be read is the text as found."""
+    pdf_custom, office, office_custom, odf, odf_custom), each source with stable English keys
+    (png and the *_custom sources keep the file's own). Dates are ISO 8601 with the offset the
+    file gives, or without one when it gives none; a date that could not be read is the text as
+    found."""
 
     status: DocumentMetadataStatus  # pending: not read yet (the next import's metadata step)
     error: str | None  # English, technical: why it failed, or the part found damaged

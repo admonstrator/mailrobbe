@@ -1,7 +1,9 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { renderApp, type ApiCall } from "../../test/render";
+import { METADATA_VALUES_LIMIT } from "../../api/types";
+import { documentSummary } from "../../test/fixtures";
+import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const column = () => screen.getByRole("complementary", { name: "Filter" });
 
@@ -69,5 +71,24 @@ describe("the facets Autor and Programm of the document list", () => {
     expect(
       (within(author).getByRole("searchbox", { name: "Autor suchen" }) as HTMLInputElement).value,
     ).toBe("");
+  });
+
+  it("show more of a capped list and point to the search for the rest", async () => {
+    const authors = Array.from({ length: METADATA_VALUES_LIMIT }, (_, index) => ({
+      value: `Person ${index + 1}`,
+      documents: 100 - index,
+    }));
+    renderApp("/anhaenge", (call) =>
+      call.url.pathname === "/api/documents/summary"
+        ? { ...documentSummary, authors }
+        : fixtureApi(call),
+    );
+    const author = await facet("Autor");
+    await within(author).findByText("Person 1");
+    expect(within(author).getAllByRole("checkbox")).toHaveLength(6);
+    fireEvent.click(within(author).getByRole("button", { name: "mehr anzeigen" }));
+    expect(within(author).getAllByRole("checkbox")).toHaveLength(METADATA_VALUES_LIMIT);
+    expect(within(author).getByText("Die 20 häufigsten; weitere über die Suche.")).toBeTruthy();
+    expect(within(author).getByRole("button", { name: "weniger" })).toBeTruthy();
   });
 });

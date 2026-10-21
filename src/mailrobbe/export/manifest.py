@@ -97,7 +97,8 @@ class ManifestDkim(BaseModel):
 class ManifestMetadata(BaseModel):
     """What the attachment's file says about itself (D167): every field the import's metadata
     step found, as found and never checked, grouped by where it stands in the file (exif, gps,
-    xmp, png, pdf, pdf_custom, office, odf), keys as in attachments.metadata.model."""
+    xmp, png, pdf, pdf_custom, office, office_custom, odf, odf_custom), keys as in
+    attachments.metadata.model."""
 
     status: DocumentMetadataStatus  # pending: not read yet; unsupported: a format not read
     error: str | None  # English: why reading failed, or the part found damaged
