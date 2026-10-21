@@ -199,7 +199,7 @@ def _archive() -> list[Statement]:
         domain = address.partition("@")[2]
         add(_PERSON, id=person_id, address=address, domain=domain, root=root, kind=kind)
     for a, b in SUGGESTIONS:
-        add("INSERT INTO alias_suggestion VALUES (:a, :b, NULL, 'x')", a=a, b=b)
+        add("INSERT INTO alias_suggestion VALUES (:a, :b, NULL, 'x', 'uncertain')", a=a, b=b)
     for entity_id, kind, key, detail in ENTITIES:
         add(_ENTITY, id=entity_id, kind=kind, key=key, detail=detail)
     add(_DOCUMENT)
