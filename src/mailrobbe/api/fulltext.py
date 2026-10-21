@@ -68,8 +68,7 @@ class FullText:
 
     search: str  # the free words as websearch_to_tsquery reads them (text_search); "" without
     # The free words as alternatives (or) of words that must all hold, in q's order; a group
-    # may hold negated words only. () without free words, and for a q of "or" alone, which
-    # websearch_to_tsquery reads as the word "or".
+    # may hold negated words only. () without free words.
     groups: tuple[tuple[Words, ...], ...]
     fields: frozenset[SearchField]  # where the free words are looked for; all four by default
     placed: tuple[tuple[SearchField, Words], ...]  # betreff:, text:, anhang:, datei:, in order
@@ -136,25 +135,32 @@ def text_search(terms: Sequence[QueryTerm]) -> str:
 
 
 def _phrase(term: QueryTerm) -> str:
-    """A text term for websearch_to_tsquery: quoted tokens stay phrases."""
-    return f'"{term.value}"' if '"' in term.raw else term.value
+    """A text term for websearch_to_tsquery: quoted tokens stay phrases, a leading minus stays
+    before the quotes (inside them websearch_to_tsquery would drop it)."""
+    if '"' not in term.raw:
+        return term.value
+    if term.raw.startswith("-"):
+        return f'-"{term.value[1:]}"'
+    return f'"{term.value}"'
 
 
 def _groups(terms: Sequence[QueryTerm]) -> tuple[tuple[Words, ...], ...]:
-    """The free words as websearch_to_tsquery groups them: "or" (any case, unquoted) between
-    two words separates alternatives, an "or" at either end or after another is dropped."""
+    """The free words as websearch_to_tsquery (PostgreSQL 16) groups them: "or" (any case,
+    unquoted) after a word and before another separates alternatives; first, last or after
+    another "or" it is the word "or" (`or a or or b or` is `(or & a) | (or & b & or)`)."""
+    texts = [term for term in terms if term.key == "text"]
     groups: list[list[Words]] = [[]]
-    for term in terms:
-        if term.key != "text":
+    after_word = False
+    for index, term in enumerate(texts):
+        last = index == len(texts) - 1
+        if after_word and not last and '"' not in term.raw and term.value.lower() == "or":
+            groups.append([])
+            after_word = False
             continue
-        if '"' not in term.raw and term.value.lower() == "or":
-            if groups[-1]:
-                groups.append([])
-            continue
-        negated = term.raw.startswith("-")
-        words = _words(term, negated=negated)
+        words = _words(term, negated=term.raw.startswith("-"))
         if words.text:
             groups[-1].append(words)
+        after_word = True
     return tuple(tuple(group) for group in groups if group)
 
 

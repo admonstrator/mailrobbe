@@ -36,12 +36,25 @@ def test_search_text_is_unchanged() -> None:
     assert _search(q).search == text_search(parse_query(q))
 
 
+def test_a_minus_before_a_phrase_stays_outside_the_quotes() -> None:
+    search = _search('Neger -"Neger raus" "-x y"')
+    assert search.search == 'Neger -"Neger raus" "-x y"'
+    assert search.groups == (
+        (
+            Words("Neger"),
+            Words("Neger raus", phrase=True, negated=True),
+            Words("-x y", phrase=True),
+        ),
+    )
+
+
 def test_groups_follow_websearch() -> None:
+    # websearch_to_tsquery: 'or' & 'a' & 'b' | 'c' <-> 'd' & !'e' | 'or' & 'f' & 'or'
     search = _search('or a b OR "c d" -e or or f or')
     assert search.groups == (
-        (Words("a"), Words("b")),
+        (Words("or"), Words("a"), Words("b")),
         (Words("c d", phrase=True), Words("e", negated=True)),
-        (Words("f"),),
+        (Words("or"), Words("f"), Words("or")),
     )
 
 
@@ -51,7 +64,15 @@ def test_a_quoted_or_is_a_word() -> None:
 
 def test_or_alone_searches_the_word() -> None:
     search = _search("or")
-    assert search.search == "or" and search.groups == ()
+    assert search.search == "or" and search.groups == ((Words("or"),),)
+    assert search.prefilter() == "or"
+
+
+def test_or_after_or_is_a_word() -> None:
+    # websearch_to_tsquery: 'a' | 'or' | 'b', and 'a' | 'or' & 'b'
+    assert _search("a or or or b").groups == ((Words("a"),), (Words("or"),), (Words("b"),))
+    assert _search("a or or b").prefilter() == "a or or b"
+    assert _search("-a or").groups == ((Words("a", negated=True), Words("or")),)
 
 
 def test_places_default_to_all() -> None:
