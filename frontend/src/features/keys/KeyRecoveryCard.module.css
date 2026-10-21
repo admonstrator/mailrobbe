@@ -1,0 +1,86 @@
+.card {
+  gap: 10px;
+}
+
+.lead {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+}
+
+.figures {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.figures > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 12px;
+}
+
+.figures dt {
+  color: var(--color-nav);
+}
+
+.figures dd {
+  margin: 0 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* "davon rekonstruierbar" belongs to the line above it. */
+.sub dt {
+  padding-left: 12px;
+  color: var(--color-muted);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.warning {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+  font-size: 12px;
+}
+
+.stand {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.more {
+  align-self: flex-start;
+  font-size: 13px;
+}

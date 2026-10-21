@@ -23,6 +23,8 @@ import type {
   CollectionUpdate,
   ContactPage,
   DkimJob,
+  DkimKeysJob,
+  DkimKeysRunRequest,
   DocumentDetail,
   DocumentFilters,
   DocumentListParams,
@@ -41,6 +43,7 @@ import type {
   ImportStartRequest,
   ImportStatus,
   ImportSummary,
+  KeyArchivePreview,
   LinkChange,
   MailDetail,
   MailDkim,
@@ -54,6 +57,7 @@ import type {
   MailResearch,
   MailSummary,
   MailText,
+  ManualKeyRequest,
   Mark,
   MarkUpdate,
   MboxFileInfo,
@@ -71,6 +75,10 @@ import type {
   SavedSearchCreate,
   SavedSearchUpdate,
   ScanResult,
+  SelectorDetail,
+  SelectorListParams,
+  SelectorPage,
+  SelectorSummary,
   Stats,
   SuggestionPage,
   TagCreate,
@@ -140,6 +148,12 @@ export const queryKeys = {
   documentSummary: (filters: DocumentFilters) => ["documents", "summary", filters] as const,
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
+  /** Prefix of everything about keys of deleted selectors (D100 to D104). */
+  keys: ["keys"] as const,
+  selectorSummary: ["keys", "summary"] as const,
+  selectorPage: (params: SelectorListParams) => ["keys", "page", params] as const,
+  selector: (name: string) => ["keys", "selector", name] as const,
+  archivePreview: ["keys", "archive-preview"] as const,
 };
 
 export function useStats() {
@@ -378,7 +392,7 @@ export type ImportErrorFilters = Pick<ImportErrorParams, "kind" | "mbox_file">;
 
 /** An import or a DKIM run is alive: its process holds the lock of its kind. */
 export function runAlive(status: ImportStatus | undefined): boolean {
-  return Boolean(status?.import_job?.alive || status?.dkim_job?.alive);
+  return Boolean(status?.import_job?.alive || status?.dkim_job?.alive || status?.keys_job?.alive);
 }
 
 /** How often the dashboard asks for the status (D48): every 2 s while a run is alive, else
@@ -429,7 +443,7 @@ export function useImportErrorPages(filters: ImportErrorFilters) {
  *  before the status is loaded again, which happens right away; so do the header's figures. */
 function showRun(
   queryClient: QueryClient,
-  run: Partial<Pick<ImportStatus, "import_job" | "dkim_job">>,
+  run: Partial<Pick<ImportStatus, "import_job" | "dkim_job" | "keys_job">>,
 ) {
   queryClient.setQueryData<ImportStatus>(
     queryKeys.importStatus,
@@ -734,5 +748,92 @@ export function useDocumentText(id: number, enabled: boolean) {
     queryKey: queryKeys.documentText(id),
     queryFn: ({ signal }) => apiGet<DocumentText>(`/api/documents/${id}/text`, undefined, signal),
     enabled,
+  });
+}
+
+// Keys of deleted selectors (D100 to D104) ------------------------------------------------------
+
+const selectorUrl = (name: string) => `/api/dkim/selectors/${encodeURIComponent(name)}`;
+
+/** The import status as the key screens read it: every 2 s while a dkim-keys run is alive (the
+ *  dashboard's own polling does not count it), otherwise not again; on the dashboard its own
+ *  polling notices a run started elsewhere. */
+export function useKeysStatus() {
+  return useQuery({
+    queryKey: queryKeys.importStatus,
+    queryFn: ({ signal }) => apiGet<ImportStatus>("/api/import/status", undefined, signal),
+    refetchInterval: (query) => (query.state.data?.keys_job?.alive ? 2_000 : false),
+  });
+}
+
+/** The figures of the card "Gelöschte Selektoren"; a run's end loads them again. */
+export function useSelectorSummary() {
+  return useQuery({
+    queryKey: queryKeys.selectorSummary,
+    queryFn: ({ signal }) =>
+      apiGet<SelectorSummary>("/api/dkim/selectors/summary", undefined, signal),
+  });
+}
+
+export function useSelectorPage(params: SelectorListParams) {
+  return useQuery({
+    queryKey: queryKeys.selectorPage(params),
+    queryFn: ({ signal }) => apiGet<SelectorPage>("/api/dkim/selectors", params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** One key name with its keys, their evidence, the lookups and its latest mails. */
+export function useSelector(name: string) {
+  return useQuery({
+    queryKey: queryKeys.selector(name),
+    queryFn: ({ signal }) => apiGet<SelectorDetail>(selectorUrl(name), undefined, signal),
+  });
+}
+
+/** What a fetch from the key archive would send (D102), asked anew each time it is shown. */
+export function useArchivePreview() {
+  return useQuery({
+    queryKey: queryKeys.archivePreview,
+    queryFn: ({ signal }) =>
+      apiGet<KeyArchivePreview>("/api/dkim/archive/preview", undefined, signal),
+    staleTime: 0,
+  });
+}
+
+/** Adds a key found elsewhere (D103). The answer is the name's page with the key; the backend
+ *  then checks the name's mails in a run of its own, so the figures follow its end. */
+export function useAddManualKey(name: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ManualKeyRequest) =>
+      apiPost<SelectorDetail>(`${selectorUrl(name)}/keys`, request),
+    onSuccess: (detail) => {
+      queryClient.setQueryData(queryKeys.selector(name), detail);
+      const kept = hashKey(queryKeys.selector(name));
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.keys,
+        predicate: (query) => query.queryHash !== kept,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.importStatus });
+    },
+  });
+}
+
+/** Starts a dkim-keys run (D101): reconstruct, search, fetch or check. */
+export function useStartKeysRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: DkimKeysRunRequest) =>
+      apiPost<DkimKeysJob>("/api/dkim/keys/run", request),
+    onSuccess: (job) => showRun(queryClient, { keys_job: job }),
+  });
+}
+
+export function useStopKeysRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<DkimKeysJob>("/api/dkim/keys/run/stop", {}),
+    onSuccess: (job) => showRun(queryClient, { keys_job: job }),
   });
 }

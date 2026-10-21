@@ -18,11 +18,17 @@ interface Tile {
   value: string;
   sub: string;
   tone?: "pass" | "noKey";
+  title?: string;
 }
+
+/** Why "Signatur stimmig" does not count as valid (D100). */
+const CONSISTENT_HINT =
+  "Gültig: Der Schlüssel steht heute im DNS, wurde dort beobachtet oder ist dokumentiert. Signatur stimmig: nur ein aus Signaturen rekonstruierter Schlüssel bestätigt sie; an die Domain bindet ihn das nicht.";
 
 function tilesOf(summary: MailSummary): Tile[] {
   const { dkim } = summary;
-  const signed = dkim ? dkim.pass + dkim.fail + dkim.no_key + dkim.temp_error : 0;
+  const signed = dkim ? dkim.pass + dkim.consistent + dkim.fail + dkim.no_key + dkim.temp_error : 0;
+  const consistent = dkim?.consistent ?? 0;
   return [
     {
       label: "Mails im Filter",
@@ -37,10 +43,13 @@ function tilesOf(summary: MailSummary): Tile[] {
       value: dkim && signed > 0 ? formatPercent(dkim.pass / signed) : UNKNOWN,
       sub: !dkim
         ? UNKNOWN
-        : signed > 0
-          ? `von ${formatNumber(signed)} signierten Mails`
-          : "keine signierten Mails",
+        : signed === 0
+          ? "keine signierten Mails"
+          : consistent > 0
+            ? `von ${formatNumber(signed)} signierten, ${formatNumber(consistent)} stimmig`
+            : `von ${formatNumber(signed)} signierten Mails`,
       tone: "pass",
+      title: consistent > 0 ? CONSISTENT_HINT : undefined,
     },
     {
       label: "Schlüssel nicht abrufbar",
@@ -90,7 +99,7 @@ export function SummaryTiles({ summary }: { summary: UseQueryResult<MailSummary>
   return (
     <div className={styles.tiles}>
       {tilesOf(summary.data).map((tile) => (
-        <div key={tile.label} className={styles.tile}>
+        <div key={tile.label} className={styles.tile} title={tile.title}>
           <span className={styles.label}>{tile.label}</span>
           <span
             className={cx(styles.value, tile.value !== UNKNOWN && tile.tone && styles[tile.tone])}
