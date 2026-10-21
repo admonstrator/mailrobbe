@@ -178,3 +178,19 @@
     display: none;
   }
 }
+
+/* Seven entries since "Entitäten": below this width the header packs tighter, so the search
+   field keeps its minimum width without the page scrolling sideways. */
+@media (max-width: 1399px) {
+  .header {
+    gap: 16px;
+  }
+
+  .nav {
+    gap: 0;
+  }
+
+  .navLink {
+    padding: 6px 8px;
+  }
+}
