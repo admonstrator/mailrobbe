@@ -532,7 +532,11 @@ export const mailText: MailText = {
   truncated: false,
   source: "text/plain",
   has_html: true,
-  segments: [],
+  // as quotes.split_text cuts it (D151): the own words, then the quoted history
+  segments: [
+    { kind: "text", start: 0, end: 412, lines: 6, folded: false },
+    { kind: "quote", start: 412, end: 626, lines: 5, folded: true },
+  ],
 };
 
 export const mailHeaders: MailHeaders = {
@@ -573,6 +577,46 @@ export const mailRaw: MailRaw = {
   ].join("\n"),
   truncated: false,
   size: 188_416,
+};
+
+/** mailDetail in a group of near duplicates (D153): the same text went to two more recipients
+ *  one by one, one of those mails was imported twice, and one more mail is not listed. */
+export const mailDetailNear: MailDetail = {
+  ...mailDetail,
+  near_group: 184180,
+  near_size: 5,
+  near: [
+    {
+      id: 184180,
+      date: "2026-10-18T12:30:02Z",
+      subject: mailDetail.subject,
+      sender: people.anna,
+      dkim_status: "pass",
+      recipients: [people.miriam],
+      recipient_count: 1,
+      is_duplicate: false,
+    },
+    {
+      id: 184231,
+      date: "2026-10-18T12:30:02Z",
+      subject: mailDetail.subject,
+      sender: people.anna,
+      dkim_status: "no_key",
+      recipients: [people.miriam],
+      recipient_count: 1,
+      is_duplicate: true,
+    },
+    {
+      id: 184184,
+      date: "2026-10-18T12:31:40Z",
+      subject: `AW: ${mailDetail.subject}`,
+      sender: people.anna,
+      dkim_status: "pass",
+      recipients: [people.lukas, people.peter, people.thomas],
+      recipient_count: 4,
+      is_duplicate: false,
+    },
+  ],
 };
 
 // Persons (milestone 5) -----------------------------------------------------------------------

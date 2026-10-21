@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode, type Ref } from "react";
 
 import { useMailBody } from "../../api/queries";
-import type { MailHeaders, MailRaw, MailText } from "../../api/types";
+import type { MailHeaders, MailRaw, MailText, SegmentKind, TextSegment } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
@@ -9,8 +9,7 @@ import { MarkedParts, type SearchMarks } from "../../components/Highlighted";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatBytes, formatNumber } from "../../lib/format";
-import { highlightParts, markCount } from "../../lib/highlight";
-import { splitQuoted } from "../../lib/quote";
+import { highlightParts, markCount, type TextPart } from "../../lib/highlight";
 import styles from "./BodyCard.module.css";
 import { sourceErrorText } from "./errors";
 
@@ -112,57 +111,143 @@ function Loaded<T>({
 const places = (count: number) =>
   count === 1 ? "1 Fundstelle" : `${formatNumber(count)} Fundstellen`;
 
+const lineCount = (count: number) => (count === 1 ? "1 Zeile" : `${formatNumber(count)} Zeilen`);
+
+type FoldKind = Exclude<SegmentKind, "text">;
+
+/** The name of each kind of segment that can start folded (D151), on its toggle. */
+const FOLD_LABELS: Record<FoldKind, string> = {
+  quote: "Zitat",
+  original: "Ursprüngliche Nachricht",
+  forward: "Weitergeleitete Nachricht",
+  signature: "Signatur",
+};
+
+/** A stretch of a block's text: the own words, or what is quoted (shown muted). */
+interface Run {
+  quoted: boolean;
+  parts: TextPart[];
+}
+
+interface Block {
+  fold: FoldKind | null; // null: shown as written, the own words and what starts open
+  lines: number; // of a folded segment
+  runs: Run[];
+}
+
+/** The blocks the text view shows: each segment that starts folded on its own, the segments
+ *  between them together as written, blank lines at a block's ends left out. Without segments
+ *  the text is one block. */
+function textBlocks(
+  text: string,
+  segments: TextSegment[],
+  mark: (shown: string) => TextPart[],
+): Block[] {
+  if (!segments.length) {
+    return [{ fold: null, lines: 0, runs: [{ quoted: false, parts: mark(text.trimEnd()) }] }];
+  }
+  // The server counts characters as Python does, in code points; JavaScript counts UTF-16 units,
+  // which differ after a character beyond the BMP, such as an emoji.
+  const chars = /[\uD800-\uDFFF]/.test(text) ? Array.from(text) : null;
+  const slice = (start: number, end: number) =>
+    chars ? chars.slice(start, end).join("") : text.slice(start, end);
+  const blocks: Block[] = [];
+  const add = (fold: FoldKind | null, lines: number, members: TextSegment[]) => {
+    // Open, only a quote is muted: a forward that is the whole text is the content.
+    const pieces = members.map((segment) => ({
+      quoted: fold !== null || segment.kind === "quote",
+      text: slice(segment.start, segment.end),
+    }));
+    while (pieces.length && !pieces[0].text.trim()) pieces.shift();
+    while (pieces.length && !pieces[pieces.length - 1].text.trim()) pieces.pop();
+    if (!pieces.length) return;
+    pieces[0].text = pieces[0].text.replace(/^([ \t]*\r?\n)+/, "");
+    pieces[pieces.length - 1].text = pieces[pieces.length - 1].text.trimEnd();
+    const runs = pieces.map(({ quoted, text }) => ({ quoted, parts: mark(text) }));
+    blocks.push({ fold, lines, runs });
+  };
+  let open: TextSegment[] = [];
+  for (const segment of segments) {
+    if (segment.kind !== "text" && segment.folded) {
+      add(null, 0, open);
+      open = [];
+      add(segment.kind, segment.lines, [segment]);
+    } else {
+      open.push(segment);
+    }
+  }
+  add(null, 0, open);
+  return blocks;
+}
+
+/** A block's text, its quoted runs muted. */
+function BlockText({ runs }: { runs: Run[] }) {
+  return runs.map((run, index) =>
+    run.quoted ? (
+      <span key={index} className={styles.quoted}>
+        <MarkedParts parts={run.parts} />
+      </span>
+    ) : (
+      <MarkedParts key={index} parts={run.parts} />
+    ),
+  );
+}
+
+/** The text with quotes, originals, forwards and signatures folded as the server's segments say
+ *  (D151); a folded block holding a search word opens itself (D79). */
 function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
-  // null: as the hits suggest, open when only the quoted part holds a search word
-  const [showQuoted, setShowQuoted] = useState<boolean | null>(null);
-  const split = useMemo(() => splitQuoted(data.text), [data.text]);
-  const parts = useMemo(() => {
+  // the blocks opened or closed by hand, by index; the others as the hits suggest
+  const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const blocks = useMemo(() => {
     const mark = (text: string) => highlightParts(text, marks?.words ?? [], marks?.stems ?? []);
-    return split
-      ? { body: mark(split.body), quoted: mark(split.quoted) }
-      : { body: mark(data.text), quoted: [] };
-  }, [data.text, split, marks]);
+    return textBlocks(data.text, data.segments, mark);
+  }, [data.text, data.segments, marks]);
   if (data.source === "none" || !data.text.trim()) {
     return <p className={styles.note}>Diese Mail enthält keinen Text.</p>;
   }
-  const inBody = markCount(parts.body);
-  const inQuoted = markCount(parts.quoted);
-  const open = showQuoted ?? (inBody === 0 && inQuoted > 0);
+  const hits = blocks.map((block) =>
+    block.runs.reduce((sum, run) => sum + markCount(run.parts), 0),
+  );
+  const total = hits.reduce((sum, count) => sum + count, 0);
   return (
     <>
-      {(data.source === "text/html" || inBody + inQuoted > 0) && (
+      {(data.source === "text/html" || total > 0) && (
         <p className={styles.note}>
           {data.source === "text/html" && "aus HTML umgewandelt"}
-          {data.source === "text/html" && inBody + inQuoted > 0 && " · "}
-          {inBody + inQuoted > 0 && `${places(inBody + inQuoted)} markiert`}
+          {data.source === "text/html" && total > 0 && " · "}
+          {total > 0 && `${places(total)} markiert`}
         </p>
       )}
-      <div className={styles.text}>
-        <MarkedParts parts={parts.body} />
-      </div>
-      {split && (
-        <>
-          <div className={styles.quoteToggle}>
-            <button
-              type="button"
-              className={styles.linkButton}
-              aria-expanded={open}
-              onClick={() => setShowQuoted(!open)}
-            >
-              {open
-                ? "Zitierten Verlauf ausblenden"
-                : `Zitierten Verlauf einblenden (${formatNumber(split.quotedLines)} Zeilen${
-                    inQuoted > 0 ? `, ${places(inQuoted)}` : ""
-                  })`}
-            </button>
-          </div>
-          {open && (
-            <div className={`${styles.text} ${styles.quoted}`}>
-              <MarkedParts parts={parts.quoted} />
+      {blocks.map(({ fold, lines, runs }, index) => {
+        if (fold === null) {
+          return (
+            <div key={index} className={styles.text}>
+              <BlockText runs={runs} />
             </div>
-          )}
-        </>
-      )}
+          );
+        }
+        const open = toggled[index] ?? hits[index] > 0;
+        const counts = lineCount(lines) + (hits[index] > 0 ? `, ${places(hits[index])}` : "");
+        return (
+          <div key={index} className={styles.fold}>
+            <div className={styles.quoteToggle}>
+              <button
+                type="button"
+                className={styles.linkButton}
+                aria-expanded={open}
+                onClick={() => setToggled({ ...toggled, [index]: !open })}
+              >
+                {`${FOLD_LABELS[fold]} ${open ? "ausblenden" : "einblenden"} (${counts})`}
+              </button>
+            </div>
+            {open && (
+              <div className={styles.text}>
+                <BlockText runs={runs} />
+              </div>
+            )}
+          </div>
+        );
+      })}
       {data.truncated && (
         <p className={styles.note}>
           Der Text ist sehr lang und hier gekürzt; die EML-Datei enthält ihn vollständig.

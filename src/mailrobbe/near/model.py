@@ -2,6 +2,7 @@
 contract between the phase, the API and the dashboard."""
 
 import hashlib
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -10,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from mailrobbe import quotes
 from mailrobbe.db.models import GlobalStats
 
 Executor = AsyncSession | AsyncConnection
@@ -17,14 +19,39 @@ Executor = AsyncSession | AsyncConnection
 FIGURES_KEY = "near"  # global_stats key of NearFigures
 MIN_WORDS = 10  # a text with fewer words gets no fingerprint, so "Danke" never pairs (D152)
 
+# Reply and forward prefixes, also with a counter (AW[2]:, Re^2:), and list tags in brackets.
+_PREFIXES = re.compile(
+    r"(?:(?:re|aw|wg|fw|fwd|tr|sv|vs|antw|antwort)\s*(?:\[\d+\]|\(\d+\)|\^\d+)?\s*:"
+    r"|\[[^\]]*\])\s*",
+    re.I,
+)
+# A first line that only greets: the same text sent to several people one by one differs there.
+_GREETING = re.compile(
+    r"(?:hallo|hi|hey|liebe[rs]?|sehr geehrte[rs]?|guten (?:tag|morgen|abend)|dear|hello|moin"
+    r"|servus)\b.{0,60}",
+    re.I,
+)
+_WORD = re.compile(r"[^\W_]+")  # letters and digits
+
 
 def fingerprint_text(subject: str | None, text: str | None) -> str | None:
     """What two near duplicates have in common (D152): the subject without reply and forward
-    prefixes and list tags, and the text with quote markers, the header block of a forwarded or
-    original message and a first greeting line removed, case folded, words of letters and
-    digits joined by single spaces. A text whose own part is empty (a forward or quote without
-    a word added) gives what it forwards. None when the text has fewer than MIN_WORDS words."""
-    raise NotImplementedError("milestone 14: near duplicates")
+    prefixes and list tags, and the text with quote markers, the attributions and the header
+    blocks of forwarded or original messages removed (quotes.unquoted_lines) and a first
+    greeting line, case folded, words of letters and digits joined by single spaces. So a text
+    without a word of its own (a forward or quote) gives what it forwards. None when the text
+    has fewer than MIN_WORDS words."""
+    lines = quotes.unquoted_lines(text or "")
+    first = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first is not None and _GREETING.fullmatch(lines[first].strip()):
+        del lines[first]
+    words = _WORD.findall("\n".join(lines).casefold())
+    if len(words) < MIN_WORDS:
+        return None
+    title = (subject or "").strip()
+    while match := _PREFIXES.match(title):
+        title = title[match.end() :]
+    return " ".join(_WORD.findall(title.casefold())) + "\n" + " ".join(words)
 
 
 def fingerprint(subject: str | None, text: str | None) -> bytes | None:

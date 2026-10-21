@@ -67,9 +67,7 @@ describe("mail detail", () => {
 
     expect(await screen.findByText(/Hallo Herr Brandt, hallo Herr Hofmann/)).toBeTruthy();
     expect(screen.queryByText(/danke für den Entwurf/)).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Zitierten Verlauf einblenden (7 Zeilen)" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Zitat einblenden (5 Zeilen)" }));
     expect(screen.getByText(/danke für den Entwurf/)).toBeTruthy();
 
     await waitFor(() => expect(screen.getByText("Treffer 1 von 1.207")).toBeTruthy());
@@ -121,12 +119,12 @@ describe("mail detail", () => {
     expect(calls.find((call) => call.url.pathname.endsWith("/hits"))!.url.search).toBe(
       "?q=Haftung",
     );
-    // The stem marks the longer word in the text; the quoted part has one more place.
+    // The stem marks the longer word in the text; the quoted part has one more place and opens.
     expect(await screen.findByText("2 Fundstellen markiert")).toBeTruthy();
     expect(screen.getByText("Haftungsklausel").tagName).toBe("MARK");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Zitierten Verlauf einblenden (7 Zeilen, 1 Fundstelle)" }),
-    );
+    expect(
+      screen.getByRole("button", { name: "Zitat ausblenden (5 Zeilen, 1 Fundstelle)" }),
+    ).toBeTruthy();
     const quoted = screen.getByText(/danke für den Entwurf/);
     expect(within(quoted).getByText("Haftung").tagName).toBe("MARK");
 

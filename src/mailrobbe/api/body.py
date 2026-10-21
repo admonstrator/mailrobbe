@@ -2,8 +2,9 @@
 
 text is the part the importer indexes, chosen and decoded by the importer's own functions
 (importer.parse.mime_parts, part_text), so the detail shows what the full text index holds, but
-up to TEXT_LIMIT characters instead of the index's 50,000. html is the first HTML part in the
-same order, for a sandboxed iframe. headers and raw show the message as it is.
+up to TEXT_LIMIT characters instead of the index's 50,000, with its segments (quotes.split_text,
+D151) for the folded view. html is the first HTML part in the same order, for a sandboxed iframe.
+headers and raw show the message as it is.
 
 Messages are parsed with the compat32 policy, as the importer parses them; issues found while
 decoding are not reported here (the importer has logged them in import_error).
@@ -20,10 +21,12 @@ from mailrobbe.api.schemas import (
     MailHeaders,
     MailRaw,
     MailText,
+    TextSegment,
 )
 from mailrobbe.importer import text
 from mailrobbe.importer.model import Issue
 from mailrobbe.importer.parse import cut_at_line, mime_parts, part_payload, part_text
+from mailrobbe.quotes import split_text
 
 _PARSER = email.parser.BytesParser(policy=email.policy.compat32)
 _HEADER_PARSER = email.parser.BytesHeaderParser(policy=email.policy.compat32)
@@ -44,6 +47,16 @@ def mail_text(message: bytes) -> MailText:
         truncated=truncated,
         source="text/plain" if content_type == "text/plain" else "text/html",
         has_html=has_html,
+        segments=[
+            TextSegment(
+                kind=segment.kind,
+                start=segment.start,
+                end=segment.end,
+                lines=segment.lines,
+                folded=segment.folded,
+            )
+            for segment in split_text(body)
+        ],
     )
 
 

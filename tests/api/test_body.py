@@ -3,7 +3,7 @@
 import base64
 
 from mailrobbe.api import body
-from mailrobbe.api.schemas import RAW_LIMIT, TEXT_LIMIT, HeaderField
+from mailrobbe.api.schemas import RAW_LIMIT, TEXT_LIMIT, HeaderField, TextSegment
 
 HEAD = (
     b"From: Eva Berg <eva@nordwind.example>\nTo: max@elbtal.example\n"
@@ -95,6 +95,25 @@ def test_long_texts_are_cut_at_the_limit() -> None:
     assert (len(long.text), long.truncated) == (TEXT_LIMIT, True)
     exact = body.mail_text(_mail(b"text/plain", b"y" * (TEXT_LIMIT - 1) + b"\n"))
     assert (len(exact.text), exact.truncated) == (TEXT_LIMIT, False)
+
+
+def test_the_text_comes_with_its_segments() -> None:
+    reply = "Passt.\n\nAm 1.3.2019 um 10:12 schrieb Eva:\n> Treffen am Montag?\n"
+    text = body.mail_text(_mail(b"text/plain; charset=utf-8", reply.encode()))
+    assert text.segments == [
+        TextSegment(kind="text", start=0, end=8, lines=1, folded=False),
+        TextSegment(kind="quote", start=8, end=len(reply), lines=2, folded=True),
+    ]
+    html = b"<p>Ok.</p><p>-----Original Message-----<br>From: Eva<br>Sent: Monday</p><p>alt</p>"
+    converted = body.mail_text(_mail(b"text/html; charset=utf-8", html))
+    assert [(s.kind, s.folded) for s in converted.segments] == [
+        ("text", False),
+        ("original", True),
+    ]
+    assert converted.text[converted.segments[1].start :].startswith("-----Original Message")
+    assert body.mail_text(_mail(b"text/plain", b"")).segments == [
+        TextSegment(kind="text", start=0, end=0, lines=0, folded=False)
+    ]
 
 
 def test_html_is_the_first_html_part_decoded() -> None:
