@@ -119,5 +119,7 @@ async def test_job_alive_sees_the_lock_of_another_connection(
 
 def test_lock_keys_differ_from_the_other_advisory_locks() -> None:
     others = {int.from_bytes(name, "big") for name in (b"mr_edges", b"mrglobal", b"mrperson")}
-    assert len(set(jobs.LOCK_KEYS.values())) == len(jobs.LOCK_KEYS)
+    # one lock per kind, except that a dkim-keys run shares the DKIM lock (D101)
+    assert len(set(jobs.LOCK_KEYS.values())) == len(jobs.LOCK_KEYS) - 1
+    assert jobs.LOCK_KEYS[JobKind.DKIM_KEYS] == jobs.LOCK_KEYS[JobKind.DKIM]
     assert not others & set(jobs.LOCK_KEYS.values())

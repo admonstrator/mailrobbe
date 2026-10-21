@@ -1,13 +1,22 @@
 import { useState } from "react";
+import { Link } from "react-router";
 
 import { useMailBody, useRecheckDkim } from "../../api/queries";
-import type { DkimSignature, MailDetail } from "../../api/types";
+import type { DkimKeyInfo, DkimSignature, MailDetail } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
+import { KeyOriginBadge } from "../../components/KeyOriginBadge";
+import { ShortHash } from "../../components/ShortHash";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
-import { DKIM_REASON_TEXTS } from "../../lib/dkim";
-import { formatDateTime, formatDuration } from "../../lib/format";
+import {
+  CONSISTENT_TEXT,
+  DKIM_REASON_TEXTS,
+  evidenceLine,
+  keyName,
+  selectorPath,
+} from "../../lib/dkim";
+import { formatDateTime, formatDuration, formatNumber } from "../../lib/format";
 import styles from "./DkimCard.module.css";
 import { sourceErrorText } from "./errors";
 
@@ -81,13 +90,24 @@ function SignatureBlock({
   const algorithm = [signature.algorithm, signature.key_bits && `${signature.key_bits} Bit`]
     .filter(Boolean)
     .join(" · ");
+  const name = keyName(signature.selector, signature.domain);
+  // The selector page lists the names whose signatures lack a key, or no longer fit the key
+  // published today; a key from another source links to it in its own block.
+  const selectorLink =
+    name !== null &&
+    signature.key === null &&
+    (signature.status === "no_key" ||
+      (signature.reason === "signature_mismatch" && signature.body_hash_ok === true));
   return (
     <div className={styles.signature}>
       {number !== null && <h3 className={styles.number}>Signatur {number}</h3>}
       <div className={styles.tiles}>
         <div className={styles.tile}>
           <span className={styles.tileLabel}>Ergebnis</span>
-          <span className={cx(styles.result, styles[signature.status])}>{signature.status}</span>
+          <span className={styles.resultLine}>
+            <span className={cx(styles.result, styles[signature.status])}>{signature.status}</span>
+            {signature.key_origin && <KeyOriginBadge origin={signature.key_origin} />}
+          </span>
         </div>
         <div className={styles.tile}>
           <span className={styles.tileLabel}>Domain (d=)</span>
@@ -125,9 +145,43 @@ function SignatureBlock({
       {signature.reason && (
         <p className={cx(styles.reason, styles[`reason_${signature.status}`])}>
           {DKIM_REASON_TEXTS[signature.reason]}
+          {selectorLink && (
+            <>
+              {" · "}
+              <Link to={selectorPath(name)} className={styles.reasonLink}>
+                Selektor ansehen
+              </Link>
+            </>
+          )}
         </p>
       )}
+      {signature.status === "consistent" && (
+        <p className={cx(styles.reason, styles.reason_consistent)}>{CONSISTENT_TEXT}</p>
+      )}
+      {signature.key && <KeyBlock dkimKey={signature.key} />}
       <SignatureSource mailId={mailId} signature={signature} />
+    </div>
+  );
+}
+
+/** The key from another source than today's DNS that verified the signature (D100): its
+ *  SHA-256, size, evidence in one line each and the way to everything about its name. */
+function KeyBlock({ dkimKey: key }: { dkimKey: DkimKeyInfo }) {
+  return (
+    <div className={styles.key}>
+      <div className={styles.keyHead}>
+        <span className={styles.muted}>Schlüssel</span>
+        <ShortHash hash={key.key_sha256} copy />
+        <span>{`${key.key_type.toUpperCase()} · ${formatNumber(key.bits)} Bit`}</span>
+        <Link to={selectorPath(key.name)} className={styles.keyLink}>
+          Selektor ansehen
+        </Link>
+      </div>
+      <ul className={styles.evidence} aria-label="Belege">
+        {key.evidence.map((evidence) => (
+          <li key={evidence.id}>{evidenceLine(evidence)}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -140,10 +194,7 @@ function SignatureSource({ mailId, signature }: { mailId: number; signature: Dki
   const field = headers.data?.headers.filter(
     (header) => header.name.toLowerCase() === "dkim-signature",
   )[signature.index];
-  const recordName =
-    signature.selector && signature.domain
-      ? `${signature.selector}._domainkey.${signature.domain}`.toLowerCase()
-      : null;
+  const recordName = keyName(signature.selector, signature.domain);
 
   return (
     <details className={styles.details} onToggle={(event) => setOpen(event.currentTarget.open)}>

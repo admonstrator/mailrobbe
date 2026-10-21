@@ -41,6 +41,12 @@ export const STEP_LABELS: Record<string, string> = {
   attachments: "Text aus Anhängen lesen",
   entities: "Entitäten erkennen",
   check: "Signaturen prüfen",
+  // dkim-keys runs (D101)
+  select: "Selektoren auswählen",
+  reconstruct: "Schlüssel rekonstruieren",
+  search: "Archivtexte nach Schlüsseln durchsuchen",
+  fetch: "Schlüsselarchiv abfragen",
+  compare: "Mit anderen Quellen abgleichen",
 };
 
 export const stepLabel = (key: string) => STEP_LABELS[key] ?? key;
@@ -48,6 +54,8 @@ export const stepLabel = (key: string) => STEP_LABELS[key] ?? key;
 const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string, of: string]> = {
   mails: ["Mail", "Mails", "Mails"],
   documents: ["Dokument", "Dokumente", "Dokumenten"],
+  names: ["Selektor", "Selektoren", "Selektoren"],
+  domains: ["Domain", "Domains", "Domains"],
 };
 
 const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
@@ -66,7 +74,9 @@ function amount(unit: StepUnit, done: number, total: number | null): string {
 
 function rateText(unit: StepUnit, rate: number): string {
   if (unit === "bytes") return `${formatBytes(rate)}/s`;
-  return `${rateNumber(rate)} ${unit === "mails" ? "Mails" : "Dokumente"}/s`;
+  const many = UNIT_TEXTS[unit][1];
+  // A key reconstruction takes about a minute per name, which per second would read "0".
+  return rate < 0.1 ? `${rateNumber(rate * 60)} ${many}/min` : `${rateNumber(rate)} ${many}/s`;
 }
 
 /** What a step did or does, after its label: "1.200 von 5.000 Dokumenten · 40 Dokumente/s ·

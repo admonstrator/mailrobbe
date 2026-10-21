@@ -109,3 +109,8 @@ export function apiDelete(path: string): Promise<void> {
 export function attachmentContentUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/content`;
 }
+
+/** A key source's answer as it came, stored with its SHA-256 (D101): a download. */
+export function lookupRawUrl(lookupId: number): string {
+  return `/api/dkim/lookups/${lookupId}/raw`;
+}

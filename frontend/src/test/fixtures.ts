@@ -7,6 +7,8 @@ import type {
   Contact,
   ContactPage,
   DkimJob,
+  DkimKeyInfo,
+  DkimKeysJob,
   DkimStatus,
   DocumentDetail,
   DocumentListItem,
@@ -35,6 +37,7 @@ import type {
   ImportStatus,
   ImportSummary,
   ImportTotals,
+  KeyArchivePreview,
   MailDetail,
   MailHeaders,
   MailHits,
@@ -62,6 +65,9 @@ import type {
   PersonRef,
   PersonSummary,
   ScanResult,
+  SelectorDetail,
+  SelectorItem,
+  SelectorSummary,
   Stats,
   StepProgress,
   SuggestionPage,
@@ -91,7 +97,15 @@ export const stats: Stats = {
   domains: 1284,
   date_min: "2014-03-02T07:11:00Z",
   date_max: "2026-10-18T12:32:07Z",
-  dkim: { pass: 268410, fail: 3117, no_key: 91204, unsigned: 49587, temp_error: 0, unchecked: 0 },
+  dkim: {
+    pass: 268410,
+    consistent: 0,
+    fail: 3117,
+    no_key: 91204,
+    unsigned: 49587,
+    temp_error: 0,
+    unchecked: 0,
+  },
   sender_domains: [
     { domain: "nordlicht-gmbh.example", mails: 88120 },
     { domain: "stadtwerke-beispiel.example", mails: 41933 },
@@ -143,7 +157,15 @@ export const summaryAll: MailSummary = {
 export const summaryFiltered: MailSummary = {
   total: 1207,
   exact: true,
-  dkim: { pass: 786, fail: 9, no_key: 401, unsigned: 11, temp_error: 0, unchecked: 0 },
+  dkim: {
+    pass: 786,
+    consistent: 0,
+    fail: 9,
+    no_key: 401,
+    unsigned: 11,
+    temp_error: 0,
+    unchecked: 0,
+  },
   persons: 214,
   domains: 38,
   date_min: "2019-01-14T08:03:00Z",
@@ -341,6 +363,8 @@ export const mailDetail: MailDetail = {
         dns_record: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1Q",
         dns_fetched_at: "2026-10-19T13:00:00Z",
         dns_ttl: 43200,
+        key_origin: "dns",
+        key: null,
       },
     ],
   },
@@ -1189,6 +1213,7 @@ export const importStatus: ImportStatus = {
   import_job: importJob,
   dkim_job: dkimJobDone,
   defaults: importDefaults,
+  keys_job: null,
 };
 
 const pausedFiles = importFiles.map((file) =>
@@ -1243,6 +1268,7 @@ export const importSummary: ImportSummary = {
   duplicates: 1_912,
   dkim: {
     pass: 190_412,
+    consistent: 0,
     fail: 2_203,
     no_key: 64_790,
     unsigned: 35_341,
@@ -1742,6 +1768,383 @@ export const documentMailPage: MailPage = {
   next_cursor: null,
   prev_cursor: null,
   query_terms: [],
+};
+
+// Keys of deleted selectors (D100 to D104) ------------------------------------------------------
+// s2019 at Nordlicht is resolved: a key reconstructed from two signatures verifies 412 of its
+// signatures, and Lena Vogt added a key from the IT wiki that verifies none. 56 more names
+// are open, so the list has two pages.
+
+export const s2019Name = "s2019._domainkey.nordlicht-gmbh.example";
+
+export const reconstructedKey: DkimKeyInfo = {
+  id: 31,
+  name: s2019Name,
+  key_type: "rsa",
+  bits: 2048,
+  key_sha256: "9c1e5f0a7b3d4e2f8a6c0b1d9e7f5a3c2b4d6e8f0a1c3e5b7d9f2a4c6e8b0d1f",
+  record: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx3RkZ1",
+  origin: "reconstructed",
+  factorable: false,
+  signatures: 412,
+  evidence: [
+    {
+      id: 61,
+      origin: "reconstructed",
+      source: "reconstruction",
+      lookup_id: 501,
+      asked_at: "2026-10-21T09:38:00Z",
+      observed_from: null,
+      observed_to: null,
+      reference: null,
+      note: null,
+      editor: null,
+      raw_sha256: null,
+      raw_size: null,
+      signatures: [
+        {
+          mail_id: 152004,
+          mail_sha256: "51d0c3a9e8f7b6a5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1",
+          signature_index: 0,
+        },
+        {
+          mail_id: null,
+          mail_sha256: "07aa1e2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7",
+          signature_index: 1,
+        },
+      ],
+    },
+  ],
+};
+
+export const manualKey: DkimKeyInfo = {
+  id: 32,
+  name: s2019Name,
+  key_type: "rsa",
+  bits: 1024,
+  key_sha256: "4b7a2c9d0e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b",
+  record: "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC5",
+  origin: "documented",
+  factorable: false,
+  signatures: 0,
+  evidence: [
+    {
+      id: 62,
+      origin: "documented",
+      source: "manual",
+      lookup_id: 502,
+      asked_at: "2026-10-21T10:15:00Z",
+      observed_from: "2019-03-01T00:00:00Z",
+      observed_to: null,
+      reference: "https://wiki.nordlicht-gmbh.example/it/dkim",
+      note: "Aus der IT-Dokumentation, Stand März 2019.",
+      editor: "Lena Vogt",
+      raw_sha256: "c0ffee1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      raw_size: 48_213,
+      signatures: [],
+    },
+  ],
+};
+
+export const selectorDetail: SelectorDetail = {
+  name: s2019Name,
+  domain: "nordlicht-gmbh.example",
+  selector: "s2019",
+  dns_status: "not_found",
+  dns_record: null,
+  dns_fetched_at: "2026-10-20T01:14:00Z",
+  signatures: 415,
+  mails: 415,
+  statuses: { consistent: 412, no_key: 3 },
+  rsa_signatures: 415,
+  first_signed: "2019-02-11T08:00:00Z",
+  last_signed: "2020-12-30T17:00:00Z",
+  keys: [manualKey, reconstructedKey],
+  lookups: [
+    {
+      id: 503,
+      source: "zkemail",
+      query: "https://archive.zk.email/api/key?domain=nordlicht-gmbh.example",
+      domain: "nordlicht-gmbh.example",
+      name: null,
+      asked_at: "2026-10-21T10:30:00Z",
+      outcome: "not_found",
+      http_status: 200,
+      raw_sha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      raw_size: 2,
+      raw_type: "application/json",
+      raw_name: null,
+      message: null,
+      tool_version: "0.10.0",
+      editor: null,
+      keys: 0,
+    },
+    {
+      id: 502,
+      source: "manual",
+      query: s2019Name,
+      domain: "nordlicht-gmbh.example",
+      name: s2019Name,
+      asked_at: "2026-10-21T10:15:00Z",
+      outcome: "found",
+      http_status: null,
+      raw_sha256: manualKey.evidence[0].raw_sha256,
+      raw_size: 48_213,
+      raw_type: "application/pdf",
+      raw_name: "dkim-2019.pdf",
+      message: null,
+      tool_version: "0.10.0",
+      editor: "Lena Vogt",
+      keys: 1,
+    },
+    {
+      id: 501,
+      source: "reconstruction",
+      query: s2019Name,
+      domain: "nordlicht-gmbh.example",
+      name: s2019Name,
+      asked_at: "2026-10-21T09:38:00Z",
+      outcome: "found",
+      http_status: null,
+      raw_sha256: null,
+      raw_size: null,
+      raw_type: null,
+      raw_name: null,
+      message: "modulus from 2 signatures, e=65537",
+      tool_version: "0.10.0",
+      editor: null,
+      keys: 1,
+    },
+  ],
+  recent_mails: [
+    {
+      id: 170311,
+      date: "2020-12-30T17:00:05Z",
+      subject: "Jahresabschluss 2020 – Unterlagen",
+      sender: anna,
+      signature_index: 0,
+      status: "consistent",
+      reason: null,
+      key_origin: "reconstructed",
+      key_id: 31,
+      signed_at: "2020-12-30T17:00:00Z",
+    },
+    {
+      id: 169870,
+      date: "2020-11-02T10:12:00Z",
+      subject: "AW: Spendenquittungen",
+      sender: lukas,
+      signature_index: 0,
+      status: "no_key",
+      reason: "key_mismatch",
+      key_origin: null,
+      key_id: null,
+      signed_at: "2020-11-02T10:11:58Z",
+    },
+    {
+      id: 152004,
+      date: "2019-02-11T08:00:04Z",
+      subject: null,
+      sender: null,
+      signature_index: 1,
+      status: "consistent",
+      reason: null,
+      key_origin: "reconstructed",
+      key_id: 31,
+      signed_at: "2019-02-11T08:00:00Z",
+    },
+  ],
+};
+
+const selectorItem = (
+  selector: string,
+  domain: string,
+  mails: number,
+  patch: Partial<SelectorItem> = {},
+): SelectorItem => ({
+  name: `${selector}._domainkey.${domain}`,
+  domain,
+  selector,
+  signatures: mails,
+  mails,
+  statuses: { no_key: mails },
+  rsa_signatures: mails,
+  first_signed: "2016-04-02T09:00:00Z",
+  last_signed: "2018-11-20T16:30:00Z",
+  keys: 0,
+  best_origin: null,
+  dns_status: "not_found",
+  ...patch,
+});
+
+/** Most mails first, as the API sorts them. */
+export const selectorItems: SelectorItem[] = [
+  selectorItem("s2019", "nordlicht-gmbh.example", 415, {
+    statuses: selectorDetail.statuses,
+    first_signed: selectorDetail.first_signed,
+    last_signed: selectorDetail.last_signed,
+    keys: 2,
+    best_origin: "documented",
+  }),
+  ...Array.from({ length: 54 }, (_, index) =>
+    selectorItem(`mx${index + 1}`, `archiv-${index + 1}.example`, 300 - index * 5),
+  ),
+  selectorItem("google", "stadtwerke-beispiel.example", 30, {
+    statuses: { fail: 30 },
+    dns_status: "found",
+  }),
+  selectorItem("k1", "verein-nord.example", 1, {
+    rsa_signatures: 1,
+    first_signed: "2017-06-01T12:00:00Z",
+    last_signed: "2017-06-01T12:00:00Z",
+    dns_status: null,
+  }),
+];
+
+export const selectorSummary: SelectorSummary = {
+  names_missing: 178,
+  mails_missing: 8_622,
+  reconstructable: 164,
+  names_resolved: 12,
+  mails_consistent: 5_336,
+  keys: { dns: 0, observed: 3, documented: 1, reconstructed: 11 },
+  factorable: 1,
+  signatures: { dns: 190_412, observed: 140, documented: 0, reconstructed: 5_336 },
+  lookups: { reconstruction: 12, archive_text: 1, manual: 1, zkemail: 4, dns: 0 },
+  last_lookup_at: "2026-10-21T10:30:00Z",
+};
+
+/** A key archive on this machine, which is asked for reserved domains too (D102). */
+export const archivePreview: KeyArchivePreview = {
+  url: "http://127.0.0.1:8200",
+  domains: [
+    {
+      domain: "nordlicht-gmbh.example",
+      names: 4,
+      mails: 6_210,
+      last_asked_at: "2026-10-01T10:00:00Z",
+    },
+    { domain: "stadtwerke-beispiel.example", names: 2, mails: 1_904, last_asked_at: null },
+    { domain: "verein-nord.example", names: 1, mails: 1, last_asked_at: null },
+  ],
+  skipped: [],
+};
+
+/** The public archive: every domain of a generated archive is reserved, so none goes out. */
+export const archivePreviewPublic: KeyArchivePreview = {
+  url: "https://archive.zk.email",
+  domains: [],
+  skipped: ["nordlicht-gmbh.example", "stadtwerke-beispiel.example"],
+};
+
+/** A reconstruction of every concerned name from the dashboard, half through. */
+export const keysJobRunning: DkimKeysJob = {
+  id: 11,
+  kind: "dkim_keys",
+  origin: "ui",
+  status: "running",
+  alive: true,
+  stop_requested: false,
+  started_at: "2026-10-21T09:30:00Z",
+  updated_at: "2026-10-21T09:41:12Z",
+  report_age_seconds: 1.4,
+  finished_at: null,
+  message: null,
+  leftover: null,
+  phase: "reconstruct",
+  options: { task: "reconstruct", names: [], domains: [], workers: 4, archive_url: null },
+  progress: {
+    workers: 4,
+    names: 164,
+    keys_found: 37,
+    factorable: 0,
+    mails_checked: 0,
+    mails_changed: 0,
+    steps: [
+      {
+        key: "select",
+        status: "done",
+        unit: "names",
+        done: 164,
+        total: 164,
+        started_at: "2026-10-21T09:30:00Z",
+        seconds: 4,
+        rate: null,
+        eta_seconds: null,
+      },
+      {
+        key: "reconstruct",
+        status: "running",
+        unit: "names",
+        done: 41,
+        total: 164,
+        started_at: "2026-10-21T09:30:04Z",
+        seconds: 668,
+        rate: 0.06,
+        eta_seconds: 2050,
+      },
+      ...["compare", "check", "edges", "person_stats", "suggestions", "global_stats"].map(
+        waitingStep,
+      ),
+    ],
+    database: null,
+  },
+};
+
+export const keysJobDone: DkimKeysJob = {
+  ...keysJobRunning,
+  status: "done",
+  alive: false,
+  updated_at: "2026-10-21T10:02:40Z",
+  finished_at: "2026-10-21T10:02:40Z",
+  message: "152 keys for 164 names; 9212 of 9859 mails changed",
+  phase: "aggregates",
+  progress: {
+    workers: 0,
+    names: 164,
+    keys_found: 152,
+    factorable: 1,
+    mails_checked: 9_859,
+    mails_changed: 9_212,
+    steps: [],
+    database: null,
+  },
+};
+
+/** A mail of s2019 whose first signature only the reconstructed key verifies; its second, from
+ *  a list server, has lost its key. */
+export const mailDetailKeys: MailDetail = {
+  ...mailDetail,
+  id: 170311,
+  subject: "Jahresabschluss 2020 – Unterlagen",
+  dkim: {
+    status: "consistent",
+    signatures: [
+      {
+        ...mailDetail.dkim.signatures[0],
+        status: "consistent",
+        domain: "nordlicht-gmbh.example",
+        selector: "s2019",
+        signed_at: "2020-12-30T17:00:00Z",
+        dns_cached: true,
+        dns_record: null,
+        key_origin: "reconstructed",
+        key: reconstructedKey,
+      },
+      {
+        ...mailDetail.dkim.signatures[0],
+        index: 1,
+        status: "no_key",
+        reason: "key_not_found",
+        domain: "verteiler-nord.example",
+        selector: "list",
+        aligned: false,
+        dns_record: null,
+        key_origin: null,
+        key: null,
+      },
+    ],
+  },
 };
 
 // Timeline (D90 to D94) -----------------------------------------------------------------------
