@@ -6,7 +6,8 @@ export const PAGE_SIZE = 50;
 export const RECIPIENT_PREVIEW = 3;
 export const NOTE_LIMIT = 10_000;
 
-export type DkimStatus = "pass" | "fail" | "no_key" | "unsigned" | "temp_error";
+/** consistent: verified only with a reconstructed key, which binds it to no domain (D100). */
+export type DkimStatus = "pass" | "consistent" | "fail" | "no_key" | "unsigned" | "temp_error";
 /** Filter and count keys: the statuses plus "unchecked" for mails not checked yet. */
 export type DkimKey = DkimStatus | "unchecked";
 export type DkimCounts = Record<DkimKey, number>;
@@ -22,6 +23,7 @@ export type DkimReason =
   | "message_malformed"
   | "key_not_found"
   | "key_revoked"
+  | "key_mismatch"
   | "dns_timeout"
   | "dns_offline";
 
@@ -71,7 +73,9 @@ export type ErrorCode =
   | "invalid_selection"
   | "empty_selection"
   | "too_many_mails"
-  | "ambiguous_permalink";
+  | "ambiguous_permalink"
+  | "invalid_key" // 400: no DKIM key name, or a record without a usable key (D103)
+  | "archive_off"; // 409: the key archive is switched off
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -241,6 +245,10 @@ export interface DkimSignature {
   dns_record: string | null;
   dns_fetched_at: string | null;
   dns_ttl: number | null;
+  /** Origin of the key the result rests on (D100); null when it rests on none. */
+  key_origin: KeyOrigin | null;
+  /** The key from another source that verified it; null for today's DNS. */
+  key: DkimKeyInfo | null;
 }
 
 export interface MailDkim {
@@ -571,7 +579,7 @@ export interface GraphSize {
 
 export const ERROR_PAGE_SIZE = 50;
 
-export type JobKind = "import" | "dkim";
+export type JobKind = "import" | "dkim" | "dkim_keys";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
 export type ImportPhase = "scan" | "headers" | "import" | "finalize" | "attachments";
@@ -663,6 +671,14 @@ export interface DkimJob extends JobInfo {
   progress: DkimProgress;
 }
 
+/** A run of `mailrobbe dkim-keys` (D101). */
+export interface DkimKeysJob extends JobInfo {
+  kind: "dkim_keys";
+  phase: DkimKeysPhase | null;
+  options: DkimKeysOptions;
+  progress: DkimKeysProgress;
+}
+
 export interface ImportTotals {
   files: number;
   done: number;
@@ -685,6 +701,7 @@ export interface ImportStatus {
   import_job: ImportJob | null;
   dkim_job: DkimJob | null;
   defaults: ImportOptions;
+  keys_job: DkimKeysJob | null; // the latest dkim-keys run (D101)
 }
 
 export interface FailReasonCount {
@@ -1077,4 +1094,193 @@ export interface DocumentText {
   text: string;
   truncated: boolean;
   text_status: DocumentTextStatus;
+}
+
+// Keys of deleted selectors (D100 to D104) ------------------------------------------------------
+// A key name is "<selector>._domainkey.<domain>", lowercase. A name is "concerned" when it has
+// signatures that are no_key, or fail with signature_mismatch and an intact body.
+
+export const SELECTOR_MAILS_LIMIT = 200;
+export const EVIDENCE_FILE_LIMIT = 10 * 1024 ** 2; // bytes
+
+/** Strongest first: today's DNS, seen in DNS by a third party, in a document, reconstructed. */
+export type KeyOrigin = "dns" | "observed" | "documented" | "reconstructed";
+export type KeyLookupSource = "reconstruction" | "archive_text" | "manual" | "zkemail" | "dns";
+export type LookupOutcome = "found" | "not_found" | "error";
+export type DkimKeysTask = "reconstruct" | "search" | "fetch" | "check";
+export type DkimKeysPhase =
+  "select" | "reconstruct" | "search" | "fetch" | "compare" | "check" | "aggregates";
+export type SelectorFilter = "open" | "resolved" | "all";
+
+export interface DkimKeysOptions {
+  task: DkimKeysTask;
+  names: string[]; // empty: every name concerned
+  domains: string[]; // fetch; empty: every domain concerned
+  workers: number;
+  archive_url: string | null; // fetch: the key archive asked
+}
+
+/** Done, total, rate and remaining time of the phases come with the run's progress steps. */
+export interface DkimKeysProgress {
+  workers: number;
+  names: number; // key names the run works on
+  keys_found: number;
+  factorable: number;
+  mails_checked: number;
+  mails_changed: number;
+}
+
+export interface UsedSignature {
+  mail_id: number | null; // null: no mail has this content any more
+  mail_sha256: string;
+  signature_index: number;
+}
+
+export interface KeyEvidenceInfo {
+  id: number;
+  origin: KeyOrigin;
+  source: KeyLookupSource;
+  lookup_id: number;
+  asked_at: string; // when Mailrobbe asked, or the key was entered
+  observed_from: string | null; // the source's own times
+  observed_to: string | null;
+  reference: string | null; // URL, /m/<hash>, /anhaenge/<id>, file name
+  note: string | null;
+  editor: string | null;
+  raw_sha256: string | null; // GET /api/dkim/lookups/{lookup_id}/raw
+  raw_size: number | null;
+  signatures: UsedSignature[]; // reconstruction: the signatures used
+}
+
+export interface DkimKeyInfo {
+  id: number;
+  name: string;
+  key_type: string; // rsa or ed25519
+  bits: number;
+  key_sha256: string;
+  record: string;
+  origin: KeyOrigin; // the strongest of its evidence
+  factorable: boolean; // never used to verify
+  signatures: number; // signatures it verified
+  evidence: KeyEvidenceInfo[]; // strongest first, then oldest
+}
+
+export interface SelectorListParams {
+  q?: string;
+  show?: SelectorFilter;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SelectorItem {
+  name: string;
+  domain: string;
+  selector: string;
+  signatures: number;
+  mails: number;
+  statuses: Partial<Record<DkimStatus, number>>; // only statuses present
+  rsa_signatures: number; // reconstructable from 2 on
+  first_signed: string | null;
+  last_signed: string | null;
+  keys: number;
+  best_origin: KeyOrigin | null;
+  dns_status: DnsStatus | null; // null: not asked yet
+}
+
+export interface SelectorPage {
+  items: SelectorItem[];
+  total: number;
+}
+
+export interface SelectorSummary {
+  names_missing: number;
+  mails_missing: number;
+  reconstructable: number;
+  names_resolved: number;
+  mails_consistent: number;
+  keys: Record<KeyOrigin, number>;
+  factorable: number;
+  signatures: Record<KeyOrigin, number>;
+  lookups: Record<KeyLookupSource, number>;
+  last_lookup_at: string | null;
+}
+
+export interface KeyLookupInfo {
+  id: number;
+  source: KeyLookupSource;
+  query: string;
+  domain: string | null;
+  name: string | null;
+  asked_at: string;
+  outcome: LookupOutcome;
+  http_status: number | null;
+  raw_sha256: string | null;
+  raw_size: number | null;
+  raw_type: string | null;
+  raw_name: string | null;
+  message: string | null; // English
+  tool_version: string;
+  editor: string | null;
+  keys: number;
+}
+
+export interface SelectorMail {
+  id: number;
+  date: string | null;
+  subject: string | null;
+  sender: PersonRef | null;
+  signature_index: number;
+  status: DkimStatus;
+  reason: DkimReason | null;
+  key_origin: KeyOrigin | null;
+  key_id: number | null;
+  signed_at: string | null;
+}
+
+export interface SelectorDetail {
+  name: string;
+  domain: string;
+  selector: string;
+  dns_status: DnsStatus | null;
+  dns_record: string | null;
+  dns_fetched_at: string | null;
+  signatures: number;
+  mails: number;
+  statuses: Partial<Record<DkimStatus, number>>;
+  rsa_signatures: number;
+  first_signed: string | null;
+  last_signed: string | null;
+  keys: DkimKeyInfo[]; // strongest first
+  lookups: KeyLookupInfo[]; // newest first
+  recent_mails: SelectorMail[]; // newest first, at most SELECTOR_MAILS_LIMIT
+}
+
+export interface ManualKeyRequest {
+  record: string; // the TXT record, or only the p= value
+  reference: string;
+  note?: string;
+  observed_from?: string | null;
+  observed_to?: string | null;
+  file_name?: string | null;
+  file_base64?: string | null; // at most EVIDENCE_FILE_LIMIT bytes decoded
+}
+
+export interface ArchiveDomain {
+  domain: string;
+  names: number;
+  mails: number;
+  last_asked_at: string | null;
+}
+
+export interface KeyArchivePreview {
+  url: string | null; // null: switched off
+  domains: ArchiveDomain[]; // most mails first
+  skipped: string[]; // reserved TLDs, sent only to an archive on this machine
+}
+
+export interface DkimKeysRunRequest {
+  task: DkimKeysTask;
+  names?: string[];
+  domains?: string[];
+  workers?: number | null;
 }

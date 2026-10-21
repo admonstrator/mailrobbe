@@ -35,7 +35,12 @@ RATE_WINDOW = 60.0  # seconds the throughput figures average over
 # Session-level advisory locks held by a run from start to end: one run per kind at a time.
 IMPORT_LOCK_KEY = int.from_bytes(b"mailrobb", "big")
 DKIM_LOCK_KEY = int.from_bytes(b"mrdkimrn", "big")
-LOCK_KEYS: dict[JobKind, int] = {JobKind.IMPORT: IMPORT_LOCK_KEY, JobKind.DKIM: DKIM_LOCK_KEY}
+# A dkim-keys run checks mails again at its end, so it shares the DKIM lock (D101).
+LOCK_KEYS: dict[JobKind, int] = {
+    JobKind.IMPORT: IMPORT_LOCK_KEY,
+    JobKind.DKIM: DKIM_LOCK_KEY,
+    JobKind.DKIM_KEYS: DKIM_LOCK_KEY,
+}
 
 # The phases a run goes through, in order (job.phase).
 ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments"]
@@ -120,12 +125,14 @@ async def begin_job(
 ) -> int:
     """Record a run that has just taken the lock of its kind; returns its job id.
 
-    Holding the lock means no other run of the kind is alive, so rows still running belong to
-    runs that died (killed, out of memory, container stopped) and are marked failed.
+    Holding the lock means no other run of the kind, or of a kind sharing its lock, is alive, so
+    rows still running belong to runs that died (killed, out of memory, container stopped) and
+    are marked failed.
     """
+    sharing = [other for other, key in LOCK_KEYS.items() if key == LOCK_KEYS[kind]]
     await db.execute(
         update(Job)
-        .where(Job.kind == kind, Job.status == JobStatus.RUNNING)
+        .where(Job.kind.in_(sharing), Job.status == JobStatus.RUNNING)
         .values(status=JobStatus.FAILED, message=LOST_MESSAGE, finished_at=Job.updated_at)
     )
     job_id = await db.scalar(

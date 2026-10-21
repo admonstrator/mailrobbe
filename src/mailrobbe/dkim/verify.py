@@ -181,8 +181,8 @@ class _Signature:
 
 
 @dataclass(frozen=True, slots=True)
-class _PublicKey:
-    """A key record that holds a key, parsed once per process and record."""
+class PublicKey:
+    """A key record that holds a key, parsed once per process and record (parse_key_record)."""
 
     key_type: bytes  # k=
     hashes: frozenset[bytes] | None  # h=: hash algorithms the key may be used with; None: any
@@ -267,7 +267,7 @@ class _Mail:
             return DkimStatus.TEMP_ERROR, answer.reason or DkimReason.DNS_TIMEOUT
         if answer.status is DnsStatus.NOT_FOUND or answer.record is None:
             return DkimStatus.NO_KEY, DkimReason.KEY_NOT_FOUND
-        key = _public_key(answer.record)
+        key = parse_key_record(answer.record)
         if key is DkimReason.KEY_REVOKED:
             return DkimStatus.NO_KEY, key
         if isinstance(key, DkimReason):
@@ -360,7 +360,7 @@ def _parse_signature(tags: dict[bytes, bytes]) -> _Signature | DkimReason:
 
 
 @functools.lru_cache(maxsize=4096)
-def _public_key(record: str) -> _PublicKey | DkimReason:
+def parse_key_record(record: str) -> PublicKey | DkimReason:
     """The key in a DKIM key record (RFC 6376 3.6.1), or why there is none to use."""
     try:
         tags = parse_tag_value(record.encode("utf-8", "replace"))
@@ -383,7 +383,7 @@ def _public_key(record: str) -> _PublicKey | DkimReason:
     try:
         der = base64.b64decode(data)
         if key_type == b"ed25519":
-            return _PublicKey(
+            return PublicKey(
                 key_type, hashes, for_email, 256, Ed25519PublicKey.from_public_bytes(der)
             )
         numbers = parse_public_key(der)  # SubjectPublicKeyInfo or a bare RSAPublicKey
@@ -391,7 +391,7 @@ def _public_key(record: str) -> _PublicKey | DkimReason:
         public = rsa.RSAPublicNumbers(numbers["publicExponent"], modulus).public_key()
     except Exception:
         return DkimReason.KEY_MALFORMED
-    return _PublicKey(key_type, hashes, for_email, modulus.bit_length(), public, modulus)
+    return PublicKey(key_type, hashes, for_email, modulus.bit_length(), public, modulus)
 
 
 def _malformed_message(value: bytes) -> SignatureResult:

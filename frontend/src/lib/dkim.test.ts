@@ -25,7 +25,7 @@ function enumValues(name: string): string[] {
 describe("DKIM texts", () => {
   it("cover every status of the backend plus unchecked", () => {
     const statuses = enumValues("DkimStatus");
-    expect(statuses).toHaveLength(5);
+    expect(statuses).toHaveLength(6);
     const keys = [...statuses, "unchecked"].sort();
     expect([...DKIM_KEYS].sort()).toEqual(keys);
     expect(Object.keys(DKIM_FILTER_LABELS).sort()).toEqual(keys);
@@ -34,7 +34,7 @@ describe("DKIM texts", () => {
 
   it("cover every reason code of the backend", () => {
     const reasons = enumValues("DkimReason");
-    expect(reasons).toHaveLength(12);
+    expect(reasons).toHaveLength(13);
     expect(Object.keys(DKIM_REASON_TEXTS).sort()).toEqual([...reasons].sort());
     for (const text of Object.values(DKIM_REASON_TEXTS)) expect(text.trim()).not.toBe("");
   });

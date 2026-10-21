@@ -5,11 +5,12 @@ the database layer (store.py). Everything here is plain data and picklable, so w
 can send it back to the process that writes the database.
 """
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, best_dkim_status
+from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin, best_dkim_status
 
 # How long a source's answer may be reused (DnsAnswer.ttl). Found keys rarely change under the
 # same selector name and an import takes hours; a missing key is asked for again a day later,
@@ -41,6 +42,23 @@ class KeySource(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateKey:
+    """A key for a name from a source other than today's DNS (a dkim_key row, D100).
+
+    It counts for a signature only when it verifies the signature's header hash.
+    """
+
+    key_id: int  # dkim_key.id
+    origin: KeyOrigin  # dkim_key.origin, the strongest of its evidence
+    record: str  # dkim_key.record
+
+
+# Candidate keys by normalised key name (keys.store.load_candidates), strongest origin first.
+KeyCandidates = Mapping[str, Sequence[CandidateKey]]
+NO_CANDIDATES: KeyCandidates = {}
+
+
+@dataclass(frozen=True, slots=True)
 class SignatureResult:
     """Outcome of one DKIM-Signature header field; mirrors the dkim_result columns."""
 
@@ -55,6 +73,11 @@ class SignatureResult:
     signed_at: datetime | None  # t=, UTC
     aligned: bool | None  # From domain related to d= (see verify.py); None without one From
     dns_cached: bool  # the key answer came from the cache
+    # The candidate key (dkim_key.id) the result rests on; None for today's DNS and without key.
+    key_id: int | None = None
+    # Origin of the key the result rests on (D100); None when it rests on none: no_key,
+    # temp_error, or a failure found before the key was asked for.
+    key_origin: KeyOrigin | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +111,8 @@ class MailVerdict:
                 "reason": None if signature.reason is None else signature.reason.value,
                 "checked_at": checked_at,
                 "dns_cached": signature.dns_cached,
+                "key_id": signature.key_id,
+                "key_origin": None if signature.key_origin is None else signature.key_origin.value,
             }
             for index, signature in enumerate(self.signatures)
         ]

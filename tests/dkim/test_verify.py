@@ -385,7 +385,10 @@ def test_order_of_checks(name: str) -> None:
 
 
 def test_every_reason_has_a_case() -> None:
-    assert {built(name).reason for name in CASES} == set(DkimReason) | {None}
+    # key_mismatch needs candidate keys (D100); its cases come with them
+    assert {built(name).reason for name in CASES} == set(DkimReason) - {DkimReason.KEY_MISMATCH} | {
+        None
+    }
 
 
 def test_lf_and_crlf_give_the_same_results() -> None:

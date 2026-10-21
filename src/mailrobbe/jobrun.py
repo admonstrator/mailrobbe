@@ -57,10 +57,12 @@ _UNLOCK = text("SELECT pg_advisory_unlock(:key)")
 _BUSY = {
     JobKind.IMPORT: "another import is running",
     JobKind.DKIM: "another DKIM check is running",
+    JobKind.DKIM_KEYS: "another DKIM check or key search is running",
 }
 _ABORTED = {
     JobKind.IMPORT: "aborted: run `mailrobbe import` again to continue",
     JobKind.DKIM: "aborted: the mails checked so far are stored",
+    JobKind.DKIM_KEYS: "aborted: the keys and mails stored so far stay",
 }
 _ERRORS = (OSError, SQLAlchemyError)
 

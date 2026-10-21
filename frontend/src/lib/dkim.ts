@@ -5,6 +5,7 @@ import type { DkimKey, DkimReason, DkimStatus } from "../api/types";
 /** Filter order of the list's DKIM checkboxes. */
 export const DKIM_KEYS: readonly DkimKey[] = [
   "pass",
+  "consistent",
   "fail",
   "no_key",
   "unsigned",
@@ -15,6 +16,7 @@ export const DKIM_KEYS: readonly DkimKey[] = [
 /** Labels in the filter column. */
 export const DKIM_FILTER_LABELS: Record<DkimKey, string> = {
   pass: "Gültig",
+  consistent: "Signatur stimmig",
   fail: "Ungültig",
   no_key: "Schlüssel nicht abrufbar",
   unsigned: "Nicht signiert",
@@ -25,6 +27,7 @@ export const DKIM_FILTER_LABELS: Record<DkimKey, string> = {
 /** Labels of the badge in the detail view and the tooltip of the list's dots. */
 export const DKIM_STATUS_LABELS: Record<DkimKey, string> = {
   pass: "DKIM gültig",
+  consistent: "Signatur stimmig",
   fail: "DKIM ungültig",
   no_key: "Schlüssel nicht abrufbar",
   unsigned: "Nicht signiert",
@@ -43,6 +46,7 @@ export const DKIM_REASON_TEXTS: Record<DkimReason, string> = {
   message_malformed: "Kopfzeilen nicht lesbar",
   key_not_found: "Schlüssel nicht im DNS (Selector gelöscht)",
   key_revoked: "Schlüssel widerrufen (leeres p=)",
+  key_mismatch: "Vorhandene Schlüssel passen nicht",
   dns_timeout: "DNS-Zeitüberschreitung",
   dns_offline: "Offline-Modus, Schlüssel nicht im Cache",
 };

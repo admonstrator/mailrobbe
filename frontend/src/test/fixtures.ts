@@ -77,7 +77,15 @@ export const stats: Stats = {
   domains: 1284,
   date_min: "2014-03-02T07:11:00Z",
   date_max: "2026-10-18T12:32:07Z",
-  dkim: { pass: 268410, fail: 3117, no_key: 91204, unsigned: 49587, temp_error: 0, unchecked: 0 },
+  dkim: {
+    pass: 268410,
+    consistent: 0,
+    fail: 3117,
+    no_key: 91204,
+    unsigned: 49587,
+    temp_error: 0,
+    unchecked: 0,
+  },
   sender_domains: [
     { domain: "nordlicht-gmbh.example", mails: 88120 },
     { domain: "stadtwerke-beispiel.example", mails: 41933 },
@@ -129,7 +137,15 @@ export const summaryAll: MailSummary = {
 export const summaryFiltered: MailSummary = {
   total: 1207,
   exact: true,
-  dkim: { pass: 786, fail: 9, no_key: 401, unsigned: 11, temp_error: 0, unchecked: 0 },
+  dkim: {
+    pass: 786,
+    consistent: 0,
+    fail: 9,
+    no_key: 401,
+    unsigned: 11,
+    temp_error: 0,
+    unchecked: 0,
+  },
   persons: 214,
   domains: 38,
   date_min: "2019-01-14T08:03:00Z",
@@ -327,6 +343,8 @@ export const mailDetail: MailDetail = {
         dns_record: "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAu1Q",
         dns_fetched_at: "2026-10-19T13:00:00Z",
         dns_ttl: 43200,
+        key_origin: "dns",
+        key: null,
       },
     ],
   },
@@ -1102,6 +1120,7 @@ export const importStatus: ImportStatus = {
   import_job: importJob,
   dkim_job: dkimJobDone,
   defaults: importDefaults,
+  keys_job: null,
 };
 
 const pausedFiles = importFiles.map((file) =>
@@ -1146,6 +1165,7 @@ export const importSummary: ImportSummary = {
   duplicates: 1_912,
   dkim: {
     pass: 190_412,
+    consistent: 0,
     fail: 2_203,
     no_key: 64_790,
     unsigned: 35_341,

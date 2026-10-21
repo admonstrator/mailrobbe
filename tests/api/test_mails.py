@@ -508,7 +508,15 @@ async def test_unfiltered_summary_is_the_whole_archive(
     assert summary["total"] == len(generated_archive.manifest)
     assert summary["exact"] is True
     assert summary["dkim"] == {key: expected.get(key, 0) for key in summary["dkim"]}
-    assert set(summary["dkim"]) == {"pass", "fail", "no_key", "unsigned", "temp_error", "unchecked"}
+    assert set(summary["dkim"]) == {
+        "pass",
+        "consistent",
+        "fail",
+        "no_key",
+        "unsigned",
+        "temp_error",
+        "unchecked",
+    }
     figures = (
         await rows(
             imported_database_url,
@@ -571,7 +579,7 @@ async def test_filtered_summary_counts_exactly(
         "date_min": stamp(figures.date_min),
         "date_max": stamp(figures.date_max),
     }
-    assert len(summary["dkim"]) == 6
+    assert len(summary["dkim"]) == 7
 
 
 async def test_summary_falls_back_when_counting_runs_out_of_time(

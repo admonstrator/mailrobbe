@@ -87,14 +87,15 @@ class Runs:
         arguments: Sequence[str],
         environment: Mapping[str, str],
     ) -> int:
-        """Run `mailrobbe <kind> --origin ui <arguments>`; the id of the job row it recorded.
+        """Run `mailrobbe <kind> --origin ui <arguments>` (dkim_keys: `dkim-keys`); the id of the
+        job row it recorded.
 
         The caller holds `lock`. StartFailed when the child ends before recording its run or
         has not recorded it after START_TIMEOUT; it is left running then.
         """
         before = await session.scalar(select(func.max(Job.id)).where(Job.kind == kind)) or 0
         await session.commit()
-        command = [*CLI, kind.value, "--origin", "ui", *arguments]
+        command = [*CLI, kind.value.replace("_", "-"), "--origin", "ui", *arguments]
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,

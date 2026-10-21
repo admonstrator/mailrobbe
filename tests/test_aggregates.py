@@ -79,6 +79,7 @@ async def test_refresh_computes_every_figure(db_session: AsyncSession) -> None:
     assert figures.mails == 4
     assert figures.dkim == {
         "pass": 1,
+        "consistent": 0,
         "fail": 1,
         "no_key": 0,
         "unsigned": 1,

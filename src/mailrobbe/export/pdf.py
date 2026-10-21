@@ -46,6 +46,7 @@ LABEL = 30.0  # mm, width of the label column
 
 STATUS_TEXTS = {
     DkimStatus.PASS: "gültig",
+    DkimStatus.CONSISTENT: "Signatur stimmig (Schlüssel nur rekonstruiert)",
     DkimStatus.FAIL: "ungültig",
     DkimStatus.NO_KEY: "Schlüssel nicht abrufbar",
     DkimStatus.UNSIGNED: "nicht signiert",
@@ -62,6 +63,7 @@ REASON_TEXTS = {
     DkimReason.MESSAGE_MALFORMED: "Kopfzeilen nicht lesbar",
     DkimReason.KEY_NOT_FOUND: "Schlüssel nicht im DNS (Selector gelöscht)",
     DkimReason.KEY_REVOKED: "Schlüssel widerrufen (leeres p=)",
+    DkimReason.KEY_MISMATCH: "vorhandene Schlüssel passen nicht",
     DkimReason.DNS_TIMEOUT: "DNS-Zeitüberschreitung",
     DkimReason.DNS_OFFLINE: "Offline-Modus, Schlüssel nicht im Cache",
 }
