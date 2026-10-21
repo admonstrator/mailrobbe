@@ -120,6 +120,37 @@ describe("filterChips", () => {
     expect(byId.has_note.has_note).toBe(false);
   });
 
+  it("names entities by kind and label, the term's theme by colour, amounts in German (D86)", () => {
+    const entities: ChipNames = {
+      ...names,
+      entity: (id) =>
+        id === 302
+          ? { ref: { id, kind: "term", label: "Spende", detail: "spenden" }, color: "green" }
+          : id === 312
+            ? { ref: { id, kind: "amount", label: "12.500,00 EUR", detail: null } }
+            : undefined,
+    };
+    const amounts: ListState = {
+      ...DEFAULT_LIST_STATE,
+      entity: [302, 312, 999],
+      amount_min: 10000.5,
+      amount_context: ["cash", "receipt"],
+    };
+    const chips = filterChips(amounts, [], entities);
+    expect(chips.map((chip) => [chip.label, chip.color])).toEqual([
+      ["Themenbegriff: Spende", "green"],
+      ["Betrag: 12.500,00 EUR", undefined],
+      ["Entität #999", undefined],
+      ["Betrag ab 10.000,5", undefined],
+      ["Betrag: Bargeld", undefined],
+      ["Betrag: Quittung", undefined],
+    ]);
+    const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip.next]));
+    expect(byId["entity-312"].entity).toEqual([302, 999]);
+    expect(byId.amount_min.amount_min).toBeNull();
+    expect(byId["amount_context-cash"].amount_context).toEqual(["receipt"]);
+  });
+
   it("shows q as one chip while its terms are unknown", () => {
     const chips = filterChips({ ...DEFAULT_LIST_STATE, q: "after:2026-13-01" }, [], names);
     expect(chips.map((chip) => chip.label)).toEqual(["Suche: „after:2026-13-01“"]);

@@ -1,10 +1,11 @@
 // The active filters above the table: one chip per search term and per sidebar filter, each
 // with the list state that removing it leads to.
 
-import type { PersonRole, QueryKey, QueryTerm, TagColor, TagRef } from "../../api/types";
+import type { EntityRef, PersonRole, QueryKey, QueryTerm, TagColor, TagRef } from "../../api/types";
 import { DKIM_FILTER_LABELS } from "../../lib/dkim";
-import { formatDay } from "../../lib/format";
+import { formatDay, formatNumber } from "../../lib/format";
 import { REVIEW_LABELS } from "../../lib/research";
+import { CONTEXT_LABELS, KIND_LABELS } from "../entities/labels";
 import { withFilters, type ListState } from "./listState";
 import { removeTerm } from "./queryText";
 
@@ -23,6 +24,8 @@ export interface ChipNames {
   tag: (id: number) => TagRef | undefined;
   collection: (id: number) => string | undefined;
   document?: (id: number) => string;
+  /** An entity of the filter (D86) and, for a theme's term, the theme's colour. */
+  entity?: (id: number) => { ref: EntityRef; color?: TagColor } | undefined;
 }
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
@@ -156,6 +159,31 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: "document",
       label: `Dokument: ${names.document?.(state.document) ?? `#${state.document}`}`,
       next: withFilters(state, { document: null }),
+    });
+  }
+  for (const id of state.entity) {
+    const entity = names.entity?.(id);
+    chips.push({
+      id: `entity-${id}`,
+      label: entity ? `${KIND_LABELS[entity.ref.kind].one}: ${entity.ref.label}` : `Entität #${id}`,
+      color: entity?.color,
+      next: withFilters(state, { entity: state.entity.filter((other) => other !== id) }),
+    });
+  }
+  if (state.amount_min !== null) {
+    chips.push({
+      id: "amount_min",
+      label: `Betrag ab ${formatNumber(state.amount_min)}`,
+      next: withFilters(state, { amount_min: null }),
+    });
+  }
+  for (const key of state.amount_context) {
+    chips.push({
+      id: `amount_context-${key}`,
+      label: `Betrag: ${CONTEXT_LABELS[key]}`,
+      next: withFilters(state, {
+        amount_context: state.amount_context.filter((other) => other !== key),
+      }),
     });
   }
   return chips;
