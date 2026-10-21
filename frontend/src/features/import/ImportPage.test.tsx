@@ -108,6 +108,8 @@ describe("run card", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/Worker aktiv/)).toBeNull();
+    expect(screen.getByText("Gestartet 20.10.2026 01:02")).toBeTruthy(); // no remaining time
+    expect(screen.queryByText(/Mails\/s Parsing/)).toBeNull(); // nor throughput
   });
 
   it("pauses the import and waits for it to stop", async () => {
@@ -400,11 +402,11 @@ describe("actions", () => {
 });
 
 describe("file table", () => {
-  it("lists running, failed and waiting files and collapses the done ones", async () => {
+  it("lists running and failed files and collapses the done and waiting ones", async () => {
     renderApp("/import");
     const table = await screen.findByRole("table");
     const rows = within(table).getAllByRole("row").slice(1);
-    expect(rows).toHaveLength(2 + 1 + 8 + 1 + 15);
+    expect(rows).toHaveLength(2 + 1 + 8 + 1 + 1 + 1);
 
     const cells = (row: HTMLElement) =>
       within(row)
@@ -427,9 +429,13 @@ describe("file table", () => {
     ).toBe("81"); // never rounded up to more than is done
 
     fireEvent.click(within(rows[2]).getByRole("button", { name: "46 weitere fertig" }));
-    expect(within(table).getAllByRole("row")).toHaveLength(1 + 48 + 1 + 8 + 1 + 15);
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 48 + 1 + 8 + 1 + 1 + 1);
     fireEvent.click(within(table).getByRole("button", { name: "Fertige einklappen" }));
-    expect(within(table).getAllByRole("row")).toHaveLength(1 + 27);
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 14);
+    fireEvent.click(within(table).getByRole("button", { name: "14 weitere warten" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 2 + 1 + 8 + 1 + 15 + 1);
+    fireEvent.click(within(table).getByRole("button", { name: "Wartende einklappen" }));
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 14);
   });
 
   it("filters by status, with the counts in the options", async () => {

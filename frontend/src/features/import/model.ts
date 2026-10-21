@@ -40,24 +40,35 @@ export type FileFilter = "all" | MboxStatus;
 /** Groups of the file table, top to bottom: what is done, then what runs, stopped or waits. */
 export const FILE_GROUPS: readonly MboxStatus[] = ["done", "running", "paused", "error", "pending"];
 
-/** Done files listed before the others collapse into one row, as in the mockup. */
-export const DONE_SHOWN = 2;
+/** Done and waiting files beyond the first few collapse into one row per group, as in the
+ *  mockup: at the start of an import nearly every file waits, at its end nearly every one is done. */
+export const SHOWN_COLLAPSED: Partial<Record<MboxStatus, number>> = { done: 2, pending: 1 };
 
 export type FileRow =
-  { type: "file"; file: MboxFileInfo } | { type: "more"; hidden: number } | { type: "less" };
+  | { type: "file"; file: MboxFileInfo }
+  | { type: "more"; status: MboxStatus; hidden: number }
+  | { type: "less"; status: MboxStatus };
 
 /** The table's rows: files by group, by path inside each (the API's order, so rows keep their
- *  place while polling). Without a filter, many done files collapse into an expandable row. */
-export function fileRows(files: MboxFileInfo[], filter: FileFilter, expanded: boolean): FileRow[] {
+ *  place while polling). Without a filter, long groups collapse into an expandable row. */
+export function fileRows(
+  files: MboxFileInfo[],
+  filter: FileFilter,
+  expanded: ReadonlySet<MboxStatus>,
+): FileRow[] {
   const rows: FileRow[] = [];
   for (const status of FILE_GROUPS) {
     if (filter !== "all" && filter !== status) continue;
     const group = files.filter((file) => file.status === status);
-    const collapsible = status === "done" && filter === "all" && group.length > DONE_SHOWN + 2;
-    const shown = collapsible && !expanded ? group.slice(0, DONE_SHOWN) : group;
+    const keep = SHOWN_COLLAPSED[status];
+    const collapsible = keep !== undefined && filter === "all" && group.length > keep + 2;
+    const open = expanded.has(status);
+    const shown = collapsible && !open ? group.slice(0, keep) : group;
     rows.push(...shown.map((file) => ({ type: "file" as const, file })));
     if (collapsible) {
-      rows.push(expanded ? { type: "less" } : { type: "more", hidden: group.length - DONE_SHOWN });
+      rows.push(
+        open ? { type: "less", status } : { type: "more", status, hidden: group.length - keep },
+      );
     }
   }
   return rows;

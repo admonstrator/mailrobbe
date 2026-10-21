@@ -23,7 +23,9 @@ function timeline(job: ImportJob, alive: boolean): string {
     `Gestartet ${formatDateTime(job.started_at)}${job.origin === "cli" ? " über die Kommandozeile" : ""}`,
   ];
   const eta = job.progress.eta_seconds;
-  if (alive && eta !== null) parts.push(`Restzeit ca. ${formatRemaining(eta)}`);
+  if (alive && job.phase === "import" && eta !== null) {
+    parts.push(`Restzeit ca. ${formatRemaining(eta)}`); // the bytes left say nothing about a finalize
+  }
   if (job.finished_at) parts.push(`${ENDED[job.status]} ${formatDateTime(job.finished_at)}`);
   else if (!alive) parts.push(`letzte Meldung ${formatDateTime(job.updated_at)}`);
   return parts.join(" · ");
@@ -88,7 +90,7 @@ export function RunCard({
             ? ` von ca. ${formatNumber(totals.mails_estimated)} Mails geparst (${percent} %)`
             : " Mails geparst"}
         </li>
-        {alive && job && (
+        {alive && job?.phase === "import" && (
           <>
             <li>
               <strong>{rate(job.progress.mails_per_second)}</strong> Mails/s Parsing

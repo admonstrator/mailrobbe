@@ -1,13 +1,13 @@
 import { useState } from "react";
 
-import type { ImportStatus, MboxFileInfo } from "../../api/types";
+import type { ImportStatus, MboxFileInfo, MboxStatus } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatNumber } from "../../lib/format";
 import styles from "./FileTable.module.css";
 import { FILE_FILTER_LABELS, FILE_STATUS_LABELS } from "./labels";
-import { FILE_GROUPS, fileRows, type FileFilter } from "./model";
+import { FILE_GROUPS, fileRows, type FileFilter, type FileRow as Row } from "./model";
 
 const FILTERS: readonly FileFilter[] = ["all", ...FILE_GROUPS];
 
@@ -17,6 +17,13 @@ function statusText(file: MboxFileInfo): string {
   return file.status === "running" && file.worker_id !== null
     ? `${label} · W${file.worker_id}`
     : label;
+}
+
+/** "46 weitere fertig" or "Fertige einklappen", for the done and the waiting files. */
+function toggleText(row: Exclude<Row, { type: "file" }>): string {
+  const done = row.status === "done";
+  if (row.type === "less") return done ? "Fertige einklappen" : "Wartende einklappen";
+  return `${formatNumber(row.hidden)} weitere ${done ? "fertig" : "warten"}`;
 }
 
 /** The MBOX files with their progress over the byte offset (SPEC 5.5); the error count opens
@@ -29,7 +36,7 @@ export function FileTable({
   onShowErrors: (file: MboxFileInfo) => void;
 }) {
   const [filter, setFilter] = useState<FileFilter>("all");
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState<ReadonlySet<MboxStatus>>(new Set());
   const { totals } = status;
   const counts: Record<FileFilter, number> = {
     all: totals.files,
@@ -83,7 +90,7 @@ export function FileTable({
               row.type === "file" ? (
                 <FileRow key={row.file.id} file={row.file} onShowErrors={onShowErrors} />
               ) : (
-                <tr key={row.type} className={styles.toggle}>
+                <tr key={`${row.type}-${row.status}`} className={styles.toggle}>
                   <td className={styles.path}>{row.type === "more" && "…"}</td>
                   <td colSpan={3} />
                   <td colSpan={2}>
@@ -92,11 +99,16 @@ export function FileTable({
                       size="xs"
                       className={styles.toggleButton}
                       aria-expanded={row.type === "less"}
-                      onClick={() => setExpanded(row.type === "more")}
+                      onClick={() =>
+                        setExpanded((groups) => {
+                          const next = new Set(groups);
+                          if (row.type === "more") next.add(row.status);
+                          else next.delete(row.status);
+                          return next;
+                        })
+                      }
                     >
-                      {row.type === "more"
-                        ? `${formatNumber(row.hidden)} weitere fertig`
-                        : "Fertige einklappen"}
+                      {toggleText(row)}
                     </Button>
                   </td>
                 </tr>

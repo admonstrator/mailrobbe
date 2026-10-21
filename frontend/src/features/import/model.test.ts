@@ -57,30 +57,40 @@ describe("run state", () => {
 describe("file rows", () => {
   const files = importStatus.files;
 
-  it("group done, running, failed and waiting files and collapse the done ones", () => {
-    const rows = fileRows(files, "all", false);
+  it("group done, running, failed and waiting files and collapse the done and waiting ones", () => {
+    const rows = fileRows(files, "all", new Set());
     expect(paths(rows).slice(0, 4)).toEqual([
       "export-2008-Q1.mbox",
       "export-2008-Q2.mbox",
       "more",
       "export-2020-Q1.mbox",
     ]);
-    expect(rows[2]).toEqual({ type: "more", hidden: 46 });
-    expect(paths(rows).at(-1)).toBe("export-2025-Q4.mbox");
-    expect(rows).toHaveLength(2 + 1 + 8 + 1 + 15);
+    expect(rows[2]).toEqual({ type: "more", status: "done", hidden: 46 });
+    expect(paths(rows).at(-2)).toBe("export-2022-Q2.mbox");
+    expect(rows.at(-1)).toEqual({ type: "more", status: "pending", hidden: 14 });
+    expect(rows).toHaveLength(2 + 1 + 8 + 1 + 1 + 1);
   });
 
-  it("show every done file when expanded or filtered", () => {
-    const expanded = fileRows(files, "all", true);
-    expect(expanded).toHaveLength(48 + 1 + 8 + 1 + 15);
-    expect(expanded[48]).toEqual({ type: "less" });
-    expect(fileRows(files, "done", false)).toHaveLength(48);
-    expect(paths(fileRows(files, "error", false))).toEqual(["export-2022-Q1.mbox"]);
+  it("show every file of a group when expanded or filtered", () => {
+    const done = fileRows(files, "all", new Set(["done"]));
+    expect(done).toHaveLength(48 + 1 + 8 + 1 + 1 + 1);
+    expect(done[48]).toEqual({ type: "less", status: "done" });
+    const waiting = fileRows(files, "all", new Set(["pending"]));
+    expect(waiting).toHaveLength(2 + 1 + 8 + 1 + 15 + 1);
+    expect(paths(waiting).at(-2)).toBe("export-2025-Q4.mbox");
+    expect(waiting.at(-1)).toEqual({ type: "less", status: "pending" });
+    expect(fileRows(files, "done", new Set())).toHaveLength(48);
+    expect(fileRows(files, "pending", new Set())).toHaveLength(15);
+    expect(paths(fileRows(files, "error", new Set()))).toEqual(["export-2022-Q1.mbox"]);
   });
 
-  it("do not collapse a few done files", () => {
-    const few = files.slice(44);
-    expect(fileRows(few, "all", false).filter((row) => row.type !== "file")).toEqual([]);
+  it("do not collapse short groups", () => {
+    const waiting = files.filter((file) => file.status === "pending");
+    const few = [
+      ...files.slice(44).filter((file) => file.status !== "pending"),
+      ...waiting.slice(0, 3),
+    ];
+    expect(fileRows(few, "all", new Set()).filter((row) => row.type !== "file")).toEqual([]);
   });
 });
 
