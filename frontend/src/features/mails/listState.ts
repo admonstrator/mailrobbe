@@ -8,6 +8,7 @@ import {
   type MailFilters,
   type MailListParams,
   type MailOrderParams,
+  type PersonRole,
   type SortOrder,
 } from "../../api/types";
 import { DKIM_KEYS } from "../../lib/dkim";
@@ -26,6 +27,8 @@ export interface ListState {
   mbox_file: number | null;
   person: number[];
   between: number[];
+  /** The role of the one person in `person` (D32); null: any role. */
+  person_role: PersonRole | null;
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -50,6 +53,7 @@ export const DEFAULT_LIST_STATE: ListState = {
   mbox_file: null,
   person: [],
   between: [],
+  person_role: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -64,8 +68,9 @@ const BOOLEAN_KEYS = [
   "flagged",
 ] as const;
 const MAX_LIMIT = 200;
+export const PERSON_ROLES: readonly PersonRole[] = ["sent", "received", "cc"];
 
-function positiveInt(value: string | null, max = Number.MAX_SAFE_INTEGER): number | null {
+export function positiveInt(value: string | null, max = Number.MAX_SAFE_INTEGER): number | null {
   if (value === null || !/^\d+$/.test(value)) return null;
   const n = Number(value);
   return n >= 1 && n <= max ? n : null;
@@ -101,6 +106,10 @@ export function parseListState(search: URLSearchParams): ListState {
   state.mbox_file = positiveInt(search.get("mbox_file"));
   state.person = ids(search, "person");
   state.between = ids(search, "between");
+  const role = search.get("person_role");
+  // The API takes a role only together with exactly one person.
+  state.person_role =
+    state.person.length === 1 ? (PERSON_ROLES.find((key) => key === role) ?? null) : null;
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -122,6 +131,7 @@ export function toFilters(state: ListState): MailFilters {
   if (state.mbox_file !== null) filters.mbox_file = state.mbox_file;
   if (state.person.length) filters.person = state.person;
   if (state.between.length) filters.between = state.between;
+  if (state.person_role) filters.person_role = state.person_role;
   return filters;
 }
 

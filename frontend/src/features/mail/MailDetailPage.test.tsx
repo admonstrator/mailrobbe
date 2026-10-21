@@ -85,6 +85,17 @@ describe("mail detail", () => {
     expect(router.state.location.search).toBe(`?${listQuery}`);
   });
 
+  it("walks a person's mail list from the profile, role included", async () => {
+    const personList = "hide_duplicates=true&person=11&person_role=sent";
+    const { calls } = renderApp(`/mails/184221?${personList}`);
+    await screen.findByText("Treffer 1 von 412.318");
+    const neighbors = calls.find((call) => call.url.pathname.endsWith("/neighbors"))!;
+    expect(neighbors.url.search).toBe(`?${personList}`);
+    expect(screen.getByRole("link", { name: "Nächste ›" }).getAttribute("href")).toBe(
+      `/mails/184190?${personList}`,
+    );
+  });
+
   it("shows the result of Neu prüfen", async () => {
     const failed: MailDkim = {
       status: "fail",

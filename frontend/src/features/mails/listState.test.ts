@@ -30,6 +30,7 @@ const full: ListState = {
   mbox_file: 7,
   person: [11, 12],
   between: [11, 13],
+  person_role: null,
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -107,6 +108,16 @@ describe("list state in the URL", () => {
       person: [12],
       sender_domain: ["nordlicht-gmbh.example"],
     });
+  });
+
+  it("keeps a person's role only together with exactly one person", () => {
+    const state = parse("person=11&person_role=sent&hide_duplicates=true");
+    expect(state.person_role).toBe("sent");
+    expect(search(state)).toBe("hide_duplicates=true&person=11&person_role=sent");
+    expect(toFilters(state)).toEqual({ hide_duplicates: true, person: [11], person_role: "sent" });
+    expect(parse("person=11&person=12&person_role=sent").person_role).toBeNull();
+    expect(parse("person_role=cc").person_role).toBeNull();
+    expect(parse("person=11&person_role=from").person_role).toBeNull();
   });
 
   it("keeps the page number only together with a cursor", () => {
