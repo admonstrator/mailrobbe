@@ -6,9 +6,10 @@ Every step is set-based SQL apart from threading, a union-find in the main proce
 Message-IDs of all mails that are not duplicates. Each step writes only rows whose value
 changes, so a finalize without new mails changes nothing but the time stamp of global_stats. It
 may run while workers import: it works on the mails committed when each step starts, and the
-next finalize picks up the rest.
+next finalize picks up the rest. Each part is a step of the run (STEPS, D110).
 """
 
+import asyncio
 import time
 from collections import Counter
 from collections.abc import Sequence
@@ -18,10 +19,13 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, Executable, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe.aggregates import refresh_aggregates
+from mailrobbe import aggregates
 from mailrobbe.attachments.documents import DocumentRefresh, refresh_documents
 from mailrobbe.graph.edges import EdgeRefresh
 from mailrobbe.importer.store import copy_rows
+from mailrobbe.jobrun import Steps
+
+STEPS = ("duplicates", "threads", "names", "documents", *aggregates.STEPS)  # in order
 
 # The earliest mail by file path and offset is the original; paths compare bytewise, as the
 # scan sorts them. Mails without Message-ID are compared by the SHA-256 of their message.
@@ -97,23 +101,28 @@ class FinalizeResult:
     documents: DocumentRefresh
 
 
-async def finalize(session: AsyncSession) -> FinalizeResult:
+async def finalize(session: AsyncSession, steps: Steps | None = None) -> FinalizeResult:
     """Recompute duplicates, then threads (which skip duplicates), display names, documents
-    (which count originals), aggregates."""
+    (which count originals), aggregates; each one a step of steps."""
+    steps = Steps() if steps is None else steps
     started = time.monotonic()
+    with steps.step("duplicates"):
+        async with session.begin():
+            duplicates = await _changed(session, _DUPLICATES)
+    with steps.step("threads"):
+        async with session.begin():
+            threads = await _set_threads(session)
+    with steps.step("names"):
+        async with session.begin():
+            for statement in _NAME_TABLE:
+                await session.execute(text(statement))
+            names = await _changed(session, _SET_NAME_COUNTS)
+            names += await _changed(session, _SET_PERSON_NAMES)
+    with steps.step("documents"):
+        async with session.begin():
+            documents = await refresh_documents(session)
     async with session.begin():
-        duplicates = await _changed(session, _DUPLICATES)
-    async with session.begin():
-        threads = await _set_threads(session)
-    async with session.begin():
-        for statement in _NAME_TABLE:
-            await session.execute(text(statement))
-        names = await _changed(session, _SET_NAME_COUNTS)
-        names += await _changed(session, _SET_PERSON_NAMES)
-    async with session.begin():
-        documents = await refresh_documents(session)
-    async with session.begin():
-        edges = await refresh_aggregates(session)
+        edges = await aggregates.refresh_aggregates(session, steps=steps)
     return FinalizeResult(duplicates, threads, names, time.monotonic() - started, edges, documents)
 
 
@@ -175,7 +184,7 @@ async def _set_threads(session: AsyncSession) -> int:
         for mail_id, message_id, in_reply_to, reference_ids in partition:
             forest.add(mail_id, message_id, in_reply_to, reference_ids)
             mail_ids.append(mail_id)
-    threads = forest.thread_ids()
+    threads = await asyncio.to_thread(forest.thread_ids)  # the run keeps reporting meanwhile
     for statement in _THREAD_TABLE:
         await session.execute(text(statement))
     rows = [(mail_id, threads.get(mail_id)) for mail_id in mail_ids]

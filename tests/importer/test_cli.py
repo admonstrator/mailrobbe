@@ -130,7 +130,17 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
     assert progress.mails_per_second > 0 and progress.bytes_per_second > 0
     assert progress.dkim_per_second == progress.mails_per_second  # all checked: unsigned
     assert progress.eta_seconds == 0
-    assert (progress.headers_total, progress.headers_done) == (0, 0)  # no older files
+    steps = {step.key: step for step in progress.steps}
+    assert steps["headers"].status == "skipped"  # no older files
+    assert (steps["import"].unit, steps["import"].done, steps["import"].total) == (
+        "bytes",
+        size,
+        size,
+    )
+    assert all(steps[key].status == "done" for key in ("scan", "import", "edges", "global_stats"))
+    assert all(
+        step.seconds >= 0 and step.started_at for step in steps.values() if step.status == "done"
+    )
     assert job["finished_at"] >= job["started_at"]
 
 

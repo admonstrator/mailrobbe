@@ -1,6 +1,6 @@
 # Mailrobbe
 
-Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine, DKIM, importer, API, relationship map, import dashboard, research file, attachments); it wins where the spec leaves a point open.
+Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine, DKIM, importer, API, relationship map, import dashboard, research file, attachments, run progress); it wins where the spec leaves a point open.
 
 ## Stack
 
@@ -28,8 +28,8 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/persons/`: persons (milestone 5, D28 to D33); `roots.py` (root person of an address), `stats.py` (`person_stats`, `person_year`), `suggestions.py` (alias suggestions), `merge.py` (merge, unmerge, dismiss)
 - `src/mailrobbe/export/`: export for lawyers and archives (D62, D63); `records.py` (what an export reads per mail), `pdf.py` (one mail as PDF with the DejaVu font in `fonts/`), `manifest.py`, `readme.py` (LIESMICH.txt), `bundle.py` (the streamed ZIP with SHA256SUMS)
 - `src/mailrobbe/themes.toml`: the research themes with word fields and search templates (D64), read through `themes.py` (`load_themes`); the one source for later milestones too
-- `src/mailrobbe/jobs.py`: runs of `mailrobbe import` and `mailrobbe dkim` in the `job` table (D46, D47): lock keys, options and live figures, `begin_job`/`report_job`/`end_job` for the runs, `request_stop`/`latest_job`/`job_alive` for the API
-- `src/mailrobbe/jobrun.py`: the run side of both commands: `job_run` (lock, job row, 2 s reports, stop on Ctrl-C, SIGTERM or the dashboard's request), `RateWindow`
+- `src/mailrobbe/jobs.py`: runs of `mailrobbe import` and `mailrobbe dkim` in the `job` table (D46, D47): lock keys, options and live figures with their steps (D110), `begin_job`/`report_job`/`end_job` for the runs, `request_stop`/`latest_job`/`job_alive` for the API, `db_activity`/`end_leftovers` on `pg_stat_activity` (D111, D113)
+- `src/mailrobbe/jobrun.py`: the run side of both commands: `job_run` (lock, job row, 2 s reports, stop on Ctrl-C, SIGTERM or the dashboard's request), `RateWindow`, `Steps` (`job.steps`: every step of a run with its counter, rate and estimate, D110)
 - `src/mailrobbe/bench.py`: `mailrobbe bench`, response times of a running server's API (D51); procedure and results of the load test in [docs/LOADTEST.md](docs/LOADTEST.md)
 - `src/mailrobbe/aggregates.py`: aggregation tables; `refresh_aggregates` runs edges, person figures, alias suggestions and `global_stats` in that order (finalize, `mailrobbe dkim`, merges; D33), and `global_stats` is also refreshed lazily by the API (D19)
 - `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`, `graph`, `bench`)

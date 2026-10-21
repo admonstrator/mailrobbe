@@ -3,7 +3,8 @@ and text extraction.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
 it, D52), import, finalize and attachments (only when documents wait for their text, D72), and
-reports its figures (ImportFigures) every few seconds. It stops on Ctrl-C, SIGTERM and the
+reports its figures (ImportFigures) every few seconds, with one step per phase and per part of
+the finalize (STEPS, D110). It stops on Ctrl-C, SIGTERM and the
 dashboard's stop request alike: the workers store their batch, the files pause, the global
 figures count what is stored, and the finalize and the attachments are left to the next run;
 during the attachments phase, the texts stored so far stay.
@@ -30,8 +31,7 @@ from mailrobbe.attachments.extract import extract_document
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
-from mailrobbe.importer import headers
-from mailrobbe.importer.finalize import finalize
+from mailrobbe.importer import finalize, headers
 from mailrobbe.importer.runner import (
     DEFAULT_PIPELINE,
     FileOutcome,
@@ -41,12 +41,13 @@ from mailrobbe.importer.runner import (
 )
 from mailrobbe.importer.scan import ScanReport, find_mbox_files, scan
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
-from mailrobbe.jobs import ImportOptions
+from mailrobbe.jobs import ImportOptions, application_name
 
 log = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
+STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments")  # of a run, in order
 
 
 def _worker_count(value: str) -> int:
@@ -105,7 +106,7 @@ async def run_import(
     settings = settings.model_copy(update={"mbox_dir": mbox_dir})
     options = ImportOptions.from_settings(settings, workers)
     figures = ImportFigures()
-    engine = create_engine(settings.database_url)
+    engine = create_engine(settings.database_url, application_name(JobKind.IMPORT))
     try:
         async with job_run(
             engine, JobKind.IMPORT, origin, options, phase="scan", figures=figures.report
@@ -142,30 +143,25 @@ async def _import(
 ) -> _Ending:
     started = time.monotonic()
     stop = job.stop
-    found = await asyncio.to_thread(find_mbox_files, mbox_dir)  # the event loop keeps reporting
-    async with sessionmaker() as session:
-        report = await scan(session, mbox_dir, found)
+    job.steps.plan(*STEPS)
+    with job.steps.step("scan"):
+        found = await asyncio.to_thread(find_mbox_files, mbox_dir)  # the event loop reports on
+        async with sessionmaker() as session:
+            report = await scan(session, mbox_dir, found)
     _log_scan(report, mbox_dir)
     figures.files_queued = len(report.pending)
     if not stop.is_set():
-        await _refresh_headers(sessionmaker, mbox_dir, job, figures)
+        await _refresh_headers(sessionmaker, mbox_dir, job)
     outcomes: list[FileOutcome] = []
     if not stop.is_set():
         job.set_phase("import")
-        outcomes = await run_files(
-            sessionmaker,
-            settings,
-            mbox_dir,
-            report.files,
-            workers,
-            stop,
-            pipeline=pipeline,
-            figures=figures,
+        outcomes = await _import_files(
+            sessionmaker, settings, mbox_dir, report, workers, job, figures, pipeline
         )
     if not stop.is_set():
         job.set_phase("finalize")
         async with sessionmaker() as session:
-            result = await finalize(session)
+            result = await finalize.finalize(session, job.steps)
         log.info(
             "updated duplicates, threads, display names and aggregates in %.1f s, "
             "%d of %d edges changed",
@@ -197,24 +193,54 @@ async def _import(
 
 
 async def _refresh_headers(
-    sessionmaker: async_sessionmaker[AsyncSession],
-    mbox_dir: Path,
-    job: JobRun,
-    figures: ImportFigures,
+    sessionmaker: async_sessionmaker[AsyncSession], mbox_dir: Path, job: JobRun
 ) -> None:
     """The headers phase (D52), when files imported before need it."""
     async with sessionmaker() as session:
         files = await headers.outdated_files(session)
     if not files:
+        job.steps.skip("headers")
         return
-    figures.headers_total = sum(file.mails for file in files)
+    total = sum(file.mails for file in files)
     job.set_phase("headers")
-    log.info(
-        "reading the headers of %d mails in %d files imported before again",
-        figures.headers_total,
-        len(files),
-    )
-    await headers.refresh_headers(sessionmaker, mbox_dir, files, job.stop, figures)
+    log.info("reading the headers of %d mails in %d files imported before again", total, len(files))
+    with job.steps.step("headers", unit="mails", total=total) as step:
+        await headers.refresh_headers(sessionmaker, mbox_dir, files, job.stop, step)
+
+
+async def _import_files(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    mbox_dir: Path,
+    report: ScanReport,
+    workers: int,
+    job: JobRun,
+    figures: ImportFigures,
+    pipeline: Pipeline,
+) -> list[FileOutcome]:
+    """The import phase: the pending files, as a step counting their bytes left."""
+    if not report.pending:
+        job.steps.skip("import")
+        return []
+    left = sum(max(0, file.size_bytes - file.bytes_done) for file in report.pending)
+    # The runner logs its progress itself, with files, mails and import errors.
+    with job.steps.step("import", unit="bytes", total=left, log_progress=False) as step:
+        figures.step = step
+        outcomes = await run_files(
+            sessionmaker,
+            settings,
+            mbox_dir,
+            report.files,
+            workers,
+            job.stop,
+            pipeline=pipeline,
+            figures=figures,
+            steps=job.steps,
+        )
+        async with sessionmaker() as session:
+            await figures.report(session)  # the bytes of the last batches
+    figures.step = None
+    return outcomes
 
 
 async def _extract_texts(
@@ -230,11 +256,21 @@ async def _extract_texts(
     async with sessionmaker() as session:
         waiting = await phase.waiting_documents(session, int(settings.attachment_text_max_size))
     if not waiting:
+        job.steps.skip("attachments")
         return 0
     job.set_phase("attachments")
-    result = await phase.extract_texts(
-        sessionmaker, settings, mbox_dir, waiting, workers, job.stop, figures, extract=extract
-    )
+    with job.steps.step("attachments", unit="documents", total=len(waiting)) as step:
+        result = await phase.extract_texts(
+            sessionmaker,
+            settings,
+            mbox_dir,
+            waiting,
+            workers,
+            job.stop,
+            figures,
+            step,
+            extract=extract,
+        )
     return result.stored
 
 
