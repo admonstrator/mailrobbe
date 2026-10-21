@@ -219,6 +219,20 @@ async def test_filters_select_what_sql_selects(
     assert await listed(client, params) == await ids(imported_database_url, where)
 
 
+async def test_thread_filter_selects_the_threads_mails(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    found = await rows(
+        imported_database_url,
+        "SELECT thread_id FROM mail WHERE thread_id IS NOT NULL"
+        " GROUP BY thread_id ORDER BY count(*) DESC, thread_id LIMIT 1",
+    )
+    thread = found[0].thread_id
+    expected = await ids(imported_database_url, "thread_id = :thread", thread=thread)
+    assert len(expected) > 1
+    assert await listed(client, [("thread", str(thread))]) == expected
+
+
 async def test_participant_filters_select_what_sql_selects(
     client: httpx.AsyncClient, imported_database_url: str
 ) -> None:
@@ -374,6 +388,16 @@ async def test_external_needs_and_uses_the_internal_domains(
     settings = settings.model_copy(update={"internal_domains": f" {domain.upper()} , other.test"})
     async for owner in _client(settings):
         assert await listed(owner, [("external", "true")]) == expected
+
+
+async def test_the_calendars_last_day_is_a_usable_bound(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    dated = await ids(imported_database_url, "date_utc IS NOT NULL")
+    for params in ([("date_to", "9999-12-31")], [("q", "before:9999-12-31")]):
+        assert await listed(client, params) == dated
+        summary = await get(client, "/api/mails/summary", params)
+        assert (summary["total"], summary["exact"]) == (len(dated), True)
 
 
 # List items ---------------------------------------------------------------------------------

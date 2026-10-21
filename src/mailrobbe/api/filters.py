@@ -127,8 +127,12 @@ def mail_conditions(
         where.append(_takes_part(_SENDER, Person.domain.in_(domains)))
     if filters.date_from:
         where.append(_sort_key >= _midnight(filters.date_from))
-    if filters.date_to:
-        where += _before(filters.date_to + timedelta(days=1))
+    if filters.date_to:  # the calendar's last day has no day after it: then only dated mails
+        where += (
+            _before(filters.date_to + timedelta(days=1))
+            if filters.date_to < date.max
+            else [_sort_key > _NO_DATE]
+        )
     if filters.has_attachment:
         where.append(Mail.has_attachments.is_(True))
     if filters.in_thread:
@@ -159,6 +163,8 @@ def mail_conditions(
         where.append(_external(internal))
     if filters.document is not None:
         where.append(_carries(filters.document))
+    if filters.thread is not None:
+        where.append(Mail.thread_id == filters.thread)
     return where
 
 

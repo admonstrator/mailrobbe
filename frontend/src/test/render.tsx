@@ -81,6 +81,15 @@ function selectorApi(method: string, name: string, endpoint: string | undefined)
   return endpoint === undefined ? fx.selectorDetail : notFound("such endpoint");
 }
 
+/** The timeline for these parameters: by split, Anna's for a person filter, else the archive. */
+function timelineFor(search: URLSearchParams): unknown {
+  const split = search.get("split");
+  if (split === "person") return fx.timelineByPerson;
+  if (split === "thread") return fx.timelineByThread;
+  if (split === "term") return fx.timelineByTerm;
+  return search.has("person") ? fx.timelineAnna : fx.timelineAll;
+}
+
 /** The fixture backend: every endpoint the screens use, answered from fixtures.ts. An answer is
  *  a JSON body, or a Response for anything else. */
 export function fixtureApi({ method, url, body }: ApiCall): unknown {
@@ -135,6 +144,8 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   if (path === "/api/documents/summary") {
     return url.searchParams.size > 0 ? fx.documentSummaryFiltered : fx.documentSummary;
   }
+  if (path === "/api/timeline") return timelineFor(url.searchParams);
+  if (path === "/api/timeline/first-mentions") return fx.firstMentions;
   const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);
   if (document) return documentApi(Number(document[1]), document[2]);
   if (path === "/api/dkim/selectors/summary") return fx.selectorSummary;

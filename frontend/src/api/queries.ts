@@ -34,6 +34,8 @@ import type {
   DomainCount,
   ExportInfo,
   ExportRequest,
+  FirstMentionParams,
+  FirstMentions,
   Graph,
   GraphParams,
   GraphSize,
@@ -86,6 +88,8 @@ import type {
   TagRef,
   TagUpdate,
   ThemeInfo,
+  Timeline,
+  TimelineParams,
 } from "./types";
 
 export function createQueryClient(): QueryClient {
@@ -154,6 +158,8 @@ export const queryKeys = {
   selectorPage: (params: SelectorListParams) => ["keys", "page", params] as const,
   selector: (name: string) => ["keys", "selector", name] as const,
   archivePreview: ["keys", "archive-preview"] as const,
+  timeline: (params: TimelineParams) => ["mails", "timeline", params] as const,
+  firstMentions: (params: FirstMentionParams) => ["mails", "first-mentions", params] as const,
 };
 
 export function useStats() {
@@ -206,10 +212,11 @@ export function useMailNeighbors(id: number, params: MailOrderParams) {
   });
 }
 
-export function useMailDetail(id: number) {
+export function useMailDetail(id: number, enabled = true) {
   return useQuery({
     queryKey: queryKeys.mail(id),
     queryFn: ({ signal }) => apiGet<MailDetail>(`/api/mails/${id}`, undefined, signal),
+    enabled,
   });
 }
 
@@ -835,5 +842,27 @@ export function useStopKeysRun() {
   return useMutation({
     mutationFn: () => apiPost<DkimKeysJob>("/api/dkim/keys/run/stop", {}),
     onSuccess: (job) => showRun(queryClient, { keys_job: job }),
+  });
+}
+
+// Timeline (D90 to D94) -------------------------------------------------------------------------
+
+/** The matching mails over time; under the mails prefix, so research writes refresh it. The
+ *  previous one stays while the next loads, so the chart keeps its place. */
+export function useTimeline(params: TimelineParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.timeline(params),
+    queryFn: ({ signal }) => apiGet<Timeline>("/api/timeline", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useFirstMentions(params: FirstMentionParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.firstMentions(params),
+    queryFn: ({ signal }) => apiGet<FirstMentions>("/api/timeline/first-mentions", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }
