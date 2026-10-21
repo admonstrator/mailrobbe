@@ -13,7 +13,7 @@ import asyncio
 import hashlib
 import logging
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 import fastapi
 from fastapi import APIRouter, HTTPException, Query
@@ -29,6 +29,7 @@ from mailrobbe.api.schemas import (
     DUPLICATES_LIMIT,
     THREAD_LIMIT,
     AttachmentInfo,
+    CollectionRef,
     DkimSignature,
     MailDetail,
     MailDkim,
@@ -38,23 +39,31 @@ from mailrobbe.api.schemas import (
     MailSource,
     MailText,
     Mark,
+    NoteInfo,
     Participant,
     PersonRef,
+    TagColor,
+    TagRef,
     ThreadMail,
 )
 from mailrobbe.config import Settings
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     Attachment,
+    Collection,
+    CollectionMail,
     DkimResult,
     DnsCache,
     Edge,
     Mail,
     MailMark,
+    MailTag,
     MboxFile,
+    Note,
     Participation,
     Person,
     PersonStats,
+    Tag,
 )
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
@@ -83,6 +92,7 @@ HTML_HEADERS = {
 }
 
 _NAME = func.coalesce(Participation.display_name, Person.display_name)  # as used in that mail
+NOTE_COLUMNS = (Note.id, Note.body, Note.author, Note.created_at, Note.updated_at)  # a NoteInfo
 _REPLIED = aliased(Mail)
 _DUPLICATE = aliased(Mail)
 _DETAIL = (
@@ -168,9 +178,9 @@ async def mail_detail(mail_id: MailId, session: Session) -> MailDetail:
                 review_by=mail.review_by,
                 review_at=mail.review_at,
             ),
-            tags=[],
-            collections=[],
-            notes=[],
+            tags=await tag_refs(session, mail.raw_sha256),
+            collections=await collection_refs(session, mail.raw_sha256),
+            notes=await mail_notes(session, mail.raw_sha256),
         ),
     )
 
@@ -270,6 +280,38 @@ def _read_checked(path: Path, byte_offset: int, byte_length: int, raw_sha256: st
 
 
 # Parts of the detail -----------------------------------------------------------------------
+
+
+async def tag_refs(session: AsyncSession, mail_sha256: str) -> list[TagRef]:
+    """The tags of a mail's content, by name ignoring case (research.py answers links with it)."""
+    rows = await session.execute(
+        select(Tag.id, Tag.name, Tag.color)
+        .join(MailTag, MailTag.tag_id == Tag.id)
+        .where(MailTag.mail_sha256 == mail_sha256)
+        .order_by(func.lower(Tag.name), Tag.id)
+    )
+    return [TagRef(id=id_, name=name, color=cast(TagColor, color)) for id_, name, color in rows]
+
+
+async def collection_refs(session: AsyncSession, mail_sha256: str) -> list[CollectionRef]:
+    """The Akten holding a mail's content, by name ignoring case."""
+    rows = await session.execute(
+        select(Collection.id, Collection.name)
+        .join(CollectionMail, CollectionMail.collection_id == Collection.id)
+        .where(CollectionMail.mail_sha256 == mail_sha256)
+        .order_by(func.lower(Collection.name), Collection.id)
+    )
+    return [CollectionRef(id=id_, name=name) for id_, name in rows]
+
+
+async def mail_notes(session: AsyncSession, mail_sha256: str) -> list[NoteInfo]:
+    """The notes on a mail's content, oldest first."""
+    rows = await session.execute(
+        select(*NOTE_COLUMNS)
+        .where(Note.mail_sha256 == mail_sha256)
+        .order_by(Note.created_at, Note.id)
+    )
+    return [NoteInfo(**row._mapping) for row in rows]
 
 
 async def _participants(session: AsyncSession, mail_id: int) -> list[Participant]:
