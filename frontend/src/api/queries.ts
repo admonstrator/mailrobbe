@@ -24,8 +24,11 @@ import {
 } from "./client";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
+  AliasTier,
   BulkRequest,
   BulkResult,
+  CertainMergePlan,
+  CertainMergeResult,
   CollectionCreate,
   CollectionDetail,
   CollectionInfo,
@@ -83,7 +86,9 @@ import type {
   Mark,
   MarkUpdate,
   MboxFileInfo,
+  MergeLogPage,
   MergeRequest,
+  MergeUndoResult,
   NoteInfo,
   NotePage,
   PermalinkTarget,
@@ -160,6 +165,8 @@ export const queryKeys = {
   contacts: (id: number) => ["persons", "contacts", id] as const,
   personMailCounts: (id: number, params: PersonMailCountParams) =>
     ["persons", "mail-counts", id, params] as const,
+  certainMergePlan: ["persons", "merge-certain"] as const,
+  mergeLog: ["persons", "merges"] as const,
   graph: (params: GraphParams) => ["graph", params] as const,
   graphSize: (params: GraphParams) => ["graph-size", params] as const,
   importStatus: ["import", "status"] as const,
@@ -280,12 +287,12 @@ export function usePersonPage(params: PersonListParams, enabled = true) {
   });
 }
 
-/** The open alias suggestions, a page at a time ("Weitere laden"). */
-export function useSuggestions() {
+/** The open alias suggestions of a tier (D160), a page at a time ("Weitere laden"). */
+export function useSuggestions(tier: AliasTier = "certain") {
   return useInfiniteQuery({
-    queryKey: queryKeys.suggestions,
+    queryKey: [...queryKeys.suggestions, tier],
     queryFn: ({ pageParam, signal }) =>
-      apiGet<SuggestionPage>("/api/persons/suggestions", { cursor: pageParam }, signal),
+      apiGet<SuggestionPage>("/api/persons/suggestions", { cursor: pageParam, tier }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
   });
@@ -326,25 +333,29 @@ export function usePersonMailCounts(id: number, params: PersonMailCountParams, e
   });
 }
 
-/** Removes the suggestion of persons a and b from the cached list right away, so its row goes
+/** Removes the suggestion of persons a and b from the cached lists right away, so its row goes
  *  before the list is loaded again. */
 function dropSuggestion(queryClient: QueryClient, a: number, b: number) {
   const pair = (x: number, y: number) => (x === a && y === b) || (x === b && y === a);
-  queryClient.setQueryData<InfiniteData<SuggestionPage>>(queryKeys.suggestions, (data) => {
-    if (!data) return data;
-    const found = data.pages.some((page) =>
-      page.items.some((item) => pair(item.first.id, item.second.id)),
-    );
-    if (!found) return data;
-    return {
-      ...data,
-      pages: data.pages.map((page) => ({
-        ...page,
-        items: page.items.filter((item) => !pair(item.first.id, item.second.id)),
-        total: Math.max(0, page.total - 1),
-      })),
-    };
-  });
+  queryClient.setQueriesData<InfiniteData<SuggestionPage>>(
+    { queryKey: queryKeys.suggestions },
+    (data) => {
+      if (!data) return data;
+      const found = data.pages
+        .flatMap((page) => page.items)
+        .find((item) => pair(item.first.id, item.second.id));
+      if (!found) return data;
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          items: page.items.filter((item) => !pair(item.first.id, item.second.id)),
+          total: Math.max(0, page.total - 1),
+          counts: { ...page.counts, [found.tier]: Math.max(0, page.counts[found.tier] - 1) },
+        })),
+      };
+    },
+  );
 }
 
 /** After a merge or unmerge: the profile the backend returned, and everything else about
@@ -392,6 +403,66 @@ export function useDismissSuggestion() {
       // The other lists show the suggestion too: the profiles of both and the count.
       void queryClient.invalidateQueries({ queryKey: queryKeys.persons });
     },
+  });
+}
+
+/** After merges, or undoing them, with no one profile to show: everything about persons and
+ *  mails loaded again, as refreshPersons does. */
+function refreshMerged(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.persons });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.mails });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+  void queryClient.invalidateQueries({ queryKey: ["mail"], refetchType: "none" });
+}
+
+/** What "Alle sicheren zusammenführen" would merge now (D162), asked when its dialog opens. */
+export function useCertainMergePlan(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.certainMergePlan,
+    queryFn: ({ signal }) =>
+      apiGet<CertainMergePlan>("/api/persons/merge-certain", undefined, signal),
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/** Merges every certain suggestion as one run (D162). */
+export function useMergeCertain() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<CertainMergeResult>("/api/persons/merge-certain"),
+    onSuccess: () => refreshMerged(queryClient),
+  });
+}
+
+/** The merge log (D163), newest first, a page at a time. */
+export function useMergeLog() {
+  return useInfiniteQuery({
+    queryKey: queryKeys.mergeLog,
+    queryFn: ({ pageParam, signal }) =>
+      apiGet<MergeLogPage>("/api/persons/merges", { cursor: pageParam }, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+  });
+}
+
+/** Undoes one logged merge (D163). */
+export function useUndoMerge() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (mergeId: number) =>
+      apiPost<MergeUndoResult>(`/api/persons/merges/${mergeId}/undo`),
+    onSuccess: () => refreshMerged(queryClient),
+  });
+}
+
+/** Undoes every merge of a run of "Alle sicheren zusammenführen" not undone yet (D162). */
+export function useUndoMergeBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (batchId: number) =>
+      apiPost<MergeUndoResult>(`/api/persons/merge-batches/${batchId}/undo`),
+    onSuccess: () => refreshMerged(queryClient),
   });
 }
 

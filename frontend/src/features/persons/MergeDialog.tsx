@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
 
 import { useMergePersons, usePersonPage } from "../../api/queries";
-import type { PersonProfile, PersonSummary } from "../../api/types";
+import type { AliasCandidate, PersonProfile, PersonSummary } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { useDebounced } from "../../lib/useDebounced";
 import { Dialog } from "./Dialog";
+import { formatNumber } from "../../lib/format";
 import { personErrorText, personLabel, suggestionReasons } from "./labels";
 import styles from "./MergeDialog.module.css";
 import { PersonBadge } from "./PersonBadge";
@@ -15,7 +16,8 @@ import { PersonBadge } from "./PersonBadge";
 const SEARCH_LIMIT = 20;
 
 /** "+ Adresse zusammenführen": choose a suggested or searched person and merge it, with its
- *  aliases, into this one (D28). The profile then shows the answer, the merged profile. */
+ *  aliases, into this one (D28). The certain suggestions come first, the uncertain ones folded
+ *  behind their count (D160). The profile then shows the answer, the merged profile. */
 export function MergeDialog({ profile, onClose }: { profile: PersonProfile; onClose: () => void }) {
   const merge = useMergePersons();
   const [search, setSearch] = useState("");
@@ -54,6 +56,12 @@ export function MergeDialog({ profile, onClose }: { profile: PersonProfile; onCl
     </label>
   );
 
+  const certain = profile.suggestions.filter((candidate) => candidate.tier === "certain");
+  const uncertain = profile.suggestions.filter((candidate) => candidate.tier === "uncertain");
+  const uncertainTotal = Math.max(uncertain.length, profile.suggestion_counts.uncertain);
+  const suggestion = (candidate: AliasCandidate) =>
+    option(candidate.person, suggestionReasons(candidate));
+
   return (
     <Dialog title="Adresse zusammenführen" onClose={onClose}>
       <form className={styles.form} onSubmit={(event) => void onSubmit(event)}>
@@ -65,8 +73,18 @@ export function MergeDialog({ profile, onClose }: { profile: PersonProfile; onCl
           {profile.suggestions.length > 0 && (
             <fieldset className={styles.group}>
               <legend className={styles.legend}>Vorschläge</legend>
-              {profile.suggestions.map((candidate) =>
-                option(candidate.person, suggestionReasons(candidate)),
+              {certain.map(suggestion)}
+              {uncertain.length > 0 && (
+                <details className={styles.uncertain}>
+                  <summary>
+                    {uncertainTotal === 1
+                      ? "1 unsicherer Vorschlag"
+                      : `${formatNumber(uncertainTotal)} unsichere Vorschläge`}
+                    {uncertainTotal > uncertain.length &&
+                      `, hier die ${formatNumber(uncertain.length)} mit den meisten Mails`}
+                  </summary>
+                  <div className={styles.group}>{uncertain.map(suggestion)}</div>
+                </details>
               )}
             </fieldset>
           )}

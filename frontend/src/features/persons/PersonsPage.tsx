@@ -14,6 +14,7 @@ import { Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatNumber } from "../../lib/format";
+import { MergeLog } from "./MergeLog";
 import { PersonTable } from "./PersonTable";
 import styles from "./PersonsPage.module.css";
 import { SuggestionList } from "./SuggestionList";
@@ -39,13 +40,20 @@ const listHref = (state: PersonListState) => {
   return search ? `/personen?${search}` : "/personen";
 };
 
-/** The person list (D31) and the open alias suggestions (D30), one tab each. */
+const TITLES: Record<PersonsTab, string> = {
+  personen: "Personen · Mailrobbe",
+  vorschlaege: "Alias-Vorschläge · Mailrobbe",
+  zusammengefuehrt: "Zuletzt zusammengeführt · Mailrobbe",
+};
+
+/** The person list (D31), the open alias suggestions (D30, D160) and the merge log (D163),
+ *  one tab each. */
 export function PersonsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parsePersonListState(searchParams), [searchParams]);
   const page = usePersonPage(toPersonListParams(state));
-  const suggestions = useSuggestions();
-  const suggestionTotal = suggestions.data?.pages[0]?.total;
+  const suggestions = useSuggestions("certain");
+  const certainTotal = suggestions.data?.pages[0]?.counts.certain;
 
   const setState = (next: PersonListState) =>
     setSearchParams(personListSearch(next), { preventScrollReset: true });
@@ -62,17 +70,16 @@ export function PersonsPage() {
     {
       id: "vorschlaege",
       label:
-        suggestionTotal === undefined
+        certainTotal === undefined
           ? "Alias-Vorschläge"
-          : `Alias-Vorschläge (${formatNumber(suggestionTotal)})`,
+          : `Alias-Vorschläge (${formatNumber(certainTotal)} sicher)`,
     },
+    { id: "zusammengefuehrt", label: "Zuletzt zusammengeführt" },
   ];
 
   return (
     <main className={styles.page}>
-      <title>
-        {state.tab === "vorschlaege" ? "Alias-Vorschläge · Mailrobbe" : "Personen · Mailrobbe"}
-      </title>
+      <title>{TITLES[state.tab]}</title>
       <div className={styles.head}>
         <h1 className={styles.title}>Personen</h1>
         {page.data && (
@@ -89,12 +96,18 @@ export function PersonsPage() {
         active={state.tab}
         onSelect={(tab) => setState({ ...state, tab })}
         idPrefix={TABS_ID}
-        label="Personen und Alias-Vorschläge"
+        label="Personen, Alias-Vorschläge und Zusammenführungen"
       />
 
       <div {...tabPanelProps(TABS_ID, state.tab)} className={styles.panel}>
         {state.tab === "vorschlaege" ? (
-          <SuggestionList suggestions={suggestions} />
+          <SuggestionList
+            uncertain={state.uncertain}
+            onUncertain={(uncertain) => setState({ ...state, uncertain })}
+            hasPersons={(page.data?.total ?? 0) > 0}
+          />
+        ) : state.tab === "zusammengefuehrt" ? (
+          <MergeLog />
         ) : (
           <>
             <div className={styles.toolbar}>

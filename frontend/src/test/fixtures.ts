@@ -2,6 +2,8 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  CertainMergePlan,
+  CertainMergeResult,
   CollectionDetail,
   CollectionInfo,
   Contact,
@@ -49,6 +51,7 @@ import type {
   MailSummary,
   MailText,
   MboxFileInfo,
+  MergeLogPage,
   NotePage,
   ParticipationRole,
   PermalinkTarget,
@@ -677,6 +680,9 @@ export const personPage: PersonPage = {
   total: 1710,
 };
 
+/** The certain suggestions (D160); the uncertain ones are uncertainSuggestionPage. */
+const suggestionCounts = { certain: 4, uncertain: 2_180 };
+
 export const suggestionPage: SuggestionPage = {
   items: [
     {
@@ -684,18 +690,47 @@ export const suggestionPage: SuggestionPage = {
       second: ps.peterPost,
       same_name: "peter hofmann",
       same_local_part: "p.hofmann",
+      tier: "certain",
+      reason: "name_and_local_part",
     },
-    { first: ps.anna, second: ps.annaPost, same_name: "anna keller", same_local_part: null },
-    { first: ps.jonas, second: ps.jonasPrivate, same_name: "jonas brandt", same_local_part: null },
+    {
+      first: ps.anna,
+      second: ps.annaPost,
+      same_name: "anna keller",
+      same_local_part: null,
+      tier: "certain",
+      reason: "name_fits_addresses",
+    },
+    {
+      first: ps.jonas,
+      second: ps.jonasPrivate,
+      same_name: "jonas brandt",
+      same_local_part: null,
+      tier: "certain",
+      reason: "name_fits_addresses",
+    },
   ],
   next_cursor: "suggestions-page-2",
   total: 4,
+  counts: suggestionCounts,
+  computed: true,
 };
 
 export const suggestionPage2: SuggestionPage = {
-  items: [{ first: ps.anna, second: ps.annaShort, same_name: null, same_local_part: "a.keller" }],
+  items: [
+    {
+      first: ps.anna,
+      second: ps.annaShort,
+      same_name: "anna keller",
+      same_local_part: "a.keller",
+      tier: "certain",
+      reason: "name_and_local_part",
+    },
+  ],
   next_cursor: null,
   total: 4,
+  counts: suggestionCounts,
+  computed: true,
 };
 
 function contact(
@@ -779,9 +814,23 @@ export const annaProfile: PersonProfile = {
   years: YEARS.map(([year, sent, received]) => ({ year, sent, received })),
   top_contacts: topContacts,
   suggestions: [
-    { person: ps.annaPost, same_name: "anna keller", same_local_part: null },
-    { person: ps.annaShort, same_name: null, same_local_part: "a.keller" },
+    {
+      person: ps.annaPost,
+      same_name: "anna keller",
+      same_local_part: null,
+      tier: "certain",
+      reason: "name_fits_addresses",
+    },
+    {
+      person: ps.annaShort,
+      same_name: null,
+      same_local_part: "a.keller",
+      tier: "uncertain",
+      reason: "local_part",
+    },
   ],
+  suggestion_counts: { certain: 1, uncertain: 1 },
+  merges: [],
 };
 
 /** Anna's profile after merging keller.anna@post.example (23) into her. */
@@ -3013,4 +3062,88 @@ export const personSignals: PersonSignals = {
   ],
   silent_since: null,
   silent_mails: null,
+};
+
+// Alias tiers, merging every certain suggestion, the merge log (D160 to D163) -------------------
+
+const refOf = (summary: PersonSummary): PersonRef => ({
+  person_id: summary.id,
+  email: summary.email,
+  name: summary.name,
+});
+
+/** The uncertain suggestions: a name alone, a local part alone. */
+export const uncertainSuggestionPage: SuggestionPage = {
+  items: [
+    {
+      first: ps.anna,
+      second: summary(person(31, "Anna Keller", "keller@schule-ost.example"), figures(5, 9)),
+      same_name: "anna keller",
+      same_local_part: null,
+      tier: "uncertain",
+      reason: "name",
+    },
+    {
+      first: ps.lukas,
+      second: summary(person(32, "L. Vogt", "lukas.vogt@mail.example"), figures(3, 4)),
+      same_name: null,
+      same_local_part: "lukas.vogt",
+      tier: "uncertain",
+      reason: "local_part",
+    },
+  ],
+  next_cursor: "uncertain-page-2",
+  total: 2_180,
+  counts: { certain: 4, uncertain: 2_180 },
+  computed: true,
+};
+
+export const certainMergePlan: CertainMergePlan = {
+  merges: 290,
+  persons: 312,
+  left_out_groups: 4,
+  left_out_persons: 27,
+};
+
+export const certainMergeResult: CertainMergeResult = { ...certainMergePlan, batch_id: 7 };
+
+/** Two merges of run 7, one of them undone, and one merge of Anna's aliases on its own. */
+export const mergeLogPage: MergeLogPage = {
+  items: [
+    {
+      id: 42,
+      target: refOf(ps.peter),
+      moved: [refOf(ps.peterPost)],
+      batch_id: 7,
+      editor: "Lena Vogt",
+      created_at: "2026-10-21T14:03:00Z",
+      undone_at: null,
+      undone_by: null,
+    },
+    {
+      id: 41,
+      target: refOf(ps.jonas),
+      moved: [refOf(ps.jonasPrivate)],
+      batch_id: 7,
+      editor: "Lena Vogt",
+      created_at: "2026-10-21T14:03:00Z",
+      undone_at: "2026-10-21T14:10:00Z",
+      undone_by: "Lena Vogt",
+    },
+    {
+      id: 40,
+      target: anna,
+      moved: [annaWork, annaPrivate],
+      batch_id: null,
+      editor: null,
+      created_at: "2026-10-20T09:12:00Z",
+      undone_at: null,
+      undone_by: null,
+    },
+  ],
+  batches: [
+    { id: 7, created_at: "2026-10-21T14:03:00Z", editor: "Lena Vogt", merges: 290, undone: 1 },
+  ],
+  next_cursor: null,
+  total: 3,
 };
