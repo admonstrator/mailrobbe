@@ -46,7 +46,7 @@ from sqlalchemy.orm import QueryableAttribute, aliased
 from sqlalchemy.sql.util import ClauseAdapter
 
 from mailrobbe.api.query import parse_day
-from mailrobbe.api.schemas import MailFilters, QueryTerm, SortOrder
+from mailrobbe.api.schemas import MailFilters, PersonRole, QueryTerm, SortOrder
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TEXT_SEARCH_CONFIG,
@@ -112,6 +112,8 @@ def mail_conditions(
     if filters.mbox_file is not None:
         where.append(Mail.mbox_file_id == filters.mbox_file)
     where += [_takes_part(None, _person(person_id)) for person_id in filters.person]
+    if filters.person_role is not None:
+        where += _person_role(filters.person, filters.person_role)
     if filters.between:
         where.append(_between(filters.between))
     if filters.external:
@@ -206,6 +208,21 @@ def _in_domains(column: QueryableAttribute[str], domains: Sequence[str]) -> Colu
         false(),
         *(or_(column == domain, column.like("%." + _escape_like(domain))) for domain in domains),
     )
+
+
+def _person_role(persons: Sequence[int], role: PersonRole) -> list[ColumnElement[bool]]:
+    """D32: sent = the person (any of its addresses) is From; received = it is To, Cc or Bcc and
+    not From; cc = it is Cc and neither From, To nor Bcc."""
+    if len(persons) != 1:
+        raise FilterError(f"person_role needs exactly one person id, not {len(persons)}")
+    person = _person(persons[0])
+    match role:
+        case "sent":
+            return [_takes_part(_SENDER, person)]
+        case "received":
+            return [_takes_part(_RECIPIENTS, person), ~_takes_part(_SENDER, person)]
+    others = (ParticipationRole.FROM, ParticipationRole.TO, ParticipationRole.BCC)
+    return [_takes_part((ParticipationRole.CC,), person), ~_takes_part(others, person)]
 
 
 def _between(persons: Sequence[int]) -> ColumnElement[bool]:
