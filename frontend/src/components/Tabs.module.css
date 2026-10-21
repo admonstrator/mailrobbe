@@ -19,10 +19,14 @@
   color: var(--color-nav);
   font-size: 13px;
   cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .tab:hover:not(:disabled) {
   background: var(--color-field);
+  color: var(--color-text);
 }
 
 .tab:disabled {
