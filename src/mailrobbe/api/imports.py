@@ -4,7 +4,8 @@
 
 The status is polled every 2 s while a run is alive (D48), so it reads mbox_file and the latest
 job rows only, never mail. A run is alive while its process holds the advisory lock of its kind
-(jobs.job_alive); a row still running without it belongs to a process that died.
+(jobs.job_alive); a row still running without it belongs to a process that died, and may have
+left a statement running in the database (JobInfo.leftover, D110).
 
 Starting a run starts a child process (processes.py) and answers with the job row it recorded;
 one run at a time, of either kind. Pausing and stopping set job.stop_requested, which the run
@@ -189,6 +190,9 @@ async def _dkim_job(session: AsyncSession, settings: Settings, job: Job) -> Dkim
 
 async def _job_fields(session: AsyncSession, job: Job) -> dict[str, Any]:
     alive = job.status is JobStatus.RUNNING and await jobs.job_alive(session, job.kind)
+    orphaned = job.status is JobStatus.RUNNING and not alive
+    now = await session.scalar(select(func.clock_timestamp()))
+    assert now is not None
     return {
         "id": job.id,
         "kind": job.kind,
@@ -198,8 +202,10 @@ async def _job_fields(session: AsyncSession, job: Job) -> dict[str, Any]:
         "stop_requested": job.stop_requested,
         "started_at": job.started_at,
         "updated_at": job.updated_at,
+        "report_age_seconds": max(0.0, (now - job.updated_at).total_seconds()),
         "finished_at": job.finished_at,
         "message": job.message,
+        "leftover": await jobs.db_activity(session, job.kind) if orphaned else None,
     }
 
 

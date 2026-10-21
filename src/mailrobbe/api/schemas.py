@@ -101,7 +101,7 @@ from mailrobbe.enums import (
     PersonKind,
     ReviewStatus,
 )
-from mailrobbe.jobs import DkimOptions, DkimProgress, ImportOptions, ImportProgress
+from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
 
 # Tag colours (D57): the UI maps each to a fixed pair of background and text colours.
 TagColor = Literal["blue", "teal", "green", "amber", "red", "pink", "violet", "gray"]
@@ -712,8 +712,13 @@ class JobInfo(BaseModel):
     stop_requested: bool  # a stop was asked for; the run ends at its next report
     started_at: datetime
     updated_at: datetime  # its last report
+    report_age_seconds: float  # since its last report, by the database's clock (D110)
     finished_at: datetime | None
     message: str | None  # English one-line summary or failure reason, for the log view
+    # The longest statement a run left running in the database although its process ended
+    # (alive false with status running): it runs until it would send its result, holding its
+    # locks; the next run of the kind ends it. None otherwise (D110).
+    leftover: DbActivity | None
 
 
 class ImportJob(JobInfo):

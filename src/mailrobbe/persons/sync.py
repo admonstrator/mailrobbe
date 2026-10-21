@@ -21,7 +21,9 @@ async def sync_rows(
 
     fresh selects the key and value columns by these names. Rows whose values differ are
     updated, missing ones inserted, and rows matching scope (a condition on the table, alias t)
-    that fresh lacks are deleted; unchanged rows are not written at all.
+    that fresh lacks are deleted; unchanged rows are not written at all. keys are the table's
+    primary key: the INSERT skips existing rows through it, since an anti join with the table
+    it fills scans that table once per row when its statistics say it is empty (D110).
     """
     key_list, value_list = ", ".join(keys), ", ".join(values)
     same_key = " AND ".join(f"t.{key} = f.{key}" for key in keys)
@@ -40,6 +42,6 @@ async def sync_rows(
         )
         INSERT INTO {table} ({key_list}, {value_list})
         SELECT {key_list}, {value_list} FROM fresh f
-        WHERE NOT EXISTS (SELECT FROM {table} t WHERE {same_key})
+        ON CONFLICT ({key_list}) DO NOTHING
     """
     await db.execute(text(statement), dict(params))

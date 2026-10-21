@@ -13,9 +13,14 @@ The API reads the rows (latest_job), asks a run to stop (request_stop) and tells
 one whose process died without recording its end (job_alive: is the kind's lock held?).
 
 job.options and job.progress hold the models below as JSON; the API serves them as they are.
+Every progress lists the run's steps (StepProgress, D110): the phases and the parts of the
+finalize, each waiting, running or ended, with its counter, elapsed time, rate and the remaining
+time they imply, and what the database does for the run (DbActivity). jobrun.Steps fills them.
 All functions run in the caller's transaction and never commit.
 """
 
+import os
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -42,6 +47,41 @@ ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments"]
 DkimPhase = Literal["check", "aggregates"]
 
 LOST_MESSAGE = "the run ended without recording its end"
+
+StepStatus = Literal["waiting", "running", "done", "stopped", "skipped", "failed"]
+StepUnit = Literal["bytes", "mails", "documents"]  # what a step's done and total count
+
+
+class StepProgress(BaseModel):
+    """One step of a run (D110), in the order the run goes through them."""
+
+    key: str  # English name, e.g. "edges"; the dashboard has a German label for each
+    # waiting: still to come; stopped: left on a stop request before its counter reached its
+    # total; skipped: nothing to do in this run; failed: it raised, and the run with it
+    status: StepStatus = "waiting"
+    unit: StepUnit | None = None  # None: the step does not count its work
+    done: int = 0
+    total: int | None = None  # None: not known
+    started_at: datetime | None = None
+    seconds: float = 0.0  # in the step: so far while it runs, in all once it ended
+    rate: float | None = None  # units per second over the last RATE_WINDOW s, while it runs
+    eta_seconds: float | None = None  # an estimate while it runs: (total - done) / rate
+
+
+class DbActivity(BaseModel):
+    """The run's longest running statement, from pg_stat_activity (D110)."""
+
+    seconds: float  # since it started
+    # pg_stat_activity.wait_event_type: None while it computes, "IO" while it reads or writes,
+    # "Lock" while it waits for a lock another session holds
+    wait: str | None = None
+
+
+class RunProgress(BaseModel):
+    """What every run reports beside its own figures."""
+
+    steps: list[StepProgress] = []
+    database: DbActivity | None = None  # None: no statement of the run is running
 
 
 class ImportOptions(BaseModel):
@@ -72,8 +112,9 @@ class ImportOptions(BaseModel):
         )
 
 
-class ImportProgress(BaseModel):
-    """Live figures of an import run (job.progress of kind import)."""
+class ImportProgress(RunProgress):
+    """Live figures of an import run (job.progress of kind import); the counters of the headers
+    and attachments phases are their steps'."""
 
     workers: int = 0  # worker processes importing a file right now
     files_queued: int = 0  # files this run set out to import (pending after its scan)
@@ -84,11 +125,6 @@ class ImportProgress(BaseModel):
     dkim_per_second: float = 0.0  # mails checked for DKIM per second, same window
     bytes_per_second: float = 0.0  # same window
     eta_seconds: float | None = None  # bytes left in the queued files / bytes_per_second
-    headers_total: int = 0  # phase headers: mails whose headers are read again (D52)
-    headers_done: int = 0
-    documents_total: int = 0  # phase attachments: documents whose text this run extracts (D72)
-    documents_done: int = 0  # of those, the ones stored (with or without text)
-    documents_per_second: float = 0.0  # over the last RATE_WINDOW seconds
 
 
 class DkimOptions(BaseModel):
@@ -100,7 +136,7 @@ class DkimOptions(BaseModel):
     offline: bool
 
 
-class DkimProgress(BaseModel):
+class DkimProgress(RunProgress):
     """Live figures of a DKIM run (job.progress of kind dkim)."""
 
     workers: int = 0
@@ -219,3 +255,52 @@ async def job_alive(db: Executor, kind: JobKind) -> bool:
     key = LOCK_KEYS[kind]
     held = await db.scalar(_LOCK_HELD, {"high": key >> 32, "low": key & 0xFFFFFFFF})
     return bool(held)
+
+
+# What the database does for a run (D110). A run names its connections after its kind and process
+# (application_name), so its statements show in pg_stat_activity even after the process died: a
+# statement keeps running on the server until it would send its result to the client that left.
+_ACTIVITY = """
+    SELECT extract(epoch FROM clock_timestamp() - query_start)::float8, wait_event_type
+    FROM pg_stat_activity
+    WHERE datname = current_database() AND pid <> pg_backend_pid() AND state = 'active'
+      AND {sessions}
+    ORDER BY query_start LIMIT 1
+"""
+_RUN_ACTIVITY = text(_ACTIVITY.format(sessions="application_name = :name"))
+_KIND_ACTIVITY = text(_ACTIVITY.format(sessions="starts_with(application_name, :prefix)"))
+_LEFTOVERS = text("""
+    SELECT pid FROM pg_stat_activity
+    WHERE datname = current_database() AND pid <> pg_backend_pid()
+      AND starts_with(application_name, :prefix) AND application_name <> :name
+""")
+_TERMINATE = text("SELECT pg_terminate_backend(:pid)")
+
+
+def application_name(kind: JobKind, pid: int | None = None) -> str:
+    """The name of the database connections of a run of this kind in this process (or pid)."""
+    return f"mailrobbe {kind.value} {os.getpid() if pid is None else pid}"
+
+
+async def db_activity(db: Executor, kind: JobKind, pid: int | None = None) -> DbActivity | None:
+    """The longest running statement of the run in process pid, or of any run of this kind
+    (pid None: a run whose process died may have left one)."""
+    if pid is None:
+        result = await db.execute(_KIND_ACTIVITY, {"prefix": f"mailrobbe {kind.value} "})
+    else:
+        result = await db.execute(_RUN_ACTIVITY, {"name": application_name(kind, pid)})
+    row = result.first()
+    return None if row is None else DbActivity(seconds=max(0.0, row[0] or 0.0), wait=row[1])
+
+
+async def end_leftovers(db: Executor, kind: JobKind) -> int:
+    """End the database sessions of runs of this kind in other processes; how many.
+
+    Called by a run holding the kind's lock, so those runs are dead: what their sessions still
+    do is rolled back anyway, and would hold the locks the new run needs until then.
+    """
+    params = {"prefix": f"mailrobbe {kind.value} ", "name": application_name(kind)}
+    pids = list(await db.scalars(_LEFTOVERS, params))
+    for pid in pids:
+        await db.execute(_TERMINATE, {"pid": pid})
+    return len(pids)

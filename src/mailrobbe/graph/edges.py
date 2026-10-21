@@ -124,7 +124,12 @@ _PARTIAL_ROWS = (
 
 def _sync(table: str, key: tuple[str, ...], columns: tuple[str, ...]) -> tuple[str, ...]:
     """DELETE, UPDATE and INSERT that make `table` equal to `table`_new among the rows that
-    {rows} selects; rows that already match are not touched."""
+    {rows} selects; rows that already match are not touched.
+
+    The INSERT skips existing rows through the primary key rather than an anti join with the
+    table it fills: with statistics of an empty table, PostgreSQL scans the growing table once
+    per inserted row, which made the first refresh of 30,000 edges take 5 s instead of 0.1 s.
+    """
     match = " AND ".join(f"n.{c} = t.{c}" for c in key)
     old = ", ".join(f"t.{c}" for c in columns)
     new = ", ".join(f"n.{c}" for c in columns)
@@ -135,7 +140,7 @@ def _sync(table: str, key: tuple[str, ...], columns: tuple[str, ...]) -> tuple[s
         f"UPDATE {table} t SET {', '.join(f'{c} = n.{c}' for c in columns)} "
         f"FROM {table}_new n WHERE {match} AND ({old}) IS DISTINCT FROM ({new})",
         f"INSERT INTO {table} ({names}) SELECT {names} FROM {table}_new n "
-        f"WHERE NOT EXISTS (SELECT 1 FROM {table} t WHERE {match})",
+        f"ON CONFLICT ({', '.join(key)}) DO NOTHING",
     )
 
 

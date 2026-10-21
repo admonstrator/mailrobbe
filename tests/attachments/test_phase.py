@@ -173,8 +173,9 @@ async def test_each_document_is_extracted_once_and_stored_as_the_extraction_give
         in (job["message"])
     )
     progress = ImportProgress.model_validate(job["progress"])
-    assert (progress.documents_total, progress.documents_done) == (5, 5)
-    assert progress.documents_per_second > 0 and progress.workers == 0
+    [step] = [step for step in progress.steps if step.key == "attachments"]
+    assert (step.status, step.unit, step.total, step.done) == ("done", "documents", 5, 5)
+    assert progress.workers == 0
 
     # Nothing waits any more: the next import reads nothing and stays in finalize.
     assert await _import(database_url, mbox_dir) == 0
@@ -353,8 +354,8 @@ async def test_a_worker_that_dies_fails_only_the_document_that_killed_it(
 
 async def _wait_for_progress(engine: AsyncEngine, done: int) -> None:
     sql = (
-        "SELECT count(*) = 1 FROM job WHERE phase = 'attachments' "
-        f"AND (progress->>'documents_done')::int >= {done}"
+        "SELECT count(*) = 1 FROM job, jsonb_array_elements(progress -> 'steps') AS step "
+        f"WHERE step ->> 'key' = 'attachments' AND (step ->> 'done')::int >= {done}"
     )
     await wait_until(engine, sql)
 
@@ -388,8 +389,9 @@ async def test_a_stop_request_ends_the_phase_within_seconds_and_the_next_import_
         await _wait_for_progress(engine, 4)
         [job] = await _jobs(engine)
         progress = ImportProgress.model_validate(job["progress"])
-        assert progress.documents_total == 31 and progress.workers == 3
-        assert progress.documents_per_second > 0
+        [step] = [step for step in progress.steps if step.key == "attachments"]
+        assert (step.status, step.total, progress.workers) == ("running", 31, 3)
+        assert step.rate is not None and step.rate > 0
         async with engine.begin() as connection:  # what the dashboard's pause does
             assert await jobs.request_stop(connection, JobKind.IMPORT) is not None
         asked = time.monotonic()
@@ -412,7 +414,9 @@ async def test_a_stop_request_ends_the_phase_within_seconds_and_the_next_import_
             engine, "SELECT text_status::text AS status, count(*) FROM document GROUP BY 1"
         )
     }
-    assert statuses["text"] == progress.documents_done >= 4  # what was stored stays
+    [step] = [step for step in progress.steps if step.key == "attachments"]
+    assert step.status == "stopped"
+    assert statuses["text"] == step.done >= 4  # what was stored stays
     assert statuses["pending"] == 31 - statuses["text"] > 0
     assert (
         f"{statuses['text']} of 31 documents with text, {statuses['pending']} waiting"
