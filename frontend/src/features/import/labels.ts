@@ -1,11 +1,19 @@
-// German texts of the import dashboard: run states, phases, file statuses, error kinds, the
+// German texts of the import dashboard: run states, steps, file statuses, error kinds, the
 // notices after an action.
 
 import { ApiError } from "../../api/client";
-import type { DkimKey, ImportErrorKind, ImportJob, MboxStatus, ScanResult } from "../../api/types";
+import type {
+  DbActivity,
+  DkimKey,
+  ImportErrorKind,
+  MboxStatus,
+  ScanResult,
+  StepProgress,
+  StepUnit,
+} from "../../api/types";
 import { DKIM_FILTER_LABELS } from "../../lib/dkim";
-import { formatNumber, formatRemaining } from "../../lib/format";
-import type { FileFilter, RunState } from "./model";
+import { formatBytes, formatElapsed, formatNumber, formatRemaining } from "../../lib/format";
+import type { FileFilter, RunState, StepState } from "./model";
 
 export const RUN_TITLES: Record<RunState, string> = {
   none: "Noch kein Import",
@@ -14,40 +22,103 @@ export const RUN_TITLES: Record<RunState, string> = {
   paused: "Import pausiert",
   done: "Import fertig",
   aborted: "Import abgebrochen",
+  orphaned: "Import verwaist",
 };
 
-/** What a live import does beside importing files; null while it imports (D47, D52). */
-export function phaseText(job: ImportJob): string | null {
-  switch (job.phase) {
-    case "scan":
-      return "Verzeichnis wird gescannt";
-    case "headers": {
-      const { headers_done, headers_total } = job.progress;
-      return `Header älterer Mails werden neu gelesen (Verteiler und Automaten), ${formatNumber(headers_done)} von ${formatNumber(headers_total)}`;
+/** The steps of the runs (D110) by their key; a key missing here is shown as it is. */
+export const STEP_LABELS: Record<string, string> = {
+  scan: "Verzeichnis scannen",
+  headers: "Header älterer Mails nachlesen",
+  import: "Mails einlesen",
+  duplicates: "Duplikate erkennen",
+  threads: "Threads bilden",
+  names: "Anzeigenamen bestimmen",
+  documents: "Anhänge zu Dokumenten zusammenfassen",
+  edges: "Beziehungen berechnen",
+  person_stats: "Kennzahlen je Person",
+  suggestions: "Alias-Vorschläge",
+  global_stats: "Kennzahlen des Archivs",
+  attachments: "Text aus Anhängen lesen",
+  check: "Signaturen prüfen",
+};
+
+export const stepLabel = (key: string) => STEP_LABELS[key] ?? key;
+
+const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string, of: string]> = {
+  mails: ["Mail", "Mails", "Mails"],
+  documents: ["Dokument", "Dokumente", "Dokumenten"],
+};
+
+const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+const rateNumber = (rate: number) =>
+  rate >= 10 ? formatNumber(Math.round(rate)) : rateFormat.format(rate);
+
+/** "1.200 von 5.000 Dokumenten", or "5.000 Dokumente" without a total; bytes as sizes. */
+function amount(unit: StepUnit, done: number, total: number | null): string {
+  if (unit === "bytes") {
+    return total === null ? formatBytes(done) : `${formatBytes(done)} von ${formatBytes(total)}`;
+  }
+  const [one, many, of] = UNIT_TEXTS[unit];
+  if (total === null) return `${formatNumber(done)} ${done === 1 ? one : many}`;
+  return `${formatNumber(done)} von ${formatNumber(total)} ${total === 1 ? one : of}`;
+}
+
+function rateText(unit: StepUnit, rate: number): string {
+  if (unit === "bytes") return `${formatBytes(rate)}/s`;
+  return `${rateNumber(rate)} ${unit === "mails" ? "Mails" : "Dokumente"}/s`;
+}
+
+/** What a step did or does, after its label: "1.200 von 5.000 Dokumenten · 40 Dokumente/s ·
+ *  Restzeit geschätzt 2 min · läuft seit 30 s", "fertig in 12 s", "wartet". The time of a running
+ *  step counts on by extra seconds, the age of the report. */
+export function stepDetail(step: StepProgress, state: StepState, extra = 0): string {
+  const { unit, done, total, rate, eta_seconds: eta } = step;
+  const elapsed = formatElapsed(step.seconds + extra);
+  switch (state) {
+    case "waiting":
+      return "wartet";
+    case "unreached":
+      return "nicht erreicht";
+    case "skipped":
+      return "nicht nötig";
+    case "running": {
+      const parts = unit === null ? [] : [amount(unit, done, total)];
+      if (unit !== null && rate !== null && rate > 0) parts.push(rateText(unit, rate));
+      if (eta !== null) parts.push(`Restzeit geschätzt ${formatRemaining(eta)}`);
+      parts.push(`läuft seit ${elapsed}`);
+      return parts.join(" · ");
     }
-    case "finalize":
-      return "Nachlauf: Duplikate, Threads und Kennzahlen werden berechnet";
-    case "attachments":
-      return attachmentsPhaseText(job.progress);
-    default:
-      return null;
+    case "done":
+      return unit === null || done === 0
+        ? `fertig in ${elapsed}`
+        : `fertig in ${elapsed} · ${amount(unit, done, null)}`;
+    case "stopped":
+      return unit === null
+        ? `angehalten nach ${elapsed}`
+        : `angehalten bei ${amount(unit, done, total)} nach ${elapsed}`;
+    case "failed":
+      return `Fehler nach ${elapsed}`;
+    case "aborted":
+      return unit === null
+        ? `abgebrochen nach ${elapsed}`
+        : `abgebrochen bei ${amount(unit, done, total)} nach ${elapsed}`;
   }
 }
 
-const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
-
-/** The attachments phase (D72): "Anhänge auswerten: Text aus 1.200 von 5.000 Dokumenten
- *  gelesen · 40 Dokumente/s · Restzeit ca. 2 min"; rate and remaining time once measured. */
-function attachmentsPhaseText(progress: ImportJob["progress"]): string {
-  const { documents_done: done, documents_total: total, documents_per_second: rate } = progress;
-  const parts = [
-    `Anhänge auswerten: Text aus ${formatNumber(done)} von ${formatNumber(total)} ${total === 1 ? "Dokument" : "Dokumenten"} gelesen`,
-  ];
-  if (rate > 0) {
-    parts.push(`${rateFormat.format(rate)} Dokumente/s`);
-    if (total > done) parts.push(`Restzeit ca. ${formatRemaining((total - done) / rate)}`);
+/** What the database does for a run (D110): "rechnet seit 1 min 9 s", "wartet seit 4 s auf eine
+ *  Sperre"; wait is Postgres's wait_event_type. */
+export function databaseText(activity: DbActivity, extra = 0): string {
+  const since = formatElapsed(activity.seconds + extra);
+  switch (activity.wait) {
+    case null:
+      return `rechnet seit ${since}`;
+    case "Lock":
+      return `wartet seit ${since} auf eine Sperre`;
+    case "IO":
+      return `liest und schreibt seit ${since}`;
+    default:
+      return `arbeitet seit ${since}`;
   }
-  return parts.join(" · ");
 }
 
 export const FILE_STATUS_LABELS: Record<MboxStatus, string> = {

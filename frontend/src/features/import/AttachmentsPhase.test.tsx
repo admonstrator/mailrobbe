@@ -32,56 +32,59 @@ function tile(label: string): HTMLElement {
 }
 
 describe("attachments on the import dashboard", () => {
-  it("shows the attachments phase with its progress, rate and remaining time", async () => {
-    const status: ImportStatus = {
-      ...importStatus,
-      import_job: {
-        ...importJob,
-        phase: "attachments",
-        progress: {
-          ...importJob.progress,
-          documents_total: 5_000,
-          documents_done: 1_200,
-          documents_per_second: 40,
-        },
-      },
-    };
-    renderApp("/import", backend(status));
-    expect(
-      await screen.findByText(
-        "Anhänge auswerten: Text aus 1.200 von 5.000 Dokumenten gelesen · 40 Dokumente/s · Restzeit ca. 2 min",
-      ),
-    ).toBeTruthy();
-  });
-
-  const slowRun = (done: number, rate: number): ImportStatus => ({
+  const attachmentsRun = (done: number, rate: number | null, eta: number | null): ImportStatus => ({
     ...importStatus,
     import_job: {
       ...importJob,
       phase: "attachments",
       progress: {
         ...importJob.progress,
-        documents_total: 80,
-        documents_done: done,
-        documents_per_second: rate,
+        workers: 0,
+        steps: importJob.progress.steps.map((step) =>
+          step.key !== "attachments"
+            ? { ...step, status: step.status === "skipped" ? "skipped" : "done", rate: null }
+            : {
+                ...step,
+                status: "running",
+                unit: "documents",
+                done,
+                total: 5_000,
+                started_at: "2026-10-20T01:14:00Z",
+                seconds: 30,
+                rate,
+                eta_seconds: eta,
+              },
+        ),
       },
     },
   });
 
-  it("shows the phase before its rate is known", async () => {
-    renderApp("/import", backend(slowRun(0, 0)));
-    expect(
-      await screen.findByText("Anhänge auswerten: Text aus 0 von 80 Dokumenten gelesen"),
-    ).toBeTruthy();
+  /** What follows the label in the step's row. */
+  async function attachmentsStep(): Promise<string> {
+    const label = "Text aus Anhängen lesen";
+    const row = (await screen.findByText(label)).closest("li")!;
+    return row.textContent!.slice(label.length);
+  }
+
+  it("shows the attachments step with its progress, rate and estimated remaining time", async () => {
+    renderApp("/import", backend(attachmentsRun(1_200, 40, 95)));
+    expect(await attachmentsStep()).toBe(
+      "1.200 von 5.000 Dokumenten · 40 Dokumente/s · Restzeit geschätzt 2 min · läuft seit 31 s",
+    );
+    const bar = screen.getByRole("progressbar", { name: "Text aus Anhängen lesen" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("24");
+  });
+
+  it("shows the step before its rate is known", async () => {
+    renderApp("/import", backend(attachmentsRun(0, null, null)));
+    expect(await attachmentsStep()).toBe("0 von 5.000 Dokumenten · läuft seit 31 s");
   });
 
   it("shows a slow rate with a decimal", async () => {
-    renderApp("/import", backend(slowRun(20, 0.4)));
-    expect(
-      await screen.findByText(
-        "Anhänge auswerten: Text aus 20 von 80 Dokumenten gelesen · 0,4 Dokumente/s · Restzeit ca. 3 min",
-      ),
-    ).toBeTruthy();
+    renderApp("/import", backend(attachmentsRun(20, 0.4, 12_450)));
+    expect(await attachmentsStep()).toBe(
+      "20 von 5.000 Dokumenten · 0,4 Dokumente/s · Restzeit geschätzt 3 h 28 min · läuft seit 31 s",
+    );
   });
 
   it("counts attachments and documents by text status, each leading to its list", async () => {

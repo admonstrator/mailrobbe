@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from mailrobbe.jobs import RunProgress
+
 # reconstruct: keys from two or more signatures of the names whose signatures are no_key, or
 #   fail with signature_mismatch and an intact body (a new key under an old name)
 # search: key records quoted in the archive's mails and attachment texts
@@ -32,12 +34,9 @@ class DkimKeysOptions(BaseModel):
     archive_url: str | None = None  # fetch: the key archive asked
 
 
-class DkimKeysProgress(BaseModel):
-    """Live figures of a dkim-keys run (job.progress of kind dkim_keys).
-
-    Done and total of the current phase, its rate and remaining time come with the progress steps
-    every run reports (see jobrun); these are the figures only this kind has.
-    """
+class DkimKeysProgress(RunProgress):
+    """Live figures of a dkim-keys run (job.progress of kind dkim_keys); done, total, rate and
+    remaining time of each phase are its steps' (D110)."""
 
     workers: int = 0  # worker processes busy right now
     names: int = 0  # key names the run works on

@@ -54,7 +54,7 @@ from mailrobbe.attachments.extract import Extraction, ExtractionLimits, extract_
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT, EXTRACTOR_VERSION
 from mailrobbe.enums import DocumentKind, DocumentTextStatus
-from mailrobbe.jobrun import describe, ignore_interrupts, spawning_workers
+from mailrobbe.jobrun import Step, describe, ignore_interrupts, spawning_workers
 
 if TYPE_CHECKING:  # not at run time: the spawned workers import this module, and need little
     from mailrobbe.importer.runner import ImportFigures
@@ -229,17 +229,17 @@ async def extract_texts(
     workers: int,
     stop: asyncio.Event,
     figures: "ImportFigures",
+    step: Step,
     *,
     extract: Extractor = extract_document,
 ) -> PhaseResult:
     """Extract and store the texts of these documents until done or `stop` is set.
 
-    figures follows the documents stored (documents_done) and the workers running.
+    figures follows the workers running, step the documents stored.
     """
     started = time.monotonic()
     max_size = int(settings.attachment_text_max_size)
-    figures.start_documents(len(waiting))
-    store = _Store(sessionmaker, figures)
+    store = _Store(sessionmaker, step)
     for document in waiting:
         if document.size_bytes > max_size:
             await store.add(_Row(document.id, S.TOO_LARGE))
@@ -404,13 +404,11 @@ def _clean(value: str) -> str:
 
 
 class _Store:
-    """Rows in batches, one transaction each; figures.documents_done counts what is stored."""
+    """Rows in batches, one transaction each; step counts what is stored."""
 
-    def __init__(
-        self, sessionmaker: async_sessionmaker[AsyncSession], figures: "ImportFigures"
-    ) -> None:
+    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession], step: Step) -> None:
         self._sessionmaker = sessionmaker
-        self._figures = figures
+        self._step = step
         self._rows: list[_Row] = []
         self._characters = 0
         self._since = 0.0
@@ -420,7 +418,7 @@ class _Store:
 
     async def add(self, row: _Row | None) -> None:
         if row is None:
-            self._figures.documents_done += 1
+            self._step.advance()
             return
         if not self._rows:
             self._since = time.monotonic()
@@ -440,7 +438,7 @@ class _Store:
         async with self._sessionmaker() as session:
             await _write(session, rows)
         self.stored += len(rows)
-        self._figures.documents_done += len(rows)
+        self._step.advance(len(rows))
         self.statuses.update(row.status for row in rows)
         for row in rows:
             if row.source is not None:
