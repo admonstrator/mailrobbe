@@ -6,6 +6,7 @@ the list items' research fields and the overview's counts are in test_research_f
 notes in test_research_notes.py.
 """
 
+import dataclasses
 from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,7 @@ from mailrobbe.api.deps import EDITOR_HEADER
 from mailrobbe.api.schemas import COLLECTION_PERSONS, PERMALINK_DIGITS
 from mailrobbe.db.models import Mail
 from mailrobbe.entities.terms import term_key
-from mailrobbe.themes import load_themes
+from mailrobbe.themes import ThemeSearch, load_themes
 from tests.api.conftest import _client, api_settings
 from tests.api.test_mails import rows
 from tests.conftest import GeneratedArchive
@@ -715,6 +716,23 @@ async def test_the_starter_set_is_created_once(mutable_client: httpx.AsyncClient
             assert (found["query"], found["collection_id"]) == (each.query, None)
     again = await call(http, "POST", "/api/research/starter", editor={})
     assert again == overview
+
+
+async def test_the_starter_searches_carry_the_options_of_their_theme(
+    mutable_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    theme = load_themes()[0]
+    search = ThemeSearch(
+        name="Probe: ganzes Wort", q="Neger", scope=("subject", "body"), whole_word=True, min_hits=2
+    )
+    themes = (dataclasses.replace(theme, searches=(search,)),)
+    monkeypatch.setattr(research, "load_themes", lambda: themes)
+    query = "q=Neger&scope=subject&scope=body&whole_word=true&min_hits=2"  # as the mail list's URL
+    listed = await call(mutable_client, "GET", "/api/research/themes")
+    assert listed[0]["searches"] == [{"name": search.name, "query": query}]
+    overview = await call(mutable_client, "POST", "/api/research/starter")
+    assert [(s["name"], s["query"]) for s in overview["searches"]] == [(search.name, query)]
+    await call(mutable_client, "GET", f"/api/mails?{query}")  # the mail list takes it
 
 
 def _iso(value: datetime | None) -> str | None:
