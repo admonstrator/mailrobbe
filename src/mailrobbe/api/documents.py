@@ -40,6 +40,7 @@ from sqlalchemy import (
     ColumnElement,
     Executable,
     Integer,
+    Select,
     SQLColumnExpression,
     any_,
     exists,
@@ -619,6 +620,15 @@ async def _persons(
         .join(Mail, Mail.id == Attachment.mail_id)
         .where(Attachment.document_id == document_id, Mail.is_duplicate_of.is_(None))
     )
+    return await mail_persons(session, carried, DOCUMENT_PERSONS_LIMIT)
+
+
+async def mail_persons(
+    session: AsyncSession, mail_ids: Select[Any], limit: int
+) -> tuple[list[PersonCount], int, list[PersonCount], int]:
+    """The root persons who sent and who received these mails (a select of mail ids), each
+    with those mails, the `limit` with most first; and how many there are of each. The entity
+    page counts the same way (api/entities.py)."""
     sent = Participation.role == ParticipationRole.FROM
     root = ROOT.label("root")
     mails = func.count(Participation.mail_id.distinct()).label("mails")
@@ -626,14 +636,14 @@ async def _persons(
         await session.execute(
             select(root, sent.label("sent"), mails)
             .join(Person, Person.id == Participation.person_id)
-            .where(Participation.mail_id.in_(carried))
+            .where(Participation.mail_id.in_(mail_ids))
             .group_by(root, sent)
             .order_by(mails.desc(), root)
         )
     )
     senders = [row for row in rows if row.sent]
     recipients = [row for row in rows if not row.sent]
-    shown = [*senders[:DOCUMENT_PERSONS_LIMIT], *recipients[:DOCUMENT_PERSONS_LIMIT]]
+    shown = [*senders[:limit], *recipients[:limit]]
     people = {}
     if shown:
         found = await session.execute(
@@ -647,10 +657,7 @@ async def _persons(
         }
 
     def counts(selected: list[Any]) -> list[PersonCount]:
-        return [
-            PersonCount(person=people[row.root], mails=row.mails)
-            for row in selected[:DOCUMENT_PERSONS_LIMIT]
-        ]
+        return [PersonCount(person=people[row.root], mails=row.mails) for row in selected[:limit]]
 
     return counts(senders), len(senders), counts(recipients), len(recipients)
 
