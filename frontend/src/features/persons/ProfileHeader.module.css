@@ -2,8 +2,8 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 24px;
-  padding: 24px;
+  gap: 16px 24px;
+  padding: 18px 24px;
 }
 
 .identity {
@@ -160,12 +160,11 @@
   color: var(--color-fail-text);
 }
 
+/* The actions in one row beside the name, wrapping to the right on narrower screens. */
 .actions {
   display: flex;
-  flex-direction: column;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
-}
-
-.actions > a {
-  padding: 9px 14px;
 }

@@ -1,7 +1,11 @@
+/* The toolbar sticks below the shell's header, --bar-height high, and the table's header below
+   it. */
 .page {
+  --bar-height: 56px;
+
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 4px;
   min-width: 0;
   padding: 20px 24px 24px;
 }
@@ -9,8 +13,12 @@
 .head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.tabs {
+  margin-left: 16px;
 }
 
 .title {
@@ -31,10 +39,15 @@
 }
 
 .toolbar {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  height: var(--bar-height);
+  background: var(--color-bg);
 }
 
 .search {
@@ -90,11 +103,25 @@
 .tableCard {
   gap: 0;
   padding: 0;
-  overflow: hidden;
 }
 
 .loading {
   display: flex;
   justify-content: center;
   padding: 48px;
+}
+
+@media (max-width: 759px) {
+  .page {
+    --bar-height: 0px;
+  }
+
+  .toolbar {
+    position: static;
+    height: auto;
+  }
+
+  .tabs {
+    margin-left: 0;
+  }
 }

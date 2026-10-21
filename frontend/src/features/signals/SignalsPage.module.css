@@ -12,15 +12,34 @@
   font-weight: 600;
 }
 
-/* What signals are and how to search with them, side by side where both fit. */
+/* What signals are and how to search with them, folded away on request, side by side where
+   both fit. */
+.introBox {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.introSummary {
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.introSummary:hover {
+  color: var(--color-accent-hover);
+}
+
+.introBox[open] .introSummary {
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
 .intro {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
   gap: 12px 40px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  padding: 16px 24px;
-  background: var(--color-surface);
+  padding: 14px 24px 16px;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -100,16 +119,17 @@
 
 .rules {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
-  gap: 6px 32px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 10px 24px;
   margin: 0;
   font-size: 13px;
 }
 
 .setting {
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .wide {
@@ -118,6 +138,7 @@
 
 .setting dt {
   color: var(--color-muted);
+  font-size: 12px;
 }
 
 .setting dd {
@@ -130,6 +151,14 @@
   max-width: 110ch;
   color: var(--color-muted);
   font-size: 12px;
+}
+
+/* The groups of mail signals, two side by side on wide screens. */
+.groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 620px), 1fr));
+  align-items: start;
+  gap: 16px;
 }
 
 /* A group of signals: each signal a row with its rule, figures and links, its senders below. */
@@ -153,8 +182,8 @@
   grid-template-areas:
     "about figures links"
     "senders senders senders";
-  grid-template-columns: minmax(0, 1fr) 210px 150px;
-  gap: 4px 24px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 4px 20px;
   border-top: 1px solid var(--color-border-subtle);
   padding: 12px 0;
   scroll-margin-top: 16px;
@@ -360,9 +389,42 @@
   .page {
     padding: 16px;
   }
+}
 
-  .setting {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+/* On wide screens the persons fallen silent fill two columns, each in two short lines. */
+@media (min-width: 1400px) {
+  .silentList {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 40px;
+  }
+
+  .silentRow {
+    grid-template-areas:
+      "name name timeline"
+      "since before before";
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0 12px;
+  }
+
+  .silentRow:nth-child(2) {
+    border-top: 0;
+  }
+
+  .silentRow .personName {
+    grid-area: name;
+  }
+
+  .since {
+    grid-area: since;
+    color: var(--color-muted);
+  }
+
+  .before {
+    grid-area: before;
+  }
+
+  .silentRow .timeline {
+    grid-area: timeline;
   }
 }

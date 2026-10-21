@@ -27,6 +27,27 @@
   gap: 16px;
 }
 
+/* Signals and events side by side on wide screens; either may be missing, then the other
+   takes the whole width. */
+.pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.pair > :first-child {
+  flex: 1 1 480px;
+}
+
+.pair > :last-child {
+  flex: 2 1 600px;
+}
+
+.pair:empty {
+  display: none;
+}
+
 .pending {
   color: var(--color-muted);
 }

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 
 import { useSignals } from "../../api/queries";
@@ -72,42 +72,75 @@ export function SignalsPage() {
   );
 }
 
+const INTRO_KEY = "mailrobbe.signals-intro";
+
+function loadIntroOpen(): boolean {
+  try {
+    return localStorage.getItem(INTRO_KEY) !== "closed";
+  } catch {
+    return true; // storage blocked: open
+  }
+}
+
+function saveIntroOpen(open: boolean): void {
+  try {
+    localStorage.setItem(INTRO_KEY, open ? "open" : "closed");
+  } catch {
+    // storage blocked: the choice lasts until reload
+  }
+}
+
+/** What signals are and how to search with them: open until folded, then folded on later
+ *  visits too. */
 function Intro() {
+  const [open, setOpen] = useState(loadIntroOpen);
   return (
-    <div className={styles.intro}>
-      <section className={styles.introPart} aria-labelledby="signals-what">
-        <h2 id="signals-what" className={styles.introTitle}>
-          Was Signale sind
-        </h2>
-        <p>
-          Einfache Regeln, die auf Mails zeigen, die sich zu lesen lohnen können: eine private
-          Adresse, eine Blindkopie, eine Mail mitten in der Nacht, ein Begriff aus einem
-          Recherchethema, eine Person, von der plötzlich nichts mehr kommt. Jede Regel steht unten
-          in einem Satz.
-        </p>
-        <p>
-          Signale bewerten nichts und beweisen nichts. Viele haben harmlose Gründe; ob eine Mail
-          zählt, zeigt erst das Lesen.
-        </p>
-      </section>
-      <section className={styles.introPart} aria-labelledby="signals-how">
-        <h2 id="signals-how" className={styles.introTitle}>
-          So suchen Sie damit
-        </h2>
-        <ol className={styles.steps}>
-          <li>Ein Signal wählen: hier über „Mails“ oder in der Mailliste unter „Signale“.</li>
-          <li>
-            Mit der Suche, einer Person, einem Zeitraum oder einem Thema verbinden; mehrere Signale
-            gelten zusammen.
-          </li>
-          <li>Auf der Zeitachse sehen, wann es sich häuft.</li>
-          <li>
-            Die Mails öffnen und lesen. Jede Mail sagt unter „Warum fällt diese Mail auf“, was auf
-            sie zutrifft.
-          </li>
-        </ol>
-      </section>
-    </div>
+    <details
+      className={styles.introBox}
+      open={open}
+      onToggle={(event) => {
+        const next = event.currentTarget.open;
+        if (next === open) return;
+        setOpen(next);
+        saveIntroOpen(next);
+      }}
+    >
+      <summary className={styles.introSummary}>Was Signale sind und wie Sie damit suchen</summary>
+      <div className={styles.intro}>
+        <section className={styles.introPart} aria-labelledby="signals-what">
+          <h2 id="signals-what" className={styles.introTitle}>
+            Was Signale sind
+          </h2>
+          <p>
+            Einfache Regeln, die auf Mails zeigen, die sich zu lesen lohnen können: eine private
+            Adresse, eine Blindkopie, eine Mail mitten in der Nacht, ein Begriff aus einem
+            Recherchethema, eine Person, von der plötzlich nichts mehr kommt. Jede Regel steht unten
+            in einem Satz.
+          </p>
+          <p>
+            Signale bewerten nichts und beweisen nichts. Viele haben harmlose Gründe; ob eine Mail
+            zählt, zeigt erst das Lesen.
+          </p>
+        </section>
+        <section className={styles.introPart} aria-labelledby="signals-how">
+          <h2 id="signals-how" className={styles.introTitle}>
+            So suchen Sie damit
+          </h2>
+          <ol className={styles.steps}>
+            <li>Ein Signal wählen: hier über „Mails“ oder in der Mailliste unter „Signale“.</li>
+            <li>
+              Mit der Suche, einer Person, einem Zeitraum oder einem Thema verbinden; mehrere
+              Signale gelten zusammen.
+            </li>
+            <li>Auf der Zeitachse sehen, wann es sich häuft.</li>
+            <li>
+              Die Mails öffnen und lesen. Jede Mail sagt unter „Warum fällt diese Mail auf“, was auf
+              sie zutrifft.
+            </li>
+          </ol>
+        </section>
+      </div>
+    </details>
   );
 }
 
@@ -117,29 +150,31 @@ function Overview({ overview, target }: { overview: SignalOverview; target: stri
   return (
     <>
       <Settings overview={overview} />
-      {MAIL_GROUPS.map((group) => (
-        <SignalGroupCard
-          key={group}
-          group={group}
-          signals={overview.signals.filter((info) => info.group === group)}
-          overview={overview}
-          target={target}
-        >
-          {group === "time" && (
+      <div className={styles.groups}>
+        {MAIL_GROUPS.map((group) => (
+          <SignalGroupCard
+            key={group}
+            group={group}
+            signals={overview.signals.filter((info) => info.group === group)}
+            overview={overview}
+            target={target}
+          >
+            {group === "time" && (
+              <p className={styles.groupNote}>
+                {`Ortszeit ${overview.settings.timezone}: Auch eine im Ausland geschriebene Mail zeigt die Stunde dieser Zone.`}
+              </p>
+            )}
+          </SignalGroupCard>
+        ))}
+        {wording.length > 0 && (
+          <SignalGroupCard group="wording" signals={wording} overview={overview} target={target}>
             <p className={styles.groupNote}>
-              {`Ortszeit ${overview.settings.timezone}: Auch eine im Ausland geschriebene Mail zeigt die Stunde dieser Zone.`}
+              {signalRule(wording[0].key, overview.settings)}{" "}
+              <Link to="/akten?tab=themen">Die Wortfelder stehen unter Akten › Themen.</Link>
             </p>
-          )}
-        </SignalGroupCard>
-      ))}
-      {wording.length > 0 && (
-        <SignalGroupCard group="wording" signals={wording} overview={overview} target={target}>
-          <p className={styles.groupNote}>
-            {signalRule(wording[0].key, overview.settings)}{" "}
-            <Link to="/akten?tab=themen">Die Wortfelder stehen unter Akten › Themen.</Link>
-          </p>
-        </SignalGroupCard>
-      )}
+          </SignalGroupCard>
+        )}
+      </div>
       <SilentCard overview={overview} computed={computed} target={target} />
     </>
   );
@@ -419,7 +454,7 @@ function SilentRow({ entry: { person, since, mails } }: { entry: SilentPerson })
       <Link to={personPath(person.person_id)} className={styles.personName} title={person.email}>
         {personLabel(person)}
       </Link>
-      <span>{`verstummt seit ${silentMonth(since)}`}</span>
+      <span className={styles.since}>{`verstummt seit ${silentMonth(since)}`}</span>
       <span className={styles.before}>{`${mailsText(mails)} in den sechs Monaten davor`}</span>
       <Link
         to={timelinePath({ person: [person.person_id] })}

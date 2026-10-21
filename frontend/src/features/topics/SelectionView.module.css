@@ -107,8 +107,9 @@
   color: var(--color-muted);
 }
 
+/* No scroll container on wide screens, so the table header can stick below the shell's. */
 .tableWrap {
-  overflow-x: auto;
+  min-width: 0;
 }
 
 .table {
@@ -118,8 +119,12 @@
 }
 
 .table th {
-  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 2;
   padding: 6px 10px;
+  background: var(--color-surface);
+  box-shadow: inset 0 -1px var(--color-border);
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 600;
@@ -191,5 +196,13 @@
 
   .result {
     padding: 12px 16px 16px;
+  }
+
+  .tableWrap {
+    overflow-x: auto;
+  }
+
+  .table th {
+    position: static;
   }
 }

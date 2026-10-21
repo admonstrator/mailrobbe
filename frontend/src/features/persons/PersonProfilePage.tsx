@@ -132,8 +132,10 @@ function Profile({ profile }: { profile: PersonProfile }) {
         onPick={(range) => void navigate(withQuery("/mails", { ...mails, ...range }))}
         silenceLine
       />
-      <PersonSignalsCard personId={profile.id} />
-      <PersonEventsCard personId={profile.id} />
+      <div className={styles.pair}>
+        <PersonSignalsCard personId={profile.id} />
+        <PersonEventsCard personId={profile.id} />
+      </div>
       <PersonMails profile={profile} state={state} onChange={setState} href={href} />
       {merging && <MergeDialog profile={profile} onClose={() => setMerging(false)} />}
     </div>

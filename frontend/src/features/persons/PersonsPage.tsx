@@ -90,15 +90,16 @@ export function PersonsPage() {
               : `${formatNumber(page.data.total)} Personen`}
           </span>
         )}
+        <div className={styles.tabs}>
+          <Tabs<PersonsTab>
+            items={tabs}
+            active={state.tab}
+            onSelect={(tab) => setState({ ...state, tab })}
+            idPrefix={TABS_ID}
+            label="Personen, Alias-Vorschläge und Zusammenführungen"
+          />
+        </div>
       </div>
-
-      <Tabs<PersonsTab>
-        items={tabs}
-        active={state.tab}
-        onSelect={(tab) => setState({ ...state, tab })}
-        idPrefix={TABS_ID}
-        label="Personen, Alias-Vorschläge und Zusammenführungen"
-      />
 
       <div {...tabPanelProps(TABS_ID, state.tab)} className={styles.panel}>
         {state.tab === "vorschlaege" ? (
