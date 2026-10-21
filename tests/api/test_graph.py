@@ -220,6 +220,19 @@ async def test_graphml_download(graph_client: httpx.AsyncClient) -> None:
     )
 
 
+async def test_exactly_the_limit(graph_client: httpx.AsyncClient) -> None:
+    """Two leaves hidden leave MAX_GRAPH_NODES persons, which a map shows; the download is
+    streamed in several pieces."""
+    params: dict[str, Any] = {"center": HUB, "hide": [LEAVES[0], LEAVES[1]]}
+    graph = await _get(graph_client, "/api/graph", params)
+    assert (len(graph["nodes"]), len(graph["edges"])) == (MAX_GRAPH_NODES, MAX_GRAPH_NODES - 1)
+    response = await graph_client.get("/api/graph/export.graphml", params=params)
+    assert response.status_code == 200
+    root = ET.fromstring(response.content)
+    assert len(root.findall("g:graph/g:node", NS)) == MAX_GRAPH_NODES
+    assert len(root.findall("g:graph/g:edge", NS)) == MAX_GRAPH_NODES - 1
+
+
 async def test_imported_archive(client: httpx.AsyncClient) -> None:
     """The endpoints work on a real import, whether its edge table is filled or not."""
     page = await _get(client, "/api/mails", {"limit": 20})
