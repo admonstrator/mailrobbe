@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { SignalOverview } from "../../api/types";
@@ -197,6 +197,21 @@ describe("signal overview", () => {
       "Diese Zahlen entstanden unter anderen Regeln oder Wortfeldern als den jetzigen.",
     );
     expect(href(settings, "Import")).toBe("/import");
+  });
+
+  it("folds the introduction and keeps it folded on the next visit", async () => {
+    await loaded();
+    const intro = () =>
+      screen.getByText("Was Signale sind und wie Sie damit suchen").closest("details")!;
+    expect(intro().open).toBe(true);
+    fireEvent.click(screen.getByText("Was Signale sind und wie Sie damit suchen"));
+    await waitFor(() => expect(intro().open).toBe(false));
+    expect(localStorage.getItem("mailrobbe.signals-intro")).toBe("closed");
+    cleanup();
+    await loaded();
+    expect(intro().open).toBe(false);
+    // Folded, the explanation is still there to unfold.
+    expect(within(intro()).getByRole("heading", { name: "Was Signale sind" })).toBeTruthy();
   });
 
   it("shows the error with a retry", async () => {
