@@ -20,7 +20,6 @@ import { DomainDialog } from "./DomainDialog";
 import styles from "./FilterColumn.module.css";
 import { withFilters, withoutSidebarFilters, type FilterPatch, type ListState } from "./listState";
 import { ResearchFilters } from "./ResearchFilters";
-import { SearchOptions } from "./SearchOptions";
 
 const ALWAYS_SHOWN: readonly DkimKey[] = ["pass", "fail", "no_key", "unsigned"];
 const TOP_DOMAINS = 5;
@@ -32,7 +31,6 @@ export function FilterColumn({
   stats,
   mboxFiles,
   research,
-  terms,
 }: {
   state: ListState;
   onChange: (next: ListState) => void;
@@ -81,8 +79,6 @@ export function FilterColumn({
           Zurücksetzen
         </Button>
       </div>
-
-      <SearchOptions state={state} terms={terms} change={change} />
 
       <fieldset className={styles.group}>
         <legend className={styles.legend}>Zeitraum</legend>

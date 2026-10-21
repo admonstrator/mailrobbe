@@ -101,3 +101,24 @@ textarea {
 .mono {
   font-family: var(--font-mono);
 }
+
+/* Inner scroll areas (filter columns, lists, menus) get a thin, quiet scrollbar; the window keeps
+   the platform's own. */
+:where(body *) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+::selection {
+  background: var(--color-accent-soft);
+}
+
+/* Without motion, hover and state changes switch at once; animations keep their own rules (the
+   spinner turns slower instead of stopping). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0s !important;
+  }
+}

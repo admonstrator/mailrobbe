@@ -8,6 +8,11 @@
 .box {
   flex-shrink: 0;
   margin: 3px 3px 3px 4px;
+  cursor: inherit;
+}
+
+.row:hover:not(.disabled) .label {
+  color: var(--color-accent-hover);
 }
 
 .disabled {

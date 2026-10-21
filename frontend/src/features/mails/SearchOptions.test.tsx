@@ -10,21 +10,29 @@ const negerApi = (call: ApiCall) =>
     ? hitsPage
     : fixtureApi(call);
 
-function group(): HTMLElement {
-  const column = screen.getByRole("complementary", { name: "Filter" });
-  return within(column).getByRole("group", { name: "Suche" });
+const toggle = () => screen.getByRole("button", { name: /^Suchmenü/ });
+
+/** Opens the header's search menu and returns its panel. */
+function openMenu(): HTMLElement {
+  if (toggle().getAttribute("aria-expanded") !== "true") fireEvent.click(toggle());
+  return screen.getByRole("dialog", { name: "Suchmenü" });
 }
 
+const menu = () => screen.getByRole("dialog", { name: "Suchmenü" });
 const search = (location: { search: string }) => new URLSearchParams(location.search);
 
-describe("the group Suche of the filter column (D177)", () => {
-  it("comes first, with every place ticked, no whole words and no minimum", async () => {
+describe("the search options of the search menu (D177)", () => {
+  it("are no longer a group of the filter column", () => {
     renderApp("/mails?q=Neger", negerApi);
     const column = screen.getByRole("complementary", { name: "Filter" });
     const legends = [...column.querySelectorAll("legend")].map((legend) => legend.textContent);
-    expect(legends[0]).toBe("Suche");
-    expect(legends[1]).toBe("Zeitraum");
-    const places = within(group()).getByRole("group", { name: "Suchen in" });
+    expect(legends[0]).toBe("Zeitraum");
+    expect(within(column).queryByRole("checkbox", { name: "Ganzes Wort" })).toBeNull();
+  });
+
+  it("start with every place ticked, no whole words and no minimum", () => {
+    renderApp("/mails?q=Neger", negerApi);
+    const places = within(openMenu()).getByRole("group", { name: "Suchen in" });
     const boxes = within(places).getAllByRole("checkbox");
     expect(boxes.map((box) => box.parentElement!.textContent)).toEqual([
       "Betreff",
@@ -35,27 +43,30 @@ describe("the group Suche of the filter column (D177)", () => {
     expect(
       boxes.every((box) => (box as HTMLInputElement).checked && !box.hasAttribute("disabled")),
     ).toBe(true);
-    expect(within(group()).getByRole("checkbox", { name: "Ganzes Wort" })).toHaveProperty(
+    expect(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" })).toHaveProperty(
       "checked",
       false,
     );
     expect(
-      within(group()).getByText(
+      within(menu()).getByText(
         "ohne Wortstamm und Teilwörter, Groß/Klein egal, Umlaute und Akzente zählen",
       ),
     ).toBeTruthy();
-    expect(within(group()).getByRole("textbox", { name: "Mindestens Treffer" })).toHaveProperty(
+    expect(within(menu()).getByRole("textbox", { name: "Mindestens Treffer" })).toHaveProperty(
       "value",
       "",
     );
-    // q has words: no note that the options need them.
-    await screen.findAllByText("Dateiname 2");
-    expect(within(group()).queryByText("Wirkt auf die Wörter der Suche oben")).toBeNull();
+    expect(within(menu()).getByText("Wirkt sofort auf die Liste")).toBeTruthy();
+    expect(within(menu()).getByRole("button", { name: "Zurücksetzen" })).toHaveProperty(
+      "disabled",
+      true,
+    );
   });
 
   it("limits the places by unticking, and keeps the last one ticked", async () => {
     const { router, calls } = renderApp("/mails?q=Neger", negerApi);
-    const box = (name: string) => within(group()).getByRole("checkbox", { name });
+    openMenu();
+    const box = (name: string) => within(menu()).getByRole("checkbox", { name });
 
     fireEvent.click(box("Dateiname"));
     expect(search(router.state.location).getAll("scope")).toEqual([
@@ -73,18 +84,20 @@ describe("the group Suche of the filter column (D177)", () => {
     await waitFor(() =>
       expect(calls.some((call) => call.url.search === "?q=Neger&scope=body")).toBe(true),
     );
+    expect(toggle().getAttribute("aria-label")).toBe("Suchmenü, 1 Optionen geändert");
 
     // Ticking all four again is the default, everywhere.
     for (const name of ["Betreff", "Anhangstext", "Dateiname"]) fireEvent.click(box(name));
     expect(router.state.location.search).toBe("?q=Neger");
+    expect(toggle().getAttribute("aria-label")).toBe("Suchmenü");
   });
 
   it("searches whole words and asks for a minimum, ignoring what is no number", async () => {
     const { router } = renderApp("/mails?q=Neger&cursor=abc&page=2", negerApi);
-    fireEvent.click(within(group()).getByRole("checkbox", { name: "Ganzes Wort" }));
+    fireEvent.click(within(openMenu()).getByRole("checkbox", { name: "Ganzes Wort" }));
     expect(router.state.location.search).toBe("?q=Neger&whole_word=true");
 
-    const field = within(group()).getByRole("textbox", { name: "Mindestens Treffer" });
+    const field = within(menu()).getByRole("textbox", { name: "Mindestens Treffer" });
     fireEvent.change(field, { target: { value: "3" } });
     fireEvent.keyDown(field, { key: "Enter" });
     expect(router.state.location.search).toBe("?q=Neger&whole_word=true&min_hits=3");
@@ -104,25 +117,26 @@ describe("the group Suche of the filter column (D177)", () => {
     ).toBeTruthy();
   });
 
-  it("says that it acts on the words of the search when q has none", async () => {
+  it("says that it acts on the words of the search", () => {
     renderApp(
       `/mails?${new URLSearchParams({ q: "subject:Vertrag to:@stadtwerke-beispiel.example" })}`,
     );
-    expect(await within(group()).findByText("Wirkt auf die Wörter der Suche oben")).toBeTruthy();
-    // still usable
-    fireEvent.click(within(group()).getByRole("checkbox", { name: "Ganzes Wort" }));
-    expect(within(group()).getByRole("checkbox", { name: "Ganzes Wort" })).toHaveProperty(
+    expect(
+      within(openMenu()).getByText("Wirkt auf die Wörter der Suche, nicht auf from:, has: usw."),
+    ).toBeTruthy();
+    fireEvent.click(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" }));
+    expect(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" })).toHaveProperty(
       "checked",
       true,
     );
   });
 
-  it("shows the syntax in a disclosure", () => {
+  it("shows the syntax in short lines", () => {
     renderApp("/mails");
-    expect(within(group()).getByText("Wirkt auf die Wörter der Suche oben")).toBeTruthy();
-    const syntax = within(group()).getByText("Suchsyntax").closest("details")!;
-    expect(syntax.open).toBe(false);
-    const lines = [...syntax.querySelectorAll("li")].map((line) => line.textContent);
+    const syntax = within(openMenu()).getByRole("region", { name: "Suchsyntax" });
+    const lines = [...syntax.querySelectorAll("dt")].map(
+      (term) => `${term.textContent} ${term.nextElementSibling!.textContent}`,
+    );
     expect(lines).toEqual([
       "betreff:Wort nur im Betreff",
       "text:Wort nur im Mailtext",
@@ -135,23 +149,40 @@ describe("the group Suche of the filter column (D177)", () => {
     ]);
   });
 
-  it("is reset with the other filters, keeping the search text", async () => {
+  it("is reset with the other filters, keeping the search text, and by its own button", async () => {
     const { router } = renderApp(
       "/mails?q=Neger&scope=subject&whole_word=true&min_hits=2&dkim=pass",
       negerApi,
     );
-    const column = screen.getByRole("complementary", { name: "Filter" });
-    expect(within(group()).getByRole("textbox", { name: "Mindestens Treffer" })).toHaveProperty(
+    expect(within(openMenu()).getByRole("textbox", { name: "Mindestens Treffer" })).toHaveProperty(
       "value",
       "2",
     );
-    fireEvent.click(within(column).getByRole("button", { name: "Zurücksetzen" }));
-    expect(router.state.location.search).toBe("?q=Neger");
+    fireEvent.click(within(menu()).getByRole("button", { name: "Zurücksetzen" }));
+    expect(router.state.location.search).toBe("?q=Neger&dkim=pass");
     await waitFor(() =>
-      expect(within(group()).getByRole("textbox", { name: "Mindestens Treffer" })).toHaveProperty(
+      expect(within(menu()).getByRole("textbox", { name: "Mindestens Treffer" })).toHaveProperty(
         "value",
         "",
       ),
+    );
+
+    fireEvent.click(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" }));
+    const column = screen.getByRole("complementary", { name: "Filter" });
+    fireEvent.click(within(column).getByRole("button", { name: "Zurücksetzen" }));
+    expect(router.state.location.search).toBe("?q=Neger");
+    expect(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" })).toHaveProperty(
+      "checked",
+      false,
+    );
+  });
+
+  it("act on a mail opened from the list, keeping it open", () => {
+    const { router } = renderApp("/mails/184221?q=Neger&cursor=abc&page=2");
+    fireEvent.click(within(openMenu()).getByRole("checkbox", { name: "Betreff" }));
+    expect(router.state.location.pathname).toBe("/mails/184221");
+    expect(router.state.location.search).toBe(
+      "?q=Neger&scope=body&scope=attachment&scope=filename",
     );
   });
 });

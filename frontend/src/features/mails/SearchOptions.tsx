@@ -1,20 +1,10 @@
 import { useEffect, useRef } from "react";
 
-import { MIN_HITS_LIMIT, SEARCH_FIELDS, type QueryTerm, type SearchField } from "../../api/types";
+import { MIN_HITS_LIMIT, SEARCH_FIELDS, type SearchField } from "../../api/types";
 import { Checkbox } from "../../components/Checkbox";
 import { SEARCH_FIELD_LABELS } from "./chips";
-import columnStyles from "./FilterColumn.module.css";
-import { canonicalScope, positiveInt, type FilterPatch, type ListState } from "./listState";
+import { canonicalScope, positiveInt, type SearchOptions as Options } from "./listState";
 import styles from "./SearchOptions.module.css";
-
-/** Query keys of full text words: the free words and those looked for in one place (D172). */
-const WORD_KEYS: readonly QueryTerm["key"][] = [
-  "text",
-  "in_subject",
-  "in_body",
-  "in_attachment",
-  "in_filename",
-];
 
 /** The search syntax in short lines (D20, D172, D175). */
 const SYNTAX: readonly [string, string][] = [
@@ -28,28 +18,25 @@ const SYNTAX: readonly [string, string][] = [
   ["subject:Wort", "Teil des Betreffs, auch mitten im Wort"],
 ];
 
-/** q has no full text words, as far as its terms are known; false while they are not (a page
- *  loading for a new query). */
-function withoutWords(q: string, terms: QueryTerm[] | undefined): boolean {
-  if (!q) return true;
-  const known = terms?.filter((term) => q.includes(term.raw)) ?? [];
-  return known.length > 0 && !known.some((term) => WORD_KEYS.includes(term.key));
+export const DEFAULT_SEARCH_OPTIONS: Options = { scope: [], whole_word: false, min_hits: null };
+
+/** How many of the options differ from the default: the badge of the search menu. */
+export function changedOptions(options: Options): number {
+  return [options.scope.length > 0, options.whole_word, options.min_hits !== null].filter(Boolean)
+    .length;
 }
 
-/** The group "Suche" of the filter column (D177): where q's free words are looked for, whole
- *  words, and how often they must occur at least (D171 to D174), with a short help of the
- *  syntax. All four places ticked is the default; the last ticked one cannot be unticked. */
+/** The search options of the search menu (D177): where q's free words are looked for, whole
+ *  words, and how often they must occur at least (D171 to D174). All four places ticked is the
+ *  default; the last ticked one cannot be unticked. */
 export function SearchOptions({
-  state,
-  terms,
+  options,
   change,
 }: {
-  state: ListState;
-  /** The query terms of the page shown, for the note that the options need words. */
-  terms: QueryTerm[] | undefined;
-  change: (patch: FilterPatch) => void;
+  options: Options;
+  change: (patch: Partial<Options>) => void;
 }) {
-  const ticked = state.scope.length ? state.scope : SEARCH_FIELDS;
+  const ticked = options.scope.length ? options.scope : SEARCH_FIELDS;
   function toggle(field: SearchField, checked: boolean) {
     change({
       scope: canonicalScope(
@@ -59,13 +46,11 @@ export function SearchOptions({
   }
 
   return (
-    <fieldset className={columnStyles.group}>
-      <legend className={columnStyles.legend}>Suche</legend>
-      {withoutWords(state.q, terms) && (
-        <p className={columnStyles.scope}>Wirkt auf die Wörter der Suche oben</p>
-      )}
-      <div className={columnStyles.sub} role="group" aria-label="Suchen in">
-        <span className={columnStyles.subLegend}>Suchen in</span>
+    <div className={styles.options}>
+      <div className={styles.places} role="group" aria-labelledby="search-places-label">
+        <span id="search-places-label" className={styles.label}>
+          Suchen in
+        </span>
         {SEARCH_FIELDS.map((field) => {
           const checked = ticked.includes(field);
           const last = checked && ticked.length === 1;
@@ -83,25 +68,31 @@ export function SearchOptions({
         })}
       </div>
       <div>
-        <Checkbox checked={state.whole_word} onChange={(whole_word) => change({ whole_word })}>
+        <Checkbox checked={options.whole_word} onChange={(whole_word) => change({ whole_word })}>
           Ganzes Wort
         </Checkbox>
         <p className={styles.hint}>
           ohne Wortstamm und Teilwörter, Groß/Klein egal, Umlaute und Akzente zählen
         </p>
       </div>
-      <MinHitsField value={state.min_hits} onCommit={(min_hits) => change({ min_hits })} />
-      <details className={styles.syntax}>
-        <summary className={styles.summary}>Suchsyntax</summary>
-        <ul className={styles.syntaxList}>
-          {SYNTAX.map(([example, meaning]) => (
-            <li key={example}>
-              <code className={styles.code}>{example}</code> {meaning}
-            </li>
-          ))}
-        </ul>
-      </details>
-    </fieldset>
+      <MinHitsField value={options.min_hits} onCommit={(min_hits) => change({ min_hits })} />
+    </div>
+  );
+}
+
+/** The search syntax as a compact list of examples. */
+export function SearchSyntax() {
+  return (
+    <dl className={styles.syntax}>
+      {SYNTAX.map(([example, meaning]) => (
+        <div key={example} className={styles.syntaxLine}>
+          <dt>
+            <code className={styles.code}>{example}</code>
+          </dt>
+          <dd>{meaning}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -143,7 +134,7 @@ function MinHitsField({
         type="text"
         inputMode="numeric"
         autoComplete="off"
-        className={`${columnStyles.input} ${styles.minHitsInput}`}
+        className={styles.minHitsInput}
         defaultValue={shown}
         aria-labelledby="filter-min-hits-label filter-min-hits-unit"
         onKeyDown={(event) => {

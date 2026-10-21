@@ -7,6 +7,7 @@
   padding: 4px 10px;
   background: var(--color-accent-soft);
   color: var(--color-accent-hover);
+  border: 1px solid rgb(29 91 214 / 12%);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -19,6 +20,13 @@
 }
 
 .remove {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
   border: 0;
   border-radius: 50%;
   padding: 0;
@@ -27,8 +35,12 @@
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .remove:hover {
+  background: rgb(29 91 214 / 14%);
   color: var(--color-text);
 }
