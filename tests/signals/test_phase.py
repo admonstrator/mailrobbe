@@ -41,13 +41,13 @@ PERSONS = (
     (1, "anna@nordwind.example", None, None),  # internal
     (2, "anna@webpost.example", 1, None),  # private, merged into an internal person
     (3, "bert@mail.nordwind.example", None, None),  # internal, though its domain is private too
-    (4, "bert@webpost.example", None, None),  # private, an open suggestion with 3 (person_b)
+    (4, "bert@webpost.example", None, None),  # private, a certain suggestion with 3 (person_b)
     (5, "dora@post.webpost.example", None, None),  # private, suggested with an external person
     (6, "emil@partner.example", None, None),  # external
     (7, "news@nordwind.example", None, "automated"),
     (8, "liste@partner.example", None, "list"),
     (9, "fritz@xwebpost.example", None, None),  # external: no subdomain of webpost.example
-    (10, "ida@webpost.example", None, None),  # private, an open suggestion with 11 (person_a)
+    (10, "ida@webpost.example", None, None),  # private, a certain suggestion with 11 (person_a)
     (11, "ida@nordwind.example", None, None),  # internal
     (12, "info@webpost.example", 7, None),  # merged into the automated sender
     (13, "otto@partner.example", None, None),  # falls silent
@@ -199,7 +199,7 @@ def _archive() -> list[Statement]:
         domain = address.partition("@")[2]
         add(_PERSON, id=person_id, address=address, domain=domain, root=root, kind=kind)
     for a, b in SUGGESTIONS:
-        add("INSERT INTO alias_suggestion VALUES (:a, :b, NULL, 'x', 'uncertain')", a=a, b=b)
+        add("INSERT INTO alias_suggestion VALUES (:a, :b, NULL, 'x', 'certain')", a=a, b=b)
     for entity_id, kind, key, detail in ENTITIES:
         add(_ENTITY, id=entity_id, kind=kind, key=key, detail=detail)
     add(_DOCUMENT)

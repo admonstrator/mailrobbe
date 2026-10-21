@@ -244,7 +244,7 @@ _SIZES = text("""
     SELECT pg_database_size(current_database()) AS db_size,
            (SELECT COALESCE(sum(size_bytes), 0) FROM mbox_file) AS raw_size,
            pg_relation_size('ix_mail_tsv') AS fulltext_size,
-           (SELECT count(*) FROM alias_suggestion) AS suggestions
+           (SELECT count(*) FROM alias_suggestion WHERE tier = 'certain') AS suggestions
 """)
 _DNS_CACHE = text("SELECT status::text, count(*) FROM dns_cache GROUP BY status")
 # Live, both cheap: attachment rows by an index-only scan, documents by ix_document_text_status.
@@ -267,7 +267,7 @@ async def import_summary(session: Session, settings: AppSettings) -> ImportSumma
         dns_cache=dns_cache,
         dns_hit_ratio=cached / signatures if signatures else None,
         persons=figures.persons,
-        open_suggestions=sizes.suggestions,  # dismissed pairs are never stored (D30)
+        open_suggestions=sizes.suggestions,  # certain ones (D160); dismissed pairs are never stored
         edge_table=await edge_table(session),
         duplicates=figures.duplicates,
         dkim={key: figures.dkim.get(key, 0) for key in DKIM_KEYS},

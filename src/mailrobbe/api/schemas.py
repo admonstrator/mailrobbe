@@ -921,7 +921,7 @@ class ImportSummary(BaseModel):
     # without signatures
     dns_hit_ratio: float | None
     persons: int  # root persons
-    open_suggestions: int  # alias suggestions not dismissed (D30)
+    open_suggestions: int  # certain alias suggestions not dismissed (D160)
     edge_table: EdgeTable
     duplicates: int
     dkim: dict[DkimKey, int]  # every key present

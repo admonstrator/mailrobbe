@@ -44,8 +44,8 @@ export function ArchiveTiles({ summary }: { summary: ImportSummary }) {
   const { dns_cache, dns_hit_ratio, open_suggestions, edge_table } = summary;
   const suggestions =
     open_suggestions === 0
-      ? "keine Alias-Vorschläge offen"
-      : `${formatNumber(open_suggestions)} ${open_suggestions === 1 ? "Alias-Vorschlag" : "Alias-Vorschläge"} offen`;
+      ? "keine sicheren Alias-Vorschläge offen"
+      : `${formatNumber(open_suggestions)} ${open_suggestions === 1 ? "sicherer Alias-Vorschlag" : "sichere Alias-Vorschläge"} offen`;
   const tiles: Tile[] = [
     {
       label: "DB-Größe (Metadaten + Index)",

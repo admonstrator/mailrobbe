@@ -557,11 +557,13 @@ describe("archive figures", () => {
       `DB-Größe (Metadaten + Index)9,8 GBca. ${share} der Rohdaten`,
       "Volltextindex4,1 GBBetreff + Textteil",
       "DNS-Cache6.218Selector-Einträge · 99,4 % Cache-Treffer",
-      "Personen erkannt8.942312 Alias-Vorschläge offen",
+      "Personen erkannt8.942312 sichere Alias-Vorschläge offen",
     ]);
     expect(texts[4]).toMatch(/^Kantentabelle61\.207Personenpaare · aktualisiert /);
     expect(
-      within(tiles).getByRole("link", { name: "312 Alias-Vorschläge offen" }).getAttribute("href"),
+      within(tiles)
+        .getByRole("link", { name: "312 sichere Alias-Vorschläge offen" })
+        .getAttribute("href"),
     ).toBe("/personen?tab=vorschlaege");
   });
 
