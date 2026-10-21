@@ -1073,6 +1073,9 @@ export interface DocumentFilters {
   person_role?: "sent" | "received";
   shared?: boolean; // carried by at least two mails
   external?: boolean;
+  /** What the file says about itself (D167): any of these values, exact. */
+  author?: string[];
+  program?: string[]; // MetadataSummary.software as stored
 }
 
 export interface DocumentListParams extends DocumentFilters {
@@ -1104,11 +1107,22 @@ export interface DocumentPage {
   prev_cursor: string | null;
 }
 
+export const METADATA_VALUES_LIMIT = 20; // authors and programs in DocumentSummary
+
+export interface MetadataValueCount {
+  value: string; // an author or a program, as the file states it
+  documents: number; // filtered documents with this value
+}
+
 export interface DocumentSummary {
   total: number | null; // null: counting ran out of time
   exact: boolean;
   kinds: Record<DocumentKind, number> | null;
   text_status: Record<DocumentTextStatus, number> | null;
+  /** The most frequent authors and programs (D167), most documents first; null: ran out of
+   *  time. */
+  authors: MetadataValueCount[] | null;
+  programs: MetadataValueCount[] | null;
 }
 
 export interface DocumentNameCount {
@@ -1145,6 +1159,29 @@ export interface DocumentDetail {
   recipient_count: number;
   attachment_id: number; // GET /api/attachments/{id}/content reads it
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
+  metadata: DocumentMetadata; // what the file says about itself (D167)
+}
+
+export type DocumentMetadataStatus =
+  | "pending" // not read yet: the next import's metadata step reads it
+  | "found"
+  | "empty" // a format that can carry metadata, without any
+  | "unsupported" // a format whose metadata Mailrobbe does not read
+  | "too_large"
+  | "failed";
+
+/** A metadata value as found: a text, a count, a number (GPS) or a list of texts. */
+export type MetadataValue = string | number | string[];
+
+/** What the file says about itself (D167), every field as found and never rated, grouped by
+ *  where it stands in the file: exif, gps, xmp, png, pdf, pdf_custom, office, odf. Keys are
+ *  stable English names (png and pdf_custom keep the file's own); dates are ISO 8601 with the
+ *  offset the file gives, or without one when it gives none. */
+export interface DocumentMetadata {
+  status: DocumentMetadataStatus;
+  error: string | null; // English, technical
+  fields: Record<string, Record<string, MetadataValue>>; // source -> key -> value
+  summary: MetadataSummary | null; // the values the list filters by; null without fields
 }
 
 export interface DocumentText {
@@ -1173,6 +1210,18 @@ export interface MailHits {
   in_mail: boolean;
   /** The attachments whose document holds a word, in mail order. */
   attachments: AttachmentHit[];
+}
+
+/** GET /api/documents/metadata-values: the authors or programs of the filtered documents whose
+ *  value holds search (D167), for the search within a facet. */
+export interface MetadataValueParams extends DocumentFilters {
+  field: "author" | "program";
+  search?: string;
+  limit?: number; // at most 100
+}
+
+export interface MetadataValues {
+  values: MetadataValueCount[] | null; // most documents first; null: ran out of time
 }
 
 // Keys of deleted selectors (D100 to D104) ------------------------------------------------------

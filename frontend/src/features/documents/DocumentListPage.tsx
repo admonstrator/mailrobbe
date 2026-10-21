@@ -55,6 +55,8 @@ export function DocumentListPage() {
   const summary = useDocumentSummary(filters);
   const kinds = useDocumentSummary(facetFilters(filters, "kind"));
   const statuses = useDocumentSummary(facetFilters(filters, "text_status"));
+  const authors = useDocumentSummary(facetFilters(filters, "author"));
+  const programs = useDocumentSummary(facetFilters(filters, "program"));
   const terms = useMemo(() => highlightTerms(state.q), [state.q]);
 
   const setState = (next: DocumentListState) =>
@@ -76,6 +78,8 @@ export function DocumentListPage() {
         onName={(name) => typed({ name })}
         kinds={kinds.data}
         statuses={statuses.data}
+        authors={authors.data}
+        programs={programs.data}
         stats={stats.data}
       />
       <main className={styles.main}>

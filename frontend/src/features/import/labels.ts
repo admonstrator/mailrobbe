@@ -39,6 +39,7 @@ export const STEP_LABELS: Record<string, string> = {
   suggestions: "Alias-Vorschläge",
   global_stats: "Kennzahlen des Archivs",
   attachments: "Text aus Anhängen lesen",
+  metadata: "Metadaten aus Anhängen lesen",
   entities: "Entitäten erkennen",
   signals: "Signale berechnen",
   topic_terms: "Begriffe zählen",

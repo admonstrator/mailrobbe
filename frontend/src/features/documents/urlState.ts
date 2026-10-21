@@ -34,6 +34,9 @@ export interface DocumentListState {
   person_role: DocumentPersonRole | null;
   shared: boolean;
   external: boolean;
+  /** What the files say about themselves (D167): any of these authors and programs, exact. */
+  author: string[];
+  program: string[];
   sort: DocumentSort;
   cursor: string | null;
   /** 1-based number of the page the cursor points to, for the "51–100" range. */
@@ -54,6 +57,8 @@ export const DEFAULT_DOCUMENT_LIST_STATE: DocumentListState = {
   person_role: null,
   shared: false,
   external: false,
+  author: [],
+  program: [],
   sort: "recent",
   cursor: null,
   page: 1,
@@ -81,10 +86,17 @@ export function parseDocumentListState(search: URLSearchParams): DocumentListSta
     person_role: person === null ? null : (ROLES.find((key) => key === role) ?? null),
     shared: search.get("shared") === "true",
     external: search.get("external") === "true",
+    author: metadataValues(search.getAll("author")),
+    program: metadataValues(search.getAll("program")),
     sort: SORTS.find((sort) => sort === search.get("sort")) ?? "recent",
     cursor,
     page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
   };
+}
+
+/** Exact values as the facets list them: each once, empty ones dropped. */
+function metadataValues(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim() !== ""))];
 }
 
 /** The filters of state with the defaults left out: the same object for the same filters, so
@@ -101,6 +113,8 @@ export function toDocumentFilters(state: DocumentListState): DocumentFilters {
   if (state.person !== null && state.person_role) filters.person_role = state.person_role;
   if (state.shared) filters.shared = true;
   if (state.external) filters.external = true;
+  if (state.author.length) filters.author = state.author;
+  if (state.program.length) filters.program = state.program;
   return filters;
 }
 
@@ -128,6 +142,11 @@ export function documentListHref(state: DocumentListState): string {
   return search ? `/anhaenge?${search}` : "/anhaenge";
 }
 
+/** The document list of one author or one program (D167), as the document page links it. */
+export function metadataListHref(field: "author" | "program", value: string): string {
+  return documentListHref({ ...DEFAULT_DOCUMENT_LIST_STATE, [field]: [value] });
+}
+
 /** state with a filter changed; a new filter starts again at the first page. */
 export function withDocumentFilters(
   state: DocumentListState,
@@ -149,7 +168,7 @@ export function hasDocumentFilters(state: DocumentListState): boolean {
  *  other values keep their counts while some are checked. */
 export function facetFilters(
   filters: DocumentFilters,
-  group: "kind" | "text_status",
+  group: "kind" | "text_status" | "author" | "program",
 ): DocumentFilters {
   const rest = { ...filters };
   delete rest[group];

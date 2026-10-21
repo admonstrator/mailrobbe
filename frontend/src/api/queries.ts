@@ -84,6 +84,8 @@ import type {
   MarkUpdate,
   MboxFileInfo,
   MergeRequest,
+  MetadataValueParams,
+  MetadataValues,
   NoteInfo,
   NotePage,
   PermalinkTarget,
@@ -181,6 +183,7 @@ export const queryKeys = {
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
   hits: (id: number, q: string) => ["documents", "hits", id, q] as const,
+  metadataValues: (params: MetadataValueParams) => ["documents", "metadata", params] as const,
   attachmentHtml: (id: number) => ["attachments", "html", id] as const,
   /** Prefix of everything about keys of deleted selectors (D100 to D104). */
   keys: ["keys"] as const,
@@ -807,6 +810,18 @@ export function useAttachmentHtml(id: number) {
       apiFetch(attachmentHtmlUrl(id), signal).then((answer) => answer.text()),
     staleTime: Infinity,
     gcTime: 0,
+  });
+}
+
+/** The authors or programs of the filtered documents whose value holds the search (D167), for
+ *  the search within a facet of the document list. */
+export function useMetadataValues(params: MetadataValueParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.metadataValues(params),
+    queryFn: ({ signal }) =>
+      apiGet<MetadataValues>("/api/documents/metadata-values", params, signal),
+    placeholderData: keepPreviousData,
+    enabled,
   });
 }
 

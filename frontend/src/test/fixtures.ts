@@ -49,6 +49,7 @@ import type {
   MailSummary,
   MailText,
   MboxFileInfo,
+  MetadataValueCount,
   NotePage,
   ParticipationRole,
   PermalinkTarget,
@@ -1646,6 +1647,16 @@ export const documentSummary: DocumentSummary = {
     failed: 391,
     timeout: 6,
   } as DocumentSummary["text_status"],
+  authors: [
+    { value: "Peter Hofmann", documents: 412 },
+    { value: "Anna Keller", documents: 233 },
+    { value: "Buchhaltung", documents: 87 },
+  ],
+  programs: [
+    { value: "Microsoft Word für Microsoft 365", documents: 3_120 },
+    { value: "Canon EOS 80D Firmware 1.0.3", documents: 641 },
+    { value: "LibreOffice/7.6.4.1$Linux_X86_64", documents: 95 },
+  ],
 };
 
 export const documentSummaryFiltered: DocumentSummary = {
@@ -1653,7 +1664,17 @@ export const documentSummaryFiltered: DocumentSummary = {
   exact: true,
   kinds: { pdf: 151, spreadsheet: 63 } as DocumentSummary["kinds"],
   text_status: { text: 177, scanned: 37 } as DocumentSummary["text_status"],
+  authors: [{ value: "Peter Hofmann", documents: 21 }],
+  programs: [{ value: "Microsoft Word für Microsoft 365", documents: 34 }],
 };
+
+/** The search within the facets "Autor" and "Programm" (D167): more than the top values. */
+export const metadataValues: MetadataValueCount[] = [
+  ...documentSummary.authors!,
+  { value: "Peter Hofmann-Berg", documents: 4 },
+  ...documentSummary.programs!,
+  { value: "Microsoft Excel", documents: 1_870 },
+];
 
 export const documentDetail: DocumentDetail = {
   id: 5101,
@@ -1695,6 +1716,38 @@ export const documentDetail: DocumentDetail = {
   recipient_count: 14,
   attachment_id: 901,
   preview: null,
+  metadata: {
+    status: "found",
+    error: null,
+    fields: {
+      pdf: {
+        version: "1.7",
+        revisions: 3,
+        title: "Rahmenvereinbarung 2026",
+        author: "Peter Hofmann",
+        creator: "Microsoft Word für Microsoft 365",
+        producer: "Microsoft Word für Microsoft 365",
+        creation_date: "2026-10-08T17:40:12+02:00",
+        mod_date: "2026-10-09T08:02:51+02:00",
+      },
+      xmp: {
+        creator: ["Peter Hofmann"],
+        creator_tool: "Microsoft Word für Microsoft 365",
+        document_id: "uuid:7D4E1F0C-1B6C-4D6E-9F2A-3C5B7A9E0D11",
+        history_agents: ["Microsoft Word für Microsoft 365", "Adobe Acrobat Pro 24.1"],
+        history_events: 2,
+      },
+      pdf_custom: { Abteilung: "Einkauf" },
+    },
+    summary: {
+      author: "Peter Hofmann",
+      modified_by: null,
+      software: "Microsoft Word für Microsoft 365",
+      device: null,
+      created: "2026-10-08T15:40:12Z",
+      gps: false,
+    },
+  },
 };
 
 /** A photo: no text, shown as a preview. */
@@ -1718,6 +1771,36 @@ export const imageDocument: DocumentDetail = {
   recipient_count: 1,
   attachment_id: 9105,
   preview: "image",
+  metadata: {
+    status: "found",
+    error: null,
+    fields: {
+      exif: {
+        make: "Canon",
+        model: "Canon EOS 80D",
+        software: "Firmware Version 1.0.3",
+        datetime_original: "2026-10-02T14:31:07+02:00",
+        datetime_digitized: "2026-10-02T14:31:07",
+        artist: "Sofia Brandt",
+        body_serial_number: "032021001234",
+        lens_model: "EF-S18-135mm f/3.5-5.6 IS USM",
+      },
+      gps: {
+        latitude: 53.5438333,
+        longitude: 9.9661667,
+        altitude: 12.5,
+        timestamp: "2026-10-02T12:31:05Z",
+      },
+    },
+    summary: {
+      author: "Sofia Brandt",
+      modified_by: null,
+      software: "Firmware Version 1.0.3",
+      device: "Canon EOS 80D",
+      created: "2026-10-02T12:31:07Z",
+      gps: true,
+    },
+  },
 };
 
 export const documentText: DocumentText = {
