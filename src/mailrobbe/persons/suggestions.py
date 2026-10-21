@@ -22,6 +22,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from mailrobbe.enums import AliasTier
 from mailrobbe.persons.roots import Executor, lock_persons
 from mailrobbe.persons.sync import sync_rows
 
@@ -50,8 +51,9 @@ _DISMISSED = text("""
 _FRESH = """
     SELECT * FROM unnest(
         CAST(:person_a AS bigint[]), CAST(:person_b AS bigint[]),
-        CAST(:same_name AS text[]), CAST(:same_local_part AS text[])
-    ) AS f (person_a, person_b, same_name, same_local_part)
+        CAST(:same_name AS text[]), CAST(:same_local_part AS text[]),
+        CAST(:tier AS alias_tier[])
+    ) AS f (person_a, person_b, same_name, same_local_part, tier)
 """
 
 
@@ -98,8 +100,9 @@ async def refresh_alias_suggestions(db: Executor, persons: Collection[int] | Non
         "person_b": [b for _, b in pairs],
         "same_name": [name for name, _ in pairs.values()],
         "same_local_part": [local_part for _, local_part in pairs.values()],
+        "tier": [AliasTier.UNCERTAIN.value for _ in pairs],
     }
-    keys, values = ("person_a", "person_b"), ("same_name", "same_local_part")
+    keys, values = ("person_a", "person_b"), ("same_name", "same_local_part", "tier")
     await sync_rows(db, "alias_suggestion", keys, values, _FRESH, columns)
 
 

@@ -289,6 +289,18 @@ export interface AttachmentInfo {
   pages: number | null;
   document_mails: number | null; // mails carrying the document, duplicates not counted
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
+  metadata: MetadataSummary | null; // what the file says about itself (D167)
+}
+
+/** The few metadata fields of a document shown next to an attachment (D167), as found in the
+ *  file, never rated; null for a field the file does not have. */
+export interface MetadataSummary {
+  author: string | null; // Artist, Author, dc:creator, initial creator
+  modified_by: string | null; // lastModifiedBy, dc:creator of ODF
+  software: string | null; // Software, CreatorTool, Creator/Producer, Application, generator
+  device: string | null; // camera or scanner: Make and Model
+  created: string | null; // when the file says it was made or taken, ISO 8601 UTC
+  gps: boolean; // the file names a place (EXIF GPS)
 }
 
 export interface ThreadMail {

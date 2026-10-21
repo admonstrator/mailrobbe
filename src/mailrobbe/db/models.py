@@ -52,6 +52,10 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   (duplicates included), person_signal per root person the mails it sent with each signal and
   whether it fell silent; both are recomputed by the signals phase of every import, and
   global_stats 'signals' keeps that phase's figures and rules (mailrobbe.signals.model).
+- Corrections from the real archive (migration 0014, D160 to D167): alias_suggestion.tier sorts
+  the suggestions into certain and uncertain ones (D160); merge_batch, person_merge and
+  person_merge_member log every merge with the persons it moved and where each pointed before,
+  so it can be undone (D163).
 """
 
 from datetime import date, datetime
@@ -85,6 +89,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
 from mailrobbe.enums import (
+    AliasTier,
     DkimStatus,
     DnsStatus,
     DocumentKind,
@@ -121,6 +126,7 @@ document_kind_enum = _pg_enum(DocumentKind, "document_kind")
 document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
 entity_kind_enum = _pg_enum(EntityKind, "entity_kind")
 key_origin_enum = _pg_enum(KeyOrigin, "key_origin")
+alias_tier_enum = _pg_enum(AliasTier, "alias_tier")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -532,6 +538,7 @@ class AliasSuggestion(Base):
     )
     same_name: Mapped[str | None] = mapped_column(Text)  # the normalized display name both use
     same_local_part: Mapped[str | None] = mapped_column(Text)  # the local part both addresses have
+    tier: Mapped[AliasTier] = mapped_column(alias_tier_enum)  # D160
 
 
 class AliasDismissal(Base):
@@ -545,6 +552,54 @@ class AliasDismissal(Base):
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class MergeBatch(Base):
+    """One "Alle sicheren zusammenführen" (D162): the merges it made share it."""
+
+    __tablename__ = "merge_batch"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    editor: Mapped[str | None] = mapped_column(Text)
+
+
+class PersonMerge(Base):
+    """One merge of persons into a target (D163), undone when undone_at is set."""
+
+    __tablename__ = "person_merge"
+    __table_args__ = (
+        Index("ix_person_merge_target", "target"),
+        Index("ix_person_merge_batch_id", "batch_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    target: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE")
+    )  # the root the persons were merged into
+    batch_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("merge_batch.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    editor: Mapped[str | None] = mapped_column(Text)
+    undone_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    undone_by: Mapped[str | None] = mapped_column(Text)
+
+
+class PersonMergeMember(Base):
+    """A person a merge moved, and where it pointed before (D163)."""
+
+    __tablename__ = "person_merge_member"
+    __table_args__ = (Index("ix_person_merge_member_person_id", "person_id"),)
+
+    merge_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person_merge.id", ondelete="CASCADE"), primary_key=True
+    )
+    person_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    # person.merged_into before the merge: None for a root, else the root it belonged to
+    previous_root: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class GlobalStats(Base):

@@ -402,6 +402,14 @@ export const mailDetail: MailDetail = {
       pages: 14,
       document_mails: 6,
       preview: "pdf",
+      metadata: {
+        author: "Peter Hofmann",
+        modified_by: null,
+        software: "Microsoft Word für Microsoft 365",
+        device: null,
+        created: "2026-10-08T15:40:12Z",
+        gps: false,
+      },
     },
     {
       id: 902,
@@ -415,6 +423,7 @@ export const mailDetail: MailDetail = {
       pages: 2,
       document_mails: 1,
       preview: null,
+      metadata: null,
     },
   ],
   thread_id: 184001,

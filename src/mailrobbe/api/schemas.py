@@ -467,6 +467,19 @@ class Participant(PersonRef):
     mails_with_sender: int | None  # edge.mails_total with the sender; None for the sender
 
 
+class MetadataSummary(BaseModel):
+    """The few metadata fields of a document shown next to an attachment (D167), as found in
+    the file (EXIF, PDF info dictionary and XMP, office properties), never rated. None for a
+    field the file does not have; the document page shows every field found."""
+
+    author: str | None = None  # Artist, Author, dc:creator, initial creator
+    modified_by: str | None = None  # lastModifiedBy, dc:creator of ODF
+    software: str | None = None  # Software, CreatorTool, Creator/Producer, Application, generator
+    device: str | None = None  # camera or scanner: Make and Model
+    created: datetime | None = None  # when the file says it was made or taken, UTC
+    gps: bool = False  # the file names a place (EXIF GPS)
+
+
 class AttachmentInfo(BaseModel):
     id: int
     filename: str | None
@@ -480,6 +493,7 @@ class AttachmentInfo(BaseModel):
     pages: int | None = None
     document_mails: int | None = None  # mails carrying the document, duplicates not counted
     preview: PreviewKind | None = None  # how the browser shows it (D120); None: download only
+    metadata: MetadataSummary | None = None  # what the file says about itself (D167)
 
 
 class ThreadMail(BaseModel):

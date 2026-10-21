@@ -74,6 +74,13 @@ class PersonKind(StrEnum):
     AUTOMATED = "automated"  # newsletters, notifications, noreply senders
 
 
+class AliasTier(StrEnum):
+    """alias_suggestion.tier (D160): how sure a suggestion is that two persons are one."""
+
+    CERTAIN = "certain"  # several signs agree; may be merged in one go (D162)
+    UNCERTAIN = "uncertain"  # one sign only; hidden unless asked for
+
+
 class MboxStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
