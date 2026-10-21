@@ -21,9 +21,14 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   ix_mail_dkim_status); ix_mail_subject_trgm serves the subject: search (D20).
 - mail_note holds the flag and note a user sets on a mail (D23); merges (person.merged_into)
   and alias_dismissal are the other data users write (D28).
+- edge and edge_year carry the same counters (migration 0004, D36): mails_a_to_b/mails_b_to_a
+  (To and Bcc), mails_cc (either direction) and their pass_* counterparts over the mails whose
+  DKIM check passed; edge_year has no single count. Both join root persons only.
+- mail.list_id and mail.automated record List-Id and automation headers, person.kind marks
+  lists and automated senders among the root persons (D39).
 - person_stats.mails is a stored generated column (sent + received); it and LAST_DATE_SORT_KEY
-  are the sort keys of the person list (D31). alias_suggestion holds the computed suggestions
-  (D30); both pair tables order their persons (person_a < person_b).
+  are the sort keys of the person list (migration 0005, D31). alias_suggestion holds the
+  computed suggestions (D30); both pair tables order their persons (person_a < person_b).
 """
 
 from datetime import datetime
@@ -51,7 +56,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
-from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
+from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole, PersonKind
 
 
 def _pg_enum(enum_cls: type[StrEnum], name: str) -> ENUM:
@@ -67,6 +72,7 @@ dkim_status_enum = _pg_enum(DkimStatus, "dkim_status")
 participation_role_enum = _pg_enum(ParticipationRole, "participation_role")
 mbox_status_enum = _pg_enum(MboxStatus, "mbox_status")
 dns_status_enum = _pg_enum(DnsStatus, "dns_status")
+person_kind_enum = _pg_enum(PersonKind, "person_kind")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -83,7 +89,7 @@ TSV_EXPRESSION = " || ".join(
 # Keyset conditions and ORDER BY must use exactly this expression to use ix_mail_sort.
 MAIL_SORT_KEY = "COALESCE(date_utc, '-infinity'::timestamp with time zone)"
 
-# Sort key of the person list by latest mail (migration 0004, D31): persons without one last.
+# Sort key of the person list by latest mail (migration 0005, D31): persons without one last.
 LAST_DATE_SORT_KEY = "COALESCE(last_date, '-infinity'::timestamp with time zone)"
 
 
@@ -147,6 +153,8 @@ class Mail(Base):
         BigInteger, ForeignKey("mail.id", ondelete="SET NULL")
     )
     reference_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    list_id: Mapped[str | None] = mapped_column(Text)
+    automated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class MailNote(Base):
@@ -197,6 +205,7 @@ class Person(Base):
     merged_into: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("person.id", ondelete="SET NULL")
     )
+    kind: Mapped[PersonKind | None] = mapped_column(person_kind_enum)
 
 
 class PersonEmail(Base):
@@ -318,6 +327,9 @@ class Edge(Base):
     )
     first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    pass_a_to_b: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_b_to_a: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_cc: Mapped[int] = mapped_column(Integer, server_default="0")
 
 
 class EdgeYear(Base):
@@ -331,7 +343,12 @@ class EdgeYear(Base):
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
     )
     year: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
-    count: Mapped[int] = mapped_column(Integer, server_default="0")
+    mails_a_to_b: Mapped[int] = mapped_column(Integer, server_default="0")
+    mails_b_to_a: Mapped[int] = mapped_column(Integer, server_default="0")
+    mails_cc: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_a_to_b: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_b_to_a: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_cc: Mapped[int] = mapped_column(Integer, server_default="0")
 
 
 class PersonStats(Base):

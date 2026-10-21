@@ -42,7 +42,8 @@ async def test_sent_received_and_only_cc_follow_the_roles(db_session: AsyncSessi
         CARL: (1, 2, 1),
         DORA: (0, 2, 1),
     }
-    assert (await stats(db_session))[ANNA][3:6] == (0, _day(2020, 1, 1), _day(2020, 2, 1))
+    # contacts: the edges to Bert, Carl and Dora (D36)
+    assert (await stats(db_session))[ANNA][3:6] == (3, _day(2020, 1, 1), _day(2020, 2, 1))
     assert await years(db_session) == {
         (ANNA, 2020): (2, 0),
         (BERT, 2020): (1, 2),
@@ -63,8 +64,8 @@ async def test_duplicates_count_nowhere(db_session: AsyncSession) -> None:
     await finalize(db_session)
 
     assert await stats(db_session) == {
-        ANNA: (1, 0, 0, 0, _day(2021, 5, 1), _day(2021, 5, 1), 1.0),
-        BERT: (0, 1, 0, 0, _day(2021, 5, 1), _day(2021, 5, 1), None),
+        ANNA: (1, 0, 0, 1, _day(2021, 5, 1), _day(2021, 5, 1), 1.0),
+        BERT: (0, 1, 0, 1, _day(2021, 5, 1), _day(2021, 5, 1), None),
         ERIK: (0, 0, 0, 0, None, None, None),  # a root whose mails are all duplicates
     }
     assert await years(db_session) == {(ANNA, 2021): (1, 0), (BERT, 2021): (0, 1)}

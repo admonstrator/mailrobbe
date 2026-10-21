@@ -26,7 +26,6 @@ from mailrobbe.generator.population import build_population
 from mailrobbe.persons.merge import merge_persons, unmerge_person
 from mailrobbe.persons.stats import refresh_person_stats
 from tests.conftest import GeneratedArchive
-from tests.persons.helpers import refresh_test_edges
 
 pytestmark = pytest.mark.db
 
@@ -54,8 +53,10 @@ async def copy_engine(archive_copy_url: str) -> AsyncIterator[AsyncEngine]:
 
 
 def _expected(manifest: list[dict[str, Any]]) -> tuple[dict[str, tuple[Any, ...]], dict[Any, Any]]:
-    """person_stats without contacts, and person_year, by address, from the manifest."""
+    """person_stats and person_year by address, from the manifest; contacts are the addresses
+    a mail joins with its sender (D36)."""
     figures: dict[str, list[Any]] = {}
+    contacts: defaultdict[str, set[str]] = defaultdict(set)
     years: defaultdict[tuple[str, int], list[int]] = defaultdict(lambda: [0, 0])
     for record in manifest:
         roles: defaultdict[str, set[str]] = defaultdict(set)
@@ -68,6 +69,9 @@ def _expected(manifest: list[dict[str, Any]]) -> tuple[dict[str, tuple[Any, ...]
         if record["duplicate_of"] is not None:
             continue
         date = datetime.fromisoformat(record["date"]).astimezone(UTC)
+        for email in roles.keys() - {record["sender"]}:
+            contacts[email].add(record["sender"])
+            contacts[record["sender"]].add(email)
         for email, held in roles.items():
             entry = figures[email]
             sent = "from" in held
@@ -78,7 +82,15 @@ def _expected(manifest: list[dict[str, Any]]) -> tuple[dict[str, tuple[Any, ...]
             entry[5] += sent and record["dkim"]["expected"] == "pass"  # every mail is checked
             years[email, date.year][0 if sent else 1] += 1
     stats = {
-        email: (sent, received, cc_only, first, last, passed / sent if sent else None)
+        email: (
+            sent,
+            received,
+            cc_only,
+            len(contacts[email]),
+            first,
+            last,
+            passed / sent if sent else None,
+        )
         for email, (sent, received, cc_only, first, last, passed) in figures.items()
     }
     return stats, {key: tuple(value) for key, value in years.items()}
@@ -90,8 +102,8 @@ async def test_figures_match_the_manifest(
     expected_stats, expected_years = _expected(generated_archive.manifest)
     rows = await archive.execute(
         text(
-            "SELECT p.canonical_email, s.sent, s.received, s.cc_only, s.first_date, s.last_date, "
-            "s.dkim_pass_ratio FROM person_stats s JOIN person p ON p.id = s.person_id"
+            "SELECT p.canonical_email, s.sent, s.received, s.cc_only, s.contacts, s.first_date, "
+            "s.last_date, s.dkim_pass_ratio FROM person_stats s JOIN person p ON p.id = s.person_id"
         )
     )
     stats = {email: tuple(values) for email, *values in rows}
@@ -170,11 +182,9 @@ async def _ids(engine: AsyncEngine) -> dict[str, int]:
         return {email: person_id for email, person_id in rows}
 
 
-@pytest.mark.usefixtures("edges")
 async def test_merging_the_suggested_aliases_equals_a_full_refresh(
     copy_engine: AsyncEngine, generated_archive: GeneratedArchive
 ) -> None:
-    await _committed(copy_engine, refresh_test_edges)
     await _committed(copy_engine, aggregates.refresh_aggregates)
     person = await _ids(copy_engine)
     owners = _owners(generated_archive)

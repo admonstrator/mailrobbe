@@ -1,0 +1,171 @@
+.panel {
+  flex: 0 0 336px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  overflow-y: auto;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.email {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kind {
+  margin-top: 2px;
+  border: 1px dashed var(--color-muted);
+  border-radius: 999px;
+  padding: 1px 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.close {
+  border: 0;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--color-text);
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.tile {
+  border-radius: var(--radius-tile);
+  padding: 8px 10px;
+  background: var(--color-bg);
+}
+
+.tile dt {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.tile dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A long list scrolls on its own; the figures above and the actions below stay in view. */
+.connections {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.heading {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.list li + li {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  color: var(--color-text);
+}
+
+.link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: none;
+}
+
+.other {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figures {
+  flex-shrink: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+
+@media (max-width: 1100px) {
+  .panel {
+    flex: none;
+    border-left: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}

@@ -1,4 +1,4 @@
-"""Fixtures of the persons tests: edges standing in for milestone 6, and the generated archive.
+"""Fixtures of the persons tests: the generated archive.
 
 archive_database_url holds the 600 generated mails imported once (with finalize, hence the
 person figures and suggestions); tests read it only. archive_copy_url is a fresh copy for a
@@ -11,17 +11,10 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy import make_url
 
-from mailrobbe import aggregates, migrate
+from mailrobbe import migrate
 from mailrobbe.config import Settings
 from mailrobbe.importer.cli import run_import
 from tests.conftest import GeneratedArchive, _temporary_database
-from tests.persons.helpers import refresh_test_edges
-
-
-@pytest.fixture
-def edges(monkeypatch: pytest.MonkeyPatch) -> None:
-    """refresh_aggregates computes edges between roots (tests.persons.helpers._EDGES)."""
-    monkeypatch.setattr(aggregates, "refresh_edges", refresh_test_edges)
 
 
 @pytest.fixture(scope="session")

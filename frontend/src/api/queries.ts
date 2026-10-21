@@ -3,6 +3,7 @@
 import {
   hashKey,
   keepPreviousData,
+  queryOptions,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -15,6 +16,9 @@ import { ApiError, apiGet, apiPost, apiPut } from "./client";
 import type {
   ContactPage,
   DomainCount,
+  Graph,
+  GraphParams,
+  GraphSize,
   MailDetail,
   MailDkim,
   MailFilters,
@@ -79,6 +83,8 @@ export const queryKeys = {
   contacts: (id: number) => ["persons", "contacts", id] as const,
   personMailCounts: (id: number, params: PersonMailCountParams) =>
     ["persons", "mail-counts", id, params] as const,
+  graph: (params: GraphParams) => ["graph", params] as const,
+  graphSize: (params: GraphParams) => ["graph-size", params] as const,
 };
 
 export function useStats() {
@@ -292,5 +298,32 @@ export function useDismissSuggestion() {
       // The other lists show the suggestion too: the profiles of both and the count.
       void queryClient.invalidateQueries({ queryKey: queryKeys.persons });
     },
+  });
+}
+
+/** One excerpt of the map; also for prefetching the next year of the playback. */
+export function graphQuery(params: GraphParams) {
+  return queryOptions({
+    queryKey: queryKeys.graph(params),
+    queryFn: ({ signal }) => apiGet<Graph>("/api/graph", params, signal),
+  });
+}
+
+/** The map for params, the previous one staying while the next loads; null loads nothing. */
+export function useGraph(params: GraphParams | null) {
+  return useQuery({
+    ...graphQuery(params ?? {}),
+    enabled: params !== null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The size the map for params would have. A changed draft drops the running request. */
+export function useGraphSize(params: GraphParams | null) {
+  return useQuery({
+    queryKey: queryKeys.graphSize(params ?? {}),
+    queryFn: ({ signal }) => apiGet<GraphSize>("/api/graph/size", params ?? {}, signal),
+    enabled: params !== null,
+    placeholderData: keepPreviousData,
   });
 }

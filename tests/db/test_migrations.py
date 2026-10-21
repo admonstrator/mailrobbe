@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_e
 from mailrobbe import migrate
 from mailrobbe.db import models  # noqa: F401  (registers all tables on the metadata)
 from mailrobbe.db.base import Base
-from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
+from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole, PersonKind
 
 TABLES = {
     "mbox_file",
@@ -43,6 +43,7 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
     "participation_role": (ParticipationRole, ["from", "to", "cc", "bcc"]),
     "mbox_status": (MboxStatus, ["pending", "running", "paused", "done", "error"]),
     "dns_status": (DnsStatus, ["found", "not_found", "temp_error"]),
+    "person_kind": (PersonKind, ["list", "automated"]),
 }
 
 # pg_get_indexdef() output: method, column order and operator class in one string.
@@ -109,7 +110,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0004"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0005"
 
 
 @pytest.mark.db
@@ -238,5 +239,9 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num = '0003'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0005' WHERE alembic_version.version_num = '0004'"
         in sql
     )

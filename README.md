@@ -37,7 +37,7 @@ docker compose run --rm backend mailrobbe import   # liest /data/mbox im Contain
 uv run mailrobbe import --dir data/mbox            # mit lokalem Python und uv
 ```
 
-Der Importer liest jede MBOX-Datei unterhalb des Verzeichnisses (erkannt am Inhalt, nicht an der Endung) in einem eigenen Worker-Prozess, sequenziell und in großen Blöcken. Je Mail speichert er Kopfdaten, Byte-Offset und Länge in der MBOX-Datei, SHA-256, Personen, Anhänge (Name, Typ, Größe, Hash) und den Text für die Volltextsuche; die Rohmail selbst bleibt in der Datei. Die DKIM-Prüfung läuft dabei mit. Am Ende markiert er Duplikate, bildet Threads aus Message-ID, In-Reply-To und References und setzt die Anzeigenamen der Personen; danach rechnet er die Kennzahlen je Person und die Alias-Vorschläge neu.
+Der Importer liest jede MBOX-Datei unterhalb des Verzeichnisses (erkannt am Inhalt, nicht an der Endung) in einem eigenen Worker-Prozess, sequenziell und in großen Blöcken. Je Mail speichert er Kopfdaten, Byte-Offset und Länge in der MBOX-Datei, SHA-256, Personen, Anhänge (Name, Typ, Größe, Hash) und den Text für die Volltextsuche; die Rohmail selbst bleibt in der Datei. Die DKIM-Prüfung läuft dabei mit. Am Ende markiert er Duplikate, bildet Threads aus Message-ID, In-Reply-To und References, setzt die Anzeigenamen der Personen und berechnet die Kanten der Beziehungskarte, die Kennzahlen je Person und die Alias-Vorschläge.
 
 - Worker: `--workers` oder `MAILROBBE_IMPORT_WORKERS`, Standard min(8, CPU-Kerne). Jeder Worker braucht normal rund 200 MB, bei sehr großen Mails bis etwa 1 GB.
 - Fortsetzen: Ctrl-C beendet die laufenden Stapel sauber, ein zweites Ctrl-C (mindestens eine Sekunde später) bricht sofort ab. Der nächste Aufruf macht in beiden Fällen dort weiter, wo zuletzt gespeichert wurde, und speichert keine Mail doppelt. Gewachsene Dateien werden ab ihrem Ende fortgesetzt, veränderte neu eingelesen. Es läuft immer nur ein Import gleichzeitig.
@@ -73,9 +73,22 @@ Nach dem Import zeigt http://127.0.0.1:8000 die Mailliste. Alles läuft lokal: k
 - **Aliase**: Mailrobbe führt Adressen nie von selbst zusammen. Es schlägt Adressen vor, die denselben Anzeigenamen (auch „Nachname, Vorname“) oder denselben Teil vor dem @ haben, im Reiter „Alias-Vorschläge“ und im Profil. „Zusammenführen“ macht eine Adresse zum Alias einer Person, ihre Mails zählen dann dort; „Lösen“ im Profil nimmt das zurück, „Verwerfen“ blendet einen Vorschlag dauerhaft aus. Ein Zusammenführen dauert bei 50.000 Mails rund 0,2 Sekunden, bei 400.000 rund eine halbe.
 - **Zugriffsschutz**: ohne Login, solange nichts eingestellt ist. `MAILROBBE_BASIC_AUTH_USER` und `MAILROBBE_BASIC_AUTH_PASSWORD` in der `.env` schalten HTTP Basic Auth ein (nur `/api/health` bleibt für den Container-Healthcheck offen).
 - **Intern/extern**: Mit `MAILROBBE_INTERNAL_DOMAINS=firma.de,firma.ch` erscheint der Filter „Nur extern ↔ intern“ (Mails, bei denen eine Seite intern und die andere extern ist; Subdomains zählen als intern).
+- **Beziehungskarte** (`/karte`): wer mit wem wie oft geschrieben hat, als Ausschnitt um eine oder mehrere Personen (bis Tiefe 3), als die aktivsten Personen des Archivs oder zwischen zwei Domains. Mindestanzahl Mails je Verbindung, Zeitraum in ganzen Jahren, nur DKIM-gültige Mails, Cc mitzählen, Verteiler und Automaten ausblenden; Knoten lassen sich aufklappen und ausblenden, ein Klick auf eine Verbindung öffnet die Mails zwischen beiden. Vier Layouts, Einfärben nach Domain, Pfeile in Senderichtung, Zeitverlauf Jahr für Jahr, Export als PNG, SVG und GraphML. Mehr als 2.000 Personen zeichnet die Karte nicht; die Vorschau neben der Schwelle sagt vorher, wie groß der Ausschnitt wird. Auch dieser Zustand steht in der Adresszeile.
 - **Zahlen**: Gesamtzahlen und die Zähler neben den Filtern werden nach jedem Import und jeder DKIM-Nachprüfung neu berechnet, sonst spätestens alle fünf Minuten. Die Zahlen je Person entstehen am Ende jedes Imports und jeder DKIM-Nachprüfung, nach einem Zusammenführen sofort für die betroffenen Personen; die Personen eines laufenden Imports erscheinen also erst, wenn er fertig ist. Trefferzahlen eines Filters sind exakt, solange die Zählung höchstens zwei Sekunden dauert (`MAILROBBE_API_COUNT_TIMEOUT`), sonst steht dort „mehr als 10.000“.
 
-Kontakte und Top-Kontakte zählen erst mit der Beziehungskarte; sie und das Import-Dashboard folgen mit den nächsten Meilensteinen. Entwicklung am Frontend: siehe [CLAUDE.md](CLAUDE.md) (`frontend/`, Node 22).
+Das Import-Dashboard folgt mit dem nächsten Meilenstein. Entwicklung am Frontend: siehe [CLAUDE.md](CLAUDE.md) (`frontend/`, Node 22).
+
+## Beziehungskarte und Gephi
+
+Die Karte liest die Tabelle `edge`: je Personenpaar die Mails in beide Richtungen (To und Bcc), die Cc-Mails, dieselben Zahlen nur für DKIM-gültige Mails und den Zeitraum, dazu dieselben Zähler je Jahr. Der Importer und `mailrobbe dkim` berechnen sie am Ende neu, das Zusammenführen und Trennen von Adressen nur für die betroffenen Personen. Verteiler (Mailinglisten, Sammeladressen) und Automaten (noreply, Benachrichtigungen, Newsletter) erkennt Mailrobbe an List-Id, Auto-Submitted und Precedence sowie am Verhalten der Adresse. Diese Kopfzeilen speichert erst der Importer ab Meilenstein 6; ein Archiv, das vorher eingelesen wurde, sollte deshalb neu importiert werden, sonst bleibt die Erkennung bei Adressen und Verhalten.
+
+```sh
+docker compose run --rm backend mailrobbe graph refresh                     # Kanten von Hand neu berechnen
+docker compose run --rm -T backend mailrobbe graph export - > mailrobbe.graphml  # ganze Kantentabelle für Gephi
+docker compose run --rm -T backend mailrobbe graph export --min-mails 5 - > mailrobbe-5.graphml
+```
+
+Der Export enthält jede Person mit Name, Adresse, Domain, Art und Mailzahl und jede Verbindung mit Gewicht, beiden Richtungen, Cc, erster und letzter Mail. In Gephi lässt er sich direkt öffnen (ungerichtet, Gewicht in `weight`). Der Download in der Karte enthält nur den gezeigten Ausschnitt.
 
 ## Annahmen zur Hardware
 
@@ -85,9 +98,9 @@ Ausgelegt für macOS oder Linux mit etwa 10 GB RAM für Datenbank und Importer z
 
 - [docs/SPEC.md](docs/SPEC.md): Spezifikation mit Architektur, Datenmodell, API und Meilensteinen
 - [docs/mockup/](docs/mockup/): klickbarer UI-Prototyp der fünf Screens (HTML-Datei im Browser öffnen)
-- [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware, DKIM, Import, Mailliste und Detail, Personen und Aliase)
+- [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware, DKIM, Import, Mailliste und Detail, Personen und Aliase, Beziehungskarte)
 - [CLAUDE.md](CLAUDE.md): Entwicklungshinweise (Befehle, Konventionen, Tests)
 
 ## Stand
 
-Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads), Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl) Meilenstein 4 (API, Mailliste und Mail-Detail) und Meilenstein 5 (Personen, Personenprofil, Alias-Vorschläge und Zusammenführen) sind fertig. Als Nächstes folgen Beziehungskarte und Import-Dashboard.
+Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads), Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl), Meilenstein 4 (API, Mailliste und Mail-Detail), Meilenstein 5 (Personen, Personenprofil, Alias-Vorschläge und Zusammenführen) und Meilenstein 6 (Beziehungskarte mit GraphML-Export) sind fertig. Als Nächstes folgt das Import-Dashboard mit dem Lasttest.

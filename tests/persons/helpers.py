@@ -3,17 +3,15 @@
 Tests name persons by their address: ids depend on the order in which the store creates them.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.enums import DkimStatus
 from mailrobbe.importer.model import ParsedAddress, ParsedMail
 from mailrobbe.importer.store import Batch, Store
-from mailrobbe.persons.roots import Executor
 from tests.importer.doubles import (
     FakeVerdict,
     add_mbox_file,
@@ -24,28 +22,6 @@ from tests.importer.doubles import (
 )
 
 Entry = tuple[ParsedMail, DkimStatus | None]
-
-# Stand-in for the edges of milestone 6 (graph/edges.py does nothing yet), recomputed as a
-# whole: between roots, from the sender to each recipient, without duplicates (D29).
-_EDGES = (
-    "DELETE FROM edge",
-    """
-    INSERT INTO edge (person_a, person_b, mails_a_to_b, mails_b_to_a)
-    SELECT least(s, r), greatest(s, r), count(*) FILTER (WHERE s < r), count(*) FILTER (WHERE s > r)
-    FROM (
-        SELECT DISTINCT f.mail_id, coalesce(fp.merged_into, fp.id) AS s,
-            coalesce(tp.merged_into, tp.id) AS r
-        FROM participation f
-        JOIN person fp ON fp.id = f.person_id
-        JOIN participation t ON t.mail_id = f.mail_id AND t.role <> 'from'
-        JOIN person tp ON tp.id = t.person_id
-        JOIN mail m ON m.id = f.mail_id
-        WHERE f.role = 'from' AND m.is_duplicate_of IS NULL
-    ) AS sent (mail_id, s, r)
-    WHERE s <> r
-    GROUP BY 1, 2
-    """,
-)
 
 
 def mail(
@@ -126,10 +102,10 @@ async def suggestions(session: AsyncSession) -> dict[tuple[str, str], tuple[str 
 
 
 async def snapshot(session: AsyncSession) -> dict[str, list[tuple[Any, ...]]]:
-    """Every row of the tables the persons refreshes write, sorted."""
+    """Every row of the tables a merge refreshes, sorted: the edges and the persons tables."""
     return {
         table: sorted(await fetch(session, f"SELECT * FROM {table}"))
-        for table in ("person_stats", "person_year", "alias_suggestion")
+        for table in ("edge", "edge_year", "person_stats", "person_year", "alias_suggestion")
     }
 
 
@@ -139,13 +115,6 @@ async def row_versions(session: AsyncSession) -> dict[str, list[tuple[str, str]]
         table: sorted(await fetch(session, f"SELECT ctid::text, xmin::text FROM {table}"))
         for table in ("person_stats", "person_year", "alias_suggestion")
     }
-
-
-async def refresh_test_edges(db: Executor, persons: Collection[int] | None = None) -> None:
-    """Every edge again, whatever persons says; patched in for refresh_edges by the edges
-    fixture."""
-    for statement in _EDGES:
-        await db.execute(text(statement))
 
 
 def _address(value: str) -> ParsedAddress:

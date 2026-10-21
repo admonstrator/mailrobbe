@@ -1,7 +1,7 @@
 """Aggregation tables (SPEC 3.3, 6.3): figures read by the UI instead of counting mails.
 
 refresh_aggregates recomputes all of them in dependency order (D33): the edges between persons
-(graph.edges, milestone 6), the person figures that count them as contacts and the alias
+(graph.edges, D36), the person figures that count them as contacts and the alias
 suggestions (persons, milestone 5), then global_stats. It runs after each import
 (importer.finalize) and after `mailrobbe dkim`, and for the persons concerned after a merge.
 
@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from mailrobbe.db.models import GlobalStats
 from mailrobbe.enums import DkimStatus
-from mailrobbe.graph.edges import refresh_edges
+from mailrobbe.graph.edges import EdgeRefresh, refresh_edges
 from mailrobbe.persons.stats import refresh_person_stats
 from mailrobbe.persons.suggestions import refresh_alias_suggestions
 
@@ -85,19 +85,20 @@ class GlobalFigures:
     updated_at: datetime  # when they were computed
 
 
-async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> None:
+async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> EdgeRefresh:
     """Every aggregation table; persons limits them to these persons after a merge (D33).
 
     A merge changes no global figure but the number of persons, so only that one is counted
     again then; the others stay as they are, and so does their updated_at.
     """
-    await refresh_edges(db, persons)
+    edges = await refresh_edges(db, persons)
     await refresh_person_stats(db, persons)
     await refresh_alias_suggestions(db, persons)
     if persons is None:
         await refresh_global_stats(db)
     else:
         await db.execute(_PERSON_COUNT)
+    return edges
 
 
 async def refresh_global_stats(db: Executor) -> None:

@@ -34,14 +34,6 @@ function Placeholder({
   );
 }
 
-export function GraphPlaceholder() {
-  return (
-    <Placeholder title="Beziehungskarte">
-      Die Karte, wer mit wem wie oft schreibt, folgt mit Meilenstein 6.
-    </Placeholder>
-  );
-}
-
 export function ImportPlaceholder() {
   return (
     <Placeholder title="Import">

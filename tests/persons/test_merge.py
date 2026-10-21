@@ -1,6 +1,5 @@
 """Merging, unmerging and dismissing (D28), and that the refresh for the persons concerned
-gives exactly what a full refresh does (D33), with edges between roots standing in for
-milestone 6 (the edges fixture)."""
+gives exactly what a full refresh does (D33), edges included (D36)."""
 
 import random
 from datetime import UTC, datetime
@@ -21,7 +20,7 @@ from mailrobbe.persons.roots import member_ids, resolve_root
 from tests.importer.doubles import fetch
 from tests.persons.helpers import Entry, ids, mail, snapshot, stats, store, suggestions
 
-pytestmark = [pytest.mark.db, pytest.mark.usefixtures("edges")]
+pytestmark = pytest.mark.db
 
 PEOPLE = (
     "Anna Schmidt <anna@a.example>",
@@ -36,6 +35,11 @@ PEOPLE = (
 ANNA, ANNA_MAIL, SCHMIDT, BERT, BERT_MAIL, CARL, DORA, DD = (
     person.partition("<")[2].rstrip(">") for person in PEOPLE
 )
+# Every refresh of the edges stamps its time into global_stats (D36); the rest must not change.
+_GLOBAL_FIGURES = """
+    SELECT key, CASE WHEN key = 'edges' THEN value - 'refreshed_at' ELSE value END
+    FROM global_stats ORDER BY key
+"""
 
 
 def _archive(seed: int, count: int = 80) -> list[Entry]:
@@ -78,10 +82,10 @@ async def _assert_consistent(session: AsyncSession) -> None:
     )
     assert chained == []
     partial = await snapshot(session)
-    figures = await fetch(session, "SELECT key, value FROM global_stats ORDER BY key")
+    figures = await fetch(session, _GLOBAL_FIGURES)
     await aggregates.refresh_aggregates(session)
     assert await snapshot(session) == partial
-    assert await fetch(session, "SELECT key, value FROM global_stats ORDER BY key") == figures
+    assert await fetch(session, _GLOBAL_FIGURES) == figures
 
 
 async def test_merge_and_unmerge_keep_roots_and_figures(db_session: AsyncSession) -> None:

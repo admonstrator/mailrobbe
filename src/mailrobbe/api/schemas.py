@@ -28,6 +28,9 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/persons/{id}/contacts?ContactListParams   ContactPage
     GET  /api/persons/{id}/mail-counts?PersonMailCountParams  PersonMailCounts (D32)
     POST /api/persons/{id}/unmerge               PersonProfile of the root it was merged into
+    GET  /api/graph?GraphParams                  Graph (D37); graph_too_large above the limit
+    GET  /api/graph/size?GraphParams             GraphSize, also above the limit
+    GET  /api/graph/export.graphml?GraphParams   GraphML download of the same excerpt (D38)
 
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list.
@@ -40,7 +43,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from mailrobbe.enums import DkimReason, DkimStatus, MboxStatus, ParticipationRole
+from mailrobbe.enums import DkimReason, DkimStatus, MboxStatus, ParticipationRole, PersonKind
 
 # Exact counts stop here (SPEC 6.6): MailSummary falls back to "more than COUNT_LIMIT" and
 # MailNeighbors.position is None beyond it.
@@ -74,6 +77,7 @@ ErrorCode = Literal[
     "source_missing",  # 409: the mail's MBOX file is not there or cannot be read
     "source_changed",  # 409: the bytes at the stored offset are not the imported mail any more
     "invalid_merge",  # 400: merging a person into itself, or unmerging one that is no alias
+    "graph_too_large",  # 400: the excerpt has more than MAX_GRAPH_NODES nodes
 ]
 
 
@@ -487,3 +491,79 @@ class PersonMailCounts(BaseModel):
     sent: int | None
     received: int | None
     cc: int | None
+
+
+# Relationship map (milestone 6, D36 to D38) ------------------------------------------------
+
+MAX_GRAPH_NODES = 2_000  # hard limit per view (SPEC 5.4, D8); /api/graph refuses larger excerpts
+GRAPH_TOP = 50  # default number of persons in the top mode
+
+GraphMode = Literal["ego", "top", "domains"]
+
+
+class GraphParams(BaseModel):
+    """One excerpt of the relationship map (D37). Lists repeat the parameter.
+
+    The counted graph: edges from edge, or summed from edge_year when a year is given; their
+    weight is a_to_b + b_to_a, plus cc when cc is set, over all mails or only those whose DKIM
+    check passed; without the persons in hide and, with hide_lists, those with a person.kind.
+    Ego follows edges of at least min_edge from the centers, top takes the persons with the most
+    mails, domains the persons of two domains with an edge between them. The excerpt shows every
+    counted edge of at least min_edge between its nodes.
+    """
+
+    mode: GraphMode = "ego"
+    center: list[int] = []  # ego: at least one person; a merged address counts as its root
+    depth: int = Field(1, ge=1, le=3)  # ego: steps from the centers
+    limit: int = Field(GRAPH_TOP, ge=1, le=MAX_GRAPH_NODES)  # top: number of persons
+    domain: list[str] = []  # domains: exactly two, each with its subdomains (lowercase)
+    min_edge: int = Field(1, ge=1)  # lighter edges are neither shown nor followed
+    year_from: int | None = Field(None, ge=1900, le=2200)  # UTC year, inclusive
+    year_to: int | None = Field(None, ge=1900, le=2200)  # UTC year, inclusive
+    dkim_only: bool = False  # count only mails whose DKIM check passed
+    cc: bool = False  # Cc counts towards the weight
+    hide_lists: bool = False  # leave out lists and automated senders, apart from centers
+    expand: list[int] = []  # add these persons and their neighbours (edges of min_edge or more)
+    hide: list[int] = []  # leave out these persons; ignored for centers
+
+
+class GraphNode(BaseModel):
+    id: int  # the root person
+    name: str | None  # person.display_name
+    email: str  # person.canonical_email
+    domain: str
+    kind: PersonKind | None  # None: a human, or not recognised as list or automated sender
+    mails: int  # weight of all the person's counted edges, shown or not (D37)
+    contacts: int  # persons with a counted edge to this one
+    center: bool  # a center of the ego mode
+
+
+class GraphEdge(BaseModel):
+    source: int  # person_a, the smaller id
+    target: int  # person_b
+    a_to_b: int  # mails from source to target (To or Bcc), counted as the parameters say
+    b_to_a: int
+    cc: int  # mails with one of them in Cc of the other's mail, either direction
+    weight: int  # a_to_b + b_to_a, plus cc when the parameters count Cc
+
+
+class EdgeTable(BaseModel):
+    pairs: int  # rows of edge
+    refreshed_at: datetime | None  # end of the last refresh_edges; None: never
+
+
+class Graph(BaseModel):
+    nodes: list[GraphNode]  # most mails first
+    edges: list[GraphEdge]  # heaviest first
+    mails: int  # sum of the shown edges' weights ("Mails im Ausschnitt")
+    centers: list[int]  # ego: the centers as root persons, in the given order; else empty
+    edge_table: EdgeTable
+
+
+class GraphSize(BaseModel):
+    """The size /api/graph would have, for the preview next to the threshold slider."""
+
+    nodes: int
+    edges: int
+    mails: int
+    too_large: bool  # nodes > MAX_GRAPH_NODES, so /api/graph answers graph_too_large

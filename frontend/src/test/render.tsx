@@ -25,8 +25,10 @@ const notFound = (what: string) =>
 function personsMatching(q: string): unknown {
   if (!q) return fx.personPage;
   const needle = q.toLowerCase();
-  const items = fx.personPage.items.filter((person) =>
-    [person.name ?? "", person.email].some((text) => text.toLowerCase().includes(needle)),
+  const everyone = [...fx.personPage.items, ...fx.personSearch.items];
+  const items = [...new Map(everyone.map((person) => [person.id, person])).values()].filter(
+    (person) =>
+      [person.name ?? "", person.email].some((text) => text.toLowerCase().includes(needle)),
   );
   return { items, next_cursor: null, prev_cursor: null, total: items.length };
 }
@@ -67,6 +69,8 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
     return { text: fx.mailText, headers: fx.mailHeaders, raw: fx.mailRaw }[format];
   }
   if (method === "GET" && /^\/api\/mails\/\d+$/.test(path)) return fx.mailDetail;
+  if (path === "/api/graph") return fx.graph;
+  if (path === "/api/graph/size") return fx.graphSize;
   if (path === "/api/persons") return personsMatching(url.searchParams.get("q") ?? "");
   if (path === "/api/persons/suggestions") {
     return url.searchParams.has("cursor") ? fx.suggestionPage2 : fx.suggestionPage;

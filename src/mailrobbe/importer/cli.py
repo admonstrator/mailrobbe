@@ -193,7 +193,11 @@ async def _import(
         async with sessionmaker() as session:
             result = await finalize(session)
         log.info(
-            "updated duplicates, threads, display names and aggregates in %.1f s", result.seconds
+            "updated duplicates, threads, display names and aggregates in %.1f s, "
+            "%d of %d edges changed",
+            result.seconds,
+            result.edges.changed,
+            result.edges.pairs,
         )
     async with sessionmaker() as session:
         summary, failed = await _summary(session, report, outcomes, time.monotonic() - started)

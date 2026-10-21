@@ -5,6 +5,10 @@ import type {
   Contact,
   ContactPage,
   DkimStatus,
+  Graph,
+  GraphEdge,
+  GraphNode,
+  GraphSize,
   MailDetail,
   MailHeaders,
   MailListItem,
@@ -656,4 +660,115 @@ export const personMailPage: MailPage = {
   next_cursor: "person-mails-2",
   prev_cursor: null,
   query_terms: [],
+};
+
+// Relationship map: Anna's ego network of the mockup ("4 · Beziehungskarte").
+
+const graphNode = (
+  person: PersonRef,
+  mails: number,
+  contacts: number,
+  extra: Partial<GraphNode> = {},
+): GraphNode => ({
+  id: person.person_id,
+  name: person.name,
+  email: person.email,
+  domain: person.email.split("@")[1],
+  kind: null,
+  mails,
+  contacts,
+  center: false,
+  ...extra,
+});
+
+const graphEdge = (
+  a: PersonRef,
+  b: PersonRef,
+  a_to_b: number,
+  b_to_a: number,
+  cc = 0,
+): GraphEdge => ({
+  source: a.person_id,
+  target: b.person_id,
+  a_to_b,
+  b_to_a,
+  cc,
+  weight: a_to_b + b_to_a,
+});
+
+const graphEdges: GraphEdge[] = [
+  graphEdge(anna, jonas, 210, 178, 12),
+  graphEdge(anna, lukas, 160, 145),
+  graphEdge(jonas, peter, 140, 120),
+  graphEdge(anna, purchasing, 120, 0),
+  graphEdge(anna, miriam, 52, 45, 30),
+  graphEdge(anna, billing, 14, 70),
+  graphEdge(anna, peter, 33, 28),
+  graphEdge(lukas, purchasing, 48, 0),
+  graphEdge(anna, sofia, 21, 26),
+  graphEdge(anna, thomas, 9, 22),
+  graphEdge(jonas, miriam, 12, 9),
+  graphEdge(lukas, billing, 6, 4),
+];
+
+export const graph: Graph = {
+  nodes: [
+    graphNode(anna, 11_318, 214, { center: true }),
+    graphNode(jonas, 2_210, 58),
+    graphNode(lukas, 1_733, 41),
+    graphNode(peter, 904, 23),
+    graphNode(miriam, 610, 17),
+    graphNode(purchasing, 512, 9, { kind: "list" }),
+    graphNode(billing, 288, 12),
+    graphNode(sofia, 97, 4),
+    graphNode(thomas, 61, 6),
+  ],
+  edges: graphEdges,
+  mails: graphEdges.reduce((sum, edge) => sum + edge.weight, 0),
+  centers: [11],
+  edge_table: { pairs: 34_912, refreshed_at: "2026-10-21T01:20:00Z" },
+};
+
+export const graphSize: GraphSize = { nodes: 9, edges: 12, mails: graph.mails, too_large: false };
+
+export const personSearch: PersonPage = {
+  items: [
+    {
+      id: miriam.person_id,
+      name: miriam.name,
+      email: miriam.email,
+      domain: "kanzlei-muster.example",
+      aliases: 1,
+      figures: {
+        mails: 1_820,
+        sent: 610,
+        received: 1_002,
+        cc_only: 208,
+        contacts: 64,
+        first_date: "2016-02-01T08:00:00Z",
+        last_date: "2026-10-15T15:48:00Z",
+        dkim_pass_ratio: 0.42,
+      },
+    },
+    {
+      id: 21,
+      name: "Stefan Steinbach",
+      email: "s.steinbach@verband.example",
+      domain: "verband.example",
+      aliases: 0,
+      figures: {
+        mails: 233,
+        sent: 101,
+        received: 120,
+        cc_only: 12,
+        contacts: 19,
+        first_date: "2019-05-02T10:00:00Z",
+        last_date: "2025-12-01T09:30:00Z",
+        dkim_pass_ratio: 0.9,
+      },
+    },
+  ],
+  next_cursor: null,
+  prev_cursor: null,
+  total: 2,
 };
