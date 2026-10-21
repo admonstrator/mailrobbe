@@ -1,9 +1,9 @@
 name: CI
 
+# Pull requests only: main changes solely by merging a pull request whose run was green.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

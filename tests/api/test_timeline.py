@@ -579,3 +579,20 @@ async def test_parts_that_run_out_of_time_are_left_out(
             assert mentions["items"] and mentions["timed_out"] is False
     finally:
         await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("options", "total"),
+    [
+        ([], 8),  # stems everywhere: cases 0 to 7
+        ([("whole_word", "true")], 4),  # cases 0, 1, 6, 7
+        ([("scope", "filename")], 1),  # case 5
+    ],
+)
+async def test_term_series_take_the_search_options(
+    search_client: httpx.AsyncClient, options: Params, total: int
+) -> None:
+    params = [("split", "term"), ("term", "Neger"), *options]
+    timeline = await get(search_client, "/api/timeline", params)
+    (series,) = timeline["series"]
+    assert series["total"] == total

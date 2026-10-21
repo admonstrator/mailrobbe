@@ -52,6 +52,8 @@ from mailrobbe.api.filters import (
     resolve_contents,
     text_query,
 )
+from mailrobbe.api.fulltext import full_text_search
+from mailrobbe.api.hits import page_hits
 from mailrobbe.api.query import DKIM_KEYS, QueryError, parse_query
 from mailrobbe.api.schemas import (
     COUNT_LIMIT,
@@ -205,11 +207,22 @@ async def list_mails(
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
     items = [_item(row, people.get(row.id, []), members) for row in rows]
-    through_attachments = await _found_through_attachments(session, terms, ids)
+    search = full_text_search(terms, params.scope, params.whole_word, params.min_hits)
+    hits = {} if search is None else await page_hits(session, ids, search)  # D176
+    if search is not None and search.counted:
+        # D73 from the counts: no counted word in the mail itself, but in an attachment
+        for item in items:
+            item.hits = counts = hits[item.id]
+            itself, attached = counts.subject + counts.body, counts.attachment + counts.filename
+            item.attachment_match = itself == 0 and attached > 0
+    else:
+        through_attachments = await _found_through_attachments(session, terms, ids)
+        for item in items:
+            item.hits = hits.get(item.id)
+            item.attachment_match = item.id in through_attachments
     near_counts = await near.near_counts(session, ids)
     event_kinds = await events.event_kinds(session, ids)
     for item in items:
-        item.attachment_match = item.id in through_attachments
         item.near_count = near_counts.get(item.id, 0)
         item.event = event_kinds.get(item.id)
     page = MailPage(

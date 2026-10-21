@@ -67,6 +67,52 @@ describe("highlightParts", () => {
     ]);
   });
 
+  describe("with whole words (D173)", () => {
+    const marked = (text: string, terms: string[], stems: string[] = []) =>
+      highlightParts(text, terms, stems, { wholeWord: true })
+        .filter((part) => part.mark)
+        .map((part) => part.text);
+
+    it("marks a word only where letters and digits do not go on, in any case", () => {
+      expect(marked("Neger, NEGER und neger. Negern, Negers, Neger2, 2Neger", ["Neger"])).toEqual([
+        "Neger",
+        "NEGER",
+        "neger",
+      ]);
+    });
+
+    it("leaves umlauts and accents as written and uses no stems", () => {
+      expect(marked("Uberfremdung und Überfremdung", ["Überfremdung"])).toEqual(["Überfremdung"]);
+      expect(marked("négère, negere und Neger", ["negere"], ["neg"])).toEqual(["negere"]);
+    });
+
+    it("takes _ . - and spaces as the end of a word, as in file names", () => {
+      expect(marked("Scan_NEG_2019-03.pdf, NEG-Liste, NEGATIV, Bericht.NEG", ["NEG"])).toEqual([
+        "NEG",
+        "NEG",
+        "NEG",
+      ]);
+    });
+
+    it("lets anything but letters and digits stand between a phrase's words", () => {
+      expect(marked("Konto-DE89, Konto  DE89 und KontoDE89, Konto DE890", ["Konto DE89"])).toEqual([
+        "Konto-DE89",
+        "Konto  DE89",
+      ]);
+      expect(marked("(neu) und neu", ["(neu)"])).toEqual(["(neu)"]);
+    });
+
+    it("prefers the longer term where both stand", () => {
+      expect(
+        highlightParts("Konto DE89 Konto", ["Konto", "Konto DE89"], [], { wholeWord: true }),
+      ).toEqual([
+        { text: "Konto DE89", mark: true },
+        { text: " ", mark: false },
+        { text: "Konto", mark: true },
+      ]);
+    });
+  });
+
   it("leaves text without terms whole", () => {
     expect(highlightParts("Protokoll", [])).toEqual([{ text: "Protokoll", mark: false }]);
     expect(highlightParts("Protokoll", ["Spende"])).toEqual([{ text: "Protokoll", mark: false }]);

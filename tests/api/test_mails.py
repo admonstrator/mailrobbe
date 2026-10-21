@@ -472,6 +472,7 @@ async def test_items_show_the_mail_and_its_participants(
             "attachment_match": False,
             "near_count": 0,
             "event": None,
+            "hits": None,
         }
 
 
@@ -479,9 +480,14 @@ async def test_query_terms_are_echoed(client: httpx.AsyncClient) -> None:
     q = 'from:anna  subject:"finale Fassung" Hallo'
     page = await get(client, "/api/mails", [("q", q)])
     assert page["query_terms"] == [
-        {"key": "from", "value": "anna", "raw": "from:anna"},
-        {"key": "subject", "value": "finale Fassung", "raw": 'subject:"finale Fassung"'},
-        {"key": "text", "value": "Hallo", "raw": "Hallo"},
+        {"key": "from", "value": "anna", "raw": "from:anna", "negated": False},
+        {
+            "key": "subject",
+            "value": "finale Fassung",
+            "raw": 'subject:"finale Fassung"',
+            "negated": False,
+        },
+        {"key": "text", "value": "Hallo", "raw": "Hallo", "negated": False},
     ]
 
 

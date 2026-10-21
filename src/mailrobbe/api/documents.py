@@ -19,10 +19,12 @@ A snippet is found in PostgreSQL, so that only its surroundings leave the databa
 words as typed become one regular expression, any case written out as character classes (the
 database's locale may know only ASCII case), which regexp_instr finds in the stored text.
 
-The hits of one mail (D79) say whether its own text matches the mail list's full text words and
-which of its attachments do, each with the snippet of the list, or around another form of a
-word where none occurs as typed. The browser marks the words as typed and the words the stems of
-the query begin, the forms German stemming finds.
+The hits of one mail (D79, D176) say where the words the mail list counts occur, in the places
+it searched: the subject, the mail's own text, and per attachment its document's text and file
+names, with the list's counts (hits.mail_places). An attachment whose text holds one shows the
+snippet of the list, or around another form of a word where none occurs as typed. The browser
+marks the words as typed and the words the stems of the query begin, the forms German stemming
+finds; with whole words (D173) the words as written alone, and the snippet is found around them.
 
 Downloads read the bytes from the MBOX file on request (attachments.content, D76) and are never
 cached: a download as application/octet-stream with a sandboxing policy, apart from raster
@@ -35,6 +37,7 @@ import re
 import urllib.parse
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from itertools import chain
 from typing import Annotated, Any
 
 import fastapi
@@ -72,9 +75,15 @@ from mailrobbe.api.filters import (
     _contains,
     internal_domains,
     mail_conditions,
-    text_query,
-    text_search,
 )
+from mailrobbe.api.fulltext import (
+    Words,
+    full_text_search,
+    ts_query,
+    word_regex,
+    word_regex_python,
+)
+from mailrobbe.api.hits import mail_places
 from mailrobbe.api.mails import _QUERY_CANCELED, _count_budget, _unless_canceled
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
 from mailrobbe.api.query import QueryError, parse_query
@@ -95,6 +104,7 @@ from mailrobbe.api.schemas import (
     DocumentText,
     MailFilters,
     MailHits,
+    MailHitsParams,
     PersonCount,
     PersonRef,
     ThreadMail,
@@ -463,8 +473,14 @@ def snippet_around(around: str, offset: int, pattern: re.Pattern[str]) -> str | 
     return " ".join(around[start:end].split())[:SNIPPET_LENGTH] or None
 
 
-async def _snippets(session: AsyncSession, pattern: str, ids: Sequence[int]) -> dict[int, str]:
-    """Per document, the stored text around the first place the pattern matches."""
+async def _snippets(
+    session: AsyncSession,
+    pattern: str,
+    ids: Sequence[int],
+    compiled: re.Pattern[str] | None = None,
+) -> dict[int, str]:
+    """Per document, the stored text around the first place the pattern matches; compiled is
+    the pattern for Python where its syntax differs (whole words)."""
     if not pattern or not ids:
         return {}
     rows = await session.execute(
@@ -476,7 +492,7 @@ async def _snippets(session: AsyncSession, pattern: str, ids: Sequence[int]) -> 
             "span": 3 * SNIPPET_LENGTH,
         },
     )
-    compiled = re.compile(pattern)
+    compiled = compiled or re.compile(pattern)
     found = {}
     for document_id, around, offset in rows:
         snippet = snippet_around(around, offset, compiled)
@@ -489,46 +505,81 @@ async def _snippets(session: AsyncSession, pattern: str, ids: Sequence[int]) -> 
 
 
 @router.get("/mails/{mail_id}/hits")
-async def mail_hits(mail_id: MailId, session: Session, q: str = "") -> MailHits:
+async def mail_hits(
+    mail_id: MailId, params: Annotated[MailHitsParams, Query()], session: Session
+) -> MailHits:
     try:
-        terms = parse_query(q)
+        terms = parse_query(params.q)
     except QueryError as error:
         raise api_error(400, "invalid_query", str(error)) from error
-    search, query = text_search(terms), text_query(terms)
-    own = Mail.tsv.bool_op("@@")(query) if query is not None else false()
-    lexemes = cast(query, Text) if query is not None else literal("")
-    found = (await session.execute(select(own, lexemes).where(Mail.id == mail_id))).first()
+    search = full_text_search(terms, params.scope, params.whole_word)
+    counted = () if search is None else search.counted
+    # the lexemes of each counted words, in the order its query has them
+    queries = [cast(ts_query(words.websearch()), Text) for words, _ in counted]
+    found = (await session.execute(select(Mail.id, *queries).where(Mail.id == mail_id))).first()
     if found is None:
         raise api_error(404, "not_found", f"no mail with id {mail_id}")
-    if query is None:
-        return MailHits(words=[], stems=[], in_mail=False, attachments=[])
-    names = func.to_tsvector(_TEXT_SEARCH, func.translate(Document.names, "_.-", "   "))
-    rows = (
-        await session.execute(
-            select(
-                Attachment.id, Attachment.document_id, names.bool_op("@@")(query).label("in_name")
-            )
-            .join(Document, Document.id == Attachment.document_id)
-            .where(Attachment.mail_id == mail_id, Document.tsv.bool_op("@@")(query))
-            .order_by(Attachment.id)
+    if search is None:
+        return MailHits(
+            words=[], stems=[], in_mail=False, attachments=[], whole_word=params.whole_word
         )
-    ).all()
-    words = search_words(search)
-    stems = list(dict.fromkeys(lexeme.replace("''", "'") for lexeme in _LEXEME.findall(found[1])))
-    # the words as typed, else another form of one (the place the browser marks either way)
-    pattern = "|".join(filter(None, [literal_pattern(words), stem_pattern(stems)]))
-    snippets = await _snippets(session, pattern, [row.document_id for row in rows])
+    counts, attached = await mail_places(session, mail_id, search)
+    stems = {
+        words: [lexeme.replace("''", "'") for lexeme in _LEXEME.findall(text)]
+        for (words, _), text in zip(counted, found[1:], strict=True)
+    }
+    attachments = select(Attachment.id, Attachment.document_id).where(Attachment.mail_id == mail_id)
+    documents = {
+        attachment: document
+        for attachment, document in await session.execute(attachments)
+        if document is not None
+    }
+    texts = [documents[attachment] for attachment, hit in attached.items() if hit.attachment]
+    in_texts = [words for words, fields in counted if "attachment" in fields]
+    snippets = await _hit_snippets(session, search.whole_word, in_texts, stems, texts)
     return MailHits(
-        words=words,
-        stems=stems,
-        in_mail=found[0],
+        words=_typed([words for words, _ in counted]),
+        stems=[] if search.whole_word else list(dict.fromkeys(chain(*stems.values()))),
+        in_mail=counts.subject + counts.body > 0,
         attachments=[
             AttachmentHit(
-                attachment_id=row.id, in_name=row.in_name, snippet=snippets.get(row.document_id)
+                attachment_id=attachment,
+                in_name=hit.filename > 0,
+                in_text=hit.attachment > 0,
+                snippet=snippets.get(documents[attachment]) if hit.attachment else None,
             )
-            for row in rows
+            for attachment, hit in sorted(attached.items())
+            if hit.filename or hit.attachment
         ],
+        whole_word=search.whole_word,
+        in_subject=counts.subject > 0,
+        in_body=counts.body > 0,
+        counts=counts,
     )
+
+
+def _typed(counted: Sequence[Words]) -> list[str]:
+    """The counted words as typed, as search_words reads them from q."""
+    return search_words(" ".join(words.websearch() for words in counted))
+
+
+async def _hit_snippets(
+    session: AsyncSession,
+    whole_word: bool,
+    counted: Sequence[Words],
+    stems: dict[Words, list[str]],
+    ids: Sequence[int],
+) -> dict[int, str]:
+    """Per document, the text around the first place one of the counted words occurs (D79):
+    as written with whole words (D173), otherwise as typed or as a word one of their stems
+    begins, the place the browser marks either way."""
+    if whole_word:
+        pattern = "|".join(f"(?:{word_regex(words)})" for words in counted)
+        python = "|".join(f"(?:{word_regex_python(words).pattern})" for words in counted)
+        return await _snippets(session, f"(?i){pattern}", ids, re.compile(python, re.IGNORECASE))
+    beginning = list(dict.fromkeys(chain(*(stems[words] for words in counted))))
+    pattern = "|".join(filter(None, [literal_pattern(_typed(counted)), stem_pattern(beginning)]))
+    return await _snippets(session, pattern, ids)
 
 
 # Summary -------------------------------------------------------------------------------------

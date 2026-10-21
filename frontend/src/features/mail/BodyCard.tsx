@@ -5,11 +5,11 @@ import type { MailHeaders, MailRaw, MailText, SegmentKind, TextSegment } from ".
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
-import { MarkedParts, type SearchMarks } from "../../components/Highlighted";
+import { MarkedParts, markWords, type SearchMarks } from "../../components/Highlighted";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatBytes, formatNumber } from "../../lib/format";
-import { highlightParts, markCount, type TextPart } from "../../lib/highlight";
+import { markCount, type TextPart } from "../../lib/highlight";
 import styles from "./BodyCard.module.css";
 import { sourceErrorText } from "./errors";
 
@@ -199,7 +199,7 @@ function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
   // the blocks opened or closed by hand, by index; the others as the hits suggest
   const [toggled, setToggled] = useState<Record<number, boolean>>({});
   const blocks = useMemo(() => {
-    const mark = (text: string) => highlightParts(text, marks?.words ?? [], marks?.stems ?? []);
+    const mark = (text: string) => markWords(text, marks);
     return textBlocks(data.text, data.segments, mark);
   }, [data.text, data.segments, marks]);
   if (data.source === "none" || !data.text.trim()) {

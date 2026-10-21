@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { useResearch } from "../../api/queries";
-import type { MailListItem, PersonRef, TagRef } from "../../api/types";
+import type { MailHitCounts, MailListItem, PersonRef, TagRef } from "../../api/types";
 import { DkimDot } from "../../components/DkimDot";
 import { CopyIcon, FlagIcon, NoteIcon, PaperclipIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
@@ -57,6 +57,38 @@ function TagDots({ ids, tags }: { ids: number[]; tags: Map<number, TagRef> }) {
       {ids.length > TAG_DOTS && <span className={styles.more}>+{ids.length - TAG_DOTS}</span>}
     </span>
   );
+}
+
+/** The places of MailHitCounts as a row names them, and in its title. */
+const HIT_PLACES: readonly [keyof MailHitCounts, string, string][] = [
+  ["subject", "Betreff", "im Betreff"],
+  ["body", "Text", "im Mailtext"],
+  ["attachment", "Anhang", "im Text von Anhängen"],
+  ["filename", "Dateiname", "in Dateinamen"],
+];
+
+/** Why a mail matched (D176): how often the search words occur where, places without any left
+ *  out, so a mail found only through a file name says so. Nothing when none is counted. */
+function HitPlaces({ hits }: { hits: MailHitCounts }) {
+  const places = HIT_PLACES.filter(([key]) => hits[key] > 0);
+  if (places.length === 0) return null;
+  const title = places.map(([key, , long]) => `${formatNumber(hits[key])} ${long}`).join(", ");
+  return (
+    <span className={styles.hitPlaces} title={`Suchwörter: ${title}`}>
+      {places.map(([key, label]) => `${label} ${formatNumber(hits[key])}`).join(" · ")}
+    </span>
+  );
+}
+
+/** The title of the mark of D73, or null for none: the search words occur in an attachment.
+ *  With the counts of D176 it names where, text or file name, and shows only where they count. */
+function attachmentMatch(mail: MailListItem): string | null {
+  if (!mail.hits) return mail.attachment_match ? "Suchbegriff steht im Text eines Anhangs" : null;
+  const places = [
+    ...(mail.hits.attachment > 0 ? ["im Text"] : []),
+    ...(mail.hits.filename > 0 ? ["im Dateinamen"] : []),
+  ];
+  return places.length ? `Suchbegriff steht ${places.join(" und ")} eines Anhangs` : null;
 }
 
 /** The checkboxes of the rows: which are selected and how a click changes that. */
@@ -135,6 +167,7 @@ export function MailTable({
         <tbody>
           {items.map((mail) => {
             const selected = selection?.ids.has(mail.id) ?? false;
+            const inAttachment = attachmentMatch(mail);
             return (
               <tr
                 key={mail.id}
@@ -211,15 +244,13 @@ export function MailTable({
                       )}
                     </span>
                   )}
+                  {mail.hits && <HitPlaces hits={mail.hits} />}
                 </td>
                 {columns.attachment && (
                   <td className={styles.icon}>
                     {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
-                    {mail.attachment_match && (
-                      <span
-                        className={styles.inAttachment}
-                        title="Suchbegriff steht im Text eines Anhangs"
-                      >
+                    {inAttachment && (
+                      <span className={styles.inAttachment} title={inAttachment}>
                         im Anhang
                       </span>
                     )}

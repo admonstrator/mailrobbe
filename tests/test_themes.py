@@ -57,6 +57,41 @@ def test_a_search_with_an_unusable_operator_is_refused(tmp_path: Path) -> None:
         load_themes(_write(tmp_path, text))
 
 
+_SEARCH = (
+    '[[theme]]\nkey = "a"\nname = "A"\ncolor = "red"\n'
+    '[[theme.search]]\nname = "A: x"\nq = "Neger"\n'
+)
+
+
+def test_a_search_carries_the_options_of_the_mail_list(tmp_path: Path) -> None:
+    options = 'scope = ["filename", "subject", "subject"]\nwhole_word = true\nmin_hits = 3\n'
+    (search,) = load_themes(_write(tmp_path, _SEARCH + options))[0].searches
+    assert (search.scope, search.whole_word, search.min_hits) == (("subject", "filename"), True, 3)
+    # as the mail list writes its URL: places repeated, defaults left out
+    assert search.query == "q=Neger&scope=subject&scope=filename&whole_word=true&min_hits=3"
+    everywhere = 'scope = ["attachment", "body", "filename", "subject"]\nwhole_word = false\n'
+    (tmp_path / "all").mkdir()  # load_themes keeps what it read per path
+    (search,) = load_themes(_write(tmp_path / "all", _SEARCH + everywhere))[0].searches
+    assert (search.scope, search.query) == ((), "q=Neger")
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ('scope = ["subject", "anhang"]', "theme a, search A: x: unknown places anhang"),
+        ('scope = "subject"', "theme a, search A: x: scope must be a list of places"),
+        ("whole_word = 1", "theme a, search A: x: whole_word must be true or false"),
+        ("min_hits = 0", "theme a, search A: x: min_hits must be a whole number from 1 to 999"),
+        ("min_hits = 1000", "min_hits must be a whole number"),
+        ("min_hits = true", "min_hits must be a whole number"),
+        ('min_hits = "3"', "min_hits must be a whole number"),
+    ],
+)
+def test_wrong_search_options_are_refused(tmp_path: Path, options: str, message: str) -> None:
+    with pytest.raises(ThemesError, match=message):
+        load_themes(_write(tmp_path, f"{_SEARCH}{options}\n"))
+
+
 def test_the_shipped_entity_contexts_load() -> None:
     contexts = load_entity_context()
     assert list(contexts) == [EntityContext.CASH, EntityContext.DONATION, EntityContext.RECEIPT]

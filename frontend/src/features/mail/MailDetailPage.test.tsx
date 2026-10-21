@@ -1,8 +1,8 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { MailDkim } from "../../api/types";
-import { mailDetail } from "../../test/fixtures";
+import type { MailDkim, MailHits } from "../../api/types";
+import { mailDetail, wholeWordHits } from "../../test/fixtures";
 import { fixtureApi, renderApp } from "../../test/render";
 
 const listQuery = new URLSearchParams({ q: "subject:Vertrag" }).toString();
@@ -113,8 +113,8 @@ describe("mail detail", () => {
 
     const hits = await screen.findByRole("region", { name: "Suchtreffer" });
     expect(hits.textContent).toBe(
-      "Suchtreffer für „Haftung“: im Text der Mail · im Anhang Rahmenvereinbarung_2026_final.pdf" +
-        " · im Anhang Aenderungsprotokoll.xlsx",
+      "Suchtreffer für „Haftung“: im Text · in den Anhängen Rahmenvereinbarung_2026_final.pdf," +
+        " Aenderungsprotokoll.xlsx",
     );
     expect(calls.find((call) => call.url.pathname.endsWith("/hits"))!.url.search).toBe(
       "?q=Haftung",
@@ -141,10 +141,73 @@ describe("mail detail", () => {
       .getByText("Aenderungsprotokoll.xlsx", { selector: "span *, span" })
       .closest("li")!;
     expect(within(sheet).getByText("Suchwort im Text, in einer anderen Wortform")).toBeTruthy();
-    fireEvent.click(
-      within(hits).getByRole("button", { name: "im Anhang Aenderungsprotokoll.xlsx" }),
-    );
+    fireEvent.click(within(hits).getByRole("button", { name: "Aenderungsprotokoll.xlsx" }));
     expect(scrolled).toEqual([sheet]);
+  });
+
+  it("asks for the hits in the list's places and as whole words, and marks only those", async () => {
+    const list = "q=Haftung&scope=body&scope=attachment&whole_word=true&min_hits=2";
+    const { calls } = renderApp(`/mails/184221?${list}`, (call) =>
+      call.url.pathname.endsWith("/hits") ? wholeWordHits : fixtureApi(call),
+    );
+
+    const hits = await screen.findByRole("region", { name: "Suchtreffer" });
+    expect(hits.textContent).toBe(
+      "Suchtreffer für „Haftung“ als ganzes Wort: im Text (1) · im Anhang" +
+        " Rahmenvereinbarung_2026_final.pdf (2)",
+    );
+    // q, places and whole words; the minimum only narrows the list.
+    expect(calls.find((call) => call.url.pathname.endsWith("/hits"))!.url.search).toBe(
+      "?q=Haftung&scope=body&scope=attachment&whole_word=true",
+    );
+    // Not the "Haftungsklausel" of the text: only the quoted "Haftung", which opens by itself.
+    expect(await screen.findByText("1 Fundstelle markiert")).toBeTruthy();
+    expect(screen.getByText(/Haftungsklausel/).tagName).not.toBe("MARK");
+    const quoted = screen.getByText(/danke für den Entwurf/);
+    expect([...quoted.querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual([
+      "Haftung",
+    ]);
+    const card = within(screen.getByRole("heading", { name: /^Anhänge/ }).closest("section")!);
+    const pdf = card
+      .getByText("Rahmenvereinbarung_2026_final.pdf", { selector: "span *, span" })
+      .closest("li")!;
+    expect([...pdf.querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual([
+      "Haftung",
+      "Haftung",
+    ]);
+  });
+
+  it("names the subject and a file name holding a word, each with its count (D176)", async () => {
+    const scrolled: Element[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    const named: MailHits = {
+      ...wholeWordHits,
+      in_subject: true,
+      attachments: [
+        ...wholeWordHits.attachments,
+        { attachment_id: 902, in_name: true, snippet: null, in_text: false },
+      ],
+      counts: { subject: 1, body: 3, attachment: 2, filename: 1 },
+    };
+    renderApp(`/mails/184221?${new URLSearchParams({ q: "Haftung" })}`, (call) =>
+      call.url.pathname.endsWith("/hits") ? named : fixtureApi(call),
+    );
+    const hits = await screen.findByRole("region", { name: "Suchtreffer" });
+    expect(hits.textContent).toBe(
+      "Suchtreffer für „Haftung“ als ganzes Wort: im Betreff (1) · im Text (3) · im Anhang" +
+        " Rahmenvereinbarung_2026_final.pdf (2) · im Dateinamen Aenderungsprotokoll.xlsx (1)",
+    );
+    const card = within(screen.getByRole("heading", { name: /^Anhänge/ }).closest("section")!);
+    const sheet = card
+      .getByText("Aenderungsprotokoll.xlsx", { selector: "span *, span" })
+      .closest("li")!;
+    expect(within(sheet).getByText("Suchwort im Dateinamen")).toBeTruthy();
+    fireEvent.click(within(hits).getByRole("button", { name: "Aenderungsprotokoll.xlsx" }));
+    expect(scrolled).toEqual([sheet]);
+    // The subject is in view above the card, so it is no jump.
+    expect(within(hits).queryByRole("button", { name: /Betreff/ })).toBeNull();
   });
 
   it("marks nothing without full text words in the list's query", async () => {

@@ -4,9 +4,11 @@ Tokens are separated by whitespace; double quotes group, also inside a token
 (`subject:"finale Fassung"`, `"exakte Phrase"`), and an unclosed quote runs to the end of q.
 A token `name:value` with a known operator name (any case) and a non-empty value is an operator
 term; a bare `<local@host>` is a Message-ID; everything else is one full-text term per token,
-including unknown prefixes such as `Re:` or `https:` and operators without a value. An operator
-whose value cannot be used raises QueryError naming the token. filters.py turns the terms into
-SQL; every term must hold.
+including unknown prefixes such as `Re:` or `https:` and operators without a value. The
+operators betreff:, text:, anhang: and datei: are full text words looked for in one place only
+(D172). A leading minus negates an operator or a Message-ID (D175); free text words keep it,
+since websearch_to_tsquery reads it. An operator whose value cannot be used raises QueryError
+naming the token. filters.py turns the terms into SQL; every term must hold.
 """
 
 import re
@@ -16,9 +18,18 @@ from typing import get_args
 from mailrobbe.api.schemas import DkimKey, QueryKey, QueryTerm
 
 DKIM_KEYS: tuple[DkimKey, ...] = get_args(DkimKey)
-_OPERATORS: dict[str, QueryKey] = {
-    key: key for key in get_args(QueryKey) if key not in ("text", "message_id")
+# Full text words in one place (D172): German names, as the filter column names the places.
+PLACED: dict[str, QueryKey] = {
+    "betreff": "in_subject",
+    "text": "in_body",
+    "anhang": "in_attachment",
+    "datei": "in_filename",
 }
+_OPERATORS: dict[str, QueryKey] = {
+    key: key
+    for key in get_args(QueryKey)
+    if key not in ("text", "message_id") and key not in PLACED.values()
+} | PLACED
 _TOKEN = re.compile(r'(?:[^\s"]+|"[^"]*(?:"|\Z))+')
 _OPERATOR = re.compile(r"([A-Za-z]+):(.*)", re.DOTALL)
 _MESSAGE_ID = re.compile(r"<[^<>\s@]+@[^<>\s]+>")
@@ -54,16 +65,23 @@ def parse_day(value: str) -> date | None:
 
 
 def _term(raw: str) -> QueryTerm:
-    operator = _OPERATOR.fullmatch(raw)
+    if raw.startswith("-") and (negated := _operator(raw[1:], raw)):
+        return negated.model_copy(update={"negated": True})
+    return _operator(raw, raw) or QueryTerm(key="text", value=_unquote(raw), raw=raw)
+
+
+def _operator(token: str, raw: str) -> QueryTerm | None:
+    """The operator or Message-ID term token is, raw being the token as written; None for a
+    full text word."""
+    operator = _OPERATOR.fullmatch(token)
     if operator:
         key = _OPERATORS.get(operator.group(1).lower())
         value = _unquote(operator.group(2))
         if key and value:
             return QueryTerm(key=key, value=_checked(key, value, raw), raw=raw)
-    value = _unquote(raw)
-    if '"' not in raw and _MESSAGE_ID.fullmatch(raw):
-        return QueryTerm(key="message_id", value=value, raw=raw)
-    return QueryTerm(key="text", value=value, raw=raw)
+    if '"' not in token and _MESSAGE_ID.fullmatch(token):
+        return QueryTerm(key="message_id", value=_unquote(token), raw=raw)
+    return None
 
 
 def _checked(key: str, value: str, raw: str) -> str:

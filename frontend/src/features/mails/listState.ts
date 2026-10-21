@@ -5,15 +5,19 @@ import { buildQuery } from "../../api/client";
 import {
   EVENT_KEYS,
   MAIL_SIGNAL_KINDS,
+  MIN_HITS_LIMIT,
   PAGE_SIZE,
+  SEARCH_FIELDS,
   type DkimKey,
   type EntityContextKey,
   type EventKey,
   type MailFilters,
+  type MailHitsParams,
   type MailListParams,
   type MailOrderParams,
   type PersonRole,
   type ReviewKey,
+  type SearchField,
   type SignalKey,
   type SortOrder,
 } from "../../api/types";
@@ -60,6 +64,12 @@ export interface ListState {
   /** Calendar invitations (D155): any of these kinds; the mails of one event (its UID). */
   event: EventKey[];
   event_uid: string | null;
+  /** Options of q's full text words (D171 to D174): the places its free words are looked for,
+   *  in the order of SEARCH_FIELDS (empty: everywhere, so all four are stored as none), whole
+   *  words only, and the occurrences a mail needs at least. */
+  scope: SearchField[];
+  whole_word: boolean;
+  min_hits: number | null;
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -99,6 +109,9 @@ export const DEFAULT_LIST_STATE: ListState = {
   near_group: null,
   event: [],
   event_uid: null,
+  scope: [],
+  whole_word: false,
+  min_hits: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -144,6 +157,13 @@ export function isSignalKey(value: string): value is SignalKey {
   );
 }
 
+/** The places among values in the order of SEARCH_FIELDS, once each; all four is the same as
+ *  none, both mean everywhere (D171). */
+export function canonicalScope(values: readonly string[]): SearchField[] {
+  const scope = SEARCH_FIELDS.filter((key) => values.includes(key));
+  return scope.length === SEARCH_FIELDS.length ? [] : scope;
+}
+
 /** The list state a query string describes; values that cannot be used are ignored. */
 export function parseListState(search: URLSearchParams): ListState {
   const state: ListState = { ...DEFAULT_LIST_STATE };
@@ -179,6 +199,9 @@ export function parseListState(search: URLSearchParams): ListState {
   state.near_group = positiveInt(search.get("near_group"));
   state.event = EVENT_KEYS.filter((key) => search.getAll("event").includes(key));
   state.event_uid = search.get("event_uid")?.trim() || null;
+  state.scope = canonicalScope(search.getAll("scope"));
+  state.whole_word = search.get("whole_word") === "true";
+  state.min_hits = positiveInt(search.get("min_hits"), MIN_HITS_LIMIT);
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -214,6 +237,9 @@ export function toFilters(state: ListState): MailFilters {
   if (state.near_group !== null) filters.near_group = state.near_group;
   if (state.event.length) filters.event = state.event;
   if (state.event_uid) filters.event_uid = state.event_uid;
+  if (state.scope.length) filters.scope = state.scope;
+  if (state.whole_word) filters.whole_word = true;
+  if (state.min_hits !== null) filters.min_hits = state.min_hits;
   return filters;
 }
 
@@ -230,6 +256,15 @@ export function toListParams(state: ListState): MailListParams {
   return params;
 }
 
+/** What GET /api/mails/{id}/hits needs of the list (D176): q, its places and whole words, the
+ *  defaults left out. */
+export function toHitsParams(state: ListState): MailHitsParams {
+  const params: MailHitsParams = { q: state.q };
+  if (state.scope.length) params.scope = state.scope;
+  if (state.whole_word) params.whole_word = true;
+  return params;
+}
+
 /** The query string of state, the inverse of parseListState. */
 export function listSearch(state: ListState): URLSearchParams {
   return buildQuery({
@@ -241,6 +276,14 @@ export function listSearch(state: ListState): URLSearchParams {
 /** state with a filter changed; a new filter starts again at the first page. */
 export function withFilters(state: ListState, patch: FilterPatch): ListState {
   return { ...state, ...patch, cursor: null, page: 1 };
+}
+
+/** The options of q's full text words (D171 to D174). */
+export type SearchOptions = Pick<ListState, "scope" | "whole_word" | "min_hits">;
+
+/** The search options of state, which a new search from the header keeps (D177). */
+export function searchOptions(state: ListState): SearchOptions {
+  return { scope: state.scope, whole_word: state.whole_word, min_hits: state.min_hits };
 }
 
 /** state without any filter, keeping the search text and the sort order. */

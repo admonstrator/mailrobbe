@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import { buildQuery } from "../../api/client";
+import { MIN_HITS_LIMIT, SEARCH_FIELDS } from "../../api/types";
 import {
+  canonicalScope,
   DEFAULT_LIST_STATE,
+  hasFilters,
   listSearch,
   parseListState,
+  searchOptions,
   toFilters,
+  toHitsParams,
   toListParams,
   toOrderParams,
   withFilters,
@@ -45,6 +50,9 @@ const full: ListState = {
   near_group: 4711,
   event: ["request", "cancel"],
   event_uid: "040000008200E00074C5B7101A82E008",
+  scope: ["subject", "body"],
+  whole_word: true,
+  min_hits: 3,
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -97,6 +105,9 @@ describe("list state in the URL", () => {
       "near_group",
       "event",
       "event_uid",
+      "scope",
+      "whole_word",
+      "min_hits",
       "sort",
       "cursor",
       "limit",
@@ -136,6 +147,9 @@ describe("list state in the URL", () => {
         "entity=x",
         "amount_min=10.000%2C00",
         "amount_context=bribe",
+        "scope=header",
+        "whole_word=1",
+        "min_hits=0",
         "unknown=1",
       ].join("&"),
     );
@@ -220,6 +234,82 @@ describe("API parameters from the list state", () => {
     expect(
       buildQuery(toListParams(parse("dkim=pass&dkim=fail&has_attachment=true"))).toString(),
     ).toBe("dkim=pass&dkim=fail&has_attachment=true");
+  });
+});
+
+describe("the search options in the URL (D171 to D174, D177)", () => {
+  it("keeps places in their fixed order, once each, whole words and the minimum", () => {
+    const state = parse(
+      "q=Neger&scope=filename&scope=subject&scope=subject&whole_word=true&min_hits=3",
+    );
+    expect(state.scope).toEqual(["subject", "filename"]);
+    expect(state.whole_word).toBe(true);
+    expect(state.min_hits).toBe(3);
+    expect(toFilters(state)).toEqual({
+      q: "Neger",
+      scope: ["subject", "filename"],
+      whole_word: true,
+      min_hits: 3,
+    });
+    expect(search(state)).toBe("q=Neger&scope=subject&scope=filename&whole_word=true&min_hits=3");
+    expect(parse(search(state))).toEqual(state);
+  });
+
+  it("stores all four places as none, everywhere, and leaves out the defaults", () => {
+    const all = parse("scope=body&scope=subject&scope=filename&scope=attachment&whole_word=false");
+    expect(all.scope).toEqual([]);
+    expect(all.whole_word).toBe(false);
+    expect(search(all)).toBe("");
+    expect(canonicalScope(["attachment", "subject", "x"])).toEqual(["subject", "attachment"]);
+    expect(canonicalScope([...SEARCH_FIELDS])).toEqual([]);
+  });
+
+  it("takes a minimum from 1 to the limit only", () => {
+    expect(parse("min_hits=1").min_hits).toBe(1);
+    expect(parse(`min_hits=${MIN_HITS_LIMIT}`).min_hits).toBe(MIN_HITS_LIMIT);
+    for (const bad of ["0", "-2", "1000", "2.5", "drei", ""]) {
+      expect(parse(`min_hits=${bad}`).min_hits).toBeNull();
+    }
+  });
+
+  it("counts as filters, travels in the API's parameters and is reset with the column", () => {
+    const state = parse("q=Neger&scope=body&min_hits=2&sort=date_asc");
+    expect(hasFilters({ ...DEFAULT_LIST_STATE, whole_word: true })).toBe(true);
+    expect(toOrderParams(state)).toEqual({
+      q: "Neger",
+      scope: ["body"],
+      min_hits: 2,
+      sort: "date_asc",
+    });
+    expect(buildQuery(toListParams(state)).toString()).toBe(
+      "q=Neger&scope=body&min_hits=2&sort=date_asc",
+    );
+    expect(withoutSidebarFilters(state)).toEqual({
+      ...DEFAULT_LIST_STATE,
+      q: "Neger",
+      sort: "date_asc",
+    });
+    expect(withFilters(full, { whole_word: false }).page).toBe(1);
+  });
+
+  it("gives the hits of a mail q, places and whole words, but no minimum (D176)", () => {
+    expect(
+      toHitsParams(parse("q=Neger&scope=subject&whole_word=true&min_hits=2&dkim=pass")),
+    ).toEqual({ q: "Neger", scope: ["subject"], whole_word: true });
+    expect(toHitsParams(parse("q=Neger"))).toEqual({ q: "Neger" });
+  });
+
+  it("names the options a new search from the header keeps", () => {
+    expect(searchOptions(full)).toEqual({
+      scope: ["subject", "body"],
+      whole_word: true,
+      min_hits: 3,
+    });
+    expect(searchOptions(DEFAULT_LIST_STATE)).toEqual({
+      scope: [],
+      whole_word: false,
+      min_hits: null,
+    });
   });
 });
 
