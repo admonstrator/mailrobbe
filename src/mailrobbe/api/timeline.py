@@ -97,7 +97,7 @@ async def timeline(
     params: Annotated[TimelineParams, Query()], session: Session, settings: AppSettings
 ) -> Timeline:
     where = _where(params, _terms(params.q), settings)
-    searches = _searches(params.term, settings) if params.split == "term" else []
+    searches = _searches(params, settings) if params.split == "term" else []
     where = await resolve_contents(session, where)
     await _count_budget(session, settings)
     # The archive's end (D91): its latest date not after today, one probe of ix_mail_date_utc.
@@ -158,17 +158,21 @@ async def timeline(
 
 
 def _searches(
-    strings: Sequence[str], settings: Settings
+    params: TimelineParams, settings: Settings
 ) -> list[tuple[str, list[ColumnElement[bool]]]]:
-    """Each search string of a term split with its conditions (400 invalid_query naming it)."""
+    """Each search string of a term split with its conditions (400 invalid_query naming it),
+    its words searched with the list's full text options (D171 to D174)."""
     internal = internal_domains(settings.internal_domains)
+    options = MailFilters(
+        scope=params.scope, whole_word=params.whole_word, min_hits=params.min_hits
+    )
     found = []
-    for string in strings:
+    for string in params.term:
         try:
             terms = parse_query(string)
         except QueryError as error:
             raise api_error(400, "invalid_query", f'term "{string}": {error}') from error
-        found.append((string, mail_conditions(MailFilters(), terms, internal)))
+        found.append((string, mail_conditions(options, terms, internal)))
     return found
 
 
