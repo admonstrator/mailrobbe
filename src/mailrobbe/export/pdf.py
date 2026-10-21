@@ -2,9 +2,10 @@
 
 A4 in DejaVu Sans from fonts/ (Latin, Greek and Cyrillic; embedded, so it looks the same on
 every machine): the subject as title, the header fields as written in the mail (the date also
-in UTC), source and SHA-256, DKIM per signature with its key, the attachments, the text body the
-full text index is built from (api.body.mail_text; for a message above records.PARSE_LIMIT the
-indexed text itself) and, on request, the research data. Every page has a footer with the mail
+in UTC), source and SHA-256, DKIM per signature with its key and where that key comes from
+(D105), the attachments, the text body the full text index is built from (api.body.mail_text;
+for a message above records.PARSE_LIMIT the indexed text itself) and, on request, the research
+data. Every page has a footer with the mail
 id, the start of the SHA-256, the page count and the note that the EML is authoritative.
 
 The output depends on the inputs only: the creation date is a parameter, never the clock, so an
@@ -25,7 +26,7 @@ from fpdf.fonts import TTFFont
 
 from mailrobbe.api import body
 from mailrobbe.api.schemas import MailResearch
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, ReviewStatus
+from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin, ReviewStatus
 from mailrobbe.export.records import PARSE_LIMIT, ExportMail, Signature
 from mailrobbe.importer.model import BODY_TEXT_LIMIT
 
@@ -67,6 +68,17 @@ REASON_TEXTS = {
     DkimReason.DNS_TIMEOUT: "DNS-Zeitüberschreitung",
     DkimReason.DNS_OFFLINE: "Offline-Modus, Schlüssel nicht im Cache",
 }
+ORIGIN_TEXTS = {
+    KeyOrigin.DNS: "heute im DNS veröffentlicht",
+    KeyOrigin.OBSERVED: "von Dritten im DNS gesehen",
+    KeyOrigin.DOCUMENTED: "dokumentiert",
+    KeyOrigin.RECONSTRUCTED: "rekonstruiert",
+}
+# What a consistent signature does not prove (D100).
+CONSISTENT_TEXT = (
+    "Die Signatur passt zu einem Schlüssel, der aus Signaturen berechnet wurde. Das belegt "
+    "nicht, dass die Domain diesen Schlüssel veröffentlicht hat."
+)
 REVIEW_TEXTS = {
     ReviewStatus.SEEN: "Gesichtet",
     ReviewStatus.RELEVANT: "Relevant",
@@ -189,6 +201,13 @@ def _signature(signature: Signature) -> str:
         + f" · Geprüft: {_time(signature.checked_at)}",
         _key(signature),
     ]
+    if signature.key_origin:
+        origin = f"Herkunft des Schlüssels: {ORIGIN_TEXTS[signature.key_origin]}"
+        if signature.key_sha256:
+            origin += f" (SHA-256 des Schlüssels {signature.key_sha256})"
+        lines.append(origin)
+    if signature.status is DkimStatus.CONSISTENT:
+        lines.append(CONSISTENT_TEXT)
     return "\n".join(lines)
 
 

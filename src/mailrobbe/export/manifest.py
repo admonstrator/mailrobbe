@@ -18,8 +18,15 @@ from pydantic import BaseModel, Field
 
 from mailrobbe.api.mails import CSV_BOM, csv_cell
 from mailrobbe.api.schemas import MailResearch, PersonRef
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, ParticipationRole, ReviewStatus
-from mailrobbe.export.pdf import REVIEW_TEXTS
+from mailrobbe.enums import (
+    DkimReason,
+    DkimStatus,
+    DnsStatus,
+    KeyOrigin,
+    ParticipationRole,
+    ReviewStatus,
+)
+from mailrobbe.export.pdf import ORIGIN_TEXTS, REVIEW_TEXTS
 from mailrobbe.export.records import ExportMail
 
 MailError = Literal[
@@ -70,6 +77,12 @@ class ManifestSignature(BaseModel):
     key_status: DnsStatus | None  # the cached DNS answer for the key; None: none cached
     key_record: str | None  # the TXT record, when found
     key_fetched_at: datetime | None
+    # The key the result rests on (D100, D105); None when it rests on none. A key from another
+    # source than today's DNS has its folder schluessel/<selector>._domainkey.<domain>/<key_sha256>/
+    # with one beleg-<id>.json per evidence id.
+    key_origin: KeyOrigin | None = None
+    key_sha256: str | None = None  # SHA-256 of the public key (DER), its identity across sources
+    evidence: list[int] = []
 
 
 class ManifestDkim(BaseModel):
@@ -199,6 +212,9 @@ def mail_entry(
                 key_status=s.key_status,
                 key_record=s.key_record,
                 key_fetched_at=s.key_fetched_at,
+                key_origin=s.key_origin,
+                key_sha256=s.key_sha256,
+                evidence=list(s.evidence),
             )
             for s in mail.signatures
         ],
@@ -339,6 +355,12 @@ def _signatures(dkim: ManifestDkim | None) -> str:
             DnsStatus.TEMP_ERROR: "Schlüsselabfrage fehlgeschlagen",
             None: "keine Schlüsselabfrage gespeichert",
         }[s.key_status]
+        if s.key_origin:
+            key += f", Herkunft des Schlüssels: {ORIGIN_TEXTS[s.key_origin]}"
+        if s.key_sha256:
+            key += f", Schlüssel-SHA-256 {s.key_sha256}"
+        if s.evidence:
+            key += ", Belege " + ", ".join(map(str, s.evidence))
         texts.append(
             f"{s.index + 1}: {result}, d={s.domain or ''}, s={s.selector or ''}, {key}, "
             f"geprüft {_time(s.checked_at)}"
