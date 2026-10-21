@@ -4,31 +4,69 @@ Every source goes the same way: save_lookup records the question and the answer 
 when nothing was found or the source failed), save_evidence stores a key found in that answer
 and what the answer says about it. A key is one row per name and content (key_sha256), so the
 same key from two sources is one row with two pieces of evidence, and its origin is the
-strongest of them. load_candidates hands the keys to the checker.
+strongest of them. load_candidates hands the keys to the checker; add_manual_key stores a key a
+person entered (D103). CONCERNED and of_key_names select dkim_result rows.
 
 The functions take an AsyncSession or AsyncConnection, run in the caller's transaction and never
 commit.
 """
 
 import hashlib
-from collections.abc import Mapping
+import mimetypes
+import re
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.metadata import version
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import ColumnElement, and_, false, func, or_, select, tuple_, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
-from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup
+from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult
 from mailrobbe.dkim.keys.identity import key_identity, split_key_name
 from mailrobbe.dkim.model import CandidateKey
-from mailrobbe.enums import KEY_ORIGIN_RANK, KeyLookupSource, KeyOrigin, LookupOutcome
+from mailrobbe.enums import (
+    KEY_ORIGIN_RANK,
+    DkimReason,
+    DkimStatus,
+    KeyLookupSource,
+    KeyOrigin,
+    LookupOutcome,
+)
 
 Executor = AsyncSession | AsyncConnection
 
 TOOL_VERSION = version("mailrobbe")
+
+# The dkim_result rows a key search works for, whose key name is "concerned": no key (no_key),
+# or a failing signature with an intact body, as after a new key under the old name.
+CONCERNED = or_(
+    DkimResult.status == DkimStatus.NO_KEY,
+    and_(
+        DkimResult.status == DkimStatus.FAIL,
+        DkimResult.reason == DkimReason.SIGNATURE_MISMATCH.value,
+        DkimResult.body_hash_ok.is_(True),
+    ),
+)
+
+
+def of_key_names(names: Collection[str]) -> ColumnElement[bool]:
+    """The dkim_result rows of these key names (through ix_dkim_result_domain_selector)."""
+    pairs = []
+    for name in sorted(set(names)):
+        parts = split_key_name(name)
+        if parts is not None:
+            selector, domain = parts
+            # d= is stored as written, so with a trailing dot when it had one
+            pairs += [(selector, domain), (selector, domain + ".")]
+    if not pairs:
+        return false()
+    return tuple_(DkimResult.selector, DkimResult.domain).in_(pairs)
+
+
+_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')  # the strings of a TXT record in a zone file
 
 
 async def save_lookup(
@@ -166,3 +204,92 @@ async def load_candidates(db: Executor) -> dict[str, tuple[CandidateKey, ...]]:
         name: tuple(sorted(keys, key=lambda key: KEY_ORIGIN_RANK[key.origin]))
         for name, keys in found.items()
     }
+
+
+async def find_lookup(db: Executor, source: KeyLookupSource, query: str, raw: bytes) -> int | None:
+    """An earlier lookup with the same source, query and answer, so a run that finds the same
+    answer again (a quoted record, today's DNS) adds evidence to it instead of a new lookup."""
+    lookup_id = await db.scalar(
+        select(func.min(DkimKeyLookup.id)).where(
+            DkimKeyLookup.source == source.value,
+            DkimKeyLookup.query == query,
+            DkimKeyLookup.raw_sha256 == hashlib.sha256(raw).hexdigest(),
+        )
+    )
+    return None if lookup_id is None else int(lookup_id)
+
+
+class KeyRejected(ValueError):
+    """A manual key without a DKIM key name or without a usable key (the API's invalid_key)."""
+
+
+def manual_record(text: str) -> str | None:
+    """The key record in what a person entered; None when it holds no usable key.
+
+    Accepted: the TXT record, also as the quoted strings a zone file splits it into (joined
+    without a separator, as DNS does), or only the p= value of an RSA or Ed25519 key.
+    """
+    strings = _QUOTED.findall(text)
+    record = "".join(strings) if strings else text.strip()
+    for form in (record, f"v=DKIM1; k=rsa; p={record}", f"v=DKIM1; k=ed25519; p={record}"):
+        if key_identity(form) is not None:
+            return form
+    return None
+
+
+async def add_manual_key(
+    db: Executor,
+    name: str,
+    record: str,
+    *,
+    reference: str,
+    note: str | None = None,
+    observed_from: datetime | None = None,
+    observed_to: datetime | None = None,
+    file_name: str | None = None,
+    file_bytes: bytes | None = None,
+    editor: str | None = None,
+) -> int:
+    """Store a key a person found elsewhere (D103); its key id. Raises KeyRejected.
+
+    The lookup (source manual, query the key name) keeps the evidence file unchanged as its
+    answer, or the text entered when there is no file; the evidence is documented. The check of
+    the name's mails is the caller's (the task check of `mailrobbe dkim-keys`).
+    """
+    parts = split_key_name(name)
+    if parts is None:
+        raise KeyRejected(f"not a DKIM key name ('<selector>._domainkey.<domain>'): {name!r}")
+    usable = manual_record(record)
+    if usable is None:
+        raise KeyRejected("the record holds no usable DKIM key")
+    selector, domain = parts
+    key_name = f"{selector}._domainkey.{domain}"
+    if file_bytes is None:
+        raw, raw_type = record.encode("utf-8"), "text/plain; charset=utf-8"
+    else:
+        guessed, _ = mimetypes.guess_type(file_name or "")
+        raw, raw_type = file_bytes, guessed or "application/octet-stream"
+    lookup_id = await save_lookup(
+        db,
+        KeyLookupSource.MANUAL,
+        key_name,
+        LookupOutcome.FOUND,
+        domain=domain,
+        name=key_name,
+        raw=raw,
+        raw_type=raw_type,
+        raw_name=file_name if file_bytes is not None else None,
+        message="entered with a reference",
+        editor=editor,
+    )
+    evidence = Evidence(
+        KeyOrigin.DOCUMENTED,
+        observed_from=observed_from,
+        observed_to=observed_to,
+        reference=reference,
+        note=note or None,
+        editor=editor,
+    )
+    key_id = await save_evidence(db, lookup_id, key_name, usable, evidence)
+    assert key_id is not None  # name and record were checked above
+    return key_id

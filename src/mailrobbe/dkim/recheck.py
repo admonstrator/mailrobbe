@@ -46,8 +46,7 @@ from mailrobbe.db.models import DkimResult, Mail, MboxFile
 from mailrobbe.db.session import create_engine
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
-from mailrobbe.dkim.keys.identity import split_key_name
-from mailrobbe.dkim.keys.store import load_candidates
+from mailrobbe.dkim.keys.store import load_candidates, of_key_names
 from mailrobbe.dkim.model import DnsAnswer, KeyCandidates, MailVerdict
 from mailrobbe.enums import DkimStatus, JobKind, JobOrigin, JobStatus
 from mailrobbe.jobrun import JobRun, RateWindow, ignore_interrupts, job_run, spawning_workers
@@ -164,19 +163,7 @@ def _selection(
 
 def by_key_names(names: Collection[str]) -> ColumnElement[bool]:
     """The mails with a signature of one of these key names ('<selector>._domainkey.<domain>')."""
-    pairs = []
-    for name in sorted(set(names)):
-        parts = split_key_name(name)
-        if parts is not None:
-            selector, domain = parts
-            # d= is stored as written, so with a trailing dot when it had one
-            pairs += [(selector, domain), (selector, domain + ".")]
-    if not pairs:
-        return false()
-    signed = select(DkimResult.mail_id).where(
-        tuple_(DkimResult.selector, DkimResult.domain).in_(pairs)
-    )
-    return Mail.id.in_(signed)
+    return Mail.id.in_(select(DkimResult.mail_id).where(of_key_names(names)))
 
 
 async def _run(
