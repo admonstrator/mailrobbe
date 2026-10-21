@@ -26,6 +26,12 @@
   background: var(--color-pass);
 }
 
+/* The ring of its status dot as a segment (D100). */
+.consistent {
+  background: var(--color-pass-soft);
+  box-shadow: inset 0 0 0 2px var(--color-pass);
+}
+
 .fail {
   background: var(--color-fail);
 }

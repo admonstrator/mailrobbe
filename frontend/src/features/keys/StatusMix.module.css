@@ -1,0 +1,20 @@
+.mix {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.part {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.label {
+  color: var(--color-nav);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
