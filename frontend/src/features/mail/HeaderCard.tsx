@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, type Ref } from "react";
 import { Link } from "react-router";
 
 import type { MailDetail, Participant, ParticipationRole } from "../../api/types";
@@ -9,7 +9,13 @@ import { CopyIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
-import { formatBytes, formatDateTimeLong, formatNumber, formatRelative } from "../../lib/format";
+import {
+  formatBytes,
+  formatDateTime,
+  formatDateTimeLong,
+  formatNumber,
+  formatRelative,
+} from "../../lib/format";
 import styles from "./HeaderCard.module.css";
 
 function Meta({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
@@ -47,10 +53,12 @@ export function HeaderCard({
   mail,
   mailHref,
   marks,
+  ref,
 }: {
   mail: MailDetail;
   mailHref: (id: number) => string;
   marks?: SearchMarks;
+  ref?: Ref<HTMLElement>;
 }) {
   const byRole = (role: ParticipationRole) => mail.participants.filter((p) => p.role === role);
   const cc = byRole("cc");
@@ -58,7 +66,7 @@ export function HeaderCard({
   const { source } = mail;
 
   return (
-    <Card className={styles.card}>
+    <Card ref={ref} className={styles.card}>
       <div className={styles.titleRow}>
         <h1 className={cx(styles.subject, !mail.subject && styles.muted)}>
           {mail.subject ? <Highlighted text={mail.subject} marks={marks} /> : "(kein Betreff)"}
@@ -135,5 +143,29 @@ export function HeaderCard({
         </p>
       )}
     </Card>
+  );
+}
+
+/** The header in the compact bar (D166): subject on one line, sender, date and DKIM status, and
+ *  the steps through the list the mail was opened from. */
+export function CompactHeader({ mail, steps }: { mail: MailDetail; steps: ReactNode }) {
+  const sender = mail.participants.find((person) => person.role === "from");
+  return (
+    <>
+      <span
+        className={cx(styles.compactSubject, !mail.subject && styles.muted)}
+        title={mail.subject ?? undefined}
+      >
+        {mail.subject || "(kein Betreff)"}
+      </span>
+      {sender && (
+        <span className={styles.compactSender} title={sender.email}>
+          {sender.name || sender.email}
+        </span>
+      )}
+      {mail.date && <span className={styles.compactDate}>{formatDateTime(mail.date)}</span>}
+      <DkimBadge status={dkimKey(mail.dkim.status)} />
+      {steps}
+    </>
   );
 }

@@ -1,0 +1,101 @@
+/* The card "Metadaten" of the document page (D167): groups of label and value, the values
+   selectable as text. */
+
+.status,
+.note,
+.damaged {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.status {
+  color: var(--color-muted);
+}
+
+.note,
+.damaged {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.error {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.group:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.groupTitle {
+  margin: 0;
+  color: var(--color-nav);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.field dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.field dd {
+  margin: 0;
+}
+
+.value {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.source {
+  margin-left: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.map {
+  white-space: nowrap;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}

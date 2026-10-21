@@ -9,6 +9,7 @@ import {
   documentMailList,
   documentMailsHref,
   facetFilters,
+  metadataListHref,
   parseDocumentListState,
   parseDocumentMailState,
   toDocumentFilters,
@@ -32,6 +33,8 @@ const full: DocumentListState = {
   person_role: "received",
   shared: true,
   external: true,
+  author: ["Peter Hofmann", "Müller & Söhne"],
+  program: ["Microsoft Word"],
   sort: "mails",
   cursor: "eyJrIjoxfQ",
   page: 3,
@@ -61,6 +64,8 @@ describe("document list state in the URL", () => {
       "person_role",
       "shared",
       "external",
+      "author",
+      "program",
       "sort",
       "cursor",
       "page",
@@ -115,6 +120,16 @@ describe("document list state in the URL", () => {
     expect(facetFilters(filters, "kind").text_status).toEqual(["scanned", "encrypted"]);
     expect(facetFilters(filters, "text_status")).not.toHaveProperty("text_status");
     expect(facetFilters({}, "kind")).toEqual({});
+    expect(facetFilters(filters, "author")).not.toHaveProperty("author");
+    expect(facetFilters(filters, "author").program).toEqual(["Microsoft Word"]);
+    expect(facetFilters(filters, "program")).not.toHaveProperty("program");
+  });
+
+  it("takes authors and programs as found, each once", () => {
+    const state = parse("author=Peter%20Hofmann&author=&author=Peter%20Hofmann&program=%20x");
+    expect([state.author, state.program]).toEqual([["Peter Hofmann"], [" x"]]);
+    expect(metadataListHref("author", "Peter Hofmann")).toBe("/anhaenge?author=Peter+Hofmann");
+    expect(metadataListHref("program", "Word & Co")).toBe("/anhaenge?program=Word+%26+Co");
   });
 });
 

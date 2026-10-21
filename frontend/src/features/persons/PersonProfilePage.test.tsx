@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { annaProfile } from "../../test/fixtures";
+import { annaProfile, mergeLogPage } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const mailCalls = (calls: ApiCall[]) => calls.filter((call) => call.url.pathname === "/api/mails");
@@ -301,5 +301,61 @@ describe("person profile", () => {
     renderApp("/personen/999");
     expect(await screen.findByText("Diese Person gibt es nicht.")).toBeTruthy();
     expect(screen.getByText("Im Archiv gibt es keine Person mit der Nummer #999.")).toBeTruthy();
+  });
+
+  it("undoes a logged merge of the profile's aliases", async () => {
+    // Anna's aliases came in by merge 40 until it is undone.
+    let undone = false;
+    const merged = { ...annaProfile, merges: [mergeLogPage.items[2]] };
+    const { calls } = renderApp("/personen/11", (call) => {
+      if (call.url.pathname === "/api/persons/merges/40/undo") {
+        undone = true;
+        return { merges: 1, persons: 2 };
+      }
+      if (call.url.pathname === "/api/persons/11") return undone ? annaProfile : merged;
+      return fixtureApi(call);
+    });
+    const merges = await screen.findByRole("list", { name: "Zusammenführungen" });
+    expect(card("Zusammengeführt")).toBeTruthy();
+    const [row] = within(merges).getAllByRole("listitem");
+    expect(row.textContent).toMatch(
+      /^a\.keller@nordlicht-gmbh\.example, annakeller78@mail\.example20\.10\.2026 11:12/,
+    );
+    fireEvent.click(within(row).getByRole("button", { name: "Zusammenführung rückgängig" }));
+    expect(
+      await screen.findByText(
+        "Zusammenführung rückgängig gemacht: a.keller@nordlicht-gmbh.example, annakeller78@mail.example sind wieder eigenständig.",
+      ),
+    ).toBeTruthy();
+    const undo = calls.find((call) => call.url.pathname === "/api/persons/merges/40/undo")!;
+    expect(undo.method).toBe("POST");
+    // The profile is asked again and has no logged merge left.
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "Zusammenführungen" })).toBeNull(),
+    );
+  });
+
+  it("shows no merge card without logged merges", async () => {
+    renderApp("/personen/11");
+    await screen.findByRole("heading", { name: "Anna Keller", level: 1 });
+    expect(screen.queryByRole("heading", { name: "Zusammengeführt" })).toBeNull();
+  });
+
+  it("folds the uncertain suggestions behind their count in the merge dialog", async () => {
+    renderApp("/personen/11", (call) =>
+      call.url.pathname === "/api/persons/11"
+        ? { ...annaProfile, suggestion_counts: { certain: 1, uncertain: 14 } }
+        : fixtureApi(call),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "+ Adresse zusammenführen" }));
+    const dialog = screen.getByRole("dialog", { name: "Adresse zusammenführen" });
+    const folded = within(dialog)
+      .getByText("14 unsichere Vorschläge, hier die 1 mit den meisten Mails")
+      .closest("details")!;
+    expect(folded.open).toBe(false);
+    expect(within(folded).getByRole("radio", { name: /a\.keller@mail\.example/ })).toBeTruthy();
+    // The certain one stands outside.
+    const certain = within(dialog).getByRole("radio", { name: /keller\.anna@post\.example/ });
+    expect(folded.contains(certain)).toBe(false);
   });
 });

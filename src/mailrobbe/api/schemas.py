@@ -20,13 +20,24 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/mails/{id}/eml                     message/rfc822 download
     POST /api/mails/{id}/dkim/recheck            MailDkim, after checking the mail again
     GET  /api/persons?PersonListParams           PersonPage (D31)
-    GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, every open one (D30)
+    GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, the open ones of a tier
+                                                 with the counts of both (D30, D160)
     POST /api/persons/suggestions/dismiss        SuggestionDismiss -> 204 (D28)
     POST /api/persons/merge                      MergeRequest -> PersonProfile of the target (D28)
+    GET  /api/persons/merge-certain              CertainMergePlan: what merging every certain
+                                                 suggestion would do (D162)
+    POST /api/persons/merge-certain              CertainMergeResult, one batch of merges (D162)
+    GET  /api/persons/merges?MergeLogParams      MergeLogPage, newest first (D163)
+    POST /api/persons/merges/{id}/undo           MergeUndoResult (D163); 409 merge_undone
+    POST /api/persons/merge-batches/{id}/undo    MergeUndoResult, every merge of the batch not
+                                                 undone yet (D162); 409 merge_undone
     GET  /api/persons/{id}                       PersonProfile; of the root when id is an alias
     GET  /api/persons/{id}/contacts?ContactListParams   ContactPage
     GET  /api/persons/{id}/mail-counts?PersonMailCountParams  PersonMailCounts (D32)
     POST /api/persons/{id}/unmerge               PersonProfile of the root it was merged into
+
+Merges and undoing them take the editor from X-Mailrobbe-Editor (D54), as the research file
+does.
     GET  /api/graph?GraphParams                  Graph (D37); graph_too_large above the limit
     GET  /api/graph/size?GraphParams             GraphSize, also above the limit
     GET  /api/graph/export.graphml?GraphParams   GraphML download of the same excerpt (D38)
@@ -42,6 +53,8 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/documents/summary?DocumentFilters  DocumentSummary
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
+    GET  /api/documents/metadata-values?MetadataValueParams  MetadataValues: authors or
+                                                 programs of the filtered documents (D167)
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
     GET  /api/attachments/{id}/html              text/html of a DOCX or ODT for a sandboxed
                                                  iframe, converted and cached (D122)
@@ -135,10 +148,12 @@ from mailrobbe.dkim.keys.model import (
     DkimKeysTask,
 )
 from mailrobbe.enums import (
+    AliasTier,
     DkimReason,
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMetadataStatus,
     DocumentTextStatus,
     EntityKind,
     ImportErrorKind,
@@ -154,6 +169,7 @@ from mailrobbe.enums import (
     ReviewStatus,
 )
 from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
+from mailrobbe.persons.suggestions import SuggestionReason
 from mailrobbe.preview.kinds import PreviewKind
 
 # Tag colours (D57): the UI maps each to a fixed pair of background and text colours.
@@ -231,6 +247,7 @@ ErrorCode = Literal[
     "preview_failed",  # 422: the conversion failed, ran out of time or memory; message says why
     "invalid_key",  # 400: no DKIM key name, or a record without a usable key (D103)
     "archive_off",  # 409: the key archive is switched off (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off)
+    "merge_undone",  # 409: the merge, or every merge of the batch, was undone already (D163)
 ]
 
 
@@ -508,6 +525,19 @@ class Participant(PersonRef):
     mails_with_sender: int | None  # edge.mails_total with the sender; None for the sender
 
 
+class MetadataSummary(BaseModel):
+    """The few metadata fields of a document shown next to an attachment (D167), as found in
+    the file (EXIF, PDF info dictionary and XMP, office properties), never rated. None for a
+    field the file does not have; the document page shows every field found."""
+
+    author: str | None = None  # Artist, Author, dc:creator, initial creator
+    modified_by: str | None = None  # lastModifiedBy, dc:creator of ODF
+    software: str | None = None  # Software, CreatorTool, Creator/Producer, Application, generator
+    device: str | None = None  # camera or scanner: Make and Model
+    created: datetime | None = None  # when the file says it was made or taken, UTC
+    gps: bool = False  # the file names a place (EXIF GPS)
+
+
 class AttachmentInfo(BaseModel):
     id: int
     filename: str | None
@@ -521,6 +551,7 @@ class AttachmentInfo(BaseModel):
     pages: int | None = None
     document_mails: int | None = None  # mails carrying the document, duplicates not counted
     preview: PreviewKind | None = None  # how the browser shows it (D120); None: download only
+    metadata: MetadataSummary | None = None  # what the file says about itself (D167)
 
 
 class ThreadMail(BaseModel):
@@ -643,8 +674,9 @@ class ContactListParams(BaseModel):
 
 
 class SuggestionListParams(BaseModel):
-    cursor: str | None = None  # next_cursor of a SuggestionPage
+    cursor: str | None = None  # next_cursor of a SuggestionPage of the same tier
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    tier: AliasTier = AliasTier.CERTAIN  # D160
 
 
 class PersonMailCountParams(BaseModel):
@@ -733,8 +765,10 @@ class AliasCandidate(BaseModel):
     """An open alias suggestion (D30) seen from one of its two persons."""
 
     person: PersonSummary  # the other person
-    same_name: str | None  # the normalized display name both use
+    same_name: str | None  # the main name both use (D161)
     same_local_part: str | None  # the local part both addresses have
+    tier: AliasTier  # D160
+    reason: SuggestionReason  # which signs agree; the UI says it in German
 
 
 class AliasSuggestion(BaseModel):
@@ -742,12 +776,34 @@ class AliasSuggestion(BaseModel):
     second: PersonSummary
     same_name: str | None
     same_local_part: str | None
+    tier: AliasTier
+    reason: SuggestionReason
+
+
+class SuggestionCounts(BaseModel):
+    certain: int
+    uncertain: int
+
+
+class MergeLogEntry(BaseModel):
+    """A logged merge (D163): the persons it moved into its target."""
+
+    id: int
+    target: PersonRef  # the root merged into; name is its display name
+    moved: list[PersonRef]  # every person it moved, the aliases of its sources too, by id
+    batch_id: int | None  # the batch of "Alle sicheren zusammenführen" (D162); None: one merge
+    editor: str | None
+    created_at: datetime
+    undone_at: datetime | None
+    undone_by: str | None
 
 
 class SuggestionPage(BaseModel):
     items: list[AliasSuggestion]  # both reasons first, then by the mails of `first`, then ids
     next_cursor: str | None
-    total: int  # every open suggestion
+    total: int  # every open suggestion of the tier asked for
+    counts: SuggestionCounts  # every open suggestion per tier
+    computed: bool  # False until a refresh computed them by the current rules (with tiers)
 
 
 class PersonProfile(BaseModel):
@@ -760,7 +816,9 @@ class PersonProfile(BaseModel):
     figures: PersonFigures | None  # None until the person's mails were aggregated (D33)
     years: list[YearActivity]  # oldest first; only years with mails
     top_contacts: list[Contact]  # most mails first, at most TOP_CONTACTS
-    suggestions: list[AliasCandidate]  # most mails first, at most SUGGESTION_LIMIT
+    suggestions: list[AliasCandidate]  # certain first, then most mails, at most SUGGESTION_LIMIT
+    suggestion_counts: SuggestionCounts  # every open suggestion with this person, per tier
+    merges: list[MergeLogEntry]  # merges not undone that brought addresses it still has (D163)
 
 
 class PersonMailCounts(BaseModel):
@@ -770,6 +828,47 @@ class PersonMailCounts(BaseModel):
     sent: int | None
     received: int | None
     cc: int | None
+
+
+class MergeLogParams(BaseModel):
+    cursor: str | None = None  # next_cursor of a MergeLogPage
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class MergeBatchInfo(BaseModel):
+    """A batch of "Alle sicheren zusammenführen" (D162)."""
+
+    id: int
+    created_at: datetime
+    editor: str | None
+    merges: int
+    undone: int  # of its merges, those undone
+
+
+class MergeLogPage(BaseModel):
+    items: list[MergeLogEntry]  # newest first
+    batches: list[MergeBatchInfo]  # the batches of these items, newest first
+    next_cursor: str | None
+    total: int  # every logged merge
+
+
+class CertainMergePlan(BaseModel):
+    """What "Alle sicheren zusammenführen" merges (D162): the persons joined by certain
+    suggestions, each group into the person with the most mails."""
+
+    merges: int  # groups of at most persons.merge.MERGE_GROUP persons
+    persons: int  # persons that become aliases
+    left_out_groups: int  # larger groups, or with a dismissed pair: for a look of their own
+    left_out_persons: int
+
+
+class CertainMergeResult(CertainMergePlan):
+    batch_id: int | None  # for undoing the batch; None when there was nothing to merge
+
+
+class MergeUndoResult(BaseModel):
+    merges: int  # merges marked undone
+    persons: int  # persons put back where they were before
 
 
 # Relationship map (milestone 6, D36 to D38) ------------------------------------------------
@@ -948,7 +1047,7 @@ class ImportSummary(BaseModel):
     # without signatures
     dns_hit_ratio: float | None
     persons: int  # root persons
-    open_suggestions: int  # alias suggestions not dismissed (D30)
+    open_suggestions: int  # certain alias suggestions not dismissed (D160)
     edge_table: EdgeTable
     duplicates: int
     dkim: dict[DkimKey, int]  # every key present
@@ -1277,6 +1376,10 @@ class DocumentFilters(BaseModel):
     person_role: Literal["sent", "received"] | None = None  # how; None: either
     shared: bool = False  # carried by at least two mails
     external: bool = False  # in a mail between internal and external domains (D21)
+    # What the file says about itself (D167): any of these values, exact (MetadataSummary.author
+    # and .software as stored); empty: all.
+    author: list[str] = []
+    program: list[str] = []
 
 
 class DocumentListParams(DocumentFilters):
@@ -1310,6 +1413,14 @@ class DocumentPage(BaseModel):
     prev_cursor: str | None
 
 
+METADATA_VALUES_LIMIT = 20  # authors and programs in DocumentSummary and MetadataValues
+
+
+class MetadataValueCount(BaseModel):
+    value: str  # an author or a program as stored (MetadataSummary), as the file states it
+    documents: int  # filtered documents with this value
+
+
 class DocumentSummary(BaseModel):
     """Figures of the filtered document list under the count budget of D19."""
 
@@ -1317,6 +1428,10 @@ class DocumentSummary(BaseModel):
     exact: bool  # False: total is a lower bound
     kinds: dict[DocumentKind, int] | None  # every kind present; None: ran out of time
     text_status: dict[DocumentTextStatus, int] | None  # every status present
+    # The most frequent authors and programs (D167), most documents first, at most
+    # METADATA_VALUES_LIMIT each; None: ran out of time.
+    authors: list[MetadataValueCount] | None = None
+    programs: list[MetadataValueCount] | None = None
 
 
 class DocumentNameCount(BaseModel):
@@ -1327,6 +1442,25 @@ class DocumentNameCount(BaseModel):
 class PersonCount(BaseModel):
     person: PersonRef  # a root person; name is its display name
     mails: int  # mails carrying the document that it sent, or received
+
+
+# A metadata value as found (attachments.metadata.model): a text, a count, a number (GPS) or a
+# list of texts.
+MetadataValue = str | int | float | list[str]
+
+
+class DocumentMetadata(BaseModel):
+    """What the file says about itself (D167), every field as found and never rated, grouped by
+    where it stands in the file (attachments.metadata.model: exif, gps, xmp, png, pdf,
+    pdf_custom, office, office_custom, odf, odf_custom), each source with stable English keys
+    (png and the *_custom sources keep the file's own). Dates are ISO 8601 with the offset the
+    file gives, or without one when it gives none; a date that could not be read is the text as
+    found."""
+
+    status: DocumentMetadataStatus  # pending: not read yet (the next import's metadata step)
+    error: str | None  # English, technical: why it failed, or the part found damaged
+    fields: dict[str, dict[str, MetadataValue]]  # source -> key -> value; {} without any
+    summary: MetadataSummary | None  # the values the list filters by; None without fields
 
 
 class DocumentDetail(BaseModel):
@@ -1353,6 +1487,7 @@ class DocumentDetail(BaseModel):
     recipient_count: int
     attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
     preview: PreviewKind | None  # how the browser shows it (D120); None: download only
+    metadata: DocumentMetadata  # what the file says about itself (D167)
 
 
 class DocumentText(BaseModel):
@@ -1391,6 +1526,21 @@ class MailHits(BaseModel):
     in_subject: bool = False  # the subject holds a word (D176)
     in_body: bool = False  # the mail's own text holds a word
     counts: MailHitCounts | None = None  # as MailListItem.hits; None without full text words
+
+
+class MetadataValueParams(DocumentFilters):
+    """The authors or programs of the filtered documents whose value holds `search` (D167), for
+    the search within a facet of the document list."""
+
+    field: Literal["author", "program"]
+    search: str = ""  # part of the value, any case; empty: every value
+    limit: int = Field(METADATA_VALUES_LIMIT, ge=1, le=100)
+
+
+class MetadataValues(BaseModel):
+    """Under the count budget of D19."""
+
+    values: list[MetadataValueCount] | None  # most documents first; None: ran out of time
 
 
 # Keys of deleted selectors (D100 to D104) ------------------------------------------------------

@@ -17,6 +17,7 @@ import { PersonMails } from "./PersonMails";
 import styles from "./PersonProfilePage.module.css";
 import { PersonSignalsCard } from "./PersonSignalsCard";
 import { ProfileHeader } from "./ProfileHeader";
+import { ProfileMerges } from "./ProfileMerges";
 import { ProfileTiles } from "./ProfileTiles";
 import { TopContacts } from "./TopContacts";
 import {
@@ -107,6 +108,7 @@ function Profile({ profile }: { profile: PersonProfile }) {
   return (
     <div className={styles.content}>
       <ProfileHeader profile={profile} onMerge={() => setMerging(true)} />
+      <ProfileMerges merges={profile.merges} />
       {profile.figures ? (
         <ProfileTiles figures={profile.figures} />
       ) : (

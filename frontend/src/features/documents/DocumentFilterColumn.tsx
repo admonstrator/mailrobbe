@@ -7,8 +7,11 @@ import { DebouncedInput } from "./DebouncedInput";
 import styles from "./DocumentFilterColumn.module.css";
 import { KindIcon } from "./KindIcon";
 import { DOCUMENT_KINDS, KIND_LABELS, TEXT_STATUS_FILTER_LABELS, TEXT_STATUSES } from "./labels";
+import { MetadataFacet } from "./MetadataFacet";
 import { PersonField } from "./PersonField";
 import {
+  facetFilters,
+  toDocumentFilters,
   withDocumentFilters,
   withoutDocumentFilters,
   type DocumentFilterPatch,
@@ -46,6 +49,8 @@ export function DocumentFilterColumn({
   onName,
   kinds,
   statuses,
+  authors,
+  programs,
   stats,
 }: {
   state: DocumentListState;
@@ -54,6 +59,9 @@ export function DocumentFilterColumn({
   onName: (name: string) => void;
   kinds: DocumentSummary | undefined;
   statuses: DocumentSummary | undefined;
+  /** The summaries the facets "Autor" and "Programm" count with (D167). */
+  authors: DocumentSummary | undefined;
+  programs: DocumentSummary | undefined;
   stats: Stats | undefined;
 }) {
   const change = (patch: DocumentFilterPatch) => onChange(withDocumentFilters(state, patch));
@@ -65,6 +73,7 @@ export function DocumentFilterColumn({
   );
   const dayMin = stats?.date_min ? utcDay(stats.date_min) : undefined;
   const dayMax = stats?.date_max ? utcDay(stats.date_max) : undefined;
+  const filters = toDocumentFilters(state);
 
   return (
     <aside className={styles.column} aria-label="Filter">
@@ -130,6 +139,22 @@ export function DocumentFilterColumn({
           </div>
         ))}
       </fieldset>
+
+      <MetadataFacet
+        field="author"
+        selected={state.author}
+        top={authors?.authors}
+        filters={facetFilters(filters, "author")}
+        onChange={(author) => change({ author })}
+      />
+
+      <MetadataFacet
+        field="program"
+        selected={state.program}
+        top={programs?.programs}
+        filters={facetFilters(filters, "program")}
+        onChange={(program) => change({ program })}
+      />
 
       <fieldset className={styles.group}>
         <legend className={styles.legend}>Zeitraum</legend>

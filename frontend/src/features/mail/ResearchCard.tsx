@@ -40,6 +40,28 @@ const REVIEW_SHORTCUTS: Record<ReviewKey, string> = {
 };
 const FLAG_KEY = "m";
 
+const FOLDED_KEY = "mailrobbe.researchFolded";
+
+function loadFolded(): boolean {
+  try {
+    return localStorage.getItem(FOLDED_KEY) === "1";
+  } catch {
+    return false; // storage blocked: unfolded
+  }
+}
+
+function saveFolded(folded: boolean): void {
+  try {
+    if (folded) localStorage.setItem(FOLDED_KEY, "1");
+    else localStorage.removeItem(FOLDED_KEY);
+  } catch {
+    // storage blocked: the choice lasts until the page is left
+  }
+}
+
+const counted = (n: number, one: string, many: string) =>
+  `${formatNumber(n)} ${n === 1 ? one : many}`;
+
 /** "Lena Vogt · 20.10.2026 16:02", or "ohne Namen · …" for a change without editor name. */
 function attribution(by: string | null, at: string | null): string | null {
   return at && `${by ?? "ohne Namen"} · ${formatDateTime(at)}`;
@@ -54,7 +76,8 @@ function linkErrorText(error: Error | null): string | null {
 }
 
 /** What the research file records about this mail (D55 to D61): review status and bookmark,
- *  also by key, tags, Akten, notes and the permalink. Opening a mail sets nothing. */
+ *  also by key, tags, Akten, notes and the permalink. Opening a mail sets nothing. It folds to
+ *  one line (D166), which the browser remembers; the keys work folded too. */
 export function ResearchCard({ mail }: { mail: MailDetail }) {
   const { mark, tags, collections, notes } = mail.research;
   const research = useResearch();
@@ -66,8 +89,10 @@ export function ResearchCard({ mail }: { mail: MailDetail }) {
   const editor = useEditor();
   const [unnamed, setUnnamed] = useState(false);
   const [editorDialog, setEditorDialog] = useState(false);
+  const [folded, setFolded] = useState(loadFolded);
   const titleId = useId();
   const statusId = useId();
+  const bodyId = useId();
 
   /** After a write: saved without author when no name is set, which a quiet hint then says. */
   const written = () => setUnnamed(!getEditor());
@@ -143,11 +168,33 @@ export function ResearchCard({ mail }: { mail: MailDetail }) {
   const reviewBy = review === mark.review ? attribution(mark.review_by, mark.review_at) : null;
   const flaggedBy = flagged && mark.flagged ? attribution(mark.flagged_by, mark.flagged_at) : null;
 
+  function toggleFolded() {
+    saveFolded(!folded);
+    setFolded(!folded);
+  }
+
+  const saveError = save.isError && (
+    <p className={styles.error} role="alert">
+      Nicht gespeichert. Bitte noch einmal versuchen.
+    </p>
+  );
+
   return (
     <Card variant="side" aria-labelledby={titleId}>
-      <CardTitle variant="caps" id={titleId}>
-        Recherche
-      </CardTitle>
+      <div className={styles.head}>
+        <CardTitle variant="caps" id={titleId}>
+          Recherche
+        </CardTitle>
+        <Button
+          variant="link"
+          size="xs"
+          aria-expanded={!folded}
+          aria-controls={bodyId}
+          onClick={toggleFolded}
+        >
+          {folded ? "Ausklappen" : "Einklappen"}
+        </Button>
+      </div>
       {unnamed && !editor && (
         <p className={styles.unnamed}>
           Ohne Namen gespeichert.{" "}
@@ -157,114 +204,133 @@ export function ResearchCard({ mail }: { mail: MailDetail }) {
         </p>
       )}
 
-      <div className={styles.body}>
-        <div className={styles.section}>
-          <span id={statusId} className={styles.label}>
-            Status
-          </span>
-          <div role="group" aria-labelledby={statusId} className={styles.segments}>
-            {REVIEW_KEYS.map((key) => {
-              const active = (review ?? "unreviewed") === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={active}
-                  title={`Taste ${REVIEW_SHORTCUTS[key]}`}
-                  className={cx(styles.segment, active && styles.active)}
-                  onClick={() => setReview(key)}
-                >
-                  {REVIEW_LABELS[key]}
-                  <kbd aria-hidden="true">{REVIEW_SHORTCUTS[key]}</kbd>
-                </button>
-              );
-            })}
-          </div>
-          {reviewBy && review && <span className={styles.by}>{reviewBy}</span>}
-          <div className={styles.flagRow}>
-            <button
-              type="button"
-              aria-pressed={flagged}
-              title={`Taste ${FLAG_KEY}`}
-              className={cx(styles.flag, flagged && styles.flagged)}
-              onClick={toggleFlag}
+      {folded ? (
+        <div id={bodyId} className={styles.folded}>
+          <p className={styles.summary}>
+            <span
+              className={cx(styles.summaryStatus, review && styles.active)}
+              title={reviewBy ?? undefined}
             >
-              <FlagIcon size={14} />
-              Markiert
-              <kbd aria-hidden="true">{FLAG_KEY}</kbd>
-            </button>
-            {flaggedBy && <span className={styles.by}>{flaggedBy}</span>}
-          </div>
-          {save.isError && (
-            <p className={styles.error} role="alert">
-              Nicht gespeichert. Bitte noch einmal versuchen.
-            </p>
-          )}
-        </div>
-
-        <div className={styles.section}>
-          <LinkField
-            label="Schlagwörter"
-            addLabel="Schlagwort hinzufügen"
-            removeLabel="Schlagwort entfernen"
-            createLabel={(name) => `„${name}“ als neues Schlagwort anlegen`}
-            items={tags}
-            known={knownTags}
-            maxLength={TAG_NAME_LIMIT}
-            onAdd={(id) => linkTags({ add: [id] })}
-            onRemove={(id) => linkTags({ remove: [id] })}
-            onCreate={(name) => void addNewTag(name)}
-          />
-          {tagError && (
-            <p className={styles.error} role="alert">
-              {tagError}
-            </p>
-          )}
-        </div>
-
-        <div className={styles.section}>
-          <LinkField
-            label="Akten"
-            addLabel="Zu Akte hinzufügen"
-            removeLabel="Aus Akte entfernen"
-            createLabel={(name) => `Neue Akte „${name}“ anlegen`}
-            items={collections}
-            known={research.data?.collections ?? []}
-            maxLength={NAME_LIMIT}
-            href={(id) => `/akten/${id}`}
-            onAdd={(id) => linkCollections({ add: [id] })}
-            onRemove={(id) => linkCollections({ remove: [id] })}
-            onCreate={(name) => void addNewCollection(name)}
-          />
-          {collectionError && (
-            <p className={styles.error} role="alert">
-              {collectionError}
-            </p>
-          )}
-        </div>
-
-        <NoteList mailId={mail.id} notes={notes} onWritten={written} />
-
-        <Permalink sha256={mail.raw_sha256} />
-
-        {(mail.duplicate_of !== null || mail.duplicates.length > 0) && (
-          <p className={styles.shared}>
-            {mail.duplicate_of !== null ? (
-              <>
-                Byte-identisch mit{" "}
-                <Link to={`/mails/${mail.duplicate_of}`}>#{mail.duplicate_of}</Link>: Status,
-                Schlagwörter, Akten und Notizen gelten für alle Kopien.
-              </>
-            ) : (
-              `Status, Schlagwörter, Akten und Notizen gelten auch für ${
-                mail.duplicates.length === 1
-                  ? "die byte-identische Kopie"
-                  : `die ${formatNumber(mail.duplicates.length)} byte-identischen Kopien`
-              } dieser Mail.`
+              {REVIEW_LABELS[review ?? "unreviewed"]}
+            </span>
+            {flagged && (
+              <span className={styles.summaryFlag} title={flaggedBy ?? undefined}>
+                <FlagIcon size={12} />
+                Markiert
+              </span>
             )}
+            <span>{counted(notes.length, "Notiz", "Notizen")}</span>
+            <span>{counted(tags.length, "Schlagwort", "Schlagwörter")}</span>
+            <span>{counted(collections.length, "Akte", "Akten")}</span>
           </p>
-        )}
-      </div>
+          {saveError}
+        </div>
+      ) : (
+        <div id={bodyId} className={styles.body}>
+          <div className={styles.section}>
+            <span id={statusId} className={styles.label}>
+              Status
+            </span>
+            <div role="group" aria-labelledby={statusId} className={styles.segments}>
+              {REVIEW_KEYS.map((key) => {
+                const active = (review ?? "unreviewed") === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={active}
+                    title={`Taste ${REVIEW_SHORTCUTS[key]}`}
+                    className={cx(styles.segment, active && styles.active)}
+                    onClick={() => setReview(key)}
+                  >
+                    {REVIEW_LABELS[key]}
+                    <kbd aria-hidden="true">{REVIEW_SHORTCUTS[key]}</kbd>
+                  </button>
+                );
+              })}
+            </div>
+            {reviewBy && review && <span className={styles.by}>{reviewBy}</span>}
+            <div className={styles.flagRow}>
+              <button
+                type="button"
+                aria-pressed={flagged}
+                title={`Taste ${FLAG_KEY}`}
+                className={cx(styles.flag, flagged && styles.flagged)}
+                onClick={toggleFlag}
+              >
+                <FlagIcon size={14} />
+                Markiert
+                <kbd aria-hidden="true">{FLAG_KEY}</kbd>
+              </button>
+              {flaggedBy && <span className={styles.by}>{flaggedBy}</span>}
+            </div>
+            {saveError}
+          </div>
+
+          <div className={styles.section}>
+            <LinkField
+              label="Schlagwörter"
+              addLabel="Schlagwort hinzufügen"
+              removeLabel="Schlagwort entfernen"
+              createLabel={(name) => `„${name}“ als neues Schlagwort anlegen`}
+              items={tags}
+              known={knownTags}
+              maxLength={TAG_NAME_LIMIT}
+              onAdd={(id) => linkTags({ add: [id] })}
+              onRemove={(id) => linkTags({ remove: [id] })}
+              onCreate={(name) => void addNewTag(name)}
+            />
+            {tagError && (
+              <p className={styles.error} role="alert">
+                {tagError}
+              </p>
+            )}
+          </div>
+
+          <div className={styles.section}>
+            <LinkField
+              label="Akten"
+              addLabel="Zu Akte hinzufügen"
+              removeLabel="Aus Akte entfernen"
+              createLabel={(name) => `Neue Akte „${name}“ anlegen`}
+              items={collections}
+              known={research.data?.collections ?? []}
+              maxLength={NAME_LIMIT}
+              href={(id) => `/akten/${id}`}
+              onAdd={(id) => linkCollections({ add: [id] })}
+              onRemove={(id) => linkCollections({ remove: [id] })}
+              onCreate={(name) => void addNewCollection(name)}
+            />
+            {collectionError && (
+              <p className={styles.error} role="alert">
+                {collectionError}
+              </p>
+            )}
+          </div>
+
+          <NoteList mailId={mail.id} notes={notes} onWritten={written} />
+
+          <Permalink sha256={mail.raw_sha256} />
+
+          {(mail.duplicate_of !== null || mail.duplicates.length > 0) && (
+            <p className={styles.shared}>
+              {mail.duplicate_of !== null ? (
+                <>
+                  Byte-identisch mit{" "}
+                  <Link to={`/mails/${mail.duplicate_of}`}>#{mail.duplicate_of}</Link>: Status,
+                  Schlagwörter, Akten und Notizen gelten für alle Kopien.
+                </>
+              ) : (
+                `Status, Schlagwörter, Akten und Notizen gelten auch für ${
+                  mail.duplicates.length === 1
+                    ? "die byte-identische Kopie"
+                    : `die ${formatNumber(mail.duplicates.length)} byte-identischen Kopien`
+                } dieser Mail.`
+              )}
+            </p>
+          )}
+        </div>
+      )}
       {editorDialog && <EditorDialog onClose={() => setEditorDialog(false)} />}
     </Card>
   );

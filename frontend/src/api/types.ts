@@ -32,6 +32,17 @@ export type ParticipationRole = "from" | "to" | "cc" | "bcc";
  *  cc = Cc only. */
 export type PersonRole = "sent" | "received" | "cc";
 export type PersonSort = "mails" | "name" | "recent";
+/** Tier of an alias suggestion (D160): certain when several signs agree. */
+export type AliasTier = "certain" | "uncertain";
+/** Why a suggestion was made: name and local part, a name that fits both addresses of one
+ *  organisation (both certain, with shared contacts), name and local part with too few shared
+ *  contacts, a name alone, a local part alone (all three uncertain). */
+export type SuggestionReason =
+  | "name_and_local_part"
+  | "name_fits_addresses"
+  | "name_and_local_part_few_contacts"
+  | "name"
+  | "local_part";
 export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
 export type SortOrder = "date_desc" | "date_asc";
 /** Review status of a mail (D55); null is unreviewed. */
@@ -90,7 +101,8 @@ export type ErrorCode =
   | "preview_too_large"
   | "preview_failed"
   | "invalid_key" // 400: no DKIM key name, or a record without a usable key (D103)
-  | "archive_off"; // 409: the key archive is switched off
+  | "archive_off" // 409: the key archive is switched off
+  | "merge_undone"; // 409: the merge, or every merge of the batch, was undone already (D163)
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -322,6 +334,18 @@ export interface AttachmentInfo {
   pages: number | null;
   document_mails: number | null; // mails carrying the document, duplicates not counted
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
+  metadata: MetadataSummary | null; // what the file says about itself (D167)
+}
+
+/** The few metadata fields of a document shown next to an attachment (D167), as found in the
+ *  file, never rated; null for a field the file does not have. */
+export interface MetadataSummary {
+  author: string | null; // Artist, Author, dc:creator, initial creator
+  modified_by: string | null; // lastModifiedBy, dc:creator of ODF
+  software: string | null; // Software, CreatorTool, Creator/Producer, Application, generator
+  device: string | null; // camera or scanner: Make and Model
+  created: string | null; // when the file says it was made or taken, ISO 8601 UTC
+  gps: boolean; // the file names a place (EXIF GPS)
 }
 
 export interface ThreadMail {
@@ -438,6 +462,7 @@ export interface ContactListParams {
 export interface SuggestionListParams {
   cursor?: string;
   limit?: number;
+  tier?: AliasTier; // default certain
 }
 
 export interface PersonMailCountParams {
@@ -520,6 +545,8 @@ export interface AliasCandidate {
   person: PersonSummary; // the other person
   same_name: string | null;
   same_local_part: string | null;
+  tier: AliasTier;
+  reason: SuggestionReason;
 }
 
 export interface AliasSuggestion {
@@ -527,12 +554,33 @@ export interface AliasSuggestion {
   second: PersonSummary;
   same_name: string | null;
   same_local_part: string | null;
+  tier: AliasTier;
+  reason: SuggestionReason;
+}
+
+export interface SuggestionCounts {
+  certain: number;
+  uncertain: number;
+}
+
+/** One logged merge (D163): the persons it moved into target's root. */
+export interface MergeLogEntry {
+  id: number;
+  target: PersonRef; // the root merged into
+  moved: PersonRef[]; // every person it moved, the source roots with their aliases
+  batch_id: number | null; // the run of "Alle sicheren zusammenführen" (D162)
+  editor: string | null;
+  created_at: string;
+  undone_at: string | null;
+  undone_by: string | null;
 }
 
 export interface SuggestionPage {
   items: AliasSuggestion[];
   next_cursor: string | null;
-  total: number;
+  total: number; // every open suggestion of the tier asked for
+  counts: SuggestionCounts; // every open suggestion per tier
+  computed: boolean; // false until a refresh computed them by the current rules (with tiers)
 }
 
 export interface PersonProfile {
@@ -545,7 +593,9 @@ export interface PersonProfile {
   figures: PersonFigures | null; // null until aggregated
   years: YearActivity[]; // oldest first
   top_contacts: Contact[];
-  suggestions: AliasCandidate[];
+  suggestions: AliasCandidate[]; // certain ones first
+  suggestion_counts: SuggestionCounts; // all open suggestions with this person per tier
+  merges: MergeLogEntry[]; // logged merges not undone that moved aliases into it, newest first
 }
 
 /** Mails per tab; null where counting ran out of time. */
@@ -554,6 +604,44 @@ export interface PersonMailCounts {
   sent: number | null;
   received: number | null;
   cc: number | null;
+}
+
+export interface MergeLogParams {
+  cursor?: string;
+  limit?: number;
+}
+
+/** A run of "Alle sicheren zusammenführen" (D162) with merges on the page. */
+export interface MergeBatchInfo {
+  id: number;
+  created_at: string;
+  editor: string | null;
+  merges: number; // all merges of the run
+  undone: number; // of them undone
+}
+
+export interface MergeLogPage {
+  items: MergeLogEntry[]; // newest first
+  batches: MergeBatchInfo[]; // the runs of the page's merges, newest first
+  next_cursor: string | null;
+  total: number; // every logged merge
+}
+
+/** What "Alle sicheren zusammenführen" merges now (D162). */
+export interface CertainMergePlan {
+  merges: number; // groups, each merged into the person with most mails
+  persons: number; // persons that become aliases
+  left_out_groups: number; // more than five persons, or a dismissed pair inside
+  left_out_persons: number;
+}
+
+export interface CertainMergeResult extends CertainMergePlan {
+  batch_id: number | null; // null when there was nothing to merge
+}
+
+export interface MergeUndoResult {
+  merges: number; // merges marked undone
+  persons: number; // persons put back
 }
 
 // Relationship map (milestone 6, D36 to D38) --------------------------------------------------
@@ -1094,6 +1182,9 @@ export interface DocumentFilters {
   person_role?: "sent" | "received";
   shared?: boolean; // carried by at least two mails
   external?: boolean;
+  /** What the file says about itself (D167): any of these values, exact. */
+  author?: string[];
+  program?: string[]; // MetadataSummary.software as stored
 }
 
 export interface DocumentListParams extends DocumentFilters {
@@ -1125,11 +1216,22 @@ export interface DocumentPage {
   prev_cursor: string | null;
 }
 
+export const METADATA_VALUES_LIMIT = 20; // authors and programs in DocumentSummary
+
+export interface MetadataValueCount {
+  value: string; // an author or a program, as the file states it
+  documents: number; // filtered documents with this value
+}
+
 export interface DocumentSummary {
   total: number | null; // null: counting ran out of time
   exact: boolean;
   kinds: Record<DocumentKind, number> | null;
   text_status: Record<DocumentTextStatus, number> | null;
+  /** The most frequent authors and programs (D167), most documents first; null: ran out of
+   *  time. */
+  authors: MetadataValueCount[] | null;
+  programs: MetadataValueCount[] | null;
 }
 
 export interface DocumentNameCount {
@@ -1166,6 +1268,30 @@ export interface DocumentDetail {
   recipient_count: number;
   attachment_id: number; // GET /api/attachments/{id}/content reads it
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
+  metadata: DocumentMetadata; // what the file says about itself (D167)
+}
+
+export type DocumentMetadataStatus =
+  | "pending" // not read yet: the next import's metadata step reads it
+  | "found"
+  | "empty" // a format that can carry metadata, without any
+  | "unsupported" // a format whose metadata Mailrobbe does not read
+  | "too_large"
+  | "failed";
+
+/** A metadata value as found: a text, a count, a number (GPS) or a list of texts. */
+export type MetadataValue = string | number | string[];
+
+/** What the file says about itself (D167), every field as found and never rated, grouped by
+ *  where it stands in the file: exif, gps, xmp, png, pdf, pdf_custom, office, office_custom,
+ *  odf, odf_custom. Keys are stable English names (png and the *_custom sources keep the
+ *  file's own); dates are ISO 8601 with the
+ *  offset the file gives, or without one when it gives none. */
+export interface DocumentMetadata {
+  status: DocumentMetadataStatus;
+  error: string | null; // English, technical
+  fields: Record<string, Record<string, MetadataValue>>; // source -> key -> value
+  summary: MetadataSummary | null; // the values the list filters by; null without fields
 }
 
 export interface DocumentText {
@@ -1211,6 +1337,18 @@ export interface MailHits {
   in_body: boolean;
   /** As MailListItem.hits; null without full text words. */
   counts: MailHitCounts | null;
+}
+
+/** GET /api/documents/metadata-values: the authors or programs of the filtered documents whose
+ *  value holds search (D167), for the search within a facet. */
+export interface MetadataValueParams extends DocumentFilters {
+  field: "author" | "program";
+  search?: string;
+  limit?: number; // at most 100
+}
+
+export interface MetadataValues {
+  values: MetadataValueCount[] | null; // most documents first; null: ran out of time
 }
 
 // Keys of deleted selectors (D100 to D104) ------------------------------------------------------

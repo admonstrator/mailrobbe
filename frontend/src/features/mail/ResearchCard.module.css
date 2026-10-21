@@ -1,8 +1,57 @@
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -4px -4px -4px 0;
+}
+
 .body {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin-top: 4px;
+}
+
+/* Folded: status, bookmark and the counts on one line, wrapping only when it must. */
+.folded {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.summaryStatus,
+.summaryFlag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--color-field);
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.summaryStatus.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+.summaryFlag {
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-weight: 600;
 }
 
 .section {

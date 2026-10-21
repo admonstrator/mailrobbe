@@ -74,6 +74,13 @@ class PersonKind(StrEnum):
     AUTOMATED = "automated"  # newsletters, notifications, noreply senders
 
 
+class AliasTier(StrEnum):
+    """alias_suggestion.tier (D160): how sure a suggestion is that two persons are one."""
+
+    CERTAIN = "certain"  # several signs agree; may be merged in one go (D162)
+    UNCERTAIN = "uncertain"  # one sign only; hidden unless asked for
+
+
 class MboxStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
@@ -165,6 +172,17 @@ class DocumentTextStatus(StrEnum):
     FAILED = "failed"  # the file is damaged or the extractor failed; text_error says why
     TIMEOUT = "timeout"  # stopped at the time limit; the text read until then is kept
     UNREADABLE = "unreadable"  # its MBOX file is missing or changed; tried again next import
+
+
+class DocumentMetadataStatus(StrEnum):
+    """document.metadata_status (D167): what reading a document's metadata gave."""
+
+    PENDING = "pending"  # not read yet (or by an older reader, METADATA_VERSION)
+    FOUND = "found"  # fields found; metadata_error notes a damaged part, if any
+    EMPTY = "empty"  # a format that can carry metadata, without any
+    UNSUPPORTED = "unsupported"  # a format whose metadata Mailrobbe does not read
+    TOO_LARGE = "too_large"  # above MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE, not read
+    FAILED = "failed"  # damaged, encrypted, or the reader failed; metadata_error says why
 
 
 class EntityKind(StrEnum):

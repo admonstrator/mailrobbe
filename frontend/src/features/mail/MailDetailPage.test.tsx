@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { MailDkim, MailHits } from "../../api/types";
 import { mailDetail, wholeWordHits } from "../../test/fixtures";
 import { fixtureApi, renderApp } from "../../test/render";
+import { stubIntersectionObserver } from "../../test/scroll";
 
 const listQuery = new URLSearchParams({ q: "subject:Vertrag" }).toString();
 
@@ -92,6 +93,65 @@ describe("mail detail", () => {
     fireEvent.keyDown(window, { key: "ArrowRight" });
     await waitFor(() => expect(router.state.location.pathname).toBe("/mails/184190"));
     expect(router.state.location.search).toBe(`?${listQuery}`);
+  });
+
+  it("keeps subject, status and the steps in a bar once the header is scrolled away", async () => {
+    const observer = stubIntersectionObserver();
+    const { router } = renderApp(`/mails/184221?${listQuery}`);
+    await screen.findByText("Treffer 1 von 1.207");
+    const bar = () => screen.queryByRole("region", { name: "Kopfzeile der Mail" });
+    expect(bar()).toBeNull();
+    // Below the window, as on a short window before scrolling: no bar either.
+    observer.place("below");
+    expect(bar()).toBeNull();
+
+    observer.place("above");
+    const compact = bar()!;
+    const subject = "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung";
+    expect(within(compact).getByTitle(subject).textContent).toBe(subject);
+    expect(within(compact).getByTitle("anna.keller@nordlicht-gmbh.example").textContent).toBe(
+      "Anna Keller",
+    );
+    expect(within(compact).getByText("18.10.2026 14:32")).toBeTruthy();
+    expect(within(compact).getByText("DKIM gültig")).toBeTruthy();
+    expect(within(compact).getByRole("link", { name: "Nächste ›" }).getAttribute("href")).toBe(
+      `/mails/184190?${listQuery}`,
+    );
+    expect(within(compact).getByText("‹ Vorherige").getAttribute("aria-disabled")).toBe("true");
+
+    // The keys work as before, and back at the top the bar goes.
+    observer.place("visible");
+    expect(bar()).toBeNull();
+    observer.place("above");
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/mails/184190"));
+  });
+
+  it("shows a preview over the page, whose keys stay in it", async () => {
+    const { router, calls } = renderApp(`/mails/184221?${listQuery}`);
+    await screen.findByText("Treffer 1 von 1.207");
+    const side = screen.getByRole("complementary", { name: "Zur Mail" });
+    const attachments = within(side)
+      .getByRole("heading", { name: "Anhänge (2)" })
+      .closest("section")!;
+    expect(screen.getByRole("main").contains(attachments)).toBe(false);
+
+    fireEvent.click(within(attachments).getByRole("button", { name: "Vorschau" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rahmenvereinbarung_2026_final.pdf" });
+    expect(
+      await within(dialog).findByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf"),
+    ).toBeTruthy();
+    // Neither the next mail nor a review status: the keys belong to the preview.
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+    fireEvent.keyDown(dialog, { key: "g" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(router.state.location.pathname).toBe("/mails/184221");
+    expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schließen" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/mails/184190"));
   });
 
   it("walks a person's mail list from the profile, role included", async () => {

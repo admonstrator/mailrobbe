@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { documentDetail } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
+import { stubIntersectionObserver } from "../../test/scroll";
 
 function card(heading: string | RegExp): HTMLElement {
   return screen.getByRole("heading", { name: heading }).closest("section")!;
@@ -160,6 +161,43 @@ describe("document page", () => {
     expect(screen.queryByRole("heading", { name: "Ausgelesener Text" })).toBeNull();
     expect(preview.closest("aside")).toBeTruthy();
     expect(screen.queryByText(/Keine Vorschau im Browser/)).toBeNull();
+  });
+
+  it.each([
+    ["the picture", () => screen.getByRole("img", { name: "Vorschau von IMG_2041.jpg" })],
+    ["Großansicht", () => screen.getByRole("button", { name: "Großansicht" })],
+  ])("opens the large view of the image by a click on %s", async (_, target) => {
+    renderApp("/anhaenge/5105");
+    await screen.findByRole("img", { name: "Vorschau von IMG_2041.jpg" });
+    const opener = target();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "IMG_2041.jpg" });
+    const large = within(dialog).getByRole("img", { name: "Großansicht von IMG_2041.jpg" });
+    expect(large.getAttribute("src")).toBe("/api/attachments/9105/content");
+    expect(
+      within(dialog).getByRole("link", { name: "IMG_2041.jpg herunterladen" }).getAttribute("href"),
+    ).toBe("/api/attachments/9105/content");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Schließen" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps name, kind, size and the download in a bar once the header is scrolled away", async () => {
+    const observer = stubIntersectionObserver();
+    renderApp("/anhaenge/5101");
+    await screen.findByRole("heading", { level: 1, name: "Rahmenvereinbarung_2026_final.pdf" });
+    const bar = () => screen.queryByRole("region", { name: "Kopfzeile des Dokuments" });
+    expect(bar()).toBeNull();
+    observer.place("above");
+    const compact = bar()!;
+    expect(within(compact).getByTitle("Rahmenvereinbarung_2026_final.pdf").textContent).toBe(
+      "Rahmenvereinbarung_2026_final.pdf",
+    );
+    expect(within(compact).getByText("PDF · 14 Seiten · 168 KB")).toBeTruthy();
+    expect(within(compact).getByRole("link", { name: "Herunterladen" }).getAttribute("href")).toBe(
+      "/api/attachments/901/content",
+    );
+    observer.place("visible");
+    expect(bar()).toBeNull();
   });
 
   it("says so when the browser cannot show the image", async () => {

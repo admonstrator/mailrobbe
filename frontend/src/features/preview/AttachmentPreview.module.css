@@ -1,12 +1,22 @@
-/* Tall enough to read a page, short enough to keep the page around it in reach. */
+/* On the document page: the window below its compact bar (48 px) less the preview card's title,
+   padding and the note below the frame, so the whole frame is in view once the card reaches the
+   bar (D166); never shorter than a page of text. It scrolls inside itself. */
 .frame {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  height: 75vh;
-  min-height: 420px;
+  height: max(420px, calc(100vh - 168px));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-tile);
+}
+
+/* In the overlay: the height it leaves. */
+.frame.fill,
+.video.fill {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 160px;
+  max-height: none;
 }
 
 /* The viewer's own background, so its page does not flash white before it draws. */
@@ -34,9 +44,19 @@
 .video {
   display: block;
   width: 100%;
-  max-height: 70vh;
+  max-height: max(320px, calc(100vh - 168px));
   border-radius: var(--radius-tile);
   background: #000000;
+}
+
+/* An image that opens the large view. */
+.open {
+  display: block;
+  max-width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: zoom-in;
 }
 
 .note {
