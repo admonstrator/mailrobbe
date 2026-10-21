@@ -1,0 +1,155 @@
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sub {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.recheck {
+  margin-left: auto;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.signature {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signature + .signature {
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.number {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-tile);
+  background: var(--color-bg);
+}
+
+.tileLabel {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.tileValue {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.result {
+  font-weight: 600;
+}
+
+.pass {
+  color: #166534;
+}
+
+.fail {
+  color: #991b1b;
+}
+
+.no_key,
+.temp_error {
+  color: #92400e;
+}
+
+.unsigned {
+  color: var(--color-muted);
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  font-size: 13px;
+}
+
+.facts > div {
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.reason {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.reason_fail {
+  background: var(--color-fail-soft);
+  color: #991b1b;
+}
+
+.reason_no_key,
+.reason_temp_error {
+  background: var(--color-no-key-soft);
+  color: #92400e;
+}
+
+.details {
+  font-size: 13px;
+}
+
+.summary {
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.summary:hover {
+  color: var(--color-accent-hover);
+}
+
+.source {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-tile);
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

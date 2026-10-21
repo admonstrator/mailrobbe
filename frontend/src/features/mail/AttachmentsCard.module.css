@@ -1,0 +1,64 @@
+.card {
+  gap: 10px;
+}
+
+.list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-tile);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.item svg {
+  flex-shrink: 0;
+}
+
+.pdf {
+  color: var(--color-fail);
+}
+
+.sheet {
+  color: var(--color-pass-text);
+}
+
+.document {
+  color: var(--color-accent);
+}
+
+.archive {
+  color: var(--color-no-key);
+}
+
+.other {
+  color: var(--color-muted);
+}

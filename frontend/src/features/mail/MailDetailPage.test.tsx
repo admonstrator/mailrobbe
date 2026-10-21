@@ -1,0 +1,149 @@
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import type { MailDkim } from "../../api/types";
+import { mailDetail } from "../../test/fixtures";
+import { fixtureApi, renderApp } from "../../test/render";
+
+const listQuery = new URLSearchParams({ q: "subject:Vertrag" }).toString();
+
+function card(heading: string): HTMLElement {
+  return screen.getByRole("heading", { name: heading }).closest("section")!;
+}
+
+describe("mail detail", () => {
+  it("renders header, DKIM check, participants, thread and text", async () => {
+    const { calls } = renderApp(`/mails/184221?${listQuery}`);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("DKIM gültig")).toBeTruthy();
+    expect(screen.getByText("So, 18.10.2026 14:32:07")).toBeTruthy();
+    expect(
+      screen.getByText("export-2026-Q4.mbox · Offset 1.883.204.117 · 184 KB", { exact: false }),
+    ).toBeTruthy();
+
+    const dkim = card("DKIM-Prüfung");
+    expect(
+      within(dkim).getByText("geprüft am 20.10.2026 03:14 · DNS-Antwort aus Cache (TTL 12 h)"),
+    ).toBeTruthy();
+    expect(within(dkim).getByText("nordlicht-gmbh.example")).toBeTruthy();
+    expect(within(dkim).getByText("mail2025")).toBeTruthy();
+    expect(within(dkim).getByText("rsa-sha256 · 2048 Bit")).toBeTruthy();
+    expect(
+      within(dkim).getByText("from:to:cc:subject:date:message-id:mime-version:content-type"),
+    ).toBeTruthy();
+    expect(within(dkim).getByText("übereinstimmend")).toBeTruthy();
+    expect(within(dkim).getByText("ja (aligned)")).toBeTruthy();
+
+    const people = card("Beteiligte");
+    const links = within(people).getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/personen/11",
+      "/personen/12",
+      "/personen/15",
+      "/personen/13",
+      "/karte?center=11,12,15,13",
+    ]);
+    expect(within(people).getByText("· Absender")).toBeTruthy();
+    expect(within(people).getByText("· Cc")).toBeTruthy();
+    expect(within(people).getByText("Diese 4 im Graphen zeigen")).toBeTruthy();
+
+    const thread = card("Thread (4 Mails)");
+    expect(within(thread).getAllByRole("link")).toHaveLength(3);
+    expect(within(thread).getByText(/\(diese Mail\)/)).toBeTruthy();
+
+    expect(await screen.findByText(/Hallo Herr Brandt, hallo Herr Hofmann/)).toBeTruthy();
+    expect(screen.queryByText(/danke für den Entwurf/)).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Zitierten Verlauf einblenden (7 Zeilen)" }),
+    );
+    expect(screen.getByText(/danke für den Entwurf/)).toBeTruthy();
+
+    await waitFor(() => expect(screen.getByText("Treffer 1 von 1.207")).toBeTruthy());
+    const path = screen.getByRole("navigation", { name: "Pfad" });
+    expect(within(path).getByRole("link", { name: "Mails" }).getAttribute("href")).toBe(
+      `/mails?${listQuery}`,
+    );
+    expect(screen.getByRole("link", { name: "Nächste ›" }).getAttribute("href")).toBe(
+      `/mails/184190?${listQuery}`,
+    );
+    const neighbors = calls.find((call) => call.url.pathname.endsWith("/neighbors"))!;
+    expect(neighbors.url.searchParams.get("q")).toBe("subject:Vertrag");
+    // The other views are read from the MBOX only when opened.
+    expect(calls.filter((call) => call.url.pathname.endsWith("/body"))).toHaveLength(1);
+  });
+
+  it("goes to the next mail with the arrow key", async () => {
+    const { router } = renderApp(`/mails/184221?${listQuery}`);
+    await screen.findByText("Treffer 1 von 1.207");
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    await waitFor(() => expect(router.state.location.pathname).toBe("/mails/184190"));
+    expect(router.state.location.search).toBe(`?${listQuery}`);
+  });
+
+  it("shows the result of Neu prüfen", async () => {
+    const failed: MailDkim = {
+      status: "fail",
+      signatures: [
+        {
+          ...mailDetail.dkim.signatures[0],
+          status: "fail",
+          reason: "body_hash_mismatch",
+          body_hash_ok: false,
+        },
+      ],
+    };
+    const { calls } = renderApp("/mails/184221", (call) =>
+      call.url.pathname.endsWith("/dkim/recheck") ? failed : fixtureApi(call),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Neu prüfen" }));
+    expect(await screen.findByText("Body nach dem Signieren verändert")).toBeTruthy();
+    expect(screen.getByText("DKIM ungültig")).toBeTruthy();
+    expect(screen.getByText("abweichend")).toBeTruthy();
+    expect(calls.some((call) => call.method === "POST")).toBe(true);
+  });
+
+  it("saves flag and note", async () => {
+    const { calls } = renderApp("/mails/184221", (call) =>
+      call.method === "PUT"
+        ? { ...(call.body as object), updated_at: "2026-10-21T08:00:00Z" }
+        : fixtureApi(call),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Markieren / Notiz hinzufügen" }));
+    const save = screen.getByRole("button", { name: "Speichern" });
+    expect(save).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Markiert/ }));
+    fireEvent.change(screen.getByLabelText("Notiz"), { target: { value: "Für Anwalt" } });
+    fireEvent.click(save);
+    expect(await screen.findByText("Gespeichert 21.10.2026 10:00")).toBeTruthy();
+    const put = calls.find((call) => call.method === "PUT")!;
+    expect(put.url.pathname).toBe("/api/mails/184221/note");
+    expect(put.body).toEqual({ flagged: true, note: "Für Anwalt" });
+  });
+
+  it("says when a mail does not exist", async () => {
+    renderApp("/mails/999", (call) =>
+      call.url.pathname === "/api/mails/999"
+        ? Response.json({ detail: { code: "not_found", message: "no mail" } }, { status: 404 })
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Diese Mail gibt es nicht.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Zur Mailliste" }).getAttribute("href")).toBe("/mails");
+  });
+
+  it("names a missing MBOX file instead of showing the text", async () => {
+    renderApp("/mails/184221", (call) =>
+      call.url.pathname.endsWith("/body")
+        ? Response.json(
+            { detail: { code: "source_missing", message: "file missing" } },
+            { status: 409 },
+          )
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Die MBOX-Datei ist nicht erreichbar.")).toBeTruthy();
+  });
+});
