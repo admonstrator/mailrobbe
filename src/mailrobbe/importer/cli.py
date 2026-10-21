@@ -1,17 +1,18 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction and entities.
+text extraction, entities and signals.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize, attachments (only when documents wait for their text, D72) and
-entities (only when texts wait for their scan, D84), and reports its figures (ImportFigures)
-every few seconds, with one step per phase and per part of the finalize (STEPS, D110). It stops
-on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch, the
-files pause, the global figures count what is stored, and the finalize, the attachments and the
-entities are left to the next run; during the attachments and entities phases, what is stored
-so far stays.
+it, D52), import, finalize, attachments (only when documents wait for their text, D72), entities
+(only when texts wait for their scan, D84) and signals (always, D135), and reports its figures
+(ImportFigures) every few seconds, with one step per phase and per part of the finalize (STEPS,
+D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store
+their batch, the files pause, the global figures count what is stored, and the finalize, the
+attachments, the entities and the signals are left to the next run; during the attachments,
+entities and signals phases, what is stored so far stays.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
-ended in error or the import could not start, 130 when it was stopped; the next run resumes.
+ended in error, the signals phase failed (a time zone PostgreSQL does not know, D133) or the
+import could not start, 130 when it was stopped; the next run resumes.
 """
 
 import argparse
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from mailrobbe.aggregates import refresh_global_stats
 from mailrobbe.attachments import phase
@@ -44,12 +45,15 @@ from mailrobbe.importer.runner import (
 from mailrobbe.importer.scan import ScanReport, find_mbox_files, scan
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
 from mailrobbe.jobs import ImportOptions, application_name
+from mailrobbe.signals import phase as signals
+from mailrobbe.signals.model import rules as signal_rules
 
 log = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
-STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments", "entities")  # in order
+# The steps of a run, in order (D110).
+STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments", "entities", "signals")
 
 
 def _worker_count(value: str) -> int:
@@ -115,7 +119,7 @@ async def run_import(
         ) as job:
             sessionmaker = create_sessionmaker(engine)
             ending = await _import(
-                sessionmaker, settings, mbox_dir, workers, job, figures, pipeline, extract
+                sessionmaker, settings, mbox_dir, workers, job, figures, pipeline, extract, engine
             )
             job.end(ending.status, ending.message)
             return ending.exit_code
@@ -142,6 +146,7 @@ async def _import(
     figures: ImportFigures,
     pipeline: Pipeline,
     extract: phase.Extractor,
+    engine: AsyncEngine,
 ) -> _Ending:
     started = time.monotonic()
     stop = job.stop
@@ -179,6 +184,9 @@ async def _import(
     scanned = 0
     if not stop.is_set():
         scanned = await _scan_entities(sessionmaker, workers, job)
+    failure = None
+    if not stop.is_set():
+        failure = await _compute_signals(engine, settings, job)
     async with sessionmaker() as session:
         summary = await _summary(
             session, report, outcomes, extracted, scanned, time.monotonic() - started
@@ -196,6 +204,8 @@ async def _import(
         if failed:  # the first one, so the message stays one line
             line += f"; {failed[0].path}: {failed[0].error}"
         return _Ending(JobStatus.FAILED, line, EXIT_FAILED)
+    if failure is not None:
+        return _Ending(JobStatus.FAILED, f"{summary.line}; {failure}", EXIT_FAILED)
     return _Ending(JobStatus.DONE, summary.line, EXIT_OK)
 
 
@@ -296,6 +306,18 @@ async def _scan_entities(
     return result.mails + result.documents
 
 
+async def _compute_signals(engine: AsyncEngine, settings: Settings, job: JobRun) -> str | None:
+    """The signals phase (D135), after every import that was not stopped; why it failed."""
+    job.set_phase("signals")
+    try:
+        with job.steps.step("signals") as step:
+            await signals.compute_signals(engine, signal_rules(settings), job.stop, step)
+    except signals.UnknownTimeZone as error:
+        log.error("signals: %s", error)
+        return str(error)
+    return None
+
+
 def _log_scan(report: ScanReport, mbox_dir: Path) -> None:
     log.info(
         "scan of %s: %d MBOX files, %d new, %d to import",
@@ -345,6 +367,10 @@ async def _summary(
     ).one()
     persons = await session.scalar(text("SELECT count(*) FROM person"))
     found = await session.scalar(text("SELECT count(*) FROM entity"))
+    signalled = await session.scalar(text("SELECT count(DISTINCT mail_id) FROM mail_signal"))
+    silent = await session.scalar(
+        text("SELECT count(*) FROM person_signal WHERE signal = 'silent'")
+    )
     kinds = [
         (kind, count)
         for kind, count in await session.execute(
@@ -373,6 +399,7 @@ async def _summary(
         f"documents:     {documents.total()} ({with_text} with text, {waiting} waiting; "
         f"{extracted} stored in this run)",
         f"entities:      {found} ({scanned} texts scanned in this run)",
+        f"signals:       {signalled} mails with a signal, {silent} persons silent",
         f"elapsed:       {elapsed:.1f} s, {imported / max(elapsed, 1e-9):.0f} mails/s",
     ]
     line = (

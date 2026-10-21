@@ -43,7 +43,7 @@ DKIM_LOCK_KEY = int.from_bytes(b"mrdkimrn", "big")
 LOCK_KEYS: dict[JobKind, int] = {JobKind.IMPORT: IMPORT_LOCK_KEY, JobKind.DKIM: DKIM_LOCK_KEY}
 
 # The phases a run goes through, in order (job.phase).
-ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments", "entities"]
+ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments", "entities", "signals"]
 DkimPhase = Literal["check", "aggregates"]
 
 LOST_MESSAGE = "the run ended without recording its end"

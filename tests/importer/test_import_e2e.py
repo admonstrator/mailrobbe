@@ -112,8 +112,8 @@ def test_every_file_is_done(imported: Imported) -> None:
 
 
 def test_the_run_is_recorded_with_its_dkim_checks(imported: Imported) -> None:
-    # The archive has texts, so the run ends with their entities (D84).
-    assert (imported.job["status"], imported.job["phase"]) == ("done", "entities")
+    # A run that was not stopped ends with the signals (D135).
+    assert (imported.job["status"], imported.job["phase"]) == ("done", "signals")
     progress = ImportProgress.model_validate(imported.job["progress"])
     assert progress.mails_imported == len(imported.manifest)
     steps = {step.key: step for step in progress.steps}
