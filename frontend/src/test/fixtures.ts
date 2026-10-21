@@ -118,6 +118,7 @@ function item(
     flagged: false,
     size: 48_213,
     mbox_file_id: 4,
+    person_role: null,
     ...extra,
   };
 }

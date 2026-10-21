@@ -1,5 +1,6 @@
 """After importing: duplicates (D16), threads (D17) and display names, recomputed as a whole,
-then the global figures of the web UI (global_stats, D19).
+then every aggregation table (aggregates.refresh_aggregates: edges, person figures, alias
+suggestions, global_stats; D19, D33).
 
 Every step is set-based SQL apart from threading, a union-find in the main process over the
 Message-IDs of all mails that are not duplicates. Each step writes only rows whose value
@@ -17,7 +18,7 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, Executable, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe.aggregates import refresh_global_stats
+from mailrobbe.aggregates import refresh_aggregates
 from mailrobbe.importer.store import copy_rows
 
 # The earliest mail by file path and offset is the original; paths compare bytewise, as the
@@ -93,7 +94,7 @@ class FinalizeResult:
 
 
 async def finalize(session: AsyncSession) -> FinalizeResult:
-    """Recompute duplicates, then threads (which skip duplicates), display names, global_stats."""
+    """Recompute duplicates, then threads (which skip duplicates), display names, aggregates."""
     started = time.monotonic()
     async with session.begin():
         duplicates = await _changed(session, _DUPLICATES)
@@ -105,7 +106,7 @@ async def finalize(session: AsyncSession) -> FinalizeResult:
         names = await _changed(session, _SET_NAME_COUNTS)
         names += await _changed(session, _SET_PERSON_NAMES)
     async with session.begin():
-        await refresh_global_stats(session)
+        await refresh_aggregates(session)
     return FinalizeResult(duplicates, threads, names, time.monotonic() - started)
 
 

@@ -74,7 +74,7 @@ jobs:
         run: |
           health=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/health)
           echo "$health"
-          test "$(echo "$health" | jq -r .schema_revision)" = 0003
+          test "$(echo "$health" | jq -r .schema_revision)" = 0004
       - name: MBOX mount is read-only
         run: |
           if output=$(docker compose exec -T backend sh -c 'touch /data/mbox/x' 2>&1); then
