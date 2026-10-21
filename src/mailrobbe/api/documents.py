@@ -2,7 +2,7 @@
 document's page and text, and attachment downloads. Endpoints and models are in schemas.py.
 
 Routes: GET /api/documents, /api/documents/summary, /api/documents/{id},
-/api/documents/{id}/text, /api/attachments/{id}/content.
+/api/documents/{id}/text, /api/attachments/{id}/content, /api/mails/{id}/hits.
 
 The list reads document rows only, apart from the conditions on the mails carrying a document
 (date, person, external), which hold when one carrying mail that is no duplicate meets them all:
@@ -18,6 +18,11 @@ estimate assumes they do not.
 A snippet is found in PostgreSQL, so that only its surroundings leave the database: the search
 words as typed become one regular expression, any case written out as character classes (the
 database's locale may know only ASCII case), which regexp_instr finds in the stored text.
+
+The hits of one mail (D79) say whether its own text matches the mail list's full text words and
+which of its attachments do, each with the snippet of the list, or around another form of a
+word where none occurs as typed. The browser marks the words as typed and the words the stems of
+the query begin, the forms German stemming finds.
 
 Downloads read the bytes from the MBOX file on request (attachments.content, D76) and are never
 cached: a download as application/octet-stream with a sandboxing policy, apart from raster
@@ -41,7 +46,9 @@ from sqlalchemy import (
     Executable,
     Integer,
     SQLColumnExpression,
+    Text,
     any_,
+    cast,
     exists,
     false,
     func,
@@ -57,21 +64,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.util import ClauseAdapter
 
 from mailrobbe.api.deps import AppSettings, Session, api_error
-from mailrobbe.api.detail import mail_senders
+from mailrobbe.api.detail import MailId, mail_senders
 from mailrobbe.api.filters import (
     WALK_ROWS,
     FilterError,
     _contains,
     internal_domains,
     mail_conditions,
+    text_query,
+    text_search,
 )
 from mailrobbe.api.mails import _QUERY_CANCELED, _count_budget, _unless_canceled
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
+from mailrobbe.api.query import QueryError, parse_query
 from mailrobbe.api.schemas import (
     COUNT_LIMIT,
     DOCUMENT_NAMES_LIMIT,
     DOCUMENT_PERSONS_LIMIT,
     SNIPPET_LENGTH,
+    AttachmentHit,
     DocumentDetail,
     DocumentFilters,
     DocumentListItem,
@@ -82,6 +93,7 @@ from mailrobbe.api.schemas import (
     DocumentSummary,
     DocumentText,
     MailFilters,
+    MailHits,
     PersonCount,
     PersonRef,
     ThreadMail,
@@ -270,7 +282,9 @@ async def list_documents(
     if reverse:
         rows.reverse()
     senders = await mail_senders(session, [row.first_mail_id for row in rows if row.first_mail_id])
-    snippets = await _snippets(session, params.q, [row.id for row in rows])
+    snippets = await _snippets(
+        session, literal_pattern(search_words(params.q)), [row.id for row in rows]
+    )
 
     def at(row: Any, before: bool) -> str:
         return _Cursor(scope, before, (row.key, row.id)).encode()
@@ -363,6 +377,8 @@ async def _first_ids(
 _TOKEN = re.compile(r'(-?)"([^"]*)"?|(\S+)')
 _WORD_EDGES = re.compile(r"^\W+|\W+$")
 _SPECIAL = frozenset("\\^$.|?*+()[]{}")  # escaped alike in PostgreSQL's and Python's syntax
+_FOLDED = {"a": "aäAÄ", "o": "oöOÖ", "u": "uüUÜ"}  # the German stems fold umlauts
+_LEXEME = re.compile(r"'((?:[^']|'')+)'")  # a lexeme in the text of a tsquery
 _SNIPPETS = text("""
     SELECT id, substr(extracted_text, greatest(1, at - :before), :span) AS around,
         at - greatest(1, at - :before) AS offset
@@ -392,21 +408,38 @@ def search_words(q: str) -> list[str]:
     return words
 
 
+def _char(value: str) -> str:
+    """One character in any case, escaped where the syntax needs it."""
+    variants = sorted({value, value.lower(), value.upper()} - {""})
+    variants = [variant for variant in variants if len(variant) == 1]
+    if len(variants) > 1:
+        return "[" + "".join(variants) + "]"
+    return "\\" + value if value in _SPECIAL else value
+
+
 def literal_pattern(words: Sequence[str]) -> str:
     """One regular expression for any of the words as typed, in any case, with any whitespace
     between the words of a phrase; valid in PostgreSQL's and in Python's syntax."""
 
-    def char(value: str) -> str:
-        variants = sorted({value, value.lower(), value.upper()} - {""})
-        variants = [variant for variant in variants if len(variant) == 1]
-        if len(variants) > 1:
-            return "[" + "".join(variants) + "]"
-        return "\\" + value if value in _SPECIAL else value
-
     def word(value: str) -> str:
-        return r"\s+".join("".join(char(c) for c in part) for part in value.split())
+        return r"\s+".join("".join(_char(c) for c in part) for part in value.split())
 
     return "|".join(f"(?:{word(value)})" for value in words)
+
+
+def stem_pattern(stems: Sequence[str]) -> str:
+    """One regular expression for any word beginning with one of the German stems of a query
+    (D79): umlauts folded to their base letter and ß to ss, as the dictionary stores them, in
+    any case; stems under four letters left out, as the browser marks them only as whole words.
+    Valid in PostgreSQL's and in Python's syntax, like literal_pattern."""
+
+    def char(value: str) -> str:
+        return f"[{_FOLDED[value]}]" if value in _FOLDED else _char(value)
+
+    def stem(value: str) -> str:
+        return "(?:[Ss]{2}|ß)".join("".join(char(c) for c in part) for part in value.split("ss"))
+
+    return "|".join(rf"(?:(?<!\w){stem(value)})" for value in stems if len(value) >= 4)
 
 
 def snippet_around(around: str, offset: int, pattern: re.Pattern[str]) -> str | None:
@@ -426,12 +459,10 @@ def snippet_around(around: str, offset: int, pattern: re.Pattern[str]) -> str | 
     return " ".join(around[start:end].split())[:SNIPPET_LENGTH] or None
 
 
-async def _snippets(session: AsyncSession, q: str, ids: Sequence[int]) -> dict[int, str]:
-    """Per document, the stored text around the first place one of q's words occurs."""
-    words = search_words(q)
-    if not words or not ids:
+async def _snippets(session: AsyncSession, pattern: str, ids: Sequence[int]) -> dict[int, str]:
+    """Per document, the stored text around the first place the pattern matches."""
+    if not pattern or not ids:
         return {}
-    pattern = literal_pattern(words)
     rows = await session.execute(
         _SNIPPETS,
         {
@@ -448,6 +479,52 @@ async def _snippets(session: AsyncSession, q: str, ids: Sequence[int]) -> dict[i
         if snippet is not None:
             found[document_id] = snippet
     return found
+
+
+# Hits in one mail -----------------------------------------------------------------------------
+
+
+@router.get("/mails/{mail_id}/hits")
+async def mail_hits(mail_id: MailId, session: Session, q: str = "") -> MailHits:
+    try:
+        terms = parse_query(q)
+    except QueryError as error:
+        raise api_error(400, "invalid_query", str(error)) from error
+    search, query = text_search(terms), text_query(terms)
+    own = Mail.tsv.bool_op("@@")(query) if query is not None else false()
+    lexemes = cast(query, Text) if query is not None else literal("")
+    found = (await session.execute(select(own, lexemes).where(Mail.id == mail_id))).first()
+    if found is None:
+        raise api_error(404, "not_found", f"no mail with id {mail_id}")
+    if query is None:
+        return MailHits(words=[], stems=[], in_mail=False, attachments=[])
+    names = func.to_tsvector(_TEXT_SEARCH, func.translate(Document.names, "_.-", "   "))
+    rows = (
+        await session.execute(
+            select(
+                Attachment.id, Attachment.document_id, names.bool_op("@@")(query).label("in_name")
+            )
+            .join(Document, Document.id == Attachment.document_id)
+            .where(Attachment.mail_id == mail_id, Document.tsv.bool_op("@@")(query))
+            .order_by(Attachment.id)
+        )
+    ).all()
+    words = search_words(search)
+    stems = list(dict.fromkeys(lexeme.replace("''", "'") for lexeme in _LEXEME.findall(found[1])))
+    # the words as typed, else another form of one (the place the browser marks either way)
+    pattern = "|".join(filter(None, [literal_pattern(words), stem_pattern(stems)]))
+    snippets = await _snippets(session, pattern, [row.document_id for row in rows])
+    return MailHits(
+        words=words,
+        stems=stems,
+        in_mail=found[0],
+        attachments=[
+            AttachmentHit(
+                attachment_id=row.id, in_name=row.in_name, snippet=snippets.get(row.document_id)
+            )
+            for row in rows
+        ],
+    )
 
 
 # Summary -------------------------------------------------------------------------------------

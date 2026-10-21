@@ -22,6 +22,11 @@
   border-radius: var(--radius-tile);
 }
 
+.hit {
+  border-color: var(--color-no-key);
+  scroll-margin: 16px;
+}
+
 .item > svg {
   margin-top: 1px;
 }
@@ -62,6 +67,13 @@
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+.hitText {
+  margin-top: 3px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .links {

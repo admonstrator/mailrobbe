@@ -46,6 +46,7 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/attachments/{id}/html              text/html of a DOCX or ODT for a sandboxed
                                                  iframe, converted and cached (D122)
     GET  /api/attachments/{id}/media             audio or video, with Range requests (D123)
+    GET  /api/mails/{id}/hits?q=                 MailHits: where q's words occur in the mail (D79)
     GET  /api/timeline?TimelineParams            Timeline: the matching mails over time (D90)
     GET  /api/timeline/first-mentions?FirstMentionParams  FirstMentions, earliest first (D94)
 
@@ -1200,6 +1201,23 @@ class DocumentText(BaseModel):
     text: str  # the stored text, at most DOCUMENT_TEXT_LIMIT characters; "" without text
     truncated: bool  # the extraction stopped at the limit or the time limit
     text_status: DocumentTextStatus
+
+
+class AttachmentHit(BaseModel):
+    attachment_id: int
+    in_name: bool  # one of its document's file names holds a word
+    # the text around the first place a word occurs, as typed or as a word one of the query's
+    # stems begins; None: only the name holds it, or a form the stems do not begin (rare)
+    snippet: str | None
+
+
+class MailHits(BaseModel):
+    """Where the full text words of a mail list's q occur in one mail (D79)."""
+
+    words: list[str]  # the words and phrases as typed, which the browser marks; [] without any
+    stems: list[str]  # the lexemes of the query (German stems, lower case, no umlauts), ditto
+    in_mail: bool  # the mail's own subject or text holds a word
+    attachments: list[AttachmentHit]  # the attachments whose document holds a word, in mail order
 
 
 # Timeline (milestone 11, D90 to D95) -----------------------------------------------------------
