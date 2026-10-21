@@ -721,7 +721,8 @@ async def test_csv_holds_the_filtered_list(
         assert row[5] == ", ".join(mail.recipients)
         subject = mail.subject or ""
         assert row[6] == ("'" + subject if subject.startswith(("=", "+", "-", "@")) else subject)
-        assert row[7:] == ["ja", mail.message_id or "", mail.path, str(mail.byte_offset)]
+        assert len(row) == len(CSV_HEADER)
+        assert row[7:11] == ["ja", mail.message_id or "", mail.path, str(mail.byte_offset)]
 
 
 async def test_csv_of_everything_matches_the_summary(client: httpx.AsyncClient) -> None:
