@@ -128,7 +128,7 @@ describe("the group Suche of the filter column (D177)", () => {
       "text:Wort nur im Mailtext",
       "anhang:Wort nur im Text der Anhänge",
       "datei:Wort nur in Dateinamen",
-      "-datei:NEG Minus schließt aus, auch vor from:, has: usw.",
+      "-datei:Entwurf Minus schließt aus, auch vor from:, has: usw.",
       "Wort or Wort eines der beiden",
       '"genaue Phrase" die Wörter in dieser Folge',
       "subject:Wort Teil des Betreffs, auch mitten im Wort",
