@@ -14,7 +14,14 @@ import {
   scanResult,
 } from "../../test/fixtures";
 import { actionErrorText, scanSummary } from "./labels";
-import { canResume, fileRows, importRunState, settingsValues, startRequest } from "./model";
+import {
+  canResume,
+  fileRows,
+  importRunState,
+  settingsValues,
+  startRequest,
+  stepState,
+} from "./model";
 
 const job = (patch: Partial<ImportJob>): ImportJob => ({ ...importJob, ...patch });
 const paths = (rows: ReturnType<typeof fileRows>) =>
@@ -29,7 +36,16 @@ describe("run state", () => {
     expect(importRunState(job({ status: "done", alive: false }))).toBe("done");
     expect(importRunState(job({ status: "failed", alive: false }))).toBe("aborted");
     // Still running in the table, but nobody holds the lock: the process died (D47).
-    expect(importRunState(job({ alive: false }))).toBe("aborted");
+    expect(importRunState(job({ alive: false }))).toBe("orphaned");
+  });
+
+  it("shows steps as reported while the run lives, and how far a dead one got", () => {
+    const states = (alive: boolean) =>
+      importJob.progress.steps.slice(0, 3).map((step) => stepState(step, alive));
+    expect(states(true)).toEqual(["done", "skipped", "running"]);
+    expect(states(false)).toEqual(["done", "skipped", "aborted"]);
+    expect(stepState(importJob.progress.steps[3], true)).toBe("waiting");
+    expect(stepState(importJob.progress.steps[3], false)).toBe("unreached");
   });
 
   it("offers to resume what did not get to its end", () => {

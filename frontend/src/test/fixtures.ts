@@ -50,6 +50,7 @@ import type {
   PersonSummary,
   ScanResult,
   Stats,
+  StepProgress,
   SuggestionPage,
 } from "../api/types";
 
@@ -1029,6 +1030,24 @@ export const importDefaults: ImportOptions = {
   text_timeout: 60,
 };
 
+export function waitingStep(key: string): StepProgress {
+  return {
+    key,
+    status: "waiting",
+    unit: null,
+    done: 0,
+    total: null,
+    started_at: null,
+    seconds: 0,
+    rate: null,
+    eta_seconds: null,
+  };
+}
+
+export function doneStep(key: string, seconds: number): StepProgress {
+  return { ...waitingStep(key), status: "done", started_at: "2026-10-20T01:14:00Z", seconds };
+}
+
 export const importJob: ImportJob = {
   id: 7,
   kind: "import",
@@ -1038,8 +1057,10 @@ export const importJob: ImportJob = {
   stop_requested: false,
   started_at: "2026-10-19T23:02:00Z",
   updated_at: "2026-10-20T01:14:02Z",
+  report_age_seconds: 1.2,
   finished_at: null,
   message: null,
+  leftover: null,
   phase: "import",
   options: importDefaults,
   progress: {
@@ -1052,11 +1073,24 @@ export const importJob: ImportJob = {
     dkim_per_second: 1_396.8,
     bytes_per_second: 13.4 * MIB,
     eta_seconds: 6_012,
-    headers_total: 0,
-    headers_done: 0,
-    documents_total: 0,
-    documents_done: 0,
-    documents_per_second: 0,
+    steps: [
+      { ...doneStep("scan", 4), started_at: "2026-10-19T23:02:00Z" },
+      { ...waitingStep("headers"), status: "skipped" },
+      {
+        key: "import",
+        status: "running",
+        unit: "bytes",
+        done: 28 * GIB,
+        total: 108 * GIB,
+        started_at: "2026-10-19T23:02:04Z",
+        seconds: 7_918,
+        rate: 13.4 * MIB,
+        eta_seconds: 6_012,
+      },
+      ...["duplicates", "threads", "names", "documents"].map(waitingStep),
+      ...["edges", "person_stats", "suggestions", "global_stats", "attachments"].map(waitingStep),
+    ],
+    database: null,
   },
 };
 
@@ -1070,8 +1104,10 @@ export const dkimJobDone: DkimJob = {
   stop_requested: false,
   started_at: "2026-10-19T21:40:00Z",
   updated_at: "2026-10-19T21:52:10Z",
+  report_age_seconds: 12_000,
   finished_at: "2026-10-19T21:52:10Z",
   message: "checked 18204 mails",
+  leftover: null,
   phase: "aggregates",
   options: {
     statuses: ["unchecked", "no_key", "temp_error"],
@@ -1086,6 +1122,11 @@ export const dkimJobDone: DkimJob = {
     skipped: 3,
     mails_per_second: 0,
     eta_seconds: null,
+    steps: [
+      { ...doneStep("check", 712), unit: "mails", done: 18_204, total: 18_204 },
+      ...["edges", "person_stats", "suggestions", "global_stats"].map((key) => doneStep(key, 3)),
+    ],
+    database: null,
   },
 };
 
@@ -1098,6 +1139,7 @@ export const dkimJobRunning: DkimJob = {
   alive: true,
   started_at: "2026-10-20T01:20:00Z",
   updated_at: "2026-10-20T01:20:40Z",
+  report_age_seconds: 0.8,
   finished_at: null,
   message: null,
   phase: "check",
@@ -1108,6 +1150,21 @@ export const dkimJobRunning: DkimJob = {
     skipped: 0,
     mails_per_second: 311.6,
     eta_seconds: 168,
+    steps: [
+      {
+        key: "check",
+        status: "running",
+        unit: "mails",
+        done: 12_408,
+        total: 64_790,
+        started_at: "2026-10-20T01:20:00Z",
+        seconds: 40,
+        rate: 311.6,
+        eta_seconds: 168,
+      },
+      ...["edges", "person_stats", "suggestions", "global_stats"].map(waitingStep),
+    ],
+    database: null,
   },
 };
 
@@ -1139,8 +1196,18 @@ export const importStatusPaused: ImportStatus = {
     stop_requested: true,
     updated_at: "2026-10-20T01:15:12Z",
     finished_at: "2026-10-20T01:15:12Z",
+    report_age_seconds: 40,
     message: "stopped on request; 8 files paused",
-    progress: { ...importJob.progress, workers: 0, eta_seconds: null },
+    progress: {
+      ...importJob.progress,
+      workers: 0,
+      eta_seconds: null,
+      steps: importJob.progress.steps.map((step) =>
+        step.status === "running"
+          ? { ...step, status: "stopped", seconds: 7_988, rate: null, eta_seconds: null }
+          : step,
+      ),
+    },
   },
 };
 

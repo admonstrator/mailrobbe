@@ -16,7 +16,8 @@ A mail whose file is missing, whose record cannot be read or whose bytes changed
 counted by kind and logged, never written, and the run goes on.
 
 A run holds the DKIM lock and records itself in `job` (mailrobbe.jobrun, D47) with the phases
-check and aggregates and its figures every few seconds. Ctrl-C, SIGTERM and the dashboard's stop
+check and aggregates and its figures every few seconds; its steps (D110) are check and those of
+refresh_aggregates. Ctrl-C, SIGTERM and the dashboard's stop
 request end it alike: no new chunks, the chunks in flight are written, the aggregates are
 recomputed when anything was checked.
 
@@ -40,7 +41,7 @@ from enum import StrEnum
 from sqlalchemy import ColumnElement, false, func, or_, select, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from mailrobbe.aggregates import refresh_aggregates
+from mailrobbe import aggregates
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DkimResult, Mail, MboxFile
 from mailrobbe.db.session import create_engine
@@ -49,8 +50,16 @@ from mailrobbe.dkim.checker import DkimChecker
 from mailrobbe.dkim.keys.store import load_candidates, of_key_names
 from mailrobbe.dkim.model import DnsAnswer, KeyCandidates, MailVerdict
 from mailrobbe.enums import DkimStatus, JobKind, JobOrigin, JobStatus
-from mailrobbe.jobrun import JobRun, RateWindow, ignore_interrupts, job_run, spawning_workers
-from mailrobbe.jobs import DkimOptions, DkimProgress
+from mailrobbe.jobrun import (
+    JobRun,
+    RateWindow,
+    Step,
+    Steps,
+    ignore_interrupts,
+    job_run,
+    spawning_workers,
+)
+from mailrobbe.jobs import DkimOptions, DkimProgress, application_name
 from mailrobbe.mbox import read_message
 
 log = logging.getLogger(__name__)
@@ -133,11 +142,12 @@ async def run_recheck(
         offline=settings.dkim_offline,
     )
     tally = CheckTally()
-    engine = create_engine(settings.database_url)
+    engine = create_engine(settings.database_url, application_name(JobKind.DKIM))
     try:
         async with job_run(
             engine, JobKind.DKIM, origin, options, phase="check", figures=tally.report
         ) as job:
+            job.steps.plan("check", *aggregates.STEPS)
             await _run(engine, settings, _selection(statuses, mail_ids), jobs, tally, job)
             summary = tally.finish()
             stopped = job.stop.is_set()
@@ -175,11 +185,13 @@ async def _run(
     job: JobRun,
 ) -> None:
     async with engine.connect() as connection:
-        await check_mails(connection, settings, where, jobs, tally, job.stop)
+        await check_mails(connection, settings, where, jobs, tally, job.steps, job.stop)
         if tally.checked:
             job.set_phase("aggregates")
-            await refresh_aggregates(connection)
+            await aggregates.refresh_aggregates(connection, steps=job.steps)
             await connection.commit()
+        else:
+            job.steps.skip(*aggregates.STEPS)
 
 
 async def check_mails(
@@ -188,11 +200,13 @@ async def check_mails(
     where: ColumnElement[bool],
     jobs: int,
     tally: "CheckTally",
+    steps: Steps,
     stop: asyncio.Event,
     *,
     refresh_negative: bool = True,
 ) -> None:
-    """Check the selected mails with every candidate key and store them, chunk by chunk.
+    """Check the selected mails with every candidate key and store them, chunk by chunk, as the
+    step check of `steps`.
 
     Commits each chunk; once `stop` is set no chunk is started, and those in flight are written.
     refresh_negative: ask DNS again for the keys the cache has as missing or timed out (D11).
@@ -214,7 +228,12 @@ async def check_mails(
     )
     tally.start(selected, jobs)
     keys = _Keys(answers, candidates, refresh_negative)
-    with _checkers(settings, keys, jobs) as submit:
+    # The tally logs the progress itself, with the mails skipped.
+    with (
+        steps.step("check", unit="mails", total=selected, log_progress=False) as step,
+        _checkers(settings, keys, jobs) as submit,
+    ):
+        tally.step = step
         pending: deque[tuple[list[_Mail], Awaitable[_Checked]]] = deque()
         try:
             async with aclosing(_chunks(connection, where, paths)) as chunks:
@@ -411,6 +430,7 @@ class CheckTally:
         self._started = time.monotonic()
         self._selected = 0
         self.workers = 0
+        self.step: Step | None = None  # the run's check step
         self._window: RateWindow | None = None
         self._next_log = 0.0
         self._skipped: Counter[str] = Counter()
@@ -469,6 +489,8 @@ class CheckTally:
         self._answers_saved += len({answer.name for answer in checked.answers if answer.ttl > 0})
         self._lookups += checked.lookups
         self._hits += checked.hits
+        if self.step is not None:
+            self.step.done = self.checked + self._skipped.total()
         return verdicts
 
     def _skip(self, mail: _Mail, reason: Skip) -> None:

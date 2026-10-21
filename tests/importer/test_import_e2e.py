@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe import migrate
 from mailrobbe.config import Settings
+from mailrobbe.importer import cli
 from mailrobbe.importer.cli import run_import
 from mailrobbe.importer.model import BODY_TEXT_LIMIT
 from mailrobbe.jobs import ImportProgress
@@ -115,7 +116,12 @@ def test_the_run_is_recorded_with_its_dkim_checks(imported: Imported) -> None:
     assert (imported.job["status"], imported.job["phase"]) == ("done", "attachments")
     progress = ImportProgress.model_validate(imported.job["progress"])
     assert progress.mails_imported == len(imported.manifest)
-    assert progress.documents_done == progress.documents_total > 0
+    steps = {step.key: step for step in progress.steps}
+    assert list(steps) == list(cli.STEPS)
+    assert {step.status for step in steps.values()} == {"done", "skipped"}  # headers skipped
+    assert steps["attachments"].done == steps["attachments"].total
+    assert steps["attachments"].done > 0
+    assert steps["import"].done == steps["import"].total == progress.bytes_imported
     # Every mail got a verdict (D13: the importer checks inline), so both rates are the same.
     assert progress.dkim_per_second == progress.mails_per_second > 0
 

@@ -10,7 +10,8 @@ resumes it.
 
 ImportFigures gathers the run's live figures for its job row (jobs.ImportProgress, D47): the
 totals of the run's files from mbox_file, the files running and ended, and the mails with a DKIM
-verdict, which the workers add to a shared counter per committed batch.
+verdict, which the workers add to a shared counter per committed batch. It moves the counter of
+the run's import step (bytes) on as well (D110).
 """
 
 import asyncio
@@ -33,13 +34,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from mailrobbe.config import Settings
 from mailrobbe.enums import ImportErrorKind, MboxStatus
 from mailrobbe.importer import dkim_hook, parse, split
+from mailrobbe.importer import finalize as finalizing
 from mailrobbe.importer.dkim_hook import DkimVerdict
-from mailrobbe.importer.finalize import finalize
 from mailrobbe.importer.model import Issue, ParsedMail
 from mailrobbe.importer.scan import ScannedFile
 from mailrobbe.importer.split import MboxRecord
 from mailrobbe.importer.store import Batch, Store
-from mailrobbe.jobrun import RateWindow, describe, ignore_interrupts, spawning_workers
+from mailrobbe.jobrun import (
+    RateWindow,
+    Step,
+    Steps,
+    describe,
+    duration,
+    ignore_interrupts,
+    spawning_workers,
+)
 from mailrobbe.jobs import Executor, ImportProgress
 
 log = logging.getLogger(__name__)
@@ -294,12 +303,15 @@ async def run_files(
     *,
     pipeline: Pipeline = DEFAULT_PIPELINE,
     figures: "ImportFigures | None" = None,
+    steps: Steps | None = None,
 ) -> list[FileOutcome]:
     """Import the pending files in up to `workers` processes until done or `stop` is set.
 
-    figures, when given, follows the files running and ended and the mails checked for DKIM.
+    figures, when given, follows the files running and ended and the mails checked for DKIM;
+    steps, the run's, get the steps of a finalize during a long import.
     """
     figures = figures or ImportFigures()
+    steps = Steps() if steps is None else steps
     queue = sorted(
         (file for file in files if file.status is MboxStatus.PENDING),
         key=lambda file: (-file.size_bytes, file.path),
@@ -367,7 +379,7 @@ async def run_files(
                     _log_outcome(outcome, file)
                     due = time.monotonic() - last_finalize >= FINALIZE_SECONDS
                     if outcome.status is MboxStatus.DONE and due and (queue or running):
-                        await _finalize(sessionmaker)
+                        await _finalize(sessionmaker, steps)
                         last_finalize = time.monotonic()
         finally:
             stop_workers.set()  # also when this loop fails: leaving the pool waits for them
@@ -414,9 +426,11 @@ def _log_outcome(outcome: FileOutcome, file: ScannedFile) -> None:
         log.warning("error %s at byte %d: %s", outcome.path, outcome.bytes_done, outcome.error)
 
 
-async def _finalize(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+async def _finalize(sessionmaker: async_sessionmaker[AsyncSession], steps: Steps) -> None:
+    """A finalize between files: its steps run, then wait again for the one at the end."""
     async with sessionmaker() as session:
-        result = await finalize(session)
+        result = await finalizing.finalize(session, steps)
+    steps.reset(*finalizing.STEPS)
     log.info(
         "updated duplicates, threads, display names and aggregates in %.1f s, "
         "%d of %d edges changed",
@@ -454,22 +468,18 @@ async def _totals(db: Executor, ids: list[int]) -> _Totals:
 class ImportFigures:
     """The live figures of an import run (jobs.ImportProgress) and its log line.
 
-    The phases fill them in turn: the command the files queued after the scan, the header
-    refresh its counts, run_files the files running and ended, the workers the DKIM counter,
-    the attachments phase its documents (attachments.phase). report() adds the totals of the
-    run's files from mbox_file, as the dashboard reads them, and the rates over the last
-    RATE_WINDOW seconds of the import phase and of the attachments phase.
+    The phases fill them in turn: the command the files queued after the scan and the import
+    step, run_files the files running and ended, the workers the DKIM counter, the attachments
+    phase its workers (attachments.phase). report() adds the totals of the run's files from
+    mbox_file, as the dashboard reads them, the rates over the last RATE_WINDOW seconds of the
+    import phase, and the bytes imported to the import step.
     """
 
     def __init__(self) -> None:
         self.files_queued = 0
         self.files_finished = 0
         self.workers = 0
-        self.headers_total = 0
-        self.headers_done = 0
-        self.documents_total = 0
-        self.documents_done = 0
-        self._documents: RateWindow | None = None  # from the start of the attachments phase
+        self.step: Step | None = None  # the run's import step, counting bytes
         # Mails with a DKIM verdict, added to by the worker processes per committed batch.
         self.dkim_checked: Synchronized[int] = multiprocessing.get_context("spawn").Value("q", 0)
         self._ids: list[int] = []
@@ -484,36 +494,23 @@ class ImportFigures:
         self._window = RateWindow(0, self.dkim_checked.value, 0)
         self._next_log = time.monotonic() + PROGRESS_SECONDS
 
-    def start_documents(self, total: int) -> None:
-        """The attachments phase begins with this many documents to work through."""
-        self.documents_total = total
-        self.documents_done = 0
-        self._documents = RateWindow(0)
-        self._next_log = time.monotonic() + PROGRESS_SECONDS
-
     async def report(self, db: Executor) -> ImportProgress:
-        """The figures now; while files are imported or documents extracted, a log line every
-        PROGRESS_SECONDS."""
+        """The figures now; while files are imported, a log line every PROGRESS_SECONDS."""
         progress = ImportProgress(
             workers=self.workers,
             files_queued=self.files_queued,
             files_finished=self.files_finished,
-            headers_total=self.headers_total,
-            headers_done=self.headers_done,
-            documents_total=self.documents_total,
-            documents_done=self.documents_done,
         )
-        if self._documents is not None:
-            (progress.documents_per_second,) = self._documents.rates(self.documents_done)
-            self._log_documents(progress.documents_per_second)
         if self._base is None or self._window is None:
             return progress
         totals = await _totals(db, self._ids)
         mails = totals.mails - self._base.mails
         size = totals.bytes_done - self._base.bytes_done
+        if self.step is not None:
+            self.step.done = size
         mail_rate, dkim_rate, byte_rate = self._window.rates(mails, self.dkim_checked.value, size)
         eta = totals.left / byte_rate if byte_rate > 0 else None
-        if self.workers and self._documents is None and time.monotonic() >= self._next_log:
+        if self.workers and self.step is not None and time.monotonic() >= self._next_log:
             self._next_log = time.monotonic() + PROGRESS_SECONDS
             log.info(
                 "files %d/%d, %d mails, %.0f mails/s, %.1f MB/s, %d import errors, %.0f%%, ETA %s",
@@ -524,7 +521,7 @@ class ImportFigures:
                 byte_rate / 1024**2,
                 totals.errors,
                 100 * totals.bytes_done / totals.size if totals.size else 100.0,
-                "unknown" if eta is None else _duration(eta),
+                "unknown" if eta is None else duration(eta),
             )
         return progress.model_copy(
             update={
@@ -537,27 +534,6 @@ class ImportFigures:
             }
         )
 
-    def _log_documents(self, rate: float) -> None:
-        if not self.workers or time.monotonic() < self._next_log:
-            return
-        self._next_log = time.monotonic() + PROGRESS_SECONDS
-        left = self.documents_total - self.documents_done
-        log.info(
-            "documents %d/%d, %.1f documents/s, ETA %s",
-            self.documents_done,
-            self.documents_total,
-            rate,
-            _duration(left / rate) if rate > 0 else "unknown",
-        )
-
 
 def _megabytes(size: int) -> str:
     return f"{size / 1024**2:.1f} MB"
-
-
-def _duration(seconds: float) -> str:
-    minutes, rest = divmod(int(seconds + 0.5), 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours}h{minutes:02d}m"
-    return f"{minutes}m{rest:02d}s" if minutes else f"{rest}s"

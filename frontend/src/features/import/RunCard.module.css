@@ -85,13 +85,20 @@
   font-variant-numeric: tabular-nums;
 }
 
-.phase {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.warningText {
   margin: 0;
+  color: var(--color-fail-text);
+}
+
+.history summary {
+  width: fit-content;
   color: var(--color-nav);
   font-size: 13px;
+  cursor: pointer;
+}
+
+.history[open] summary {
+  margin-bottom: 8px;
 }
 
 .note {
@@ -116,9 +123,8 @@
 
 .band {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
+  flex-direction: column;
+  gap: 8px;
   margin: 0 -24px -20px;
   border-top: 1px solid var(--color-border-subtle);
   border-radius: 0 0 var(--radius-card) var(--radius-card);
@@ -126,6 +132,13 @@
   background: var(--color-hover);
   color: var(--color-nav);
   font-size: 13px;
+}
+
+.bandHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
 }
 
 .bandText {

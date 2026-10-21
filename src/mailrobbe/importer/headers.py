@@ -32,9 +32,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from mailrobbe.db.models import HEADER_VERSION
 from mailrobbe.importer.parse import list_fields
-from mailrobbe.importer.runner import ImportFigures
 from mailrobbe.importer.split import MboxRecord
-from mailrobbe.jobrun import describe
+from mailrobbe.jobrun import Step, describe
 from mailrobbe.mbox import unescape_from_lines
 
 log = logging.getLogger(__name__)
@@ -82,17 +81,17 @@ async def refresh_headers(
     mbox_dir: Path,
     files: Sequence[OutdatedFile],
     stop: asyncio.Event,
-    figures: ImportFigures,
+    step: Step,
 ) -> None:
     """Read the headers of these files' mails again, until done or `stop` is set (between pages).
 
-    figures.headers_done counts the mails read.
+    step counts the mails read.
     """
     for file in files:
         if stop.is_set():
             return
         async with sessionmaker() as session:
-            await _refresh_file(session, mbox_dir, file, stop, figures)
+            await _refresh_file(session, mbox_dir, file, stop, step)
 
 
 async def _refresh_file(
@@ -100,7 +99,7 @@ async def _refresh_file(
     mbox_dir: Path,
     file: OutdatedFile,
     stop: asyncio.Event,
-    figures: ImportFigures,
+    step: Step,
 ) -> None:
     if file.mails == 0:
         await _raise_version(session, file)
@@ -151,7 +150,7 @@ async def _refresh_file(
                     )
             read += len(rows)
             changed += len(updates)
-            figures.headers_done += len(rows)
+            step.advance(len(rows))
             after = rows[-1].byte_offset
             if len(rows) < PAGE:
                 break
