@@ -73,6 +73,10 @@ async def mbox_files(session: Session) -> list[MboxFileInfo]:
             status=file.status,
             mails_parsed=file.mails_parsed,
             bytes_done=file.bytes_done,
+            error_count=file.error_count,
+            worker_id=file.worker_id,
+            started_at=file.started_at,
+            finished_at=file.finished_at,
         )
         for file in files
     ]

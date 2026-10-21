@@ -93,6 +93,41 @@ async def test_refresh_computes_every_figure(db_session: AsyncSession) -> None:
     assert figures.updated_at == await db_session.scalar(select(func.now()))
 
 
+async def test_dashboard_figures(db_session: AsyncSession) -> None:
+    """Duplicates, fail reasons of failed mails and DNS cache hits (D48)."""
+    await _store(db_session)
+    ids = (await db_session.scalars(text("SELECT id FROM mail ORDER BY id"))).all()
+    passed, failed = ids[0], ids[1]
+    await db_session.execute(
+        text("UPDATE mail SET is_duplicate_of = :original WHERE id = :id"),
+        {"original": ids[0], "id": ids[3]},
+    )
+    # the failed mail has a second failing signature for another reason; the pass mail's
+    # cached key and a failing signature of a passed mail count only where they belong
+    await db_session.execute(
+        text("UPDATE dkim_result SET reason = 'body_hash_mismatch' WHERE mail_id = :id"),
+        {"id": failed},
+    )
+    await db_session.execute(
+        text("UPDATE dkim_result SET dns_cached = true WHERE mail_id = :id"), {"id": passed}
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO dkim_result (mail_id, signature_index, status, reason) VALUES "
+            "(:failed, 1, 'fail', 'signature_mismatch'), (:passed, 1, 'fail', 'key_too_short')"
+        ),
+        {"failed": failed, "passed": passed},
+    )
+
+    await aggregates.refresh_global_stats(db_session)
+    figures = await aggregates.read_global_stats(db_session)
+
+    assert figures is not None
+    assert figures.duplicates == 1
+    assert figures.dkim_fail_reasons == {"body_hash_mismatch": 1, "signature_mismatch": 1}
+    assert (figures.dkim_signatures, figures.dkim_signatures_cached) == (4, 1)
+
+
 async def test_sender_domains_by_mails_with_search_and_limit(db_session: AsyncSession) -> None:
     await _store(db_session)
     await aggregates.refresh_global_stats(db_session)

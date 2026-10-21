@@ -6,7 +6,9 @@ suggestions (persons, milestone 5), then global_stats. It runs after each import
 (importer.finalize) and after `mailrobbe dkim`, and for the persons concerned after a merge.
 
 global_stats holds the whole-archive figures (D19), one row per key: mails, DKIM counts, persons,
-domains, date range, every sender domain with its mails and the number of MBOX files. They are
+domains, date range, every sender domain with its mails and the number of MBOX files, and for
+the import dashboard (D48) duplicates, the reasons of failed DKIM checks and how many signature
+keys came from the DNS cache. They are
 recomputed after each import (importer.finalize), after `mailrobbe dkim` and by the API when they
 are older than MAILROBBE_STATS_MAX_AGE.
 
@@ -34,7 +36,18 @@ Executor = AsyncSession | AsyncConnection
 UNCHECKED = "unchecked"  # the DKIM count key of mails not checked yet (dkim_status NULL)
 # Transaction-level advisory lock: one refresh at a time; API requests do not wait for it.
 _LOCK_KEY = int.from_bytes(b"mrglobal", "big")
-_FIGURES = ("mails", "dkim", "persons", "domains", "date_min", "date_max", "mbox_files")
+_FIGURES = (
+    "mails",
+    "dkim",
+    "persons",
+    "domains",
+    "date_min",
+    "date_max",
+    "mbox_files",
+    "duplicates",
+    "dkim_fail_reasons",
+    "dkim_signatures",
+)
 _SENDER_DOMAINS = "sender_domains"  # [{"domain", "mails"}], most mails first; read in SQL
 _SENDER_DOMAIN_COUNT = "sender_domain_count"
 _KEYS = (*_FIGURES, _SENDER_DOMAINS, _SENDER_DOMAIN_COUNT)
@@ -52,6 +65,16 @@ _SENDER_COUNTS = text("""
     GROUP BY s.domain
     ORDER BY mails DESC, s.domain
 """)
+# Mails whose DKIM status is fail, per reason of their failing signatures; a mail whose
+# signatures failed for two reasons counts for both.
+_FAIL_REASONS = text("""
+    SELECT r.reason, count(DISTINCT r.mail_id) AS mails
+    FROM dkim_result r JOIN mail m ON m.id = r.mail_id
+    WHERE m.dkim_status = 'fail' AND r.status = 'fail'
+    GROUP BY r.reason
+    ORDER BY mails DESC, r.reason
+""")
+_SIGNATURES = text("SELECT count(*), count(*) FILTER (WHERE dns_cached) FROM dkim_result")
 _PERSON_COUNT = text("""
     UPDATE global_stats
     SET value = to_jsonb((SELECT count(*) FROM person WHERE merged_into IS NULL))
@@ -82,6 +105,10 @@ class GlobalFigures:
     date_max: datetime | None
     sender_domain_count: int
     mbox_files: int
+    duplicates: int  # mails with is_duplicate_of set (D16)
+    dkim_fail_reasons: dict[str, int]  # DkimReason value -> mails with status fail, most first
+    dkim_signatures: int  # dkim_result rows
+    dkim_signatures_cached: int  # of those, the ones whose key came from the DNS cache
     updated_at: datetime  # when they were computed
 
 
@@ -153,6 +180,13 @@ async def read_global_stats(db: Executor) -> GlobalFigures | None:
         date_max=_timestamp(values["date_max"]),
         sender_domain_count=values[_SENDER_DOMAIN_COUNT],
         mbox_files=values["mbox_files"],
+        duplicates=values["duplicates"],
+        # jsonb keeps no key order
+        dkim_fail_reasons=dict(
+            sorted(values["dkim_fail_reasons"].items(), key=lambda item: (-item[1], item[0]))
+        ),
+        dkim_signatures=values["dkim_signatures"]["total"],
+        dkim_signatures_cached=values["dkim_signatures"]["cached"],
         updated_at=updated_at,
     )
 
@@ -172,6 +206,7 @@ async def _compute(db: Executor) -> None:
     senders = [
         {"domain": domain, "mails": mails} for domain, mails in await db.execute(_SENDER_COUNTS)
     ]
+    signatures, cached = (await db.execute(_SIGNATURES)).one()
     values: dict[str, Any] = {
         "mails": sum(dkim.values()),
         "dkim": dkim,
@@ -180,6 +215,11 @@ async def _compute(db: Executor) -> None:
         "date_min": None if date_min is None else date_min.isoformat(),
         "date_max": None if date_max is None else date_max.isoformat(),
         "mbox_files": await db.scalar(text("SELECT count(*) FROM mbox_file")),
+        "duplicates": await db.scalar(
+            text("SELECT count(*) FROM mail WHERE is_duplicate_of IS NOT NULL")
+        ),
+        "dkim_fail_reasons": {reason: mails for reason, mails in await db.execute(_FAIL_REASONS)},
+        "dkim_signatures": {"total": signatures, "cached": cached},
         _SENDER_DOMAINS: senders,
         _SENDER_DOMAIN_COUNT: len(senders),
     }

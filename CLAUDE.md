@@ -1,6 +1,6 @@
 # Mailrobbe
 
-Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine, DKIM, importer, API, relationship map); it wins where the spec leaves a point open.
+Local web software that imports large MBOX archives (target: about 400,000 mails, 280 GB in roughly 70 files), verifies DKIM, groups mails by person and shows a relationship graph. The specification is [docs/SPEC.md](docs/SPEC.md) (German); the UI prototype is [docs/mockup/](docs/mockup/). Read the spec before changing behaviour; its milestones (section 8) are the plan. [docs/DECISIONS.md](docs/DECISIONS.md) records the decisions taken since (frontend stack, alias merging, HTML bodies, access, export, workflow, target machine, DKIM, importer, API, relationship map, import dashboard); it wins where the spec leaves a point open.
 
 ## Stack
 
@@ -24,6 +24,7 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/importer/`: MBOX importer (SPEC 3.5, decisions D14 to D18); the package docstring shows the pipeline. `split.py` (framing), `parse.py` and `text.py` (one message to `ParsedMail`), `dkim_hook.py` (seam to `dkim/`), `scan.py`, `store.py` (COPY per batch, progress in the same transaction), `runner.py` (worker pool, resume), `finalize.py` (duplicates, threads, display names), `cli.py`
 - `src/mailrobbe/graph/`: relationship map (SPEC 5.4, decisions D36 to D40); the package docstring lists the modules. `edges.py` fills `edge`, `edge_year` and `person.kind` (whole or for some persons), `excerpt.py` computes the excerpt the API shows, `graphml.py` writes GraphML, `cli.py` is `mailrobbe graph`
 - `src/mailrobbe/persons/`: persons (milestone 5, D28 to D33); `roots.py` (root person of an address), `stats.py` (`person_stats`, `person_year`), `suggestions.py` (alias suggestions), `merge.py` (merge, unmerge, dismiss)
+- `src/mailrobbe/jobs.py`: runs of `mailrobbe import` and `mailrobbe dkim` in the `job` table (D46, D47): lock keys, options and live figures, `begin_job`/`report_job`/`end_job` for the runs, `request_stop`/`latest_job`/`job_alive` for the API
 - `src/mailrobbe/aggregates.py`: aggregation tables; `refresh_aggregates` runs edges, person figures, alias suggestions and `global_stats` in that order (finalize, `mailrobbe dkim`, merges; D33), and `global_stats` is also refreshed lazily by the API (D19)
 - `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`, `graph`)
 - `tests/`: mirrors the package; `tests/db` needs PostgreSQL

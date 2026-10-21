@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestones 4 and 5): query parameters and responses.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 7): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -31,6 +31,14 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/graph?GraphParams                  Graph (D37); graph_too_large above the limit
     GET  /api/graph/size?GraphParams             GraphSize, also above the limit
     GET  /api/graph/export.graphml?GraphParams   GraphML download of the same excerpt (D38)
+    GET  /api/import/status                      ImportStatus: files, totals, latest runs (D48)
+    GET  /api/import/summary                     ImportSummary: archive figures (D48)
+    GET  /api/import/errors?ImportErrorParams    ImportErrorPage, newest first
+    POST /api/import/start                       ImportStartRequest -> 202 ImportJob (D46, D49)
+    POST /api/import/pause                       ImportJob, its stop requested (D46)
+    POST /api/import/rescan                      ScanResult (D50)
+    POST /api/dkim/recheck                       DkimRecheckRequest -> 202 DkimJob (D46)
+    POST /api/dkim/recheck/stop                  DkimJob, its stop requested
 
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list.
@@ -43,7 +51,19 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from mailrobbe.enums import DkimReason, DkimStatus, MboxStatus, ParticipationRole, PersonKind
+from mailrobbe.enums import (
+    DkimReason,
+    DkimStatus,
+    DnsStatus,
+    ImportErrorKind,
+    JobKind,
+    JobOrigin,
+    JobStatus,
+    MboxStatus,
+    ParticipationRole,
+    PersonKind,
+)
+from mailrobbe.jobs import DkimOptions, DkimProgress, ImportOptions, ImportProgress
 
 # Exact counts stop here (SPEC 6.6): MailSummary falls back to "more than COUNT_LIMIT" and
 # MailNeighbors.position is None beyond it.
@@ -78,6 +98,11 @@ ErrorCode = Literal[
     "source_changed",  # 409: the bytes at the stored offset are not the imported mail any more
     "invalid_merge",  # 400: merging a person into itself, or unmerging one that is no alias
     "graph_too_large",  # 400: the excerpt has more than MAX_GRAPH_NODES nodes
+    "job_running",  # 409: an import or DKIM run is alive, so this one cannot start (D46)
+    "no_job",  # 409: no run of that kind is alive to stop
+    "mbox_dir_missing",  # 409: MAILROBBE_MBOX_DIR is no directory the server can read
+    "invalid_option",  # 400: an option of a start request cannot be used; message names it
+    "job_failed",  # 500: the started process ended before it recorded its run
 ]
 
 
@@ -222,7 +247,11 @@ class MboxFileInfo(BaseModel):
     size_bytes: int
     status: MboxStatus
     mails_parsed: int
-    bytes_done: int
+    bytes_done: int  # the import's progress: end of the last committed record
+    error_count: int  # import errors recorded for this file
+    worker_id: int | None  # the worker importing it while status is running (W1, W2, ...)
+    started_at: datetime | None  # when the last import of it started
+    finished_at: datetime | None  # when it was imported to the end; None while not done
 
 
 # Mail detail -----------------------------------------------------------------------------------
@@ -567,3 +596,151 @@ class GraphSize(BaseModel):
     edges: int
     mails: int
     too_large: bool  # nodes > MAX_GRAPH_NODES, so /api/graph answers graph_too_large
+
+
+# Import dashboard (milestone 7, D46 to D50) ------------------------------------------------
+
+ERROR_PAGE_SIZE = 50  # default page of /api/import/errors
+ImportPhase = Literal["scan", "headers", "import", "finalize"]  # jobs.ImportPhase
+DkimPhase = Literal["check", "aggregates"]  # jobs.DkimPhase
+
+
+class JobInfo(BaseModel):
+    """One run of `mailrobbe import` or `mailrobbe dkim` from the job table (D47)."""
+
+    id: int
+    kind: JobKind
+    origin: JobOrigin  # cli: started on a command line; ui: from the dashboard
+    status: JobStatus
+    # The run's process holds its lock. False with status running: the process ended without
+    # recording it (killed, container stopped); the UI shows such a run as aborted.
+    alive: bool
+    stop_requested: bool  # a stop was asked for; the run ends at its next report
+    started_at: datetime
+    updated_at: datetime  # its last report
+    finished_at: datetime | None
+    message: str | None  # English one-line summary or failure reason, for the log view
+
+
+class ImportJob(JobInfo):
+    phase: ImportPhase | None
+    options: ImportOptions
+    progress: ImportProgress
+
+
+class DkimJob(JobInfo):
+    phase: DkimPhase | None
+    options: DkimOptions
+    progress: DkimProgress
+
+
+class ImportTotals(BaseModel):
+    """Sums over every mbox_file row, live."""
+
+    files: int
+    done: int
+    running: int
+    pending: int
+    paused: int
+    error: int
+    size_bytes: int
+    bytes_done: int
+    mails_parsed: int
+    # mails_parsed extrapolated to every file's size by the bytes done so far ("ca. 412.000");
+    # None before the first byte is done
+    mails_estimated: int | None
+    error_count: int  # import errors of all files
+
+
+class ImportStatus(BaseModel):
+    """What the dashboard polls: every 2 s while a run is alive, else less often (D48)."""
+
+    mbox_dir: str  # the server's MAILROBBE_MBOX_DIR ("Quelle")
+    mbox_dir_ok: bool  # the server can read it; start and rescan need it
+    totals: ImportTotals
+    files: list[MboxFileInfo]  # every row, sorted by path
+    import_job: ImportJob | None  # the latest import run; None before the first
+    dkim_job: DkimJob | None  # the latest DKIM run
+    # What a start from the dashboard uses unless the request says otherwise: the options of
+    # the latest import run, or the server's settings before the first (D49).
+    defaults: ImportOptions
+
+
+class FailReasonCount(BaseModel):
+    reason: DkimReason
+    mails: int  # mails with status fail and a failing signature with this reason
+
+
+class ImportSummary(BaseModel):
+    """Archive figures beside the import (D48): sizes live, the rest from global_stats."""
+
+    db_size_bytes: int  # pg_database_size: metadata, full text and every index
+    raw_size_bytes: int  # sum of the MBOX files' sizes, for "x % der Rohdaten"
+    fulltext_index_bytes: int  # the GIN index of mail.tsv
+    dns_cache: dict[DnsStatus, int]  # dns_cache rows by status, every status present, live
+    # Share of DKIM signatures whose key came from the cache instead of a lookup; None
+    # without signatures
+    dns_hit_ratio: float | None
+    persons: int  # root persons
+    open_suggestions: int  # alias suggestions not dismissed (D30)
+    edge_table: EdgeTable
+    duplicates: int
+    dkim: dict[DkimKey, int]  # every key present
+    fail_reasons: list[FailReasonCount]  # most mails first
+    updated_at: datetime | None  # when global_stats were computed; None: never
+
+
+class ImportErrorParams(BaseModel):
+    kind: ImportErrorKind | None = None
+    mbox_file: int | None = None
+    cursor: str | None = None  # next_cursor of the previous page with the same filters
+    limit: int = Field(ERROR_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class ImportErrorItem(BaseModel):
+    id: int
+    mbox_file_id: int | None
+    path: str | None  # of the file; None when the error belongs to no file
+    byte_offset: int | None  # where in the file
+    kind: ImportErrorKind
+    message: str  # English, technical; the UI shows a German text per kind
+    created_at: datetime
+
+
+class ImportErrorPage(BaseModel):
+    items: list[ImportErrorItem]  # newest first
+    next_cursor: str | None
+    total: int  # errors matching the filters
+    kinds: dict[ImportErrorKind, int]  # every error by kind, without the filters; only kinds seen
+
+
+class ImportStartRequest(BaseModel):
+    """Options of an import started from the dashboard (D49); None: as in ImportStatus.defaults."""
+
+    workers: int | None = Field(None, ge=1, le=64)
+    attachment_hash_limit: int | None = Field(None, ge=0)  # bytes
+    dkim_nameservers: str | None = None  # comma-separated IP addresses; "": system resolver
+
+
+class DkimRecheckRequest(BaseModel):
+    """A DKIM run from the dashboard: by default the mails of D13 (unchecked, no_key,
+    temp_error)."""
+
+    statuses: list[DkimKey] = Field(["unchecked", "no_key", "temp_error"], min_length=1)
+    workers: int | None = Field(None, ge=1, le=64)
+
+
+class FileProblem(BaseModel):
+    path: str
+    reason: str  # English, as the importer logs it
+
+
+class ScanResult(BaseModel):
+    """What the scan of MAILROBBE_MBOX_DIR found (D14, D50)."""
+
+    files: int  # MBOX files found
+    pending: int  # of those, the ones an import would read (new, grown, changed, unfinished)
+    new: list[str]
+    replaced: list[FileProblem]  # changed files whose mails were removed, imported again
+    missing: list[str]  # known files no longer there; their mails stay
+    unreadable: list[FileProblem]  # skipped

@@ -85,6 +85,10 @@ export const mboxFiles: MboxFileInfo[] = [
   status: "done",
   mails_parsed: 5800,
   bytes_done: 4_294_967_296,
+  error_count: 0,
+  worker_id: null,
+  started_at: "2026-10-19T22:00:00Z",
+  finished_at: "2026-10-19T23:10:00Z",
 }));
 
 /** The archive without filters: the figures of global_stats. */

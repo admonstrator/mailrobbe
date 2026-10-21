@@ -55,7 +55,12 @@ export type ErrorCode =
   | "source_missing"
   | "source_changed"
   | "invalid_merge"
-  | "graph_too_large";
+  | "graph_too_large"
+  | "job_running"
+  | "no_job"
+  | "mbox_dir_missing"
+  | "invalid_option"
+  | "job_failed";
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -187,7 +192,11 @@ export interface MboxFileInfo {
   size_bytes: number;
   status: MboxStatus;
   mails_parsed: number;
-  bytes_done: number;
+  bytes_done: number; // the import's progress: end of the last committed record
+  error_count: number;
+  worker_id: number | null; // while status is running (W1, W2, ...)
+  started_at: string | null;
+  finished_at: string | null;
 }
 
 // Mail detail -----------------------------------------------------------------------------------
@@ -503,4 +512,188 @@ export interface GraphSize {
   edges: number;
   mails: number;
   too_large: boolean; // /api/graph would answer graph_too_large
+}
+
+// Import dashboard (milestone 7) ----------------------------------------------------------------
+
+export const ERROR_PAGE_SIZE = 50;
+
+export type JobKind = "import" | "dkim";
+export type JobStatus = "running" | "done" | "stopped" | "failed";
+export type JobOrigin = "cli" | "ui";
+export type ImportPhase = "scan" | "headers" | "import" | "finalize";
+export type DkimPhase = "check" | "aggregates";
+export type DnsStatus = "found" | "not_found" | "temp_error";
+export type ImportErrorKind =
+  | "separator"
+  | "too_large"
+  | "encoding"
+  | "date"
+  | "message_id"
+  | "address"
+  | "parse"
+  | "dkim"
+  | "io"
+  | "internal";
+
+/** What an import run works with; the defaults of a start from the dashboard. */
+export interface ImportOptions {
+  workers: number;
+  attachment_hash_limit: number; // bytes
+  max_mail_size: number; // bytes
+  dkim_nameservers: string; // comma-separated; "" = system resolver
+  dkim_offline: boolean;
+  mbox_dir: string;
+}
+
+/** Live figures of an import run, reported every 2 s. */
+export interface ImportProgress {
+  workers: number; // busy now
+  files_queued: number;
+  files_finished: number;
+  mails_imported: number; // by this run
+  bytes_imported: number;
+  mails_per_second: number; // over the last 60 s
+  dkim_per_second: number;
+  bytes_per_second: number;
+  eta_seconds: number | null;
+  headers_total: number; // phase "headers": mails whose headers are read again
+  headers_done: number;
+}
+
+export interface DkimOptions {
+  statuses: string[] | null; // DKIM keys selected; null: every mail
+  mail_ids: number[];
+  workers: number;
+  offline: boolean;
+}
+
+export interface DkimProgress {
+  workers: number;
+  selected: number;
+  checked: number;
+  skipped: number;
+  mails_per_second: number;
+  eta_seconds: number | null;
+}
+
+/** One run of `mailrobbe import` or `mailrobbe dkim`. */
+interface JobInfo {
+  id: number;
+  origin: JobOrigin;
+  status: JobStatus;
+  /** Its process lives. false with status "running": it ended without recording it. */
+  alive: boolean;
+  stop_requested: boolean;
+  started_at: string;
+  updated_at: string; // its last report
+  finished_at: string | null;
+  message: string | null; // English summary or failure reason
+}
+
+export interface ImportJob extends JobInfo {
+  kind: "import";
+  phase: ImportPhase | null;
+  options: ImportOptions;
+  progress: ImportProgress;
+}
+
+export interface DkimJob extends JobInfo {
+  kind: "dkim";
+  phase: DkimPhase | null;
+  options: DkimOptions;
+  progress: DkimProgress;
+}
+
+export interface ImportTotals {
+  files: number;
+  done: number;
+  running: number;
+  pending: number;
+  paused: number;
+  error: number;
+  size_bytes: number;
+  bytes_done: number;
+  mails_parsed: number;
+  mails_estimated: number | null; // extrapolated by bytes; null before the first byte
+  error_count: number;
+}
+
+export interface ImportStatus {
+  mbox_dir: string;
+  mbox_dir_ok: boolean; // start and rescan need it
+  totals: ImportTotals;
+  files: MboxFileInfo[]; // sorted by path
+  import_job: ImportJob | null;
+  dkim_job: DkimJob | null;
+  defaults: ImportOptions;
+}
+
+export interface FailReasonCount {
+  reason: DkimReason;
+  mails: number;
+}
+
+export interface ImportSummary {
+  db_size_bytes: number;
+  raw_size_bytes: number;
+  fulltext_index_bytes: number;
+  dns_cache: Record<DnsStatus, number>;
+  dns_hit_ratio: number | null; // 0 to 1
+  persons: number;
+  open_suggestions: number;
+  edge_table: EdgeTable;
+  duplicates: number;
+  dkim: DkimCounts;
+  fail_reasons: FailReasonCount[]; // most first
+  updated_at: string | null;
+}
+
+export interface ImportErrorParams {
+  kind?: ImportErrorKind;
+  mbox_file?: number;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ImportErrorItem {
+  id: number;
+  mbox_file_id: number | null;
+  path: string | null;
+  byte_offset: number | null;
+  kind: ImportErrorKind;
+  message: string; // English, technical
+  created_at: string;
+}
+
+export interface ImportErrorPage {
+  items: ImportErrorItem[]; // newest first
+  next_cursor: string | null;
+  total: number; // matching the filters
+  kinds: Partial<Record<ImportErrorKind, number>>; // all errors, only kinds seen
+}
+
+export interface ImportStartRequest {
+  workers?: number | null;
+  attachment_hash_limit?: number | null; // bytes
+  dkim_nameservers?: string | null;
+}
+
+export interface DkimRecheckRequest {
+  statuses?: DkimKey[]; // default: unchecked, no_key, temp_error
+  workers?: number | null;
+}
+
+export interface FileProblem {
+  path: string;
+  reason: string; // English
+}
+
+export interface ScanResult {
+  files: number;
+  pending: number;
+  new: string[];
+  replaced: FileProblem[];
+  missing: string[];
+  unreadable: FileProblem[];
 }

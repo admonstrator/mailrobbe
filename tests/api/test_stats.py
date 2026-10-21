@@ -117,9 +117,13 @@ async def test_mbox_files_by_path(client: httpx.AsyncClient, imported_database_u
     files = await get(client, "/api/mbox-files")
     expected = await rows(
         imported_database_url,
-        "SELECT id, path, size_bytes, status::text AS status, mails_parsed, bytes_done"
+        "SELECT id, path, size_bytes, status::text AS status, mails_parsed, bytes_done,"
+        " error_count, worker_id, started_at, finished_at"
         ' FROM mbox_file ORDER BY path COLLATE "C"',
     )
+    for file in files:
+        for key in ("started_at", "finished_at"):
+            file[key] = None if file[key] is None else datetime.fromisoformat(file[key])
     assert files == [dict(row._mapping) for row in expected]
     assert len(files) > 1
 

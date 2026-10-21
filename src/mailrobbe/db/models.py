@@ -29,6 +29,9 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - person_stats.mails is a stored generated column (sent + received); it and LAST_DATE_SORT_KEY
   are the sort keys of the person list (migration 0005, D31). alias_suggestion holds the
   computed suggestions (D30); both pair tables order their persons (person_a < person_b).
+- job holds one row per run of `mailrobbe import` and `mailrobbe dkim` with its live figures
+  and the dashboard's stop request (migration 0006, D47); mbox_file.header_version says whether
+  the mails of a file have every parsed header field (HEADER_VERSION, D52).
 """
 
 from datetime import datetime
@@ -56,7 +59,15 @@ from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
-from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole, PersonKind
+from mailrobbe.enums import (
+    DkimStatus,
+    DnsStatus,
+    JobKind,
+    JobStatus,
+    MboxStatus,
+    ParticipationRole,
+    PersonKind,
+)
 
 
 def _pg_enum(enum_cls: type[StrEnum], name: str) -> ENUM:
@@ -73,6 +84,8 @@ participation_role_enum = _pg_enum(ParticipationRole, "participation_role")
 mbox_status_enum = _pg_enum(MboxStatus, "mbox_status")
 dns_status_enum = _pg_enum(DnsStatus, "dns_status")
 person_kind_enum = _pg_enum(PersonKind, "person_kind")
+job_kind_enum = _pg_enum(JobKind, "job_kind")
+job_status_enum = _pg_enum(JobStatus, "job_status")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -92,6 +105,11 @@ MAIL_SORT_KEY = "COALESCE(date_utc, '-infinity'::timestamp with time zone)"
 # Sort key of the person list by latest mail (migration 0005, D31): persons without one last.
 LAST_DATE_SORT_KEY = "COALESCE(last_date, '-infinity'::timestamp with time zone)"
 
+# mbox_file.header_version of a file whose stored mails have every header field the importer
+# parses (migration 0006, D52): 1 = with list_id and automated (D39). Files imported before
+# have 0, and the importer reads the headers of their mails again.
+HEADER_VERSION = 1
+
 
 class MboxFile(Base):
     __tablename__ = "mbox_file"
@@ -107,6 +125,7 @@ class MboxFile(Base):
     started_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     worker_id: Mapped[int | None] = mapped_column(SmallInteger)
+    header_version: Mapped[int] = mapped_column(SmallInteger, server_default=str(HEADER_VERSION))
 
 
 class Mail(Base):
@@ -419,3 +438,26 @@ class GlobalStats(Base):
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[Any] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class Job(Base):
+    """A run of `mailrobbe import` or `mailrobbe dkim` (D47); mailrobbe.jobs reads and writes it."""
+
+    __tablename__ = "job"
+    __table_args__ = (
+        CheckConstraint("origin IN ('cli', 'ui')", name="origin"),
+        Index("ix_job_kind", "kind", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[JobKind] = mapped_column(job_kind_enum)
+    origin: Mapped[str] = mapped_column(Text)
+    status: Mapped[JobStatus] = mapped_column(job_status_enum, server_default="running")
+    phase: Mapped[str | None] = mapped_column(Text)
+    options: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    progress: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    message: Mapped[str | None] = mapped_column(Text)
+    stop_requested: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    started_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)

@@ -27,11 +27,10 @@ from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.importer.finalize import finalize
 from mailrobbe.importer.runner import DEFAULT_PIPELINE, FileOutcome, Pipeline, describe, run_files
 from mailrobbe.importer.scan import ScanReport, scan
+from mailrobbe.jobs import IMPORT_LOCK_KEY  # one import at a time, held for a whole run
 
 log = logging.getLogger(__name__)
 
-# Key of the session-level advisory lock held for a whole run: one import at a time.
-IMPORT_LOCK_KEY = int.from_bytes(b"mailrobb", "big")
 _LOCK = text("SELECT pg_try_advisory_lock(:key)")
 _UNLOCK = text("SELECT pg_advisory_unlock(:key)")
 EXIT_OK = 0

@@ -15,7 +15,8 @@ from mailrobbe import cli as main_cli
 from mailrobbe import migrate
 from mailrobbe.config import Settings
 from mailrobbe.importer import cli as importer_cli
-from mailrobbe.importer.cli import IMPORT_LOCK_KEY, run_import
+from mailrobbe.importer.cli import run_import
+from mailrobbe.jobs import IMPORT_LOCK_KEY
 from tests.conftest import GeneratedArchive
 from tests.importer.doubles import (
     PIPELINE,
@@ -118,10 +119,10 @@ def test_an_outdated_schema_is_refused(
     empty_database_url: str, mbox_dir: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     assert _import(empty_database_url, mbox_dir) == 1
-    assert "schema is at revision none, not at 0005: run `mailrobbe migrate` first" in caplog.text
+    assert "schema is at revision none, not at 0006: run `mailrobbe migrate` first" in caplog.text
     migrate.upgrade("0001", empty_database_url)
     assert _import(empty_database_url, mbox_dir) == 1
-    assert "schema is at revision 0001, not at 0005" in caplog.text
+    assert "schema is at revision 0001, not at 0006" in caplog.text
 
 
 def test_a_missing_directory_is_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
