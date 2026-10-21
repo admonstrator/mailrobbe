@@ -1,13 +1,23 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import { filteredQuery } from "../../test/fixtures";
-import { fixtureApi, renderApp } from "../../test/render";
+import { filteredQuery, mailDetail } from "../../test/fixtures";
+import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const filteredPath = `/mails?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`;
 
 function tile(label: string): HTMLElement {
   return within(screen.getByRole("main")).getByText(label, { selector: "span" }).parentElement!;
+}
+
+const timelineCalls = (calls: ApiCall[]) =>
+  calls.filter((call) => call.url.pathname === "/api/timeline");
+
+/** The compact timeline, 36 months laid out 10 px each, as jsdom lays out nothing. */
+async function timeline(): Promise<HTMLElement> {
+  const slider = await screen.findByRole("slider", { name: "Mails pro Monat" });
+  vi.spyOn(slider, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 360, 80));
+  return slider;
 }
 
 describe("mail list", () => {
@@ -129,5 +139,78 @@ describe("mail list", () => {
     expect(within(tile("DKIM gültig")).getAllByText("–")).toHaveLength(2);
     expect(screen.getByText("mehr als 10.000 Treffer · sortiert nach Datum ↓")).toBeTruthy();
     expect(screen.getByText("1–12 von mehr als 10.000")).toBeTruthy();
+  });
+
+  it("shows the filter's timeline above the table and narrows the list to a clicked month", async () => {
+    const { router, calls } = renderApp(filteredPath);
+    const slider = await timeline();
+    expect(slider.closest("section")!.querySelector("h2")!.textContent).toBe("Verlauf pro Monat");
+    expect(timelineCalls(calls)[0].url.search).toBe(
+      `?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`,
+    );
+    expect(screen.getByRole("link", { name: "Zeitachse öffnen" }).getAttribute("href")).toBe(
+      `/zeitachse?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`,
+    );
+
+    fireEvent.click(slider, { clientX: 145 });
+    const search = new URLSearchParams(router.state.location.search);
+    expect(search.get("date_from")).toBe("2024-03-01");
+    expect(search.get("date_to")).toBe("2024-03-31");
+    expect(search.get("q")).toBe(filteredQuery);
+    expect(search.has("cursor")).toBe(false);
+    expect(
+      await screen.findByRole("button", {
+        name: "Filter entfernen: Zeitraum: 01.03.2024 – 31.03.2024",
+      }),
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(timelineCalls(calls).at(-1)!.url.searchParams.get("date_to")).toBe("2024-03-31"),
+    );
+  });
+
+  it("hides the timeline, remembers it and counts nothing while hidden", async () => {
+    renderApp("/mails");
+    await timeline();
+    fireEvent.click(screen.getByRole("button", { name: "Zeitachse ausblenden" }));
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(localStorage.getItem("mailrobbe.timeline")).toBe("hidden");
+
+    cleanup();
+    const { calls } = renderApp("/mails");
+    await screen.findAllByRole("row");
+    const show = screen.getByRole("button", { name: "Zeitachse einblenden" });
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(timelineCalls(calls)).toHaveLength(0);
+    fireEvent.click(show);
+    expect(await screen.findByRole("slider")).toBeTruthy();
+    expect(timelineCalls(calls)).toHaveLength(1);
+    expect(localStorage.getItem("mailrobbe.timeline")).toBeNull();
+  });
+
+  it("limits the list to a thread, named by its first mail's subject", async () => {
+    const { router, calls } = renderApp("/mails?thread=184001", (call) =>
+      call.url.pathname === "/api/mails/184001"
+        ? { ...mailDetail, id: 184001, subject: "Vertragsentwurf Rahmenvereinbarung 2026" }
+        : fixtureApi(call),
+    );
+    const chip = await screen.findByRole("button", {
+      name: "Filter entfernen: Thread: Vertragsentwurf Rahmenvereinbarung 2026",
+    });
+    const page = calls.find((call) => call.url.pathname === "/api/mails")!;
+    expect(page.url.search).toBe("?thread=184001");
+    expect(timelineCalls(calls)[0].url.search).toBe("?thread=184001");
+    fireEvent.click(chip);
+    expect(router.state.location.search).toBe("");
+  });
+
+  it("names a thread by its id while its first mail is unknown", async () => {
+    renderApp("/mails?thread=184001", (call) =>
+      call.url.pathname === "/api/mails/184001"
+        ? Response.json({ detail: { code: "not_found", message: "no mail" } }, { status: 404 })
+        : fixtureApi(call),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Filter entfernen: Thread #184001" }),
+    ).toBeTruthy();
   });
 });

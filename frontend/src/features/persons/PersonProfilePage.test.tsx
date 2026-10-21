@@ -235,6 +235,28 @@ describe("person profile", () => {
     );
   });
 
+  it("shows the person's mails per month, says when they stopped and opens a month", async () => {
+    const { router, calls } = renderApp("/personen/11");
+    await screen.findByRole("heading", { name: "Verlauf pro Monat" });
+    const months = card("Verlauf pro Monat");
+    expect(await within(months).findByText("Seit Oktober 2025 keine Mails mehr")).toBeTruthy();
+    const request = calls.find((call) => call.url.pathname === "/api/timeline")!;
+    expect(request.url.search).toBe("?person=11&hide_duplicates=true&bucket=month");
+    expect(
+      within(months).getByRole("link", { name: "Zeitachse öffnen" }).getAttribute("href"),
+    ).toBe("/zeitachse?person=11&hide_duplicates=true&bucket=month");
+    // The profile's own card is not hidden like the mail list's.
+    expect(within(months).queryByRole("button", { name: "Zeitachse ausblenden" })).toBeNull();
+
+    const slider = within(months).getByRole("slider", { name: "Mails pro Monat" });
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 360, 80));
+    fireEvent.click(slider, { clientX: 145 });
+    expect(router.state.location.pathname).toBe("/mails");
+    expect(router.state.location.search).toBe(
+      "?person=11&hide_duplicates=true&date_from=2024-03-01&date_to=2024-03-31",
+    );
+  });
+
   it("pages through the person's mails in the profile's URL", async () => {
     const { calls } = renderApp("/personen/11?role=cc&cursor=person-mails-2&page=2");
     expect(await screen.findByText("51–59 von 1.204")).toBeTruthy();

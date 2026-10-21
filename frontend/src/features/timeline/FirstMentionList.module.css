@@ -1,0 +1,139 @@
+.card {
+  gap: 10px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.total {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.intro {
+  margin: 0;
+  max-width: 80ch;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 32px;
+}
+
+.scroll {
+  overflow-x: auto;
+  margin: 0 -24px;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 24px;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 24px;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-hover);
+}
+
+.table th.num,
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.person {
+  min-width: 160px;
+}
+
+.kind {
+  margin-left: 8px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.role {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.subject {
+  overflow-wrap: anywhere;
+}
+
+.subject a,
+.subject a:hover {
+  color: var(--color-text);
+}
+
+.more {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.moreHint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}

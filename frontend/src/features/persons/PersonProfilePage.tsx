@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { ApiError } from "../../api/client";
+import { ApiError, withQuery } from "../../api/client";
 import { usePerson } from "../../api/queries";
 import type { PersonProfile } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
@@ -9,6 +9,7 @@ import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
+import { MiniTimeline } from "../timeline/MiniTimeline";
 import { personLabel } from "./labels";
 import { MergeDialog } from "./MergeDialog";
 import { PersonMails } from "./PersonMails";
@@ -91,6 +92,9 @@ function Profile({ profile }: { profile: PersonProfile }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseProfileMailState(searchParams), [searchParams]);
   const [merging, setMerging] = useState(false);
+  const navigate = useNavigate();
+  // The person's mails as the profile's tabs count them (D32), by month.
+  const mails = { person: [profile.id], hide_duplicates: true };
   const setState = (next: ProfileMailState) =>
     setSearchParams(profileMailSearch(next), { preventScrollReset: true });
   const href = (next: ProfileMailState) => {
@@ -116,6 +120,12 @@ function Profile({ profile }: { profile: PersonProfile }) {
           onSelect={(year) => setState(withSelection(state, { year }))}
         />
       </div>
+      <MiniTimeline
+        filters={mails}
+        bucket="month"
+        onPick={(range) => void navigate(withQuery("/mails", { ...mails, ...range }))}
+        silenceLine
+      />
       <PersonMails profile={profile} state={state} onChange={setState} href={href} />
       {merging && <MergeDialog profile={profile} onClose={() => setMerging(false)} />}
     </div>

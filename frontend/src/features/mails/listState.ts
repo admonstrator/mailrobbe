@@ -38,6 +38,8 @@ export interface ListState {
   has_note: boolean;
   /** Mails carrying this document (D75). */
   document: number | null;
+  /** Mails of this thread (D95). */
+  thread: number | null;
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -68,6 +70,7 @@ export const DEFAULT_LIST_STATE: ListState = {
   collection: [],
   has_note: false,
   document: null,
+  thread: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -129,6 +132,7 @@ export function parseListState(search: URLSearchParams): ListState {
   state.collection = ids(search, "collection");
   state.has_note = search.get("has_note") === "true";
   state.document = positiveInt(search.get("document"));
+  state.thread = positiveInt(search.get("thread"));
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -156,6 +160,7 @@ export function toFilters(state: ListState): MailFilters {
   if (state.collection.length) filters.collection = state.collection;
   if (state.has_note) filters.has_note = true;
   if (state.document !== null) filters.document = state.document;
+  if (state.thread !== null) filters.thread = state.thread;
   return filters;
 }
 

@@ -16,6 +16,7 @@ const NAVIGATION = [
   { to: "/personen", label: "Personen" },
   { to: "/anhaenge", label: "Anhänge" },
   { to: "/karte", label: "Karte" },
+  { to: "/zeitachse", label: "Zeitachse" },
   { to: "/akten", label: "Akten" },
   { to: "/import", label: "Import" },
 ];
@@ -27,7 +28,7 @@ export function AppShell() {
       <header className={styles.header}>
         <Link to="/mails" className={styles.logo}>
           <img src="/logo.svg" alt="" width={28} height={28} />
-          Mailrobbe
+          <span className={styles.logoText}>Mailrobbe</span>
         </Link>
         <nav aria-label="Hauptnavigation" className={styles.nav}>
           {NAVIGATION.map(({ to, label }) => (
@@ -153,9 +154,9 @@ function ImportIndicator({ importer }: { importer: ImportState }) {
       ? [`Import unterbrochen · ${percent}`, styles.stopped]
       : ["Import fertig", styles.done];
   return (
-    <Link to="/import" className={cx(styles.importState, tone)}>
+    <Link to="/import" className={cx(styles.importState, tone)} title={text}>
       <span className={styles.importDot} aria-hidden="true" />
-      {text}
+      <span className={styles.importText}>{text}</span>
     </Link>
   );
 }

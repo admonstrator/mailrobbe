@@ -22,6 +22,7 @@ from mailrobbe.api import (
     processes,
     research,
     stats,
+    timeline,
 )
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
@@ -73,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(graph.router)
     app.include_router(imports.router)
     app.include_router(documents.router)  # /api/documents/summary before {id}, as for mails
+    app.include_router(timeline.router)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

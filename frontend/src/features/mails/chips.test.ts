@@ -120,6 +120,20 @@ describe("filterChips", () => {
     expect(byId.has_note.has_note).toBe(false);
   });
 
+  it("names the thread by its first mail's subject, else by its id, and drops it", () => {
+    const thread: ListState = { ...DEFAULT_LIST_STATE, thread: 184001, cursor: "abc", page: 2 };
+    const [named] = filterChips(thread, [], {
+      ...names,
+      thread: (id) => (id === 184001 ? "Vertragsentwurf Rahmenvereinbarung 2026" : undefined),
+    });
+    expect(named.id).toBe("thread");
+    expect(named.label).toBe("Thread: Vertragsentwurf Rahmenvereinbarung 2026");
+    expect(named.next.thread).toBeNull();
+    expect(named.next.cursor).toBeNull();
+    expect(named.next.page).toBe(1);
+    expect(filterChips(thread, [], names).map((chip) => chip.label)).toEqual(["Thread #184001"]);
+  });
+
   it("shows q as one chip while its terms are unknown", () => {
     const chips = filterChips({ ...DEFAULT_LIST_STATE, q: "after:2026-13-01" }, [], names);
     expect(chips.map((chip) => chip.label)).toEqual(["Suche: „after:2026-13-01“"]);
