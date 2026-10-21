@@ -138,6 +138,17 @@ def _expected_signatures(record: Record) -> Counter[tuple[str | None, str | None
     )
 
 
+def _together(manifest: list[Record]) -> Counter[frozenset[str]]:
+    """Mails between two addresses, either one the sender, as edge.mails_total counts them."""
+    together: Counter[frozenset[str]] = Counter()
+    for record in manifest:
+        if record["duplicate_of"] is None:
+            sender = record["sender"].lower()
+            recipients = {a.lower() for role in ("to", "cc", "bcc") for a in record[role]}
+            together.update(frozenset((sender, recipient)) for recipient in recipients - {sender})
+    return together
+
+
 def _sort_key(mail: Row) -> tuple[bool, datetime, int]:
     """MAIL_SORT_KEY then id: mails without a date first."""
     date = mail["date_utc"]
@@ -157,6 +168,8 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
     for mail in sorted(archive.mails, key=_sort_key):
         if mail["thread_id"] is not None:
             threads[mail["thread_id"]].append(mail)
+    together = _together(archive.manifest)
+    assert together
 
     for record, mail in archive.entries:
         index, mail_id = record["index"], mail["id"]
@@ -181,10 +194,13 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
         assert {(p.role.value, p.email) for p in detail.participants} == expected, index
         shown = [(p.role.value, p.email, p.name) for p in detail.participants]
         assert shown == archive.participants[mail_id], index
-        # person_stats and edge stay empty until milestone 5 (D26)
-        assert {(p.mails, p.contacts, p.mails_with_sender) for p in detail.participants} == {
-            (None, None, None)
-        }
+        # person_stats stays empty until milestone 5 (D26); the import fills edge (D36)
+        assert {(p.mails, p.contacts) for p in detail.participants} == {(None, None)}
+        sender = record["sender"].lower()
+        assert {(p.email, p.mails_with_sender) for p in detail.participants} == {
+            (p.email, None if p.email == sender else together.get(frozenset((sender, p.email))))
+            for p in detail.participants
+        }, index
 
         assert [a.model_dump() for a in detail.attachments] == [
             {

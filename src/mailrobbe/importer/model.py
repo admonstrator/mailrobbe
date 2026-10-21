@@ -54,6 +54,8 @@ class ParsedMail:
     body_text: str | None  # text part, or text from HTML when there is none (D3); cut
     attachments: tuple[ParsedAttachment, ...]
     issues: tuple[Issue, ...]
+    list_id: str | None = None  # List-Id inside its angle brackets, lowercase (D39)
+    automated: bool = False  # Auto-Submitted other than "no", or Precedence bulk/junk/auto_reply
 
     @property
     def has_attachments(self) -> bool:

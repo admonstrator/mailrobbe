@@ -43,6 +43,8 @@ MAIL_COLUMNS = (
     "has_attachments",
     "body_text",
     "dkim_status",
+    "list_id",
+    "automated",
 )
 PARTICIPATION_COLUMNS = ("mail_id", "person_id", "role", "display_name")
 ATTACHMENT_COLUMNS = ("mail_id", "filename", "mime_type", "size_bytes", "sha256")
@@ -220,6 +222,8 @@ def _mail_row(mail_id: int, mbox_file_id: int, entry: BatchEntry) -> tuple[Any, 
         mail.has_attachments,
         mail.body_text,
         None if entry.verdict is None else entry.verdict.status.value,
+        mail.list_id,
+        mail.automated,
     )
 
 

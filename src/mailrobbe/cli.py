@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from mailrobbe.dkim import cli as dkim_cli
 from mailrobbe.generator import cli as generator_cli
+from mailrobbe.graph import cli as graph_cli
 from mailrobbe.importer import cli as importer_cli
 
 
@@ -53,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     check = commands.add_parser("dkim", help="check the DKIM signatures of imported mails")
     dkim_cli.add_arguments(check)
     check.set_defaults(handler=dkim_cli.run)
+
+    graph = commands.add_parser("graph", help="recompute or export the relationship map's edges")
+    graph_cli.add_arguments(graph)
+    graph.set_defaults(handler=graph_cli.run)
 
     return parser
 

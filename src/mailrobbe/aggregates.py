@@ -7,8 +7,12 @@ are older than MAILROBBE_STATS_MAX_AGE.
 
 refresh_global_stats and the readers run in the caller's transaction and never commit;
 current_global_stats manages its own short transaction for the API.
+
+refresh_aggregates recomputes everything an import or a DKIM recheck changes: the edges of the
+relationship map (graph/edges.py, D36), then global_stats.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -19,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from mailrobbe.db.models import GlobalStats
 from mailrobbe.enums import DkimStatus
+from mailrobbe.graph.edges import EdgeRefresh, refresh_edges
 
 Executor = AsyncSession | AsyncConnection
 
@@ -75,6 +80,13 @@ async def refresh_global_stats(db: Executor) -> None:
     """Recompute every global_stats row; waits while another refresh holds the lock."""
     await db.execute(select(func.pg_advisory_xact_lock(_LOCK_KEY)))
     await _compute(db)
+
+
+async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> EdgeRefresh:
+    """Recompute edges (all, or those of some persons, see refresh_edges), then global_stats."""
+    edges = await refresh_edges(db, persons)
+    await refresh_global_stats(db)
+    return edges
 
 
 async def current_global_stats(session: AsyncSession, max_age: float) -> GlobalFigures:
