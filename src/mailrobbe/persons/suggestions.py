@@ -14,8 +14,9 @@ suggests nothing, after a merge of two of them it suggests the other four as pai
 that change are written.
 """
 
+import re
 from collections import defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Iterable, Sequence, Set
 from itertools import combinations
 from typing import Any
 
@@ -36,7 +37,7 @@ ROLE_LOCAL_PARTS = frozenset(
         "system", "team", "vertrieb", "webmaster",
     }
 )  # fmt: skip
-_QUOTES = str.maketrans("", "", "\"'`´‘’‚“”„«»‹›")  # noqa: RUF001  (they are meant)
+_QUOTES = re.compile("[\"'`´‘’‚“”„«»‹›]")  # noqa: RUF001  (they are meant)
 
 _KEYS = text("""
     SELECT coalesce(p.merged_into, p.id), e.email, ARRAY(SELECT jsonb_object_keys(e.display_names))
@@ -60,7 +61,7 @@ def normalize_name(name: str) -> str | None:
     Lowercased, quotes removed, "Nachname, Vorname" (exactly one comma) turned around, runs of
     whitespace made one space; it must keep at least two words and contain no @.
     """
-    plain = name.translate(_QUOTES).lower()
+    plain = _QUOTES.sub("", name).lower()
     if "@" in plain:
         return None
     if plain.count(",") == 1:
@@ -89,24 +90,9 @@ async def refresh_alias_suggestions(db: Executor, persons: Collection[int] | Non
     if persons is not None and not persons:
         return
     await lock_persons(db)
-    names: defaultdict[str, set[int]] = defaultdict(set)
-    local_parts: defaultdict[str, set[int]] = defaultdict(set)
-    for root, email, used in await db.execute(_KEYS):
-        local_part = normalize_local_part(email.rpartition("@")[0])
-        if local_part is not None:
-            local_parts[local_part].add(root)
-        for name in filter(None, map(normalize_name, used)):
-            names[name].add(root)
-    dismissed = {tuple(sorted(pair)) for pair in await db.execute(_DISMISSED)}
-    pairs: dict[tuple[int, int], list[str | None]] = {}
-    for reason, groups in enumerate((names, local_parts)):
-        for key, roots in sorted(groups.items()):
-            if len(roots) > MAX_GROUP:
-                continue
-            for pair in combinations(sorted(roots), 2):
-                if pair not in dismissed:
-                    shared = pairs.setdefault(pair, [None, None])
-                    shared[reason] = shared[reason] or key  # keys come in order: the smallest
+    addresses = await db.execute(_KEYS)
+    dismissed = {(min(a, b), max(a, b)) for a, b in await db.execute(_DISMISSED)}
+    pairs = _pairs(addresses, dismissed)
     columns: dict[str, list[Any]] = {
         "person_a": [a for a, _ in pairs],
         "person_b": [b for _, b in pairs],
@@ -115,3 +101,29 @@ async def refresh_alias_suggestions(db: Executor, persons: Collection[int] | Non
     }
     keys, values = ("person_a", "person_b"), ("same_name", "same_local_part")
     await sync_rows(db, "alias_suggestion", keys, values, _FRESH, columns)
+
+
+def _pairs(
+    addresses: Iterable[tuple[int, str, Sequence[str]]], dismissed: Set[tuple[int, int]]
+) -> dict[tuple[int, int], list[str | None]]:
+    """The smallest name and local part each pair of roots shares (None: none), by address."""
+    names: defaultdict[str, set[int]] = defaultdict(set)
+    local_parts: defaultdict[str, set[int]] = defaultdict(set)
+    for root, email, used in addresses:
+        local_part = normalize_local_part(email.rpartition("@")[0])
+        if local_part is not None:
+            local_parts[local_part].add(root)
+        for name in filter(None, map(normalize_name, used)):
+            names[name].add(root)
+    pairs: dict[tuple[int, int], list[str | None]] = {}
+    for reason, groups in enumerate((names, local_parts)):
+        for key, roots in groups.items():
+            if not 2 <= len(roots) <= MAX_GROUP:
+                continue
+            for pair in combinations(sorted(roots), 2):
+                if pair not in dismissed:
+                    shared = pairs.setdefault(pair, [None, None])
+                    smallest = shared[reason]
+                    if smallest is None or key < smallest:
+                        shared[reason] = key
+    return pairs

@@ -137,6 +137,7 @@ async def refresh_person_stats(db: Executor, persons: Collection[int] | None = N
         edge_a, edge_b = f"WHERE person_a = {_ANY_ROOT}", f"WHERE person_b = {_ANY_ROOT}"
         scope = "t.person_id = ANY(CAST(:ids AS bigint[]))"
     await db.execute(text(_FIGURES.format(members=members)), params)
+    await db.execute(text("ANALYZE person_figures"))
     stats = _STATS.format(edge_a=edge_a, edge_b=edge_b, roots=roots)
     await sync_rows(db, "person_stats", _STATS_KEYS, _STATS_VALUES, stats, params, scope)
     await sync_rows(db, "person_year", _YEAR_KEYS, _YEAR_VALUES, _YEARS, params, scope)
