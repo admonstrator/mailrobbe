@@ -32,6 +32,8 @@ import type {
   DomainCount,
   ExportInfo,
   ExportRequest,
+  FirstMentionParams,
+  FirstMentions,
   Graph,
   GraphParams,
   GraphSize,
@@ -78,6 +80,8 @@ import type {
   TagRef,
   TagUpdate,
   ThemeInfo,
+  Timeline,
+  TimelineParams,
 } from "./types";
 
 export function createQueryClient(): QueryClient {
@@ -140,6 +144,8 @@ export const queryKeys = {
   documentSummary: (filters: DocumentFilters) => ["documents", "summary", filters] as const,
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
+  timeline: (params: TimelineParams) => ["mails", "timeline", params] as const,
+  firstMentions: (params: FirstMentionParams) => ["mails", "first-mentions", params] as const,
 };
 
 export function useStats() {
@@ -734,5 +740,27 @@ export function useDocumentText(id: number, enabled: boolean) {
     queryKey: queryKeys.documentText(id),
     queryFn: ({ signal }) => apiGet<DocumentText>(`/api/documents/${id}/text`, undefined, signal),
     enabled,
+  });
+}
+
+// Timeline (D90 to D94) -------------------------------------------------------------------------
+
+/** The matching mails over time; under the mails prefix, so research writes refresh it. The
+ *  previous one stays while the next loads, so the chart keeps its place. */
+export function useTimeline(params: TimelineParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.timeline(params),
+    queryFn: ({ signal }) => apiGet<Timeline>("/api/timeline", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useFirstMentions(params: FirstMentionParams, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.firstMentions(params),
+    queryFn: ({ signal }) => apiGet<FirstMentions>("/api/timeline/first-mentions", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }

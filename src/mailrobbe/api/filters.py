@@ -159,6 +159,8 @@ def mail_conditions(
         where.append(_external(internal))
     if filters.document is not None:
         where.append(_carries(filters.document))
+    if filters.thread is not None:
+        where.append(Mail.thread_id == filters.thread)
     return where
 
 

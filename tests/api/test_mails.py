@@ -219,6 +219,20 @@ async def test_filters_select_what_sql_selects(
     assert await listed(client, params) == await ids(imported_database_url, where)
 
 
+async def test_thread_filter_selects_the_threads_mails(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    found = await rows(
+        imported_database_url,
+        "SELECT thread_id FROM mail WHERE thread_id IS NOT NULL"
+        " GROUP BY thread_id ORDER BY count(*) DESC, thread_id LIMIT 1",
+    )
+    thread = found[0].thread_id
+    expected = await ids(imported_database_url, "thread_id = :thread", thread=thread)
+    assert len(expected) > 1
+    assert await listed(client, [("thread", str(thread))]) == expected
+
+
 async def test_participant_filters_select_what_sql_selects(
     client: httpx.AsyncClient, imported_database_url: str
 ) -> None:
