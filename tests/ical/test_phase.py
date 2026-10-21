@@ -5,6 +5,7 @@ events at the next import, and a second import reads only new mails."""
 import asyncio
 import base64
 from collections.abc import AsyncIterator, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from mailrobbe.config import Settings
 from mailrobbe.db.models import CALENDAR_VERSION
 from mailrobbe.ical import phase
 from mailrobbe.ical.model import read_figures
+from mailrobbe.ical.parse import ParsedEvent, message_events
 from mailrobbe.importer.cli import run_import
 from mailrobbe.jobrun import Step
 from mailrobbe.jobs import ImportProgress
@@ -247,6 +249,37 @@ async def test_a_changed_file_keeps_the_events_and_is_tried_again(
         assert await phase.waiting(session) == 1  # the changed candidate
     rows = await _rows(engine, "SELECT version FROM calendar_scan ORDER BY mail_id")
     assert [row["version"] for row in rows] == [CALENDAR_VERSION - 1] + [CALENDAR_VERSION] * 4
+
+
+async def test_a_mail_whose_events_the_database_refuses_keeps_none_and_the_rest_goes_on(
+    database_url: str,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def refused(message: bytes) -> list[ParsedEvent]:
+        events = message_events(message)
+        if b"Kick-off" not in message:
+            return events
+        return [replace(event, sequence=2**40) for event in events]  # beyond an integer column
+
+    monkeypatch.setattr(phase, "message_events", refused)
+    mbox_dir = _archive(tmp_path / "mbox", {"a.mbox": MAILS})
+    assert await run_import(Settings(database_url=database_url), mbox_dir, 2) == 0
+
+    assert await _scans(engine) == {
+        "Vorstandssitzung": (True, 1),
+        "[EXTERN] Angenommen: Vorstandssitzung": (True, 1),
+        "Kick-off Nordlicht": (True, 0),
+        "Einladung zum Sommerfest": (False, 0),
+        "AW: Einladung: Grillen": (True, 0),
+    }
+    assert [event["mail"] for event in await _events(engine)] == [
+        "Vorstandssitzung",
+        "[EXTERN] Angenommen: Vorstandssitzung",
+    ]
+    assert "events not stored" in caplog.text
 
 
 async def test_worker_processes_read_large_pages(

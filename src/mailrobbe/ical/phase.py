@@ -13,7 +13,9 @@ read from their MBOX files, and the events of their iCalendar parts stored.
     store       per page one transaction: the events and attendees of its mails replaced, their
                 calendar_scan rows written (read: the mail was a candidate and was read), the
                 step advanced by the page; at the end the figures in global_stats 'calendar'
-                (events, and per kind the mails that are no duplicates)
+                (events, and per kind the mails that are no duplicates). A page the database
+                refuses is stored again mail by mail, and a mail whose events it cannot take
+                keeps none (logged), so one mail never stops the step.
 
 A stop (D46) ends the phase between two pages: the stored pages stay, the rest waits for the next
 import. A candidate whose MBOX file is missing or changed gets no scan row and keeps the events
@@ -34,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from mailrobbe.db.models import CALENDAR_VERSION
@@ -217,7 +220,11 @@ async def scan_calendar(
                     )
             found = await _read_all(pool, str(mbox_dir), candidates)
             async with sessionmaker() as session, session.begin():
-                await _store(session, ids, found, result)
+                try:
+                    async with session.begin_nested():
+                        await _store(session, ids, found, result)
+                except DBAPIError:
+                    await _store_alone(session, ids, found, result)
             step.advance(len(ids))
     finally:
         if pool is not None:
@@ -297,6 +304,22 @@ async def _store(
     result.read += len(events)
     result.unreadable += len(unreadable)
     result.events += len(rows)
+
+
+async def _store_alone(
+    session: AsyncSession, ids: list[int], found: list[_Read], result: _Result
+) -> None:
+    """A page the database refused, again: the mails that were no candidates at once, then every
+    candidate by itself; one whose events are refused is stored without them."""
+    candidates = {mail_id for mail_id, _ in found}
+    await _store(session, [mail_id for mail_id in ids if mail_id not in candidates], [], result)
+    for mail_id, events in found:
+        try:
+            async with session.begin_nested():
+                await _store(session, [mail_id], [(mail_id, events)], result)
+        except DBAPIError as error:
+            log.warning("calendar: mail %d: events not stored: %s", mail_id, describe(error))
+            await _store(session, [mail_id], [(mail_id, [])], result)
 
 
 def _event_parameters(rows: list[tuple[int, int, ParsedEvent]]) -> dict[str, Any]:
