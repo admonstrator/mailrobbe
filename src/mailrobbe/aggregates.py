@@ -13,7 +13,8 @@ recomputed after each import (importer.finalize) and when one pauses, after `mai
 by the API when they are older than MAILROBBE_STATS_MAX_AGE.
 
 refresh_global_stats and the readers run in the caller's transaction and never commit;
-current_global_stats manages its own short transaction for the API.
+current_global_stats manages its own short transaction for the API. A run passes its steps
+(jobrun.Steps, D110) to refresh_aggregates, which reports each table as a step of its own.
 """
 
 from collections.abc import Collection
@@ -28,10 +29,13 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from mailrobbe.db.models import GlobalStats
 from mailrobbe.enums import DkimStatus
 from mailrobbe.graph.edges import EdgeRefresh, refresh_edges
+from mailrobbe.jobrun import Steps
 from mailrobbe.persons.stats import refresh_person_stats
 from mailrobbe.persons.suggestions import refresh_alias_suggestions
 
 Executor = AsyncSession | AsyncConnection
+
+STEPS = ("edges", "person_stats", "suggestions", "global_stats")  # of refresh_aggregates, in order
 
 UNCHECKED = "unchecked"  # the DKIM count key of mails not checked yet (dkim_status NULL)
 # Transaction-level advisory lock: one refresh at a time; API requests do not wait for it.
@@ -112,19 +116,26 @@ class GlobalFigures:
     updated_at: datetime  # when they were computed
 
 
-async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> EdgeRefresh:
+async def refresh_aggregates(
+    db: Executor, persons: Collection[int] | None = None, steps: Steps | None = None
+) -> EdgeRefresh:
     """Every aggregation table; persons limits them to these persons after a merge (D33).
 
     A merge changes no global figure but the number of persons, so only that one is counted
     again then; the others stay as they are, and so does their updated_at.
     """
-    edges = await refresh_edges(db, persons)
-    await refresh_person_stats(db, persons)
-    await refresh_alias_suggestions(db, persons)
-    if persons is None:
-        await refresh_global_stats(db)
-    else:
-        await db.execute(_PERSON_COUNT)
+    steps = Steps() if steps is None else steps
+    with steps.step("edges"):
+        edges = await refresh_edges(db, persons)
+    with steps.step("person_stats"):
+        await refresh_person_stats(db, persons)
+    with steps.step("suggestions"):
+        await refresh_alias_suggestions(db, persons)
+    with steps.step("global_stats"):
+        if persons is None:
+            await refresh_global_stats(db)
+        else:
+            await db.execute(_PERSON_COUNT)
     return edges
 
 

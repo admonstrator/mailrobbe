@@ -16,8 +16,8 @@ from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.importer import headers
 from mailrobbe.importer.cli import run_import
 from mailrobbe.importer.parse import parse_record
-from mailrobbe.importer.runner import ImportFigures
 from mailrobbe.importer.split import MboxRecord
+from mailrobbe.jobrun import Step
 from mailrobbe.jobs import ImportProgress
 from tests.importer.doubles import PIPELINE, message, write_mbox
 
@@ -134,12 +134,12 @@ async def _refresh(
     sessionmaker: async_sessionmaker[AsyncSession],
     mbox_dir: Path,
     stop: asyncio.Event | None = None,
-) -> ImportFigures:
-    figures = ImportFigures()
+) -> Step:
+    step = Step("mails")
     async with sessionmaker() as session:
         files = await headers.outdated_files(session)
-    await headers.refresh_headers(sessionmaker, mbox_dir, files, stop or asyncio.Event(), figures)
-    return figures
+    await headers.refresh_headers(sessionmaker, mbox_dir, files, stop or asyncio.Event(), step)
+    return step
 
 
 async def test_older_files_get_the_header_fields_an_import_stores(
@@ -153,7 +153,7 @@ async def test_older_files_get_the_header_fields_an_import_stores(
             headers.OutdatedFile(file_id, "a.mbox", len(records))
         ]
 
-    figures = await _refresh(sessionmaker, tmp_path)
+    step = await _refresh(sessionmaker, tmp_path)
     assert (
         await _fields(sessionmaker, file_id)
         == _expected(records)
@@ -168,7 +168,7 @@ async def test_older_files_get_the_header_fields_an_import_stores(
         ]
     )
     assert await _version(sessionmaker, file_id) == 1
-    assert figures.headers_done == len(records)
+    assert step.done == len(records)
     async with sessionmaker() as session:
         assert await headers.outdated_files(session) == []
     assert "headers of a.mbox read again: 7 mails, 5 changed in " in caplog.text
@@ -211,8 +211,8 @@ async def test_a_stop_between_pages_leaves_the_version(
         return read_page(*args)
 
     monkeypatch.setattr(headers, "_read_page", read_and_stop)
-    figures = await _refresh(sessionmaker, tmp_path, stop)
-    assert figures.headers_done == headers.PAGE
+    step = await _refresh(sessionmaker, tmp_path, stop)
+    assert step.done == headers.PAGE
     expected = _expected(records)
     assert await _fields(sessionmaker, file_id) == [*expected[:3], *[(None, False)] * 4]
     assert await _version(sessionmaker, file_id) == 0
@@ -284,4 +284,5 @@ async def test_an_import_reads_the_headers_of_older_files_first(
     assert await _query(sessionmaker, kinds) == [("automated",)]  # the finalize after it
     [(progress,)] = await _query(sessionmaker, "SELECT progress FROM job ORDER BY id DESC LIMIT 1")
     figures = ImportProgress.model_validate(progress)
-    assert (figures.headers_total, figures.headers_done, figures.files_queued) == (10, 10, 0)
+    [step] = [step for step in figures.steps if step.key == "headers"]
+    assert (step.status, step.total, step.done, figures.files_queued) == ("done", 10, 10, 0)

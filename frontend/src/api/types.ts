@@ -604,8 +604,37 @@ export interface ImportOptions {
   text_timeout: number; // seconds per document
 }
 
+export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
+export type StepUnit = "bytes" | "mails" | "documents";
+
+/** One step of a run, in the order the run goes through them (D110). */
+export interface StepProgress {
+  key: string; // English name, e.g. "edges"; labels.ts has the German label
+  /** stopped: left on a stop request short of its total; skipped: nothing to do this run. */
+  status: StepStatus;
+  unit: StepUnit | null; // null: the step does not count its work
+  done: number;
+  total: number | null;
+  started_at: string | null;
+  seconds: number; // in the step: so far while it runs, in all once it ended
+  rate: number | null; // units per second over the last 60 s, while it runs
+  eta_seconds: number | null; // an estimate, while it runs
+}
+
+/** The run's longest running database statement (D110). */
+export interface DbActivity {
+  seconds: number;
+  wait: string | null; // null: computing; "IO": reading or writing; "Lock": waiting for a lock
+}
+
+/** What every run reports beside its own figures. */
+interface RunProgress {
+  steps: StepProgress[];
+  database: DbActivity | null;
+}
+
 /** Live figures of an import run, reported every 2 s. */
-export interface ImportProgress {
+export interface ImportProgress extends RunProgress {
   workers: number; // busy now
   files_queued: number;
   files_finished: number;
@@ -615,11 +644,6 @@ export interface ImportProgress {
   dkim_per_second: number;
   bytes_per_second: number;
   eta_seconds: number | null;
-  headers_total: number; // phase "headers": mails whose headers are read again
-  headers_done: number;
-  documents_total: number; // phase "attachments": documents whose text this run extracts
-  documents_done: number;
-  documents_per_second: number;
 }
 
 export interface DkimOptions {
@@ -629,7 +653,7 @@ export interface DkimOptions {
   offline: boolean;
 }
 
-export interface DkimProgress {
+export interface DkimProgress extends RunProgress {
   workers: number;
   selected: number;
   checked: number;
@@ -648,8 +672,11 @@ interface JobInfo {
   stop_requested: boolean;
   started_at: string;
   updated_at: string; // its last report
+  report_age_seconds: number; // since its last report
   finished_at: string | null;
   message: string | null; // English summary or failure reason
+  /** A statement the run left running in the database although its process ended. */
+  leftover: DbActivity | null;
 }
 
 export interface ImportJob extends JobInfo {

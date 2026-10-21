@@ -7,6 +7,7 @@ import {
   formatDateTimeLong,
   formatDay,
   formatDuration,
+  formatElapsed,
   formatIsoDay,
   formatNumber,
   formatPercent,
@@ -60,6 +61,15 @@ describe("durations", () => {
     expect(formatRemaining(168)).toBe("3 min");
     expect(formatRemaining(6012)).toBe("1 h 40 min");
     expect(formatRemaining(26 * 3600 + 10)).toBe("26 h");
+  });
+
+  it("are exact to the second as an elapsed time", () => {
+    expect(formatElapsed(0.4)).toBe("unter 1 s");
+    expect(formatElapsed(12.9)).toBe("12 s");
+    expect(formatElapsed(187)).toBe("3 min 7 s");
+    expect(formatElapsed(120)).toBe("2 min");
+    expect(formatElapsed(3900)).toBe("1 h 5 min");
+    expect(formatElapsed(7200)).toBe("2 h");
   });
 });
 
