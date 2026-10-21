@@ -7,7 +7,7 @@
 
 <h1>Mailrobbe</h1>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/mailrobbe/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/admonstrator/mailrobbe/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.12-1D5BD6?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white)](docker-compose.yml) [![React](https://img.shields.io/badge/React-TypeScript-0EA5E9?style=for-the-badge&logo=react&logoColor=white)](frontend/) [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#schnellstart)
+[![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/mailrobbe/ci.yml?event=pull_request&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/admonstrator/mailrobbe/actions/workflows/ci.yml?query=event%3Apull_request) [![Python](https://img.shields.io/badge/Python-3.12-1D5BD6?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white)](docker-compose.yml) [![React](https://img.shields.io/badge/React-TypeScript-0EA5E9?style=for-the-badge&logo=react&logoColor=white)](frontend/) [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#schnellstart)
 
 [Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Schnellstart](#schnellstart) | [Web-Oberfläche](#web-oberfläche) | [Häufige Fragen](#häufige-fragen)
 
