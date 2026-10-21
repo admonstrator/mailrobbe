@@ -1,0 +1,228 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 24px 24px;
+}
+
+.back {
+  align-self: flex-start;
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 24px;
+}
+
+.heading {
+  display: flex;
+  flex: 1 1 480px;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.description {
+  max-width: 80ch;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.tileLabel {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.tileValue {
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: 16px;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.persons,
+.searches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  list-style: none;
+}
+
+.persons li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.person {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personCount {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mails {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.mailsHead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 16px 20px 12px;
+}
+
+.mailList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mailRow {
+  display: grid;
+  grid-template-columns: 96px minmax(120px, 200px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 20px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 13px;
+}
+
+.mailDate {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mailSender,
+.mailSubject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mailSubject {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.mailSubject.muted {
+  font-weight: 400;
+}
+
+.moreLink {
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 13px;
+}
+
+@media (max-width: 1023px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 16px;
+  }
+
+  .tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mailRow {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 10px 16px;
+  }
+
+  .mailSubject {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+}
