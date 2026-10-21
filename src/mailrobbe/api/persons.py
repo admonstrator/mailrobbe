@@ -52,7 +52,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from mailrobbe.api.deps import AppSettings, Session, api_error
+from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.filters import _contains, mail_conditions
 from mailrobbe.api.mails import _count_budget, _unless_canceled
 from mailrobbe.api.schemas import (
@@ -69,6 +69,7 @@ from mailrobbe.api.schemas import (
     MailFilters,
     MergeRequest,
     PersonFigures,
+    PersonLabelUpdate,
     PersonListParams,
     PersonMailCountParams,
     PersonMailCounts,
@@ -95,6 +96,13 @@ from mailrobbe.db.models import (
 )
 from mailrobbe.db.models import AliasSuggestion as SuggestionRow
 from mailrobbe.enums import ParticipationRole
+from mailrobbe.persons.labels import (
+    address_labels,
+    attach_labels,
+    labelled_roots,
+    set_label,
+    shown_labels,
+)
 from mailrobbe.persons.merge import MergeError, UnknownPerson, merge_persons, unmerge_person
 from mailrobbe.persons.merge import dismiss_suggestion as dismiss_pair
 from mailrobbe.persons.roots import member_ids, resolve_root
@@ -281,7 +289,7 @@ async def list_persons(
     params: Annotated[PersonListParams, Query()], session: Session
 ) -> PersonPage:
     q = params.q.strip()
-    scope = f"persons/{params.sort}/{q}"
+    scope = f"persons/{params.sort}/{q}" + ("/labelled" if params.labelled else "")
     kind = {"mails": _int, "recent": _stamp, "name": _text}[params.sort]
     cursor = _Cursor.decode(params.cursor, scope, (kind, _int))
     key, kept, descending = _person_key(params.sort)
@@ -293,7 +301,9 @@ async def list_persons(
         matching = select(func.coalesce(match.merged_into, match.id)).where(
             or_(match.canonical_email.ilike(pattern), match.display_name.ilike(pattern))
         )
-        where.append(Person.id.in_(matching))
+        where.append(Person.id.in_(union_all(matching, labelled_roots(pattern))))
+    if params.labelled:
+        where.append(Person.id.in_(labelled_roots()))
     reverse = cursor is not None and cursor.before
     start = []
     if cursor is not None:
@@ -334,12 +344,14 @@ async def list_persons(
     else:
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
-    return PersonPage(
+    page = PersonPage(
         items=[summaries[row.person_id] for row in rows],
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         total=total or 0,
     )
+    await attach_labels(session, page)
+    return page
 
 
 # Alias suggestions -----------------------------------------------------------------------------
@@ -389,7 +401,7 @@ async def list_suggestions(
         last = found[-1]
         key = (last.both, last.mails, last.first, last.second)
         next_cursor = _Cursor("suggestions", False, key).encode()
-    return SuggestionPage(
+    page = SuggestionPage(
         items=[
             AliasSuggestion(
                 first=summaries[row.first],
@@ -402,6 +414,8 @@ async def list_suggestions(
         next_cursor=next_cursor,
         total=total or 0,
     )
+    await attach_labels(session, page)
+    return page
 
 
 @contextmanager
@@ -442,6 +456,22 @@ async def unmerge(person_id: PersonId, session: Session) -> PersonProfile:
     return await _profile(session, root)
 
 
+# Labels ----------------------------------------------------------------------------------------
+
+
+@router.put("/persons/{person_id}/label")
+async def save_label(
+    person_id: PersonId, update: PersonLabelUpdate, session: Session, editor: Editor
+) -> PersonProfile:
+    """The label of the root's own address (D156); all fields blank removes it."""
+    root = await _root(session, person_id)
+    email = await session.scalar(select(Person.canonical_email).where(Person.id == root))
+    assert email is not None, "_root found the person"
+    await set_label(session, email, update, editor)
+    await session.commit()
+    return await _profile(session, root)
+
+
 # Profile ---------------------------------------------------------------------------------------
 
 
@@ -467,7 +497,7 @@ async def _profile(session: AsyncSession, root: int) -> PersonProfile:
         .order_by(PersonYear.year)
     )
     contacts, _ = await _contacts(session, root, TOP_CONTACTS)
-    return PersonProfile(
+    profile = PersonProfile(
         id=root,
         name=person.display_name,
         email=person.canonical_email,
@@ -480,7 +510,10 @@ async def _profile(session: AsyncSession, root: int) -> PersonProfile:
         ],
         top_contacts=contacts,
         suggestions=await _candidates(session, root),
+        label=(await shown_labels(session, [root])).get(root),
     )
+    await attach_labels(session, profile)
+    return profile
 
 
 async def _aliases(session: AsyncSession, root: int) -> list[AliasAddress]:
@@ -491,13 +524,18 @@ async def _aliases(session: AsyncSession, root: int) -> list[AliasAddress]:
         .scalar_subquery()
         .label("mails")
     )
-    rows = await session.execute(
-        select(Person.id, Person.canonical_email, Person.display_name, mails)
-        .where(Person.merged_into == root)
-        .order_by(mails.desc(), Person.id.desc())
+    rows = list(
+        await session.execute(
+            select(Person.id, Person.canonical_email, Person.display_name, mails)
+            .where(Person.merged_into == root)
+            .order_by(mails.desc(), Person.id.desc())
+        )
     )
+    labels = await address_labels(session, [row.canonical_email for row in rows])
     return [
-        AliasAddress(person_id=person_id, email=email, name=name, mails=count)
+        AliasAddress(
+            person_id=person_id, email=email, name=name, mails=count, label=labels.get(email)
+        )
         for person_id, email, name, count in rows
     ]
 
@@ -617,7 +655,9 @@ async def list_contacts(
     if more:
         last = contacts[-1]
         next_cursor = _Cursor(scope, False, (last.mails, last.person.person_id)).encode()
-    return ContactPage(items=contacts, next_cursor=next_cursor, total=total or 0)
+    page = ContactPage(items=contacts, next_cursor=next_cursor, total=total or 0)
+    await attach_labels(session, page)
+    return page
 
 
 # Mail counts -----------------------------------------------------------------------------------

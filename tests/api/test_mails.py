@@ -754,8 +754,9 @@ async def test_csv_names_the_signals_of_each_mail(
     generated_archive: GeneratedArchive,
     tmp_path: Path,
 ) -> None:
-    # D139: the last column names the stored signals in display order, empty without any.
-    assert CSV_HEADER[-1] == "Signale"
+    # D139: the column before the labels names the stored signals in display order, empty
+    # without any.
+    assert CSV_HEADER[-2:] == ("Signale", "Benennungen")
     signal_rules = rules(api_settings(signal_database_url, generated_archive, tmp_path))
     stored = await rows(
         signal_database_url,
@@ -766,7 +767,7 @@ async def test_csv_names_the_signals_of_each_mail(
         row.id: ", ".join(signal_rules.label(key) for key in signal_rules.keys if key in row.keys)
         for row in stored
     }
-    exported = {int(row[0]): row[-1] for row in await export(signal_client)}
+    exported = {int(row[0]): row[-2] for row in await export(signal_client)}
     assert exported == expected
     assert any(", " in cell for cell in exported.values())
     assert "" in exported.values()

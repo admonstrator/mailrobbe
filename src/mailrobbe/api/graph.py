@@ -18,8 +18,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.api.deps import Session, api_error
-from mailrobbe.api.schemas import Graph, GraphParams, GraphSize
+from mailrobbe.api.schemas import AccountLabel, Graph, GraphNode, GraphParams, GraphSize
 from mailrobbe.graph import excerpt, graphml
+from mailrobbe.persons.labels import attach_labels
 
 router = APIRouter(prefix="/api", tags=["graph"])
 
@@ -58,17 +59,7 @@ async def export_graphml(
     params: Annotated[GraphParams, Query()], session: Session
 ) -> StreamingResponse:
     shown = await _graph(session, params)
-    nodes = (
-        graphml.GraphmlNode(
-            id=node.id,
-            label=node.name or node.email,
-            email=node.email,
-            domain=node.domain,
-            kind=None if node.kind is None else node.kind.value,
-            mails=node.mails,
-        )
-        for node in shown.nodes
-    )
+    nodes = (_graphml_node(node) for node in shown.nodes)
     edges = (
         graphml.GraphmlEdge(
             source=edge.source,
@@ -87,10 +78,27 @@ async def export_graphml(
     )
 
 
+def _graphml_node(node: GraphNode) -> graphml.GraphmlNode:
+    """The node as the map shows it: named by its label, else its display name or address."""
+    label = node.label or AccountLabel(name=None, role=None)
+    return graphml.GraphmlNode(
+        id=node.id,
+        label=label.name or node.name or node.email,
+        email=node.email,
+        domain=node.domain,
+        kind=None if node.kind is None else node.kind.value,
+        mails=node.mails,
+        label_name=label.name,
+        label_role=label.role,
+    )
+
+
 async def _graph(session: AsyncSession, params: GraphParams) -> Graph:
     await session.execute(_NO_JIT)
     with _errors():
-        return await excerpt.build_graph(session, params)
+        shown = await excerpt.build_graph(session, params)
+    await attach_labels(session, shown)
+    return shown
 
 
 async def _pieces(chunks: Iterable[str]) -> AsyncIterator[bytes]:
