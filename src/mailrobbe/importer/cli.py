@@ -2,10 +2,10 @@
 text extraction, metadata, entities, signals and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize, attachments (only when documents wait for their text, D72),
-metadata (only when documents wait for their metadata, D167), entities (only when texts wait
-for their scan, D84), signals (always, D135) and topics (only when the archive changed since
-they were computed, D146), and reports its figures
+it, D52), import, finalize, attachments (only when documents wait for their text, D72, or for
+their metadata, D167, which has a step of its own), entities (only when texts wait for their
+scan, D84), signals (always, D135) and topics (only when the archive changed since they were
+computed, D146), and reports its figures
 (ImportFigures) every few seconds, with one step per phase and per part of the finalize and the
 topics (STEPS, D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the
 workers store their batch, the files pause, the global figures count what is stored, and the
@@ -324,7 +324,7 @@ async def _collect_metadata(
     if not waiting:
         job.steps.skip("metadata")
         return
-    job.set_phase("metadata")
+    job.set_phase("attachments")  # the step belongs to the attachments phase (jobs.ImportPhase)
     with job.steps.step("metadata", unit="documents", total=len(waiting)) as step:
         await phase.collect_metadata(
             sessionmaker, settings, mbox_dir, waiting, workers, job.stop, figures, step
