@@ -1,9 +1,9 @@
-"""The `mailrobbe import` command: a run (jobrun) of scan, worker pool, finalize.
+"""The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize.
 
-The run records itself in `job` (D47) with its phases scan, import and finalize, and reports its
-figures (ImportFigures) every few seconds. It stops on Ctrl-C, SIGTERM and the dashboard's stop
-request alike: the workers store their batch, the files pause, and the finalize is left to the
-next run.
+The run records itself in `job` (D47) with its phases scan, headers (only when older files need
+it, D52), import and finalize, and reports its figures (ImportFigures) every few seconds. It
+stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch,
+the files pause, and the finalize is left to the next run.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error or the import could not start, 130 when it was stopped; the next run resumes.
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
+from mailrobbe.importer import headers
 from mailrobbe.importer.finalize import finalize
 from mailrobbe.importer.runner import (
     DEFAULT_PIPELINE,
@@ -137,6 +138,8 @@ async def _import(
         report = await scan(session, mbox_dir, found)
     _log_scan(report, mbox_dir)
     figures.files_queued = len(report.pending)
+    if not stop.is_set():
+        await _refresh_headers(sessionmaker, mbox_dir, job, figures)
     outcomes: list[FileOutcome] = []
     if not stop.is_set():
         job.set_phase("import")
@@ -174,6 +177,27 @@ async def _import(
             line += f"; {failed[0].path}: {failed[0].error}"
         return _Ending(JobStatus.FAILED, line, EXIT_FAILED)
     return _Ending(JobStatus.DONE, summary.line, EXIT_OK)
+
+
+async def _refresh_headers(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    mbox_dir: Path,
+    job: JobRun,
+    figures: ImportFigures,
+) -> None:
+    """The headers phase (D52), when files imported before need it."""
+    async with sessionmaker() as session:
+        files = await headers.outdated_files(session)
+    if not files:
+        return
+    figures.headers_total = sum(file.mails for file in files)
+    job.set_phase("headers")
+    log.info(
+        "reading the headers of %d mails in %d files imported before again",
+        figures.headers_total,
+        len(files),
+    )
+    await headers.refresh_headers(sessionmaker, mbox_dir, files, job.stop, figures)
 
 
 def _log_scan(report: ScanReport, mbox_dir: Path) -> None:

@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from mailrobbe.db.models import HEADER_VERSION
 from mailrobbe.enums import MboxStatus
 
 MBOX_MAGIC = b"From "
@@ -172,7 +173,10 @@ async def _insert(session: AsyncSession, file: FoundFile) -> ScannedFile:
 
 
 async def _forget_mails(session: AsyncSession, file_id: int) -> None:
-    """Delete a file's mails (cascading to their rows) and import errors, reset its progress."""
+    """Delete a file's mails (cascading to their rows) and import errors, reset its progress.
+
+    The mails imported again get every header field, so the file needs no header refresh (D52).
+    """
     await session.execute(text("DELETE FROM mail WHERE mbox_file_id = :id"), {"id": file_id})
     await session.execute(
         text("DELETE FROM import_error WHERE mbox_file_id = :id"), {"id": file_id}
@@ -180,9 +184,9 @@ async def _forget_mails(session: AsyncSession, file_id: int) -> None:
     await session.execute(
         text(
             "UPDATE mbox_file SET bytes_done = 0, mails_parsed = 0, error_count = 0, "
-            "started_at = NULL, finished_at = NULL WHERE id = :id"
+            "started_at = NULL, finished_at = NULL, header_version = :version WHERE id = :id"
         ),
-        {"id": file_id},
+        {"id": file_id, "version": HEADER_VERSION},
     )
 
 
