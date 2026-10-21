@@ -1,8 +1,8 @@
-"""Persons: the person list, profiles, contacts, mail counts, alias suggestions and merges
-(milestone 5, D28 to D33). Endpoints and models are in schemas.py.
+"""Persons: the person list, profiles, contacts, mail counts, alias suggestions, merges and the
+merge log (milestone 5, D28 to D33, D160 to D163). Endpoints and models are in schemas.py.
 
-Static paths (/api/persons/suggestions, /api/persons/merge) are registered before the ones
-with a person id.
+Static paths (/api/persons/suggestions, /api/persons/merge, /api/persons/merges, ...) are
+registered before the ones with a person id.
 
 Every id in a path may name an alias; it stands for its root (D28). Figures come from
 person_stats, person_year and edge (SPEC 6.3); only the mail counts of a profile's aliases and
@@ -52,7 +52,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from mailrobbe.api.deps import AppSettings, Session, api_error
+from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.filters import _contains, mail_conditions
 from mailrobbe.api.mails import _count_budget, _unless_canceled
 from mailrobbe.api.schemas import (
@@ -62,12 +62,19 @@ from mailrobbe.api.schemas import (
     AliasAddress,
     AliasCandidate,
     AliasSuggestion,
+    CertainMergePlan,
+    CertainMergeResult,
     Contact,
     ContactListParams,
     ContactPage,
     DisplayNameCount,
     MailFilters,
+    MergeBatchInfo,
+    MergeLogEntry,
+    MergeLogPage,
+    MergeLogParams,
     MergeRequest,
+    MergeUndoResult,
     PersonFigures,
     PersonListParams,
     PersonMailCountParams,
@@ -77,6 +84,7 @@ from mailrobbe.api.schemas import (
     PersonRef,
     PersonSort,
     PersonSummary,
+    SuggestionCounts,
     SuggestionDismiss,
     SuggestionListParams,
     SuggestionPage,
@@ -86,23 +94,43 @@ from mailrobbe.db.models import (
     LAST_DATE_SORT_KEY,
     TIMESTAMPTZ,
     Edge,
+    GlobalStats,
     Mail,
+    MergeBatch,
     Participation,
     Person,
     PersonEmail,
+    PersonMerge,
+    PersonMergeMember,
     PersonStats,
     PersonYear,
 )
 from mailrobbe.db.models import AliasSuggestion as SuggestionRow
-from mailrobbe.enums import ParticipationRole
-from mailrobbe.persons.merge import MergeError, UnknownPerson, merge_persons, unmerge_person
+from mailrobbe.enums import AliasTier, ParticipationRole
+from mailrobbe.persons.merge import (
+    MergeError,
+    MergePlan,
+    MergeUndone,
+    UnknownMerge,
+    UnknownPerson,
+    certain_groups,
+    merge_certain,
+    merge_persons,
+    undo_batch,
+    undo_merge,
+    unmerge_person,
+)
 from mailrobbe.persons.merge import dismiss_suggestion as dismiss_pair
 from mailrobbe.persons.roots import member_ids, resolve_root
+from mailrobbe.persons.suggestions import RULES as SUGGESTION_RULES
+from mailrobbe.persons.suggestions import STATS_KEY as SUGGESTIONS_KEY
+from mailrobbe.persons.suggestions import reason
 
 router = APIRouter(prefix="/api", tags=["persons"])
 
 # person.id is a bigint: a larger number is a validation error, not a database error.
 PersonId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
+RowId = PersonId  # of a merge or a batch of merges, bigints too
 
 _ALIAS = aliased(Person)
 _ALIAS_COUNT = (
@@ -356,6 +384,7 @@ def _ordered_suggestions() -> Subquery:
             case((b_first, SuggestionRow.person_a), else_=SuggestionRow.person_b).label("second"),
             SuggestionRow.same_name,
             SuggestionRow.same_local_part,
+            SuggestionRow.tier,
             and_(
                 SuggestionRow.same_name.is_not(None), SuggestionRow.same_local_part.is_not(None)
             ).label("both"),
@@ -371,24 +400,31 @@ def _ordered_suggestions() -> Subquery:
 async def list_suggestions(
     params: Annotated[SuggestionListParams, Query()], session: Session
 ) -> SuggestionPage:
-    cursor = _Cursor.decode(params.cursor, "suggestions", (_flag, _int, _int, _int))
+    scope = f"suggestions/{params.tier}"
+    cursor = _Cursor.decode(params.cursor, scope, (_flag, _int, _int, _int))
     rows = _ordered_suggestions()
     columns = [rows.c.both, rows.c.mails, rows.c.first, rows.c.second]
     start = [] if cursor is None else [_beyond(columns, cursor.key, True)]
     found = list(
         await session.execute(
-            select(rows).where(*start).order_by(*_by(columns, True)).limit(params.limit + 1)
+            select(rows)
+            .where(rows.c.tier == params.tier, *start)
+            .order_by(*_by(columns, True))
+            .limit(params.limit + 1)
         )
     )
     more = len(found) > params.limit
     del found[params.limit :]
-    total = await session.scalar(select(func.count()).select_from(rows))
+    counts = await _tier_counts(session, select(rows.c.tier).subquery())
     summaries = await _summaries(session, [i for row in found for i in (row.first, row.second)])
     next_cursor = None
     if more:
         last = found[-1]
         key = (last.both, last.mails, last.first, last.second)
-        next_cursor = _Cursor("suggestions", False, key).encode()
+        next_cursor = _Cursor(scope, False, key).encode()
+    computed = await session.scalar(
+        select(GlobalStats.value).where(GlobalStats.key == SUGGESTIONS_KEY)
+    )
     return SuggestionPage(
         items=[
             AliasSuggestion(
@@ -396,23 +432,39 @@ async def list_suggestions(
                 second=summaries[row.second],
                 same_name=row.same_name,
                 same_local_part=row.same_local_part,
+                tier=row.tier,
+                reason=reason(row.same_name, row.same_local_part, row.tier),
             )
             for row in found
         ],
         next_cursor=next_cursor,
-        total=total or 0,
+        total=getattr(counts, params.tier.value),
+        counts=counts,
+        computed=computed == {"rules": SUGGESTION_RULES},
+    )
+
+
+async def _tier_counts(session: AsyncSession, tiers: Subquery) -> SuggestionCounts:
+    """The suggestions per tier, from a subquery with the tier of each."""
+    rows = await session.execute(select(tiers.c.tier, func.count()).group_by(tiers.c.tier))
+    found = {tier: count for tier, count in rows}
+    return SuggestionCounts(
+        certain=found.get(AliasTier.CERTAIN, 0), uncertain=found.get(AliasTier.UNCERTAIN, 0)
     )
 
 
 @contextmanager
 def _user_write() -> Iterator[None]:
-    """A merge, unmerge or dismissal (D28); its errors as 404 not_found and 400 invalid_merge."""
+    """A merge, undo, unmerge or dismissal (D28, D163); its errors as 404 not_found,
+    400 invalid_merge and 409 merge_undone."""
     try:
         yield
-    except UnknownPerson as error:
+    except (UnknownPerson, UnknownMerge) as error:
         raise api_error(404, "not_found", str(error)) from error
     except MergeError as error:
         raise api_error(400, "invalid_merge", str(error)) from error
+    except MergeUndone as error:
+        raise api_error(409, "merge_undone", str(error)) from error
 
 
 @router.post("/persons/suggestions/dismiss", status_code=204)
@@ -427,11 +479,129 @@ async def dismiss_suggestion(dismiss: SuggestionDismiss, session: Session) -> Re
 
 
 @router.post("/persons/merge")
-async def merge(request: MergeRequest, session: Session) -> PersonProfile:
+async def merge(request: MergeRequest, session: Session, editor: Editor) -> PersonProfile:
     with _user_write():
-        root = await merge_persons(session, request.target, request.sources)
+        root = await merge_persons(session, request.target, request.sources, editor)
     await session.commit()
     return await _profile(session, root)
+
+
+def _plan(plan: MergePlan) -> CertainMergePlan:
+    return CertainMergePlan(
+        merges=len(plan.groups),
+        persons=sum(len(sources) for _, sources in plan.groups),
+        left_out_groups=len(plan.left_out),
+        left_out_persons=sum(map(len, plan.left_out)),
+    )
+
+
+@router.get("/persons/merge-certain")
+async def certain_merge_plan(session: Session) -> CertainMergePlan:
+    return _plan(await certain_groups(session))
+
+
+@router.post("/persons/merge-certain")
+async def merge_every_certain(session: Session, editor: Editor) -> CertainMergeResult:
+    done = await merge_certain(session, editor)
+    await session.commit()
+    return CertainMergeResult(
+        batch_id=done.batch_id,
+        merges=done.merges,
+        persons=done.persons,
+        left_out_groups=done.left_out_groups,
+        left_out_persons=done.left_out_persons,
+    )
+
+
+@router.get("/persons/merges")
+async def merge_log(params: Annotated[MergeLogParams, Query()], session: Session) -> MergeLogPage:
+    cursor = _Cursor.decode(params.cursor, "merges", (_int,))
+    start = [] if cursor is None else [PersonMerge.id < cursor.key[0]]
+    ids = list(
+        await session.scalars(
+            select(PersonMerge.id)
+            .where(*start)
+            .order_by(PersonMerge.id.desc())
+            .limit(params.limit + 1)
+        )
+    )
+    more = len(ids) > params.limit
+    del ids[params.limit :]
+    items = await _merge_entries(session, ids)
+    batches = {item.batch_id for item in items if item.batch_id is not None}
+    rows = await session.execute(
+        select(
+            MergeBatch.id,
+            MergeBatch.created_at,
+            MergeBatch.editor,
+            func.count(PersonMerge.id),
+            func.count(PersonMerge.undone_at),
+        )
+        .join(PersonMerge, PersonMerge.batch_id == MergeBatch.id)
+        .where(MergeBatch.id.in_(batches))
+        .group_by(MergeBatch.id)
+        .order_by(MergeBatch.id.desc())
+    )
+    return MergeLogPage(
+        items=items,
+        batches=[
+            MergeBatchInfo(id=batch, created_at=at, editor=by, merges=merges, undone=undone)
+            for batch, at, by, merges, undone in rows
+        ],
+        next_cursor=_Cursor("merges", False, (ids[-1],)).encode() if more else None,
+        total=await session.scalar(select(func.count()).select_from(PersonMerge)) or 0,
+    )
+
+
+@router.post("/persons/merges/{merge_id}/undo")
+async def undo_one_merge(merge_id: RowId, session: Session, editor: Editor) -> MergeUndoResult:
+    with _user_write():
+        done = await undo_merge(session, merge_id, editor)
+    await session.commit()
+    return MergeUndoResult(merges=done.merges, persons=done.persons)
+
+
+@router.post("/persons/merge-batches/{batch_id}/undo")
+async def undo_merge_batch(batch_id: RowId, session: Session, editor: Editor) -> MergeUndoResult:
+    with _user_write():
+        done = await undo_batch(session, batch_id, editor)
+    await session.commit()
+    return MergeUndoResult(merges=done.merges, persons=done.persons)
+
+
+async def _merge_entries(session: AsyncSession, ids: Sequence[int]) -> list[MergeLogEntry]:
+    """These logged merges, newest first, with their targets and the persons they moved."""
+    if not ids:
+        return []
+    asked = literal(list(ids), ARRAY(BigInteger))
+    merges = await session.execute(
+        select(PersonMerge, Person.canonical_email, Person.display_name)
+        .join(Person, Person.id == PersonMerge.target)
+        .where(PersonMerge.id == any_(asked))
+        .order_by(PersonMerge.id.desc())
+    )
+    moved: dict[int, list[PersonRef]] = {merge_id: [] for merge_id in ids}
+    members = await session.execute(
+        select(PersonMergeMember.merge_id, Person.id, Person.canonical_email, Person.display_name)
+        .join(Person, Person.id == PersonMergeMember.person_id)
+        .where(PersonMergeMember.merge_id == any_(asked))
+        .order_by(PersonMergeMember.merge_id, Person.id)
+    )
+    for merge_id, person_id, email, name in members:
+        moved[merge_id].append(PersonRef(person_id=person_id, email=email, name=name))
+    return [
+        MergeLogEntry(
+            id=row.id,
+            target=PersonRef(person_id=row.target, email=email, name=name),
+            moved=moved[row.id],
+            batch_id=row.batch_id,
+            editor=row.editor,
+            created_at=row.created_at,
+            undone_at=row.undone_at,
+            undone_by=row.undone_by,
+        )
+        for row, email, name in merges
+    ]
 
 
 @router.post("/persons/{person_id}/unmerge")
@@ -480,7 +650,27 @@ async def _profile(session: AsyncSession, root: int) -> PersonProfile:
         ],
         top_contacts=contacts,
         suggestions=await _candidates(session, root),
+        suggestion_counts=await _tier_counts(
+            session,
+            select(SuggestionRow.tier)
+            .join(PersonStats, PersonStats.person_id == _other(root))
+            .where(or_(SuggestionRow.person_a == root, SuggestionRow.person_b == root))
+            .subquery(),
+        ),
+        merges=await _merges_into(session, root),
     )
+
+
+async def _merges_into(session: AsyncSession, root: int) -> list[MergeLogEntry]:
+    """The logged merges not undone that moved one of root's aliases into it, newest first."""
+    ids = await session.scalars(
+        select(PersonMergeMember.merge_id)
+        .join(Person, Person.id == PersonMergeMember.person_id)
+        .join(PersonMerge, PersonMerge.id == PersonMergeMember.merge_id)
+        .where(Person.merged_into == root, PersonMerge.undone_at.is_(None))
+        .distinct()
+    )
+    return await _merge_entries(session, list(ids))
 
 
 async def _aliases(session: AsyncSession, root: int) -> list[AliasAddress]:
@@ -519,17 +709,29 @@ async def _display_names(session: AsyncSession, root: int) -> list[DisplayNameCo
     return [DisplayNameCount(name=name, mails=count) for name, count in rows]
 
 
-async def _candidates(session: AsyncSession, root: int) -> list[AliasCandidate]:
-    """The open suggestions with root, the other person with most mails first."""
-    other = case(
+def _other(root: int) -> ColumnElement[int]:
+    """The other person of a suggestion with root."""
+    return case(
         (SuggestionRow.person_a == root, SuggestionRow.person_b), else_=SuggestionRow.person_a
-    ).label("other")
+    )
+
+
+async def _candidates(session: AsyncSession, root: int) -> list[AliasCandidate]:
+    """The open suggestions with root: certain ones first, then the other person with most
+    mails first."""
+    other = _other(root).label("other")
     rows = list(
         await session.execute(
-            select(other, SuggestionRow.same_name, SuggestionRow.same_local_part)
+            select(
+                other, SuggestionRow.same_name, SuggestionRow.same_local_part, SuggestionRow.tier
+            )
             .join(PersonStats, PersonStats.person_id == other)
             .where(or_(SuggestionRow.person_a == root, SuggestionRow.person_b == root))
-            .order_by(PersonStats.mails.desc(), other.desc())
+            .order_by(
+                (SuggestionRow.tier == AliasTier.CERTAIN).desc(),
+                PersonStats.mails.desc(),
+                other.desc(),
+            )
             .limit(SUGGESTION_LIMIT)
         )
     )
@@ -539,6 +741,8 @@ async def _candidates(session: AsyncSession, root: int) -> list[AliasCandidate]:
             person=summaries[row.other],
             same_name=row.same_name,
             same_local_part=row.same_local_part,
+            tier=row.tier,
+            reason=reason(row.same_name, row.same_local_part, row.tier),
         )
         for row in rows
     ]
