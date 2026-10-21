@@ -20,6 +20,7 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMetadataStatus,
     DocumentTextStatus,
     EntityKind,
     JobKind,
@@ -91,6 +92,10 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
     "dns_status": (DnsStatus, ["found", "not_found", "temp_error"]),
     "person_kind": (PersonKind, ["list", "automated"]),
     "alias_tier": (AliasTier, ["certain", "uncertain"]),
+    "document_metadata_status": (
+        DocumentMetadataStatus,
+        ["pending", "found", "empty", "unsupported", "too_large", "failed"],
+    ),
     "job_kind": (JobKind, ["import", "dkim", "dkim_keys"]),
     "job_status": (JobStatus, ["running", "done", "stopped", "failed"]),
     "review_status": (ReviewStatus, ["seen", "relevant", "irrelevant"]),

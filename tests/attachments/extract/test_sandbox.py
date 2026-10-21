@@ -275,3 +275,59 @@ def test_without_fork_the_extraction_runs_in_process(monkeypatch: pytest.MonkeyP
     assert time.monotonic() - started < 2
     outcome = sandbox.run(partial(_raise, ValueError("x")), timeout=5, memory=MiB, max_chars=99)
     assert (outcome.status, outcome.error) == (DocumentTextStatus.FAILED, "ValueError: x")
+
+
+# call(): a value instead of text (the metadata readers, D167)
+
+
+def _value() -> dict[str, object]:
+    return {"fields": {"exif": {"make": "Canon"}}, "pid": os.getpid()}
+
+
+def _sleep() -> None:
+    time.sleep(120)
+
+
+def _fail() -> None:
+    raise ValueError("kaputt")
+
+
+def _deep() -> None:
+    _deep()
+
+
+def _hog() -> int:
+    return len([bytearray(16 * MiB) for _ in range(256)])
+
+
+def _quit() -> None:
+    os._exit(3)
+
+
+def test_call_returns_the_value_of_a_child() -> None:
+    called = sandbox.call(_value, timeout=20, memory=512 * MiB)
+    assert called.error is None
+    assert called.value["fields"] == {"exif": {"make": "Canon"}}
+    assert called.value["pid"] != os.getpid()
+
+
+def test_call_turns_failures_into_errors() -> None:
+    started = time.monotonic()
+    called = sandbox.call(_sleep, timeout=0.5, memory=512 * MiB)
+    assert called.error == "stopped after the time limit of 0.5 s"
+    assert time.monotonic() - started < 3
+    cases = [
+        (_fail, "ValueError: kaputt"),
+        (_deep, "structure nested too deeply"),
+        (_hog, "memory limit exceeded"),
+        (_quit, "extraction process ended without a result (exit code 3)"),
+    ]
+    for function, error in cases:
+        called = sandbox.call(function, timeout=20, memory=256 * MiB)
+        assert (called.value, called.error) == (None, error)
+
+
+def test_call_without_fork_runs_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delattr(os, "fork")
+    assert sandbox.call(_value, timeout=1, memory=MiB).value["pid"] == os.getpid()
+    assert sandbox.call(_fail, timeout=1, memory=MiB).error == "ValueError: kaputt"

@@ -19,6 +19,9 @@ between lines, without a memory limit.
 
 Heavy modules (pypdf) are imported by the extractor modules at import time, so a fork costs
 only the copy of the page tables.
+
+call() runs a function that returns a value instead of text (the metadata readers, D167) in the
+same kind of child: its JSON comes back whole as one frame, or the call ends as an error.
 """
 
 import contextlib
@@ -123,6 +126,74 @@ def run(job: Job, *, timeout: float, memory: int, max_chars: int) -> Outcome:
         frames.result["pages"],
         frames.result["error"],
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Called:
+    """What call() gave: the function's value, or why there is none (English, one line)."""
+
+    value: Any = None
+    error: str | None = None
+
+
+def call(function: Callable[[], Any], *, timeout: float, memory: int) -> Called:
+    """function() in a child process with the limits of run(); its value must be JSON. An
+    exception, the time limit or the child's death is an error, never raised."""
+    if not hasattr(os, "fork"):
+        try:
+            return Called(json.loads(json.dumps(function())))
+        except Exception as error:
+            return Called(error=reason(error))
+    read_fd, write_fd = os.pipe()
+    parent = os.getpid()
+    pid = os.fork()
+    if pid == 0:  # the child never returns from here
+        os.close(read_fd)
+        _call_child(function, write_fd, parent, timeout, memory)
+    os.close(write_fd)
+    frames = _Frames()
+    reaped = False
+    try:
+        finished = _read_until_done(read_fd, frames, time.monotonic() + timeout)
+        if not finished:
+            _kill(pid)
+        _, wait_status = os.waitpid(pid, 0)
+        reaped = True
+    finally:
+        os.close(read_fd)
+        if not reaped:
+            _kill(pid)
+            os.waitpid(pid, 0)
+    if not finished:
+        return Called(error=f"stopped after the time limit of {timeout:g} s")
+    if frames.result is None:
+        return Called(error=_death(wait_status))
+    return Called(frames.result.get("value"), frames.result.get("error"))
+
+
+def _call_child(
+    function: Callable[[], Any], fd: int, parent: int, timeout: float, memory: int
+) -> None:
+    """Body of call()'s child process; ends it with os._exit and never returns."""
+    code = _FAILED_EXIT
+    try:
+        _confine(parent, timeout, memory)
+        try:
+            result: dict[str, Any] = {"value": function()}
+        except MemoryError:
+            raise
+        except RecursionError:
+            result = {"error": "structure nested too deeply"}
+        except Exception as error:
+            result = {"error": reason(error)}
+        _Writer(fd).send(_RESULT, json.dumps(result).encode())
+        code = 0
+    except MemoryError:
+        code = _MEMORY_EXIT
+    except BaseException:
+        pass  # the parent reports the exit code
+    finally:
+        os._exit(code)
 
 
 def run_inline(job: Job, *, timeout: float, max_chars: int) -> Outcome:
