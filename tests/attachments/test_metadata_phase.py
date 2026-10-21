@@ -1,10 +1,11 @@
 """The metadata of attachments in an import (D167): read with the text where the text is read,
 the rest in the metadata step; a newer reader reads again; a file that cannot be read now leaves
-the metadata as it was, tried again at the next import."""
+the metadata as it was, tried again at the next import; a document PostgreSQL refuses fails
+alone."""
 
 import logging
 from collections.abc import AsyncIterator, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from mailrobbe import migrate
 from mailrobbe.attachments import phase
 from mailrobbe.attachments.metadata import METADATA_VERSION
+from mailrobbe.attachments.metadata.model import Fields, Summary, summarize
 from mailrobbe.config import Settings
 from mailrobbe.importer.cli import run_import
 from mailrobbe.jobs import ImportProgress
@@ -187,3 +189,56 @@ async def test_documents_above_the_size_limit_are_read_once_the_limit_admits_the
     assert await _import(database_url, mbox_dir) == 0
     photo = (await _metadata(engine))["Foto.jpg"]
     assert (photo["status"], photo["author"]) == ("found", "Peter Hofmann")
+
+
+async def test_a_date_beyond_utc_is_left_out_and_a_refused_document_fails_alone(
+    database_url: str,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Year 1 at +01:00 is year 0 in UTC: it broke the whole batch before.
+    year_one = samples.pdf("/Author (Erika Alt) /CreationDate (D:00010101000000+01'00')")
+    refused = samples.pdf("/Author (Bruno Bad)")
+    mbox_dir = tmp_path / "mbox"
+    _mbox(
+        mbox_dir,
+        "a.mbox",
+        [
+            [("Alt.pdf", "application/pdf", year_one), ("Foto.jpg", "image/jpeg", PHOTO)],
+            [("Kaputt.pdf", "application/pdf", refused), ("Liste.pdf", "application/pdf", PDF)],
+        ],
+    )
+
+    def summary(fields: Fields) -> Summary:  # a value PostgreSQL refuses, whatever comes next
+        if fields.get("pdf", {}).get("author") == "Bruno Bad":
+            return Summary(created=datetime(1, 1, 1, tzinfo=timezone(timedelta(hours=1))))
+        return summarize(fields)
+
+    monkeypatch.setattr(phase, "summarize", summary)
+    caplog.set_level(logging.WARNING, logger="mailrobbe")
+
+    assert await _import(database_url, mbox_dir) == 0
+
+    documents = await _metadata(engine)
+    old = documents["Alt.pdf"]
+    assert (old["status"], old["author"], old["created"]) == ("found", "Erika Alt", None)
+    assert old["fields"]["pdf"]["creation_date"] == "0001-01-01T00:00:00+01:00"  # as found
+    bad = documents["Kaputt.pdf"]
+    assert (bad["status"], bad["fields"], bad["author"], bad["version"]) == (
+        "failed",
+        None,
+        None,
+        METADATA_VERSION,
+    )
+    assert bad["error"].startswith("cannot be stored: ")
+    assert {name: row["status"] for name, row in documents.items()} == {
+        "Alt.pdf": "found",
+        "Foto.jpg": "found",
+        "Kaputt.pdf": "failed",
+        "Liste.pdf": "found",
+    }
+    assert documents["Liste.pdf"]["author"] == "Carl Diehl"
+    assert await _metadata_step(engine) == ("done", 1, 1)
+    assert "its metadata cannot be stored" in caplog.text

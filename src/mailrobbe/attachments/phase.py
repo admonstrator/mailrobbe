@@ -62,7 +62,14 @@ from mailrobbe.attachments.content import (
 )
 from mailrobbe.attachments.extract import Extraction, ExtractionLimits, extract_document
 from mailrobbe.attachments.metadata import METADATA_VERSION, MetadataLimits, read_metadata
-from mailrobbe.attachments.metadata.model import Fields, Reading, Summary, may_carry, summarize
+from mailrobbe.attachments.metadata.model import (
+    Fields,
+    Reading,
+    Summary,
+    clean,
+    may_carry,
+    summarize,
+)
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT, EXTRACTOR_VERSION
 from mailrobbe.enums import DocumentKind, DocumentMetadataStatus, DocumentTextStatus
@@ -632,8 +639,7 @@ class _Store:
             if rows:
                 await _write(session, rows)
             if metas:
-                async with session.begin():
-                    await session.execute(_STORE_METADATA, _metadata_parameters(metas))
+                metas = await _write_metadata(session, metas)
         self.stored += len(rows)
         self.metadata_stored += len(metas)
         self._step.advance(documents)
@@ -699,6 +705,30 @@ async def _write(session: AsyncSession, rows: Sequence[_Row]) -> None:
                 )
 
 
+async def _write_metadata(session: AsyncSession, metas: list[_Meta]) -> list[_Meta]:
+    """One transaction for the metadata; when PostgreSQL refuses it, each document alone, and one
+    refused again as failed without its fields. The metadata as stored."""
+    try:
+        async with session.begin():
+            await session.execute(_STORE_METADATA, _metadata_parameters(metas))
+        return metas
+    except DBAPIError:
+        pass
+    stored = []
+    for meta in metas:
+        try:
+            async with session.begin():
+                await session.execute(_STORE_METADATA, _metadata_parameters([meta]))
+        except DBAPIError as error:
+            why = clean(f"cannot be stored: {error.orig}", 300)
+            log.warning("document %d: its metadata %s", meta.document_id, why)
+            meta = _Meta(meta.document_id, M.FAILED, error=why)
+            async with session.begin():
+                await session.execute(_STORE_METADATA, _metadata_parameters([meta]))
+        stored.append(meta)
+    return stored
+
+
 def _too_long(error: DBAPIError) -> bool:
     return getattr(error.orig, "sqlstate", None) == _TOO_LONG
 
@@ -725,7 +755,7 @@ def _metadata_parameters(metas: Sequence[_Meta]) -> dict[str, Any]:
         "fields": [
             json.dumps(meta.fields, ensure_ascii=False) if meta.fields else None for meta in metas
         ],
-        "errors": [meta.error for meta in metas],
+        "errors": [None if meta.error is None else _clean(meta.error) for meta in metas],
         "authors": [summary.author for summary in summaries],
         "modified_by": [summary.modified_by for summary in summaries],
         "programs": [summary.program for summary in summaries],
