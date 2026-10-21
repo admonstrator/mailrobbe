@@ -1,0 +1,158 @@
+.card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.intro {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.filterLabel {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.filter {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 5px 8px;
+  background: var(--color-surface);
+  font-size: 13px;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.size {
+  width: 80px;
+}
+
+.mails {
+  width: 90px;
+}
+
+.progress {
+  width: 220px;
+}
+
+.status {
+  width: 110px;
+}
+
+.errors {
+  width: 70px;
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--color-border-subtle);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  background: var(--color-unsigned);
+}
+
+.fill_done {
+  background: var(--color-pass);
+}
+
+.fill_running {
+  background: var(--color-accent);
+}
+
+.fill_error {
+  background: var(--color-fail);
+}
+
+.state {
+  color: var(--color-muted);
+}
+
+.state_done {
+  color: #166534;
+  font-weight: 500;
+}
+
+.state_running {
+  color: var(--color-accent-hover);
+  font-weight: 500;
+}
+
+.state_paused {
+  color: var(--color-no-key-text);
+  font-weight: 500;
+}
+
+.state_error {
+  color: #991b1b;
+  font-weight: 500;
+}
+
+.errorLink,
+.toggleButton {
+  margin: -4px;
+  font-size: 13px;
+}
+
+.toggle td {
+  color: var(--color-muted);
+}
+
+.none {
+  padding: 24px 12px;
+  color: var(--color-muted);
+  text-align: center;
+}
