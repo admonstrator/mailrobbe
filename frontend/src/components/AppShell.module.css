@@ -163,14 +163,16 @@
 
 /* The header keeps one row of 56px (the map's height depends on it), so on narrower screens
    its parts give way in steps: first the totals, then spacing and the editor's label, then the
-   words of the logo and of the import state, whose dot and title stay. */
-@media (max-width: 1599px) {
+   words of the logo and of the import state, whose dot and title stay, and last the spacing of
+   the navigation. With ten entries every step leaves room for a running import's longer state
+   (measured from 1024 to 1920 px). */
+@media (max-width: 1799px) {
   .count {
     display: none;
   }
 }
 
-@media (max-width: 1359px) {
+@media (max-width: 1519px) {
   .header {
     gap: 16px;
     padding: 0 16px;
@@ -185,7 +187,7 @@
   }
 }
 
-@media (max-width: 1179px) {
+@media (max-width: 1359px) {
   .logoText,
   .importText {
     position: absolute;
@@ -198,6 +200,20 @@
 
   .search {
     min-width: 120px;
+  }
+}
+
+@media (max-width: 1099px) {
+  .nav {
+    gap: 2px;
+  }
+
+  .navLink {
+    padding: 6px 6px;
+  }
+
+  .editor {
+    max-width: 128px;
   }
 }
 
