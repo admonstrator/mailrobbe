@@ -30,6 +30,7 @@ from mailrobbe import migrate
 from mailrobbe.config import Settings
 from mailrobbe.importer.cli import run_import
 from mailrobbe.importer.model import BODY_TEXT_LIMIT
+from mailrobbe.jobs import ImportProgress
 from tests.conftest import GeneratedArchive, _temporary_database
 from tests.importer.doubles import copy_archive
 
@@ -48,6 +49,7 @@ class Imported:
     participants: dict[int, dict[str, set[str]]] = field(repr=False)  # mail id -> role -> emails
     errors: dict[tuple[str, int], set[str]] = field(repr=False)  # (file, offset) -> kinds
     signatures: dict[int, list[str]] = field(repr=False)  # mail id -> dkim_result statuses
+    job: dict[str, Any] = field(repr=False)  # the run's job row
 
     def mail(self, record: dict[str, Any]) -> dict[str, Any]:
         return self.mails[record["file"], record["offset"]]
@@ -97,14 +99,23 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
         for mail_id, status in await rows("SELECT mail_id, status::text FROM dkim_result"):
             signatures[mail_id].append(status)
         files = {path: status for path, status in await rows("SELECT path, status FROM mbox_file")}
+        [job] = [row._asdict() for row in await rows("SELECT * FROM job")]
     await engine.dispose()
-    return Imported(exit_code, files, manifest, mails, participants, errors, signatures)
+    return Imported(exit_code, files, manifest, mails, participants, errors, signatures, job)
 
 
 def test_every_file_is_done(imported: Imported) -> None:
     assert imported.exit_code == 0
     assert set(imported.files.values()) == {"done"}
     assert set(imported.files) == {record["file"] for record in imported.manifest}
+
+
+def test_the_run_is_recorded_with_its_dkim_checks(imported: Imported) -> None:
+    assert (imported.job["status"], imported.job["phase"]) == ("done", "finalize")
+    progress = ImportProgress.model_validate(imported.job["progress"])
+    assert progress.mails_imported == len(imported.manifest)
+    # Every mail got a verdict (D13: the importer checks inline), so both rates are the same.
+    assert progress.dkim_per_second == progress.mails_per_second > 0
 
 
 def test_every_manifest_mail_exists_once_with_its_framing(imported: Imported) -> None:

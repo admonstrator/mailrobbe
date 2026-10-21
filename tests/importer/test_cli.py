@@ -1,4 +1,5 @@
-"""`mailrobbe import`: options, exit status, the advisory lock, the schema check, Ctrl-C."""
+"""`mailrobbe import`: options, exit status, the advisory lock, the schema check, the job row
+(D47), stopping by Ctrl-C, SIGTERM and the dashboard."""
 
 import asyncio
 import logging
@@ -6,21 +7,24 @@ import os
 import shutil
 import signal
 from pathlib import Path
+from typing import Any
 
 import pytest
+from pydantic import ByteSize
 from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe import cli as main_cli
-from mailrobbe import migrate
+from mailrobbe import jobrun, jobs, migrate
 from mailrobbe.config import Settings
-from mailrobbe.importer import cli as importer_cli
+from mailrobbe.enums import JobKind, JobOrigin
 from mailrobbe.importer.cli import run_import
-from mailrobbe.jobs import IMPORT_LOCK_KEY
+from mailrobbe.jobs import IMPORT_LOCK_KEY, ImportOptions, ImportProgress
 from tests.conftest import GeneratedArchive
 from tests.importer.doubles import (
     PIPELINE,
     READ_ERROR_HEADER,
+    SLOW_PIPELINE,
     copy_archive,
     message,
     start_import,
@@ -48,14 +52,29 @@ def _import(url: str, mbox_dir: Path, workers: int = 2) -> int:
     return asyncio.run(run_import(Settings(database_url=url), mbox_dir, workers, pipeline=PIPELINE))
 
 
-def test_options() -> None:
+async def _jobs(url: str) -> list[dict[str, Any]]:
+    """The job rows, oldest first."""
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    async with engine.connect() as connection:
+        rows = await connection.execute(text("SELECT * FROM job ORDER BY id"))
+        found = [dict(row._mapping) for row in rows]
+    await engine.dispose()
+    return found
+
+
+def test_options(capsys: pytest.CaptureFixture[str]) -> None:
     parser = main_cli.build_parser()
     args = parser.parse_args(["import", "--dir", "/srv/mbox", "--workers", "3"])
-    assert (args.dir, args.workers) == (Path("/srv/mbox"), 3)
+    assert (args.dir, args.workers, args.origin) == (Path("/srv/mbox"), 3, JobOrigin.CLI)
     args = parser.parse_args(["import"])
     assert (args.dir, args.workers) == (None, None)
+    assert parser.parse_args(["import", "--origin", "ui"]).origin is JobOrigin.UI
+    for wrong in (["--workers", "0"], ["--origin", "cron"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(["import", *wrong])
     with pytest.raises(SystemExit):
-        parser.parse_args(["import", "--workers", "0"])
+        parser.parse_args(["import", "--help"])
+    assert "--origin" not in capsys.readouterr().out  # for the dashboard's API only
 
 
 @pytest.mark.db
@@ -85,6 +104,36 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
 
 @pytest.mark.db
 @pytest.mark.slow
+async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> None:
+    settings = Settings(database_url=database_url, import_attachment_hash_limit=ByteSize(1000))
+    assert await run_import(settings, mbox_dir, 3, pipeline=PIPELINE, origin=JobOrigin.UI) == 0
+    [job] = await _jobs(database_url)
+    assert (job["kind"], job["origin"], job["status"]) == (JobKind.IMPORT, "ui", "done")
+    assert job["phase"] == "finalize"
+    assert job["message"].startswith("50 mails imported in ")
+    assert job["message"].endswith(
+        "s; 50 mails, 0 import errors; files: 2 done, 0 error, 0 missing"
+    )
+    options = ImportOptions.model_validate(job["options"])
+    assert (options.workers, options.attachment_hash_limit) == (3, 1000)
+    assert options.mbox_dir == str(mbox_dir)  # the directory imported, not the settings' one
+    progress = ImportProgress.model_validate(job["progress"])
+    size = sum(path.stat().st_size for path in mbox_dir.iterdir())
+    assert progress.model_dump(include={"workers", "files_queued", "files_finished"}) == {
+        "workers": 0,
+        "files_queued": 2,
+        "files_finished": 2,
+    }
+    assert (progress.mails_imported, progress.bytes_imported) == (50, size)
+    assert progress.mails_per_second > 0 and progress.bytes_per_second > 0
+    assert progress.dkim_per_second == progress.mails_per_second  # all checked: unsigned
+    assert progress.eta_seconds == 0
+    assert (progress.headers_total, progress.headers_done) == (0, 0)  # no older files
+    assert job["finished_at"] >= job["started_at"]
+
+
+@pytest.mark.db
+@pytest.mark.slow
 def test_a_file_in_error_exits_1(
     database_url: str,
     mbox_dir: Path,
@@ -97,6 +146,58 @@ def test_a_file_in_error_exits_1(
     assert "error c.mbox at byte 0: cannot read c.mbox: Input/output error" in caplog.text
     assert "files:         2 done, 1 error, 0 missing" in out
     assert "import errors: 1 (io 1)" in out
+    [job] = asyncio.run(_jobs(database_url))
+    assert job["status"] == "failed"
+    assert job["message"].endswith(
+        "files: 2 done, 1 error, 0 missing; c.mbox: cannot read c.mbox: Input/output error"
+    )
+
+
+@pytest.mark.db
+@pytest.mark.slow
+async def test_a_stop_request_pauses_the_import(
+    database_url: str,
+    generated_archive: GeneratedArchive,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="mailrobbe")
+    monkeypatch.setattr(jobrun, "REPORT_SECONDS", 0.1)
+    mbox_dir = copy_archive(generated_archive.mbox_dir, tmp_path / "mbox")
+    settings = Settings(database_url=database_url)
+    run = asyncio.create_task(run_import(settings, mbox_dir, 2, pipeline=SLOW_PIPELINE))
+    engine = create_async_engine(database_url, poolclass=pool.NullPool)
+    try:
+        sql = (
+            "SELECT count(*) = 1 FROM job WHERE phase = 'import' "
+            "AND (progress->>'mails_imported')::int > 0 AND (progress->>'workers')::int = 2"
+        )
+        await wait_until(engine, sql)
+        async with engine.begin() as connection:  # what the dashboard's pause does
+            assert await jobs.request_stop(connection, JobKind.IMPORT) is not None
+        assert await asyncio.wait_for(run, 30) == 130
+        async with engine.connect() as connection:
+            rows = await connection.execute(
+                text("SELECT status::text, count(*) FROM mbox_file GROUP BY 1")
+            )
+            statuses: dict[str, int] = {status: count for status, count in rows}
+            mails = await connection.scalar(text("SELECT count(*) FROM mail"))
+    finally:
+        run.cancel()
+        await engine.dispose()
+    assert "stop requested from the dashboard" in caplog.text
+    assert "stopping: 2 workers store their current batch" in caplog.text
+    # The two running files pause, or end when their current batch was their last one.
+    assert set(statuses) <= {"paused", "pending", "done"}
+    assert statuses["pending"] > 0  # no file started after the stop
+    assert "updated duplicates" not in caplog.text  # no finalize, as after Ctrl-C
+    [job] = await _jobs(database_url)
+    assert (job["status"], job["phase"], job["stop_requested"]) == ("stopped", "import", True)
+    progress = ImportProgress.model_validate(job["progress"])
+    assert progress.mails_imported == mails > 0
+    finished = statuses.get("done", 0) + statuses.get("paused", 0)
+    assert (progress.workers, progress.files_finished) == (0, finished)
 
 
 @pytest.mark.db
@@ -166,10 +267,22 @@ async def test_dkim_keys_come_from_the_generator_table_below_the_imported_direct
 
 @pytest.mark.db
 @pytest.mark.slow
-# Twice: `uv run` forwards the terminal's Ctrl-C, so the import gets it twice at once.
-@pytest.mark.parametrize("deliveries", [1, 2])
-async def test_ctrl_c_pauses_the_running_files_and_exits_130(
-    database_url: str, generated_archive: GeneratedArchive, tmp_path: Path, deliveries: int
+@pytest.mark.parametrize(
+    ("signum", "deliveries"),
+    [
+        (signal.SIGINT, 1),
+        # Twice: `uv run` forwards the terminal's Ctrl-C, so the import gets it twice at once.
+        (signal.SIGINT, 2),
+        # The API server stopping: SIGTERM to the import process alone (D46).
+        (signal.SIGTERM, 1),
+    ],
+)
+async def test_a_signal_pauses_the_running_files_and_exits_130(
+    database_url: str,
+    generated_archive: GeneratedArchive,
+    tmp_path: Path,
+    signum: signal.Signals,
+    deliveries: int,
 ) -> None:
     mbox_dir = copy_archive(generated_archive.mbox_dir, tmp_path / "mbox")
     process = start_import(database_url, mbox_dir, "slow")
@@ -178,7 +291,10 @@ async def test_ctrl_c_pauses_the_running_files_and_exits_130(
         sql = "SELECT count(*) = 2 FROM mbox_file WHERE status = 'running'"
         await wait_until(engine, sql, process)
         for _ in range(deliveries):
-            os.killpg(process.pid, signal.SIGINT)  # as a terminal does: the whole process group
+            if signum is signal.SIGINT:  # as a terminal does: the whole process group
+                os.killpg(process.pid, signum)
+            else:
+                os.kill(process.pid, signum)
         output = process.communicate(timeout=60)[0]
         assert process.returncode == 130, output
         async with engine.connect() as connection:
@@ -193,23 +309,8 @@ async def test_ctrl_c_pauses_the_running_files_and_exits_130(
     assert "stopping: 2 workers store their current batch" in output
     assert output.count("\npaused ") == 2, output
     assert "interrupted: run `mailrobbe import` again to continue" in output
+    assert "Traceback" not in output
     assert statuses["paused"] == 2
     assert set(statuses) <= {"paused", "pending", "done"}
-
-
-async def test_a_second_ctrl_c_aborts_only_when_it_comes_later(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    aborted: list[bool] = []
-    monkeypatch.setattr(importer_cli, "abort", lambda: aborted.append(True))
-    stop = asyncio.Event()
-    with importer_cli._stop_on_signals(stop):
-        os.kill(os.getpid(), signal.SIGINT)
-        os.kill(os.getpid(), signal.SIGINT)
-        await asyncio.sleep(0.1)
-        assert stop.is_set()
-        assert not aborted
-        await asyncio.sleep(importer_cli.REPEAT_SECONDS)
-        os.kill(os.getpid(), signal.SIGTERM)
-        await asyncio.sleep(0.1)
-    assert aborted == [True]
+    [job] = await _jobs(database_url)
+    assert (job["status"], job["phase"], job["stop_requested"]) == ("stopped", "import", False)

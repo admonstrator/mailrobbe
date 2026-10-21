@@ -2,8 +2,8 @@
 starting, pausing and stopping runs as child processes of the server, rescanning the directory.
 
 Expected figures come from direct SQL. Runs are started with tests/api/fake_run.py in place of
-the real commands (processes.CLI), so a test decides how its run behaves; the tests marked
-REAL_RUN start `mailrobbe import` and `mailrobbe dkim` themselves. Writing tests use their own
+the real commands (processes.CLI), so a test decides how its run behaves; the last two tests
+start `mailrobbe import` and `mailrobbe dkim` themselves. Writing tests use their own
 copy of the imported database (mutable_database_url) and, for the rescan, of the archive.
 """
 
@@ -43,7 +43,6 @@ from tests.conftest import GeneratedArchive
 pytestmark = pytest.mark.db
 
 FAKE_RUN = Path(__file__).with_name("fake_run.py")
-REAL_RUN = pytest.mark.skip(reason="needs agent A's job rows")  # unskip after merging the importer
 POSTS = (
     "/api/import/start",
     "/api/import/pause",
@@ -769,7 +768,6 @@ async def test_rescan_waits_for_no_import(archive_copy: Dashboard) -> None:
 # The real commands, as Aaron's dashboard starts them --------------------------------------------
 
 
-@REAL_RUN
 async def test_the_dashboard_starts_the_real_import(dashboard: Dashboard) -> None:
     job = await post(dashboard.client, "/api/import/start", {"workers": 2}, status=202)
     assert (job["origin"], job["options"]["workers"]) == ("ui", 2)
@@ -779,7 +777,6 @@ async def test_the_dashboard_starts_the_real_import(dashboard: Dashboard) -> Non
     assert totals["done"] == totals["files"]
 
 
-@REAL_RUN
 async def test_the_dashboard_starts_the_real_dkim_recheck(dashboard: Dashboard) -> None:
     await rows(
         dashboard.url,

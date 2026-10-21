@@ -10,6 +10,7 @@ without is searched for attachments like the mail itself.
 
 List-Id, Auto-Submitted and Precedence say whether a mail came through a list or from a
 program (RFC 2919, RFC 3834); person.kind is derived from them (graph/edges.py, D39).
+list_fields reads these alone, for the header refresh of older imports (importer.headers, D52).
 
 Defects never raise: they become issues and the mail is imported with what could be read.
 
@@ -21,6 +22,7 @@ import email.parser
 import email.policy
 import hashlib
 import re
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.errors import (
@@ -85,6 +87,15 @@ def parse_record(record: MboxRecord, *, attachment_hash_limit: int) -> ParsedMai
     return parser.result()
 
 
+def list_fields(record: MboxRecord) -> tuple[str | None, bool]:
+    """mail.list_id and mail.automated as parse_record gives them, from the headers alone.
+
+    Address, date and body parsing take most of parse_record's time, and the header refresh of
+    older imports (importer.headers, D52) needs none of them.
+    """
+    return _MailParser(record, 0).list_fields()
+
+
 def _quote(value: str) -> str:
     return repr(value if len(value) <= 80 else value[:80] + "...")
 
@@ -131,17 +142,8 @@ class _MailParser:
 
     def parse(self) -> None:
         record = self._record
-        if record.truncated:
-            match = _HEADER_END.search(record.message)
-            head = record.message if match is None else record.message[: match.end()]
-            message = _HEADER_PARSER.parsebytes(head)
-        else:
-            message = _PARSER.parsebytes(record.message)
-        headers: dict[str, list[str]] = {}
-        for name, value in message.raw_items():
-            key = name.lower()
-            if key in _WANTED or key in _ADDRESS_HEADERS:
-                headers.setdefault(key, []).append(value)
+        message = self._message()
+        headers = _header_fields(message)
         self._read_identifiers(headers)
         self._read_subject(headers.get("subject"))
         self._read_date(headers.get("date"))
@@ -152,6 +154,21 @@ class _MailParser:
             self.issue(ImportErrorKind.PARSE, "header block ends at a line that is no header")
         if not record.truncated:
             self._read_parts(message)
+
+    def list_fields(self) -> tuple[str | None, bool]:
+        """List-Id and automated alone (parse.list_fields)."""
+        with suppress(Exception):  # as in parse_record, a failure keeps what was read
+            self._read_list_headers(_header_fields(self._message()))
+        return self._list_id, self._automated
+
+    def _message(self) -> Message:
+        """The parsed message; only its header block when the record is truncated."""
+        record = self._record
+        if record.truncated:
+            match = _HEADER_END.search(record.message)
+            head = record.message if match is None else record.message[: match.end()]
+            return _HEADER_PARSER.parsebytes(head)
+        return _PARSER.parsebytes(record.message)
 
     # Headers
 
@@ -272,6 +289,16 @@ class _MailParser:
             data = part_payload(part, where, self._issues)
         digest = hashlib.sha256(data).hexdigest() if len(data) <= self._hash_limit else None
         return ParsedAttachment(name, content_type, len(data), digest)
+
+
+def _header_fields(message: Message) -> dict[str, list[str]]:
+    """The raw values of the headers parse_record reads, by lowercase name, in header order."""
+    headers: dict[str, list[str]] = {}
+    for name, value in message.raw_items():
+        key = name.lower()
+        if key in _WANTED or key in _ADDRESS_HEADERS:
+            headers.setdefault(key, []).append(value)
+    return headers
 
 
 def _lost_boundary(defect: object) -> bool:

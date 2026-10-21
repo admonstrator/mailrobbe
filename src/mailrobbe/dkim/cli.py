@@ -1,6 +1,12 @@
-"""`mailrobbe dkim`: check or recheck the DKIM signatures of imported mails (SPEC 3.4)."""
+"""`mailrobbe dkim`: check or recheck the DKIM signatures of imported mails (SPEC 3.4).
+
+The run records itself in `job` (D47) and holds the DKIM lock, so two runs exclude each other.
+Exit status: 0 when done, 130 when stopped by Ctrl-C, SIGTERM or the dashboard (the printed
+summary then covers what was checked), 1 when it could not start or failed.
+"""
 
 import argparse
+import asyncio
 import json
 import logging
 from dataclasses import asdict
@@ -10,8 +16,9 @@ from typing import Any
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from mailrobbe.config import get_settings
-from mailrobbe.dkim.recheck import DEFAULT_STATUSES, UNCHECKED, recheck
-from mailrobbe.enums import DkimStatus
+from mailrobbe.dkim.recheck import DEFAULT_STATUSES, UNCHECKED, run_recheck
+from mailrobbe.enums import DkimStatus, JobOrigin
+from mailrobbe.jobrun import EXIT_INTERRUPTED, RunRefused
 
 _STATUSES: dict[str, DkimStatus | None] = {
     UNCHECKED: None,
@@ -60,6 +67,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "--dns-override", type=Path, metavar="PATH", help="DNS override table for this run"
     )
     parser.add_argument("--quiet", action="store_true", help="no progress output")
+    # Who started the run (job.origin); the dashboard's API passes ui.
+    parser.add_argument(
+        "--origin",
+        type=JobOrigin,
+        choices=list(JobOrigin),
+        default=JobOrigin.CLI,
+        help=argparse.SUPPRESS,
+    )
 
 
 def run(args: argparse.Namespace) -> int:
@@ -75,17 +90,25 @@ def run(args: argparse.Namespace) -> int:
         logging.error("DNS override table not found: %s", override)
         return 2
     try:
-        summary = recheck(
-            settings,
-            statuses=None if args.all else {_STATUSES[name] for name in args.status or _DEFAULT},
-            mail_ids=args.mail or (),
-            jobs=args.jobs or settings.import_workers,
+        result = asyncio.run(
+            run_recheck(
+                settings,
+                statuses=None
+                if args.all
+                else {_STATUSES[name] for name in args.status or _DEFAULT},
+                mail_ids=args.mail or (),
+                jobs=args.jobs or settings.import_workers,
+                origin=args.origin,
+            )
         )
+    except RunRefused as refusal:
+        logging.error("%s", refusal)
+        return 1
     except (SQLAlchemyError, OSError) as error:
         logging.error("database error: %s", _message(error))
         return 1
-    print(json.dumps(asdict(summary), indent=2))
-    return 0
+    print(json.dumps(asdict(result.summary), indent=2))
+    return EXIT_INTERRUPTED if result.stopped else 0
 
 
 def _message(error: Exception) -> str:

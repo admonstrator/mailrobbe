@@ -74,6 +74,19 @@ async def test_new_files_are_pending(db_session: AsyncSession, tmp_path: Path) -
     size = (tmp_path / "a.mbox").stat().st_size
     rows = await _file_rows(db_session)
     assert rows["a.mbox"] == ("pending", size, 0, 0, 0)
+    versions = await fetch(db_session, "SELECT DISTINCT header_version FROM mbox_file")
+    assert versions == [(1,)]
+
+
+async def test_the_files_can_be_examined_beforehand(
+    db_session: AsyncSession, tmp_path: Path
+) -> None:
+    _mbox(tmp_path / "a.mbox")
+    _mbox(tmp_path / "b.mbox")
+    found = find_mbox_files(tmp_path)  # what the API does in a thread
+    (tmp_path / "b.mbox").unlink()
+    report = await scan(db_session, tmp_path, found)
+    assert report.new == ("a.mbox", "b.mbox")  # as found, not as now
 
 
 async def test_known_files_keep_their_progress(db_session: AsyncSession, tmp_path: Path) -> None:
@@ -142,6 +155,7 @@ async def test_replaced_and_shrunk_files_start_again(
             ),
             {"id": file_id},
         )
+    await db_session.execute(text("UPDATE mbox_file SET header_version = 0"))  # imported long ago
     await db_session.commit()
     replaced.write_bytes(replaced.read_bytes().replace(b"Mail 0", b"Mail X"))  # same size
     shrunk.write_bytes(shrunk.read_bytes()[:-20])
@@ -169,6 +183,9 @@ async def test_replaced_and_shrunk_files_start_again(
     assert remaining == [("kept.mbox", 1, 1), ("replaced.mbox", 0, 0), ("shrunk.mbox", 0, 0)]
     head = await fetch(db_session, "SELECT sha256_head FROM mbox_file WHERE path = 'replaced.mbox'")
     assert head == [(hashlib.sha256(replaced.read_bytes()).hexdigest(),)]
+    # Imported again from scratch, its mails get every header field: no header refresh (D52).
+    versions = await fetch(db_session, "SELECT path, header_version FROM mbox_file ORDER BY 1")
+    assert versions == [("kept.mbox", 0), ("replaced.mbox", 1), ("shrunk.mbox", 1)]
 
 
 async def test_missing_files_are_left_untouched(db_session: AsyncSession, tmp_path: Path) -> None:
