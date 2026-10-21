@@ -9,9 +9,11 @@ import {
   type MailListParams,
   type MailOrderParams,
   type PersonRole,
+  type ReviewKey,
   type SortOrder,
 } from "../../api/types";
 import { DKIM_KEYS } from "../../lib/dkim";
+import { REVIEW_KEYS } from "../../lib/research";
 
 export interface ListState {
   q: string;
@@ -29,6 +31,11 @@ export interface ListState {
   between: number[];
   /** The role of the one person in `person` (D32); null: any role. */
   person_role: PersonRole | null;
+  /** Research file (D55 to D58): review statuses, tag ids, Akte ids, "has a note". */
+  review: ReviewKey[];
+  tag: number[];
+  collection: number[];
+  has_note: boolean;
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -54,6 +61,10 @@ export const DEFAULT_LIST_STATE: ListState = {
   person: [],
   between: [],
   person_role: null,
+  review: [],
+  tag: [],
+  collection: [],
+  has_note: false,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -110,6 +121,10 @@ export function parseListState(search: URLSearchParams): ListState {
   // The API takes a role only together with exactly one person.
   state.person_role =
     state.person.length === 1 ? (PERSON_ROLES.find((key) => key === role) ?? null) : null;
+  state.review = REVIEW_KEYS.filter((key) => search.getAll("review").includes(key));
+  state.tag = ids(search, "tag");
+  state.collection = ids(search, "collection");
+  state.has_note = search.get("has_note") === "true";
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -132,6 +147,10 @@ export function toFilters(state: ListState): MailFilters {
   if (state.person.length) filters.person = state.person;
   if (state.between.length) filters.between = state.between;
   if (state.person_role) filters.person_role = state.person_role;
+  if (state.review.length) filters.review = state.review;
+  if (state.tag.length) filters.tag = state.tag;
+  if (state.collection.length) filters.collection = state.collection;
+  if (state.has_note) filters.has_note = true;
   return filters;
 }
 
