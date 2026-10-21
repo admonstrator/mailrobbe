@@ -79,6 +79,15 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (path === "/api/persons/merge") return fx.mergedProfile;
   const person = /^\/api\/persons\/(\d+)(\/[a-z-]+)?$/.exec(path);
   if (person) return personApi(method, url, Number(person[1]), person[2]);
+  if (path === "/api/import/status") return fx.importStatus;
+  if (path === "/api/import/summary") return fx.importSummary;
+  if (path === "/api/import/errors") return fx.importErrorPage(url.searchParams);
+  if (path === "/api/import/start")
+    return Response.json({ ...fx.importJob, id: 9 }, { status: 202 });
+  if (path === "/api/import/pause") return { ...fx.importJob, stop_requested: true };
+  if (path === "/api/import/rescan") return fx.scanResult;
+  if (path === "/api/dkim/recheck") return Response.json(fx.dkimJobRunning, { status: 202 });
+  if (path === "/api/dkim/recheck/stop") return { ...fx.dkimJobRunning, stop_requested: true };
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 
