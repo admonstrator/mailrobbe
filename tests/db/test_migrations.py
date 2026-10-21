@@ -66,6 +66,13 @@ TABLES = {
     "dkim_key",
     "dkim_key_lookup",
     "dkim_key_evidence",
+    "topic_state",
+    "topic_term",
+    "topic_period",
+    "topic_period_term",
+    "topic_cluster",
+    "topic_cluster_term",
+    "topic_cluster_month",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -221,7 +228,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0011"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0012"
 
 
 @pytest.mark.db
@@ -380,6 +387,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0011' WHERE alembic_version.version_num = '0010'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0012' WHERE alembic_version.version_num = '0011'"
         in sql
     )
 

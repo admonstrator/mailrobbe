@@ -191,3 +191,28 @@ receipt = [
     "Zuwendungsbestätigung", "Zuwendungsbescheinigung", "Beleg", "Kassenbeleg", "Einzahlungsbeleg",
     "receipt",
 ]
+
+# Topic discovery (D141): words the topics leave out because nearly every mail has them or they
+# only say when a mail was written: greetings and salutations, words of mail headers, quotes and
+# signatures, weekdays and months. One form of a word leaves out all its forms (Gruß, Grüße).
+# Names of the archive's persons are left out by the topics themselves. Add words here that
+# crowd the lists of an archive without saying anything about it; the next import computes the
+# topics again.
+[topics]
+ignore = [
+    "Hallo", "Hi", "Moin", "Servus", "Guten", "Tag", "Morgen", "Abend", "liebe", "lieber",
+    "geehrte", "geehrter", "Damen", "Herren", "Herr", "Frau", "Gruß", "Grüße", "grüßt",
+    "freundlichen", "freundliche", "herzlichen", "herzliche", "beste", "besten", "viele",
+    "vielen", "Dank", "danke", "bitte", "MfG", "LG", "VG", "Mail", "E-Mail", "Mails", "Nachricht",
+    "Betreff", "Anhang", "Anhänge", "anbei", "gesendet", "geschrieben", "schrieb", "Original",
+    "Ursprüngliche",
+    "weitergeleitet", "weitergeleitete", "Weiterleitung", "Antwort", "Re", "AW", "WG", "Fwd", "Fw",
+    "Tel", "Telefon", "Fax", "Mobil", "Handy", "www", "http", "https", "Uhr", "heute", "gestern",
+    "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonnabend", "Sonntag",
+    "Januar", "Jänner", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September",
+    "Oktober", "November", "Dezember", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+    "Saturday", "Sunday", "January", "February", "March", "June", "July", "October", "December",
+    "Jan", "Feb", "Mär", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Okt", "Oct", "Nov",
+    "Dez", "Dec", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
+    "regards", "kind", "best", "thanks", "thank", "dear", "sent", "wrote", "message", "subject",
+]

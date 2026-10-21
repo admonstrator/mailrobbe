@@ -43,9 +43,14 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   a source other than today's DNS, dkim_key_lookup every question to a source with its answer
   unchanged, dkim_key_evidence what a lookup says about a key; dkim_result.key_id and key_origin
   name the key a result rests on (key_id NULL for today's DNS).
+- Topics (migration 0012, D140 to D146): the topics phase replaces all of them at once.
+  topic_term is the vocabulary (a lexeme of mail.tsv with its label and mails), topic_period and
+  topic_period_term the terms that stand out per month, quarter and year, topic_cluster with
+  topic_cluster_term and topic_cluster_month the clusters, topic_state the single row saying for
+  which archive (fingerprint) and when they were computed.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
@@ -56,8 +61,10 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Computed,
+    Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -856,3 +863,105 @@ class DkimKeyEvidence(Base):
     details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     editor: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+# Topics (migration 0012, D140 to D146): computed by the topics phase and replaced as a whole.
+
+TOPIC_UNIT_CHECK = "unit IN ('month', 'quarter', 'year')"  # topics.model.Unit
+
+
+class TopicState(Base):
+    """For which archive and when the topics were computed (D146); at most one row."""
+
+    __tablename__ = "topic_state"
+    __table_args__ = (CheckConstraint("id = 1", name="single"),)
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(Text)  # topics.phase.waiting
+    computed_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ)
+    mails: Mapped[int] = mapped_column(Integer)  # N: the archive's mails that are no duplicates
+    terms: Mapped[int] = mapped_column(Integer)  # rows of topic_term
+    clusters: Mapped[int] = mapped_column(Integer)  # rows of topic_cluster
+    seconds: Mapped[float] = mapped_column(REAL)  # the phase took
+
+
+class TopicTerm(Base):
+    """A term of the vocabulary (D141)."""
+
+    __tablename__ = "topic_term"
+    __table_args__ = (UniqueConstraint("lexeme"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    lexeme: Mapped[str] = mapped_column(Text)  # as in mail.tsv
+    label: Mapped[str] = mapped_column(Text)  # the spelling used most
+    mails: Mapped[int] = mapped_column(Integer)  # df: mails that are no duplicates holding it
+    themes: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'::text[]"))
+
+
+class TopicPeriod(Base):
+    """A month, quarter or year with mails (D143)."""
+
+    __tablename__ = "topic_period"
+    __table_args__ = (CheckConstraint(TOPIC_UNIT_CHECK, name="unit"),)
+
+    unit: Mapped[str] = mapped_column(Text, primary_key=True)
+    period_start: Mapped[date] = mapped_column(Date, primary_key=True)  # its first day (UTC)
+    mails: Mapped[int] = mapped_column(Integer)  # n: its mails that are no duplicates
+
+
+class TopicPeriodTerm(Base):
+    """A term that stands out in a period, by rank (D142, D143)."""
+
+    __tablename__ = "topic_period_term"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["unit", "period_start"],
+            ["topic_period.unit", "topic_period.period_start"],
+            ondelete="CASCADE",
+        ),
+        Index("ix_topic_period_term_term_id", "term_id"),
+    )
+
+    unit: Mapped[str] = mapped_column(Text, primary_key=True)
+    period_start: Mapped[date] = mapped_column(Date, primary_key=True)
+    rank: Mapped[int] = mapped_column(SmallInteger, primary_key=True)  # 1 = stands out most
+    term_id: Mapped[int] = mapped_column(Integer, ForeignKey("topic_term.id", ondelete="CASCADE"))
+    mails: Mapped[int] = mapped_column(Integer)  # a: the period's mails holding it
+    score: Mapped[float] = mapped_column(REAL)  # G2
+
+
+class TopicCluster(Base):
+    """A cluster of terms that stand together (D145)."""
+
+    __tablename__ = "topic_cluster"
+    __table_args__ = (UniqueConstraint("rank"),)
+
+    id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
+    rank: Mapped[int] = mapped_column(SmallInteger)  # 1 = most mails
+    label: Mapped[str] = mapped_column(Text)  # topics.model.cluster_label
+    query: Mapped[str] = mapped_column(Text)  # topics.model.cluster_query
+    mails: Mapped[int] = mapped_column(Integer)
+    first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+class TopicClusterTerm(Base):
+    __tablename__ = "topic_cluster_term"
+    __table_args__ = (Index("ix_topic_cluster_term_term_id", "term_id"),)
+
+    cluster_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("topic_cluster.id", ondelete="CASCADE"), primary_key=True
+    )
+    rank: Mapped[int] = mapped_column(SmallInteger, primary_key=True)  # 1 = strongest
+    term_id: Mapped[int] = mapped_column(Integer, ForeignKey("topic_term.id", ondelete="CASCADE"))
+    weight: Mapped[float] = mapped_column(REAL)  # its links inside the cluster
+
+
+class TopicClusterMonth(Base):
+    __tablename__ = "topic_cluster_month"
+
+    cluster_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("topic_cluster.id", ondelete="CASCADE"), primary_key=True
+    )
+    month: Mapped[date] = mapped_column(Date, primary_key=True)  # first day (UTC)
+    mails: Mapped[int] = mapped_column(Integer)

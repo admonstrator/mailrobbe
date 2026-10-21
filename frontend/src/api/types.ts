@@ -595,7 +595,8 @@ export const ERROR_PAGE_SIZE = 50;
 export type JobKind = "import" | "dkim" | "dkim_keys";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
-export type ImportPhase = "scan" | "headers" | "import" | "finalize" | "attachments" | "entities";
+export type ImportPhase =
+  "scan" | "headers" | "import" | "finalize" | "attachments" | "entities" | "topics";
 export type DkimPhase = "check" | "aggregates";
 export type DnsStatus = "found" | "not_found" | "temp_error";
 export type ImportErrorKind =
@@ -1533,4 +1534,100 @@ export interface MailEntity {
   context: EntityContextKey[];
   document_id: number | null; // found in this attachment's document
   document_name: string | null;
+}
+
+// Topics (milestone 13, D140 to D148) ------------------------------------------------------
+//
+// A term is a lexeme of the full text index with its most used spelling as label, which is
+// also the word to search for (q). Figures count mails that are no duplicates, from their own
+// subject and text (D140). Before the first topics phase (state.computed_at null) every list is
+// empty.
+
+export type TopicUnit = "month" | "quarter" | "year";
+export const TOPIC_TERMS = 10; // default terms per period
+export const TOPIC_PERIOD_TERMS = 30; // terms kept per period
+export const TOPIC_SELECTION_TERMS = 30; // default terms of a selection
+export const MAX_TOPIC_SELECTION_TERMS = 100;
+export const TOPIC_SAMPLE = 5_000; // mails of a selection the terms are counted over at most
+
+export interface TopicState {
+  computed_at: string | null; // null: never; the next import computes them
+  mails: number; // the archive's mails that are no duplicates, then
+  terms: number;
+  clusters: number;
+}
+
+export interface TopicTerm {
+  term: string; // the lexeme; stable across computations
+  label: string; // the spelling used most; the word to search for
+  mails: number; // mails of the scope holding it (estimated when sampled)
+  share: number; // of the scope's mails, 0 to 1
+  rest_share: number; // of the other mails of the archive, 0 to 1
+  ratio: number | null; // share / rest_share; null: no other mail holds it
+  score: number; // G2 (D142)
+  themes: string[]; // keys of the research themes whose word field holds the word
+}
+
+export interface TopicPeriodParams {
+  unit?: TopicUnit;
+  date_from?: string | null; // only periods overlapping these UTC days
+  date_to?: string | null;
+  limit?: number; // terms per period, up to TOPIC_PERIOD_TERMS
+}
+
+export interface TopicPeriod {
+  start: string; // first day (UTC)
+  end: string; // last day, inclusive, as date_to of the mail list
+  mails: number;
+  terms: TopicTerm[]; // standing out most first; may be empty
+}
+
+export interface TopicPeriods {
+  state: TopicState;
+  unit: TopicUnit;
+  periods: TopicPeriod[]; // newest first; periods without mails left out
+}
+
+/** The terms of the mails of the mail list's filters (D144). */
+export interface TopicTermParams extends MailFilters {
+  limit?: number; // up to MAX_TOPIC_SELECTION_TERMS
+}
+
+export interface TopicTerms {
+  state: TopicState;
+  mails: number | null; // the selection's mails that are no duplicates; null: not counted in time
+  counted: number; // mails the terms were counted over
+  sampled: boolean; // counted over TOPIC_SAMPLE of more mails; figures are estimates
+  terms: TopicTerm[]; // highest score first
+  common: TopicTerm[]; // in more than half of the selection's mails (D142), most mails first
+  timed_out: boolean;
+}
+
+export interface TopicClusterTerm {
+  term: string;
+  label: string;
+  mails: number; // archive mails holding it
+  weight: number; // its links inside the cluster (D145)
+  themes: string[];
+}
+
+export interface TopicMonth {
+  month: string; // first day (UTC)
+  mails: number;
+}
+
+export interface TopicCluster {
+  id: number; // valid until the next computation
+  label: string; // its first three term labels
+  query: string; // search string for q: its first five labels joined by "or"
+  mails: number; // mails the query finds in their own text, no duplicates
+  first_date: string | null;
+  last_date: string | null;
+  terms: TopicClusterTerm[]; // strongest first
+  months: TopicMonth[]; // months with such mails, ascending
+}
+
+export interface TopicClusters {
+  state: TopicState;
+  clusters: TopicCluster[]; // most mails first
 }

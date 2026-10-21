@@ -1,14 +1,15 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction and entities.
+text extraction, entities and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize, attachments (only when documents wait for their text, D72) and
-entities (only when texts wait for their scan, D84), and reports its figures (ImportFigures)
-every few seconds, with one step per phase and per part of the finalize (STEPS, D110). It stops
-on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch, the
-files pause, the global figures count what is stored, and the finalize, the attachments and the
-entities are left to the next run; during the attachments and entities phases, what is stored
-so far stays.
+it, D52), import, finalize, attachments (only when documents wait for their text, D72),
+entities (only when texts wait for their scan, D84) and topics (only when the archive changed
+since they were computed, D146), and reports its figures (ImportFigures) every few seconds, with
+one step per phase and per part of the finalize and the topics (STEPS, D110). It stops on
+Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch, the files
+pause, the global figures count what is stored, and the finalize, the attachments, the entities
+and the topics are left to the next run; during the attachments and entities phases, what is
+stored so far stays, and the topics stay as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error or the import could not start, 130 when it was stopped; the next run resumes.
@@ -22,6 +23,7 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -44,12 +46,21 @@ from mailrobbe.importer.runner import (
 from mailrobbe.importer.scan import ScanReport, find_mbox_files, scan
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
 from mailrobbe.jobs import ImportOptions, application_name
+from mailrobbe.topics import phase as topics
 
 log = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
-STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments", "entities")  # in order
+STEPS = (
+    "scan",
+    "headers",
+    "import",
+    *finalize.STEPS,
+    "attachments",
+    "entities",
+    *topics.STEPS,
+)  # in order
 
 
 def _worker_count(value: str) -> int:
@@ -179,9 +190,12 @@ async def _import(
     scanned = 0
     if not stop.is_set():
         scanned = await _scan_entities(sessionmaker, workers, job)
+    computed: _Topics = None
+    if not stop.is_set():
+        computed = await _compute_topics(sessionmaker, job)
     async with sessionmaker() as session:
         summary = await _summary(
-            session, report, outcomes, extracted, scanned, time.monotonic() - started
+            session, report, outcomes, extracted, scanned, computed, time.monotonic() - started
         )
     print(summary.text)
     if stop.is_set():
@@ -296,6 +310,32 @@ async def _scan_entities(
     return result.mails + result.documents
 
 
+# What the topics phase of a run did: computed them, found them unchanged, or not computed them
+# (stopped, or not reached).
+_Topics = topics.TopicsResult | Literal["unchanged"] | None
+
+
+async def _compute_topics(sessionmaker: async_sessionmaker[AsyncSession], job: JobRun) -> _Topics:
+    """The topics phase (D146), when the archive changed since the topics were computed."""
+    async with sessionmaker() as session:
+        fingerprint = await topics.waiting(session)
+    if fingerprint is None:
+        job.steps.skip(*topics.STEPS)
+        log.info("topics unchanged: the archive is the one they were computed for")
+        return "unchanged"
+    job.set_phase("topics")
+    result = await topics.compute_topics(sessionmaker, fingerprint, job.stop, job.steps)
+    if result is not None:
+        log.info(
+            "computed the topics in %.1f s: %d terms, %d periods, %d clusters",
+            result.seconds,
+            result.terms,
+            result.periods,
+            result.clusters,
+        )
+    return result
+
+
 def _log_scan(report: ScanReport, mbox_dir: Path) -> None:
     log.info(
         "scan of %s: %d MBOX files, %d new, %d to import",
@@ -325,6 +365,7 @@ async def _summary(
     outcomes: Sequence[FileOutcome],
     extracted: int,
     scanned: int,
+    computed: _Topics,
     elapsed: float,
 ) -> _Summary:
     """The closing summary, and how many files of this run ended in error."""
@@ -373,6 +414,7 @@ async def _summary(
         f"documents:     {documents.total()} ({with_text} with text, {waiting} waiting; "
         f"{extracted} stored in this run)",
         f"entities:      {found} ({scanned} texts scanned in this run)",
+        f"topics:        {_topics_line(computed)}",
         f"elapsed:       {elapsed:.1f} s, {imported / max(elapsed, 1e-9):.0f} mails/s",
     ]
     line = (
@@ -381,3 +423,14 @@ async def _summary(
         f"files: {files}, {len(report.missing)} missing"
     )
     return _Summary("\n".join(lines), line, statuses["error"])
+
+
+def _topics_line(computed: _Topics) -> str:
+    if computed is None:
+        return "not computed in this run"
+    if computed == "unchanged":
+        return "unchanged"
+    return (
+        f"{computed.terms} terms, {computed.periods} periods, {computed.clusters} clusters "
+        f"({computed.seconds:.1f} s)"
+    )
