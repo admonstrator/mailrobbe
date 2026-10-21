@@ -5,7 +5,8 @@ when nothing was found or the source failed), save_evidence stores a key found i
 and what the answer says about it. A key is one row per name and content (key_sha256), so the
 same key from two sources is one row with two pieces of evidence, and its origin is the
 strongest of them. load_candidates hands the keys to the checker; add_manual_key stores a key a
-person entered (D103). CONCERNED and of_key_names select dkim_result rows.
+person entered (D103). CONCERNED and of_key_names select dkim_result rows; selector_summary
+counts what the dashboard card shows.
 
 The functions take an AsyncSession or AsyncConnection, run in the caller's transaction and never
 commit.
@@ -20,12 +21,13 @@ from datetime import datetime
 from importlib.metadata import version
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, false, func, or_, select, tuple_, update
+from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select, tuple_, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
-from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult
-from mailrobbe.dkim.keys.identity import key_identity, split_key_name
+from mailrobbe.api.schemas import SelectorSummary
+from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult, Mail
+from mailrobbe.dkim.keys.identity import KEY_NAME_INFIX, key_identity, split_key_name
 from mailrobbe.dkim.model import CandidateKey
 from mailrobbe.enums import (
     KEY_ORIGIN_RANK,
@@ -293,3 +295,70 @@ async def add_manual_key(
     key_id = await save_evidence(db, lookup_id, key_name, usable, evidence)
     assert key_id is not None  # name and record were checked above
     return key_id
+
+
+async def selector_summary(db: Executor) -> SelectorSummary:
+    """The figures of the dashboard card "Gelöschte Selektoren" (and `mailrobbe dkim-keys
+    status`), live. Key names are normalised as the checker forms them (lowercase, d= without a
+    trailing dot); "2 distinct RSA signatures" counts mails that are no duplicates."""
+    name = func.concat(
+        func.lower(DkimResult.selector),
+        KEY_NAME_INFIX,
+        func.lower(func.rtrim(DkimResult.domain, ".")),
+    ).label("name")
+    rsa_mails = func.count(DkimResult.mail_id.distinct()).filter(
+        DkimResult.algorithm.like("rsa-%"), Mail.is_duplicate_of.is_(None)
+    )
+    missing = (
+        select(name, rsa_mails.label("rsa_mails"))
+        .join(Mail, Mail.id == DkimResult.mail_id)
+        .where(
+            DkimResult.status == DkimStatus.NO_KEY,
+            DkimResult.domain.is_not(None),
+            DkimResult.selector.is_not(None),
+        )
+        .group_by(name)
+        .subquery()
+    )
+    names_missing, reconstructable = (
+        await db.execute(
+            select(func.count(), func.count().filter(missing.c.rsa_mails >= 2)).select_from(missing)
+        )
+    ).one()
+    resolved = select(name).where(DkimResult.key_id.is_not(None)).distinct().subquery()
+    names_resolved = await db.scalar(select(func.count()).select_from(resolved))
+    mails = await _counts(
+        db,
+        select(Mail.dkim_status, func.count())
+        .where(Mail.dkim_status.in_([DkimStatus.NO_KEY, DkimStatus.CONSISTENT]))
+        .group_by(Mail.dkim_status),
+    )
+    keys = await _counts(db, select(DkimKey.origin, func.count()).group_by(DkimKey.origin))
+    factorable = await db.scalar(select(func.count()).where(DkimKey.factorable.is_(True)))
+    signatures = await _counts(
+        db,
+        select(DkimResult.key_origin, func.count())
+        .where(DkimResult.key_origin.is_not(None))
+        .group_by(DkimResult.key_origin),
+    )
+    lookups = await _counts(
+        db, select(DkimKeyLookup.source, func.count()).group_by(DkimKeyLookup.source)
+    )
+    last_lookup_at = await db.scalar(select(func.max(DkimKeyLookup.asked_at)))
+    return SelectorSummary(
+        names_missing=names_missing,
+        mails_missing=mails.get(DkimStatus.NO_KEY, 0),
+        reconstructable=reconstructable,
+        names_resolved=names_resolved or 0,
+        mails_consistent=mails.get(DkimStatus.CONSISTENT, 0),
+        keys={origin: keys.get(origin, 0) for origin in KeyOrigin},
+        factorable=factorable or 0,
+        signatures={origin: signatures.get(origin, 0) for origin in KeyOrigin},
+        lookups={source: lookups.get(source.value, 0) for source in KeyLookupSource},
+        last_lookup_at=last_lookup_at,
+    )
+
+
+async def _counts(db: Executor, statement: Select[Any, int]) -> dict[Any, int]:
+    """A grouped count as {group: count}."""
+    return {group: count for group, count in await db.execute(statement)}
