@@ -54,6 +54,8 @@ INDEXES = {
     "USING btree (is_duplicate_of) WHERE (is_duplicate_of IS NOT NULL)",
     "ix_mail_sort": "CREATE INDEX ix_mail_sort ON public.mail "
     "USING btree (COALESCE(date_utc, '-infinity'::timestamp with time zone), id)",
+    "ix_mail_dkim_sort": "CREATE INDEX ix_mail_dkim_sort ON public.mail USING btree "
+    "(dkim_status, COALESCE(date_utc, '-infinity'::timestamp with time zone), id)",
     "ix_mail_subject_trgm": "CREATE INDEX ix_mail_subject_trgm "
     "ON public.mail USING gin (subject gin_trgm_ops)",
     "uq_person_canonical_email": "CREATE UNIQUE INDEX uq_person_canonical_email "

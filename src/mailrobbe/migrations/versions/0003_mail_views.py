@@ -23,6 +23,10 @@ MAIL_SORT_KEY = "COALESCE(date_utc, '-infinity'::timestamp with time zone)"
 
 def upgrade() -> None:
     op.create_index("ix_mail_sort", "mail", [sa.text(MAIL_SORT_KEY), "id"])
+    # A page of one DKIM status (the filter column) in list order, whatever the archive size;
+    # it also serves every lookup by status, which ix_mail_dkim_status did.
+    op.create_index("ix_mail_dkim_sort", "mail", ["dkim_status", sa.text(MAIL_SORT_KEY), "id"])
+    op.drop_index("ix_mail_dkim_status", table_name="mail")
     # subject: matches part of the subject (D20), as from:/to: do for addresses.
     op.create_index(
         "ix_mail_subject_trgm",
@@ -50,4 +54,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("mail_note")
     op.drop_index("ix_mail_subject_trgm", table_name="mail")
+    op.create_index("ix_mail_dkim_status", "mail", ["dkim_status"])
+    op.drop_index("ix_mail_dkim_sort", table_name="mail")
     op.drop_index("ix_mail_sort", table_name="mail")

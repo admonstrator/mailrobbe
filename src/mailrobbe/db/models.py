@@ -17,7 +17,8 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - edge.mails_total is a stored generated column (sum of all three counters) for the index the
   spec asks for.
 - ix_mail_sort orders mails by MAIL_SORT_KEY (date, missing dates oldest) and id, for keyset
-  paging in the mail list (D19); ix_mail_subject_trgm serves the subject: search (D20).
+  paging in the mail list (D19), ix_mail_dkim_sort the same within one DKIM status (it replaced
+  ix_mail_dkim_status); ix_mail_subject_trgm serves the subject: search (D20).
 - mail_note holds the flag and note a user sets on a mail (D23), the only user-written data.
 """
 
@@ -103,9 +104,9 @@ class Mail(Base):
         Index("ix_mail_message_id", "message_id"),
         Index("ix_mail_raw_sha256", "raw_sha256"),
         Index("ix_mail_thread_id", "thread_id"),
-        Index("ix_mail_dkim_status", "dkim_status"),
         Index("ix_mail_tsv", "tsv", postgresql_using="gin"),
         Index("ix_mail_sort", text(MAIL_SORT_KEY), "id"),
+        Index("ix_mail_dkim_sort", "dkim_status", text(MAIL_SORT_KEY), "id"),
         Index(
             "ix_mail_subject_trgm",
             "subject",
