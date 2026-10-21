@@ -94,6 +94,7 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     assert "mails:         50 (50 imported in this run)" in out
     assert "persons:       2" in out
     assert "documents:     0 (0 with text, 0 waiting; 0 stored in this run)" in out
+    assert "signals:       0 mails with a signal, 0 persons silent" in out
 
     caplog.clear()
     assert _import(database_url, mbox_dir) == 0
@@ -110,7 +111,7 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
     assert await run_import(settings, mbox_dir, 3, pipeline=PIPELINE, origin=JobOrigin.UI) == 0
     [job] = await _jobs(database_url)
     assert (job["kind"], job["origin"], job["status"]) == (JobKind.IMPORT, "ui", "done")
-    assert job["phase"] == "entities"  # the last phase: the texts of the mails (D84)
+    assert job["phase"] == "signals"  # the last phase (D135)
     assert job["message"].startswith("50 mails imported in ")
     assert job["message"].endswith(
         "s; 50 mails, 0 import errors; 0 of 0 documents with text, 0 waiting; "
@@ -137,7 +138,10 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
         size,
         size,
     )
-    assert all(steps[key].status == "done" for key in ("scan", "import", "edges", "global_stats"))
+    assert all(
+        steps[key].status == "done"
+        for key in ("scan", "import", "edges", "global_stats", "signals")
+    )
     assert all(
         step.seconds >= 0 and step.started_at for step in steps.values() if step.status == "done"
     )
