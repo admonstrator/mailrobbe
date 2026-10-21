@@ -134,6 +134,7 @@ terms = [
     "Bargeld", "in bar", "schwarze Kasse", "Darlehen", "Sponsoring", "Rechenschaftsbericht",
     "Parteiengesetz", "Bundestagsverwaltung", "Unterstützerverein", "Wahlkampfhilfe",
     "Beratervertrag", "Scheinrechnung", "Provision", "Schweiz", "Liechtenstein", "anonym",
+    "Quittung", "ohne Quittung", "ohne Beleg",
 ]
 
 [[theme.search]]
@@ -161,11 +162,52 @@ terms = [
     "lieber telefonieren", "telefonisch besprechen", "persönlich besprechen", "unter vier Augen",
     "bitte löschen", "nach dem Lesen löschen", "streng vertraulich", "vertraulich behandeln",
     "Signal", "Telegram", "Threema", "vernichten", "Schredder",
+    "nicht weiterleiten", "nur mündlich", "nicht schriftlich", "nichts Schriftliches",
+    "mündlich besprechen", "unter uns", "kein Wort", "Diskretion", "unter der Hand",
+    "inoffiziell", "nicht dokumentieren", "Privatadresse", "private Adresse", "private Mail",
+    "privates Handy", "Wegwerfhandy", "WhatsApp",
 ]
 
 [[theme.search]]
 name = "Verschleierung: Kanalwechsel und Löschbitten"
 q = '"lieber telefonieren" or "telefonisch besprechen" or "persönlich besprechen" or "unter vier Augen" or "bitte löschen" or "nach dem Lesen löschen" or "streng vertraulich" or Signal or Telegram or Threema or Schredder'
+
+# Signals (D130 to D133): simple conditions that point to mails worth reading; they rate
+# nothing. The signals phase of every import applies them to the whole archive again, so an
+# edit here (then `docker compose up -d --build` and "Import starten" under /import) takes
+# effect without importing anything again. The phrases of the research themes above are signals
+# too ("Wortfeld"), found by the entities phase (D83).
+#
+# private_domains: domains of private mail providers; their subdomains count too, and
+# MAILROBBE_PRIVATE_DOMAINS adds further ones. An address there is private, one at a domain of
+# MAILROBBE_INTERNAL_DOMAINS internal, any other external.
+# night_from, night_to: night is from night_from o'clock to night_to o'clock, in the local time
+# of MAILROBBE_TIMEZONE. many_recipients: a mail has many recipients from this many addresses
+# in To, Cc and Bcc together. forward_prefixes: subject prefixes of forwarded mails, written
+# without the colon and matched in any case ("WG" finds "WG:", "Wg:" and "AW: WG:").
+[signals]
+night_from = 22
+night_to = 6
+many_recipients = 25
+forward_prefixes = ["Fwd", "Fw", "WG", "TR", "RV", "ENC", "Doorst", "VS", "VB"]
+private_domains = [
+    # Germany
+    "gmx.de", "gmx.net", "gmx.com", "gmx.eu", "web.de", "t-online.de", "freenet.de", "arcor.de",
+    "online.de", "onlinehome.de", "1und1.de", "email.de", "mail.de", "posteo.de", "posteo.net",
+    "mailbox.org", "kabelmail.de", "vodafone.de", "vodafonemail.de", "o2online.de", "alice.de",
+    "netcologne.de", "ewe.net", "versanet.de", "htp-tel.de", "unitybox.de", "lycos.de",
+    "firemail.de", "tutanota.de",
+    # Austria and Switzerland
+    "gmx.at", "gmx.ch", "aon.at", "chello.at", "a1.net", "bluewin.ch", "hispeed.ch",
+    "sunrise.ch",
+    # International
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.de", "ymail.com", "rocketmail.com",
+    "hotmail.com", "hotmail.de", "outlook.com", "outlook.de", "live.com", "live.de", "msn.com",
+    "icloud.com", "me.com", "mac.com", "aol.com", "aol.de", "protonmail.com", "protonmail.ch",
+    "proton.me", "pm.me", "tutanota.com", "tutamail.com", "tuta.io", "tuta.com", "zoho.com",
+    "fastmail.com", "fastmail.fm", "hushmail.com", "startmail.com", "mailfence.com",
+    "riseup.net", "disroot.org", "systemli.org", "yandex.ru", "yandex.com", "mail.ru",
+]
 
 # Contexts of amounts, IBANs and account numbers (D82). An amount, IBAN or account number is
 # marked cash, donation or receipt when a word of the matching list stands in the same sentence

@@ -60,6 +60,10 @@ services:
       MAILROBBE_BASIC_AUTH_USER: ${MAILROBBE_BASIC_AUTH_USER:-}
       MAILROBBE_BASIC_AUTH_PASSWORD: ${MAILROBBE_BASIC_AUTH_PASSWORD:-}
       MAILROBBE_INTERNAL_DOMAINS: ${MAILROBBE_INTERNAL_DOMAINS:-}
+      # Signals (D131, D133): the time zone of night hours and weekends, and domains of private
+      # mail providers beside the list in themes.toml.
+      MAILROBBE_TIMEZONE: ${MAILROBBE_TIMEZONE:-Europe/Berlin}
+      MAILROBBE_PRIVATE_DOMAINS: ${MAILROBBE_PRIVATE_DOMAINS:-}
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
     ports:

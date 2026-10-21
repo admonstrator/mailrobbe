@@ -39,6 +39,10 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   its figures; mail_entity and document_entity record where each is mentioned (the mail's own
   subject and text, or a document's extracted text); mail_entity_scan and document_entity_scan
   record which mails and document texts were scanned, by which scan version.
+- Signals (migration 0012, D130 to D135): mail_signal holds the signals that hold for each mail
+  (duplicates included), person_signal per root person the mails it sent with each signal and
+  whether it fell silent; both are recomputed by the signals phase of every import, and
+  global_stats 'signals' keeps that phase's figures and rules (mailrobbe.signals.model).
 """
 
 from datetime import datetime
@@ -760,3 +764,31 @@ class DocumentEntityScan(Base):
     )
     version: Mapped[int] = mapped_column(Integer)  # entities.model.scan_version()
     extracted_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+class MailSignal(Base):
+    """A signal that holds for a mail (D132): a SignalKind value or "term:<theme key>"."""
+
+    __tablename__ = "mail_signal"
+    __table_args__ = (Index("ix_mail_signal_mail_id", "mail_id", "signal"),)
+
+    signal: Mapped[str] = mapped_column(Text, primary_key=True)
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class PersonSignal(Base):
+    """A root person's figure for a signal at the last signals phase (D134, D135): for a mail
+    signal the mails it sent with it (no duplicates); for silent the mails of the window before
+    its silence and the month it began."""
+
+    __tablename__ = "person_signal"
+    __table_args__ = (Index("ix_person_signal_mails", "signal", "mails", "person_id"),)
+
+    signal: Mapped[str] = mapped_column(Text, primary_key=True)
+    person_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    mails: Mapped[int] = mapped_column(Integer)
+    since: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)  # silent: first silent month

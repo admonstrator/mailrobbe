@@ -106,6 +106,7 @@ export interface MailFilters {
   entity?: number[]; // each of these entities is mentioned, in the mail or an attachment (D86)
   amount_min?: number; // an amount of at least this value is mentioned, any currency
   amount_context?: EntityContextKey[]; // such an amount next to any of these contexts
+  signal?: SignalKey[]; // each of these signals holds for the mail (D136)
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -578,7 +579,8 @@ export const ERROR_PAGE_SIZE = 50;
 export type JobKind = "import" | "dkim";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
-export type ImportPhase = "scan" | "headers" | "import" | "finalize" | "attachments" | "entities";
+export type ImportPhase =
+  "scan" | "headers" | "import" | "finalize" | "attachments" | "entities" | "signals";
 export type DkimPhase = "check" | "aggregates";
 export type DnsStatus = "found" | "not_found" | "temp_error";
 export type ImportErrorKind =
@@ -888,6 +890,9 @@ export interface ThemeInfo {
   color: TagColor;
   description: string;
   terms: string[];
+  /** The term entity (D83) of each term, in the order of terms; null while no scan found it.
+   *  A term with an entity links to the mail list filtered by it (D138). */
+  term_ids: (number | null)[];
   searches: ThemeSearchInfo[];
 }
 
@@ -1319,3 +1324,108 @@ export interface MailEntity {
   document_id: number | null; // found in this attachment's document
   document_name: string | null;
 }
+
+// Signals (milestone 12, D130 to D139) ----------------------------------------------------------
+// A signal is a simple condition that holds for a mail (D132) or a person (D134) and points to
+// something worth reading; it rates nothing. Figures count mails that are no duplicates, as of
+// the last signals phase of an import (D135); filters and facets read the signals as they are.
+
+/** The signals of a mail (enums.SignalKind without silent), in display order. */
+export const MAIL_SIGNAL_KINDS = [
+  "private",
+  "internal_to_private",
+  "private_to_internal",
+  "private_alias",
+  "bcc",
+  "many_recipients",
+  "forward",
+  "forward_out",
+  "night",
+  "weekend",
+] as const;
+export type MailSignalKind = (typeof MAIL_SIGNAL_KINDS)[number];
+/** A signal of a mail: a kind, or the word field of a research theme ("term:<theme key>"). */
+export type SignalKey = MailSignalKind | `term:${string}`;
+export type SignalGroup = "addresses" | "recipients" | "time" | "wording" | "persons";
+
+export interface SignalSettings {
+  internal_domains: string[]; // MAILROBBE_INTERNAL_DOMAINS; empty: internal signals are off
+  private_domains: number; // domains of private providers
+  timezone: string; // MAILROBBE_TIMEZONE
+  timezone_known: boolean; // PostgreSQL knows it; otherwise the signals phase fails
+  night_from: number; // night from this hour (local time) ...
+  night_to: number; // ... up to before this one
+  many_recipients: number; // at least this many recipients in To, Cc and Bcc together
+  forward_prefixes: string[]; // without the colon
+}
+
+export interface SignalInfo {
+  key: SignalKey;
+  group: SignalGroup;
+  theme: string | null; // term signals: the theme's name
+  available: boolean; // false: needs MAILROBBE_INTERNAL_DOMAINS, which is empty
+  mails: number; // mails with it that are no duplicates
+  persons: number; // root persons who sent such a mail
+  senders: PersonCount[]; // who sent most of them, at most SIGNAL_SENDERS
+}
+
+export interface SilentPerson {
+  person: PersonRef;
+  since: string; // first day (UTC) of its first month without mail
+  mails: number; // its mails in the six months before
+}
+
+/** The screen /auffaelligkeiten (D137). */
+export interface SignalOverview {
+  signals: SignalInfo[]; // every signal of a mail under the current rules, display order
+  settings: SignalSettings;
+  computed_at: string | null; // end of the last signals phase; null: none ran yet
+  outdated: boolean; // the last phase applied other rules or word fields than the current ones
+  mails: number; // mails that are no duplicates, the base of every share
+  silent: SilentPerson[]; // most mails before their silence first, at most SILENT_LISTED
+  silent_count: number;
+  sender_domains: DomainCount[]; // without internal domains: a help for setting them
+}
+
+export interface SignalFacets {
+  signals: Partial<Record<SignalKey, number>>; // signals with mails only
+  mails: number | null; // null without filters (the last phase's figures)
+  sampled: boolean;
+}
+
+/** One signal of one mail and what makes it hold (D137). */
+export interface SignalReason {
+  key: SignalKey;
+  group: SignalGroup;
+  theme: string | null;
+  persons: PersonRef[]; // the participants it concerns
+  local_time: string | null; // night, weekend: ISO 8601 with the zone's offset
+  recipients: number | null; // many_recipients
+  forward_prefix: string | null; // forward, forward_out: "WG"
+  forwarded_mail: string | null; // forward, forward_out: an attached mail's file name
+  terms: EntityRef[]; // term signals: the theme's terms found
+}
+
+export interface MailSignals {
+  signals: SignalReason[];
+  timezone: string;
+  computed_at: string | null;
+}
+
+export interface PersonSignalCount {
+  key: SignalKey;
+  group: SignalGroup;
+  theme: string | null;
+  mails: number; // mails it or one of its aliases sent with the signal
+  archive_share: number | null; // the archive's share; null before a phase
+}
+
+export interface PersonSignals {
+  sent: number; // mails it or one of its aliases sent, no duplicates
+  signals: PersonSignalCount[];
+  silent_since: string | null;
+  silent_mails: number | null;
+}
+
+export const SIGNAL_SENDERS = 5;
+export const SILENT_LISTED = 50;

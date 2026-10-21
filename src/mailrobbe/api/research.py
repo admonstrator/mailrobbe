@@ -66,6 +66,7 @@ from mailrobbe.config import Settings
 from mailrobbe.db.models import (
     Collection,
     CollectionMail,
+    Entity,
     Mail,
     MailMark,
     MailTag,
@@ -75,6 +76,8 @@ from mailrobbe.db.models import (
     Tag,
 )
 from mailrobbe.db.models import SavedSearch as SearchRow
+from mailrobbe.entities.terms import term_key
+from mailrobbe.enums import EntityKind
 from mailrobbe.persons.roots import ROOT
 from mailrobbe.themes import load_themes
 
@@ -318,7 +321,13 @@ async def research_overview(
 
 
 @router.get("/research/themes")
-async def research_themes() -> list[ThemeInfo]:
+async def research_themes(session: Session) -> list[ThemeInfo]:
+    themes = load_themes()
+    keys = [term_key(theme.key, term) for theme in themes for term in theme.terms]
+    rows = await session.execute(
+        select(Entity.key, Entity.id).where(Entity.kind == EntityKind.TERM, Entity.key.in_(keys))
+    )
+    ids = {key: entity_id for key, entity_id in rows}
     return [
         ThemeInfo(
             key=theme.key,
@@ -326,9 +335,10 @@ async def research_themes() -> list[ThemeInfo]:
             color=theme.color,
             description=theme.description,
             terms=list(theme.terms),
+            term_ids=[ids.get(term_key(theme.key, term)) for term in theme.terms],
             searches=[ThemeSearchInfo(name=s.name, query=s.query) for s in theme.searches],
         )
-        for theme in load_themes()
+        for theme in themes
     ]
 
 

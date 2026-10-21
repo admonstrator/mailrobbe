@@ -1375,6 +1375,7 @@ export const themes: ThemeInfo[] = [
     color: "green",
     description: "Spenden, Finanzierung und Geldflüsse.",
     terms: ["Spende", "Barspende", "Spendenquittung", "in bar"],
+    term_ids: [301, null, 302, null],
     searches: [
       {
         name: "Spendenaffären: Bargeld, Stückelung, Strohleute",
@@ -1388,6 +1389,7 @@ export const themes: ThemeInfo[] = [
     color: "amber",
     description: "Gewaltaufrufe, Drohungen, Waffen.",
     terms: ["Waffe", "Drohung", "Feindesliste"],
+    term_ids: [null, null, null],
     searches: [{ name: "Gewalt: Waffen und Bewaffnung", query: "q=Waffe+or+Munition" }],
   },
 ];

@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 11): query parameters and responses.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 12): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -85,6 +85,13 @@ Entities (milestone 10, D80 to D89):
     GET  /api/entities/{id}                      EntityDetail (D88)
     GET  /api/mails/facets?EntityFacetParams     EntityFacets: top entities of a filter (D87)
     GET  /api/mails/{id}/entities                list[MailEntity], what was found in one mail
+
+Signals (milestone 12, D130 to D139):
+
+    GET  /api/signals                            SignalOverview: figures, rules, silent persons
+    GET  /api/mails/signals?MailFilters          SignalFacets: mails per signal of a filter (D136)
+    GET  /api/mails/{id}/signals                 MailSignals: the signals of one mail, with why
+    GET  /api/persons/{id}/signals               PersonSignals: of the root when id is an alias
 
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
@@ -210,6 +217,9 @@ class MailFilters(BaseModel):
     entity: list[int] = []
     amount_min: float | None = Field(default=None, ge=0)
     amount_context: list[EntityContextKey] = []
+    # Signals (D136): each of these holds for the mail; SignalKind values of mails or
+    # "term:<theme key>" (signals.model); an unknown key is invalid_filter.
+    signal: list[str] = []
 
 
 class MailOrderParams(MailFilters):
@@ -719,7 +729,7 @@ class GraphSize(BaseModel):
 
 ERROR_PAGE_SIZE = 50  # default page of /api/import/errors
 ImportPhase = Literal[
-    "scan", "headers", "import", "finalize", "attachments", "entities"
+    "scan", "headers", "import", "finalize", "attachments", "entities", "signals"
 ]  # jobs.ImportPhase
 DkimPhase = Literal["check", "aggregates"]  # jobs.DkimPhase
 
@@ -990,6 +1000,9 @@ class ThemeInfo(BaseModel):
     color: TagColor
     description: str
     terms: list[str]  # the word field; each one a full-text search on its own
+    # The term entity (D83) of each term, in the order of terms; None while no scan found it.
+    # The Akten screen links a term with an entity to the mail list filtered by it (D138).
+    term_ids: list[int | None]
     searches: list[ThemeSearchInfo]
 
 
@@ -1445,3 +1458,116 @@ class MailEntity(BaseModel):
     context: list[EntityContextKey]
     document_id: int | None  # found in this attachment's document; None: in the mail's text
     document_name: str | None
+
+
+# Signals (milestone 12, D130 to D139) ---------------------------------------------------------
+
+# A signal is a simple condition that holds for a mail (D132) or a person (D134) and points to
+# something worth reading; it rates nothing. Keys are SignalKind values and "term:<theme key>"
+# per research theme (signals.model). Figures count the mails that are no duplicates, as of the
+# last signals phase of an import (D135); filters and facets read mail_signal as it is.
+
+SignalGroup = Literal["addresses", "recipients", "time", "wording", "persons"]
+SIGNAL_SENDERS = 5  # senders listed per signal in SignalOverview
+SILENT_LISTED = 50  # persons fallen silent listed in SignalOverview
+SIGNAL_DOMAINS = 10  # sender domains offered as a help for MAILROBBE_INTERNAL_DOMAINS
+
+
+class SignalSettings(BaseModel):
+    """The rules' settings as configured now (D131 to D133)."""
+
+    internal_domains: list[str]  # MAILROBBE_INTERNAL_DOMAINS; empty: internal signals are off
+    private_domains: int  # domains of private providers (themes.toml and MAILROBBE_PRIVATE_DOMAINS)
+    timezone: str  # MAILROBBE_TIMEZONE, e.g. "Europe/Berlin"
+    timezone_known: bool  # PostgreSQL knows it; otherwise the signals phase fails
+    night_from: int  # night from this hour (local time) ...
+    night_to: int  # ... up to before this one
+    many_recipients: int  # many recipients: at least this many in To, Cc and Bcc together
+    forward_prefixes: list[str]  # subject prefixes of a forward, without the colon
+
+
+class SignalInfo(BaseModel):
+    """One signal of a mail in the overview, with the figures of the last signals phase."""
+
+    key: str
+    group: SignalGroup
+    theme: str | None  # term signals: the theme's name; None otherwise
+    available: bool  # False: needs MAILROBBE_INTERNAL_DOMAINS, which is empty
+    mails: int  # mails with it that are no duplicates
+    persons: int  # root persons who sent such a mail
+    senders: list[PersonCount]  # who sent most of them, at most SIGNAL_SENDERS
+
+
+class SilentPerson(BaseModel):
+    """A person fallen silent (D134): no mail from a month on, after steady activity."""
+
+    person: PersonRef  # a root person; name is its display name
+    since: datetime  # the first day (UTC) of its first month without mail
+    mails: int  # its mails in the six months before
+
+
+class SignalOverview(BaseModel):
+    """The screen /auffaelligkeiten (D137)."""
+
+    signals: list[SignalInfo]  # every signal of a mail under the current rules, display order
+    settings: SignalSettings
+    computed_at: datetime | None  # end of the last signals phase; None: none ran yet
+    # The last phase applied other rules or word fields than the current ones: the next import
+    # computes the signals again.
+    outdated: bool
+    mails: int  # mails that are no duplicates at the last phase, the base of every share
+    silent: list[SilentPerson]  # most mails before their silence first, at most SILENT_LISTED
+    silent_count: int
+    # Without internal domains: the sender domains with most mails that are no private
+    # provider, at most SIGNAL_DOMAINS, as a help for setting MAILROBBE_INTERNAL_DOMAINS.
+    sender_domains: list[DomainCount]
+
+
+class SignalFacets(BaseModel):
+    """Mails per signal among the mails of a filter (D136), counted as EntityFacets count."""
+
+    signals: dict[str, int]  # signals with mails only, display order
+    mails: int | None  # mails counted over; None without filters (the last phase's figures)
+    sampled: bool  # the filter matches more than FACET_MAILS mails
+
+
+class SignalReason(BaseModel):
+    """One signal of one mail and what makes it hold (D137)."""
+
+    key: str
+    group: SignalGroup
+    theme: str | None  # term signals: the theme's name
+    # The participants it concerns: the private addresses (private, private_alias), the
+    # internal sender and private recipients (internal_to_private) or the other way round, the
+    # Bcc recipients (bcc), the recipients outside (forward_out); empty otherwise.
+    persons: list[PersonRef]
+    # night, weekend: the mail's date in the configured time zone, ISO 8601 with its offset
+    local_time: str | None
+    recipients: int | None  # many_recipients: the distinct recipients in To, Cc and Bcc
+    forward_prefix: str | None  # forward, forward_out: the subject's prefix as written ("WG")
+    forwarded_mail: str | None  # forward, forward_out: an attached mail's file name ("" unnamed)
+    terms: list[EntityRef]  # term signals: the theme's terms found in the mail or attachments
+
+
+class MailSignals(BaseModel):
+    signals: list[SignalReason]  # display order
+    timezone: str  # of local_time
+    computed_at: datetime | None  # end of the last signals phase; None: none ran yet
+
+
+class PersonSignalCount(BaseModel):
+    key: str
+    group: SignalGroup
+    theme: str | None
+    mails: int  # mails it or one of its aliases sent with the signal, no duplicates
+    archive_share: float | None  # the archive's share of mails with it; None before a phase
+
+
+class PersonSignals(BaseModel):
+    """The signals of a person's sent mails and whether it fell silent (D134, D137); counted
+    on request, so merges count at once."""
+
+    sent: int  # mails it or one of its aliases sent, no duplicates
+    signals: list[PersonSignalCount]  # signals with mails only, display order
+    silent_since: datetime | None  # D134 over its mails in any role; None: not silent
+    silent_mails: int | None  # its mails in the six months before
