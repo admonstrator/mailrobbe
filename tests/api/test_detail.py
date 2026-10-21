@@ -181,10 +181,10 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
         assert {(p.role.value, p.email) for p in detail.participants} == expected, index
         shown = [(p.role.value, p.email, p.name) for p in detail.participants]
         assert shown == archive.participants[mail_id], index
-        # person_stats and edge stay empty until milestone 5 (D26)
-        assert {(p.mails, p.contacts, p.mails_with_sender) for p in detail.participants} == {
-            (None, None, None)
-        }
+        # person_stats is filled since milestone 5 (tests/persons checks its figures); edge stays
+        # empty until milestone 6 (D26)
+        assert all(p.mails is not None for p in detail.participants), index
+        assert {(p.contacts, p.mails_with_sender) for p in detail.participants} == {(0, None)}
 
         assert [a.model_dump() for a in detail.attachments] == [
             {

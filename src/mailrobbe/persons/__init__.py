@@ -4,6 +4,7 @@
 - stats.py: refresh_person_stats, person_stats and person_year of the root persons (D29)
 - suggestions.py: refresh_alias_suggestions, pairs that may be the same person (D30)
 - merge.py: merge_persons, unmerge_person, dismiss_suggestion, the user's writes (D28)
+- sync.py: sync_rows, writing computed rows into a table, only those that change
 
 The refreshes run in the caller's transaction and never commit. aggregates.refresh_aggregates
 calls them in dependency order, after the edges of milestone 6 (graph/edges.py), which the

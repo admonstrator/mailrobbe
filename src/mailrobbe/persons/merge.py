@@ -2,7 +2,9 @@
 
 Each runs in the caller's transaction and never commits. Merging and unmerging refresh the
 aggregates of the persons concerned before they return (D33), so the caller reads the new
-figures at once.
+figures at once. Each takes the persons lock (roots.lock_persons) before it reads a root, so
+they run one at a time and after a refresh that is under way: two merges at once could
+otherwise re-point a person at a root that the other one merges away.
 """
 
 from collections.abc import Sequence
@@ -12,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 from mailrobbe.aggregates import refresh_aggregates
 from mailrobbe.db.models import AliasDismissal, AliasSuggestion, Person
-from mailrobbe.persons.roots import Executor, resolve_root
+from mailrobbe.persons.roots import Executor, lock_persons, resolve_root
 
 
 class UnknownPerson(LookupError):
@@ -27,8 +29,9 @@ class MergeError(ValueError):
 
 async def merge_persons(db: Executor, target: int, sources: Sequence[int]) -> int:
     """Merge the sources and their aliases into target's root; returns that root."""
+    await lock_persons(db)
     root = await _root(db, target)
-    merged = {await _root(db, source) for source in sources}
+    merged = sorted({await _root(db, source) for source in sources})
     if root in merged:
         raise MergeError(f"person {target} cannot be merged into itself")
     await db.execute(
@@ -36,12 +39,13 @@ async def merge_persons(db: Executor, target: int, sources: Sequence[int]) -> in
         .where(or_(Person.id.in_(merged), Person.merged_into.in_(merged)))
         .values(merged_into=root)
     )
-    await refresh_aggregates(db, [root, *sorted(merged)])
+    await refresh_aggregates(db, [root, *merged])
     return root
 
 
 async def unmerge_person(db: Executor, person_id: int) -> int:
     """Make an alias a person of its own again; returns the root it was merged into."""
+    await lock_persons(db)
     found = (await db.execute(select(Person.merged_into).where(Person.id == person_id))).first()
     if found is None:
         raise UnknownPerson(person_id)
@@ -55,6 +59,7 @@ async def unmerge_person(db: Executor, person_id: int) -> int:
 
 async def dismiss_suggestion(db: Executor, first: int, second: int) -> None:
     """Never suggest these two persons (their roots) as one again."""
+    await lock_persons(db)
     roots = await _root(db, first), await _root(db, second)
     if roots[0] == roots[1]:
         raise MergeError(f"persons {first} and {second} are one person already")
