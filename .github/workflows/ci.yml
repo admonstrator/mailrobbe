@@ -103,6 +103,16 @@ jobs:
           get "/api/mails/$id/body?format=raw" | jq -e '.size > 0'
           get "/api/mails/summary?dkim=pass" | jq -e '.total > 0'
           get /api/stats | jq -e ".mails == $(wc -l < data/mbox/_generator/manifest.jsonl)"
+      - name: Relationship map and GraphML export serve the imported edges
+        run: |
+          get() { curl --fail --silent --show-error "http://127.0.0.1:8000$1"; }
+          sql() { docker compose exec -T db psql -U mailrobbe -d mailrobbe -tAc "$1"; }
+          get /karte | grep -q '<div id="root">'
+          get '/api/graph?mode=top&limit=20' | jq -e '(.nodes | length) > 0 and (.edges | length) > 0'
+          get '/api/graph/export.graphml?mode=top&limit=20' | grep -q '<graphml'
+          edges=$(docker compose run --rm -T backend mailrobbe graph export - | grep -c '<edge ')
+          test "$edges" = "$(sql 'SELECT count(*) FROM edge')"
+          test "$edges" -gt 0
       - name: Logs
         if: failure()
         run: docker compose logs
