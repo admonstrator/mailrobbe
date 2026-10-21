@@ -30,7 +30,7 @@ NAMES_LIMIT = 10_000
 
 _NEW_HASHED = text("""
     INSERT INTO document (sha256, mime_type, size_bytes)
-    SELECT sha256, mode() WITHIN GROUP (ORDER BY mime_type), max(size_bytes)
+    SELECT sha256, mode() WITHIN GROUP (ORDER BY mime_type COLLATE "C"), max(size_bytes)
     FROM attachment WHERE document_id IS NULL AND sha256 IS NOT NULL
     GROUP BY sha256 ORDER BY sha256
     ON CONFLICT (sha256) DO NOTHING
@@ -58,10 +58,11 @@ _FIGURES = text(f"""
             count(*) AS attachments,
             min(m.date_utc) FILTER (WHERE m.is_duplicate_of IS NULL) AS first_date,
             max(m.date_utc) FILTER (WHERE m.is_duplicate_of IS NULL) AS last_date,
-            mode() WITHIN GROUP (ORDER BY a.filename) AS name,
-            left(COALESCE(string_agg(DISTINCT a.filename, E'\\n' ORDER BY a.filename), ''),
-                {NAMES_LIMIT}) AS names,
-            mode() WITHIN GROUP (ORDER BY a.mime_type) AS mime_type
+            -- ties and the list in byte order, whatever the database's collation
+            mode() WITHIN GROUP (ORDER BY a.filename COLLATE "C") AS name,
+            left(COALESCE(string_agg(DISTINCT a.filename COLLATE "C", E'\\n'
+                ORDER BY a.filename COLLATE "C"), ''), {NAMES_LIMIT}) AS names,
+            mode() WITHIN GROUP (ORDER BY a.mime_type COLLATE "C") AS mime_type
         FROM attachment a JOIN mail m ON m.id = a.mail_id
         WHERE a.document_id IS NOT NULL
         GROUP BY a.document_id
