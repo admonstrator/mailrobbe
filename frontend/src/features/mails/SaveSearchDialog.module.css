@@ -1,0 +1,42 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-weight: 600;
+}
+
+.input {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  background: var(--color-surface);
+  font-size: 14px;
+}
+
+.label + .input {
+  margin-bottom: 6px;
+}
+
+.text {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}

@@ -48,6 +48,32 @@ label.legend {
   margin-bottom: 0;
 }
 
+.scope {
+  margin: -6px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.sub {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.subLegend {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
 .dates {
   display: flex;
   gap: 8px;
@@ -89,4 +115,15 @@ label.legend {
 .more:hover {
   color: var(--color-accent-hover);
   text-decoration: underline;
+}
+
+/* Narrow screens: the column sits above the list (MailListPage.module.css). */
+@media (max-width: 759px) {
+  .column {
+    flex: none;
+    min-width: 0;
+    padding: 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
 }

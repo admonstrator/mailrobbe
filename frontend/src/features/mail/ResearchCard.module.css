@@ -1,0 +1,142 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Four segments in two rows: the side column is too narrow for one row of these labels. The
+   gap shows the container's colour as the lines between them. */
+.segments {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--color-border-strong);
+}
+
+.segment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  padding: 6px 8px 6px 10px;
+  background: var(--color-surface);
+  font-size: 13px;
+  line-height: 1.25;
+  text-align: left;
+  cursor: pointer;
+}
+
+.segment:hover {
+  background: var(--color-hover);
+}
+
+.segment.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+/* The key that does the same, as a small key cap. */
+.segment kbd,
+.flag kbd {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  padding: 0 4px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.by {
+  color: var(--color-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.flagRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px;
+}
+
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 5px 10px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.flag:hover {
+  background: var(--color-hover);
+}
+
+.flagged,
+.flagged:hover {
+  border-color: var(--color-no-key);
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-weight: 600;
+}
+
+.permalink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.shared {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.unnamed {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 12px;
+}

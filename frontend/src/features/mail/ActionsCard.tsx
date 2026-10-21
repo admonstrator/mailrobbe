@@ -16,6 +16,17 @@ export function ActionsCard({ mail, onShowRaw }: { mail: MailDetail; onShowRaw: 
       <a href={`/api/mails/${mail.id}/eml`} className={styles.action} download>
         Als EML herunterladen
       </a>
+      <a href={`/api/mails/${mail.id}/pdf`} className={styles.action} download>
+        Als PDF herunterladen
+      </a>
+      <a
+        href={`/api/mails/${mail.id}/pdf?research=true`}
+        className={styles.action}
+        title="Mit Status, Schlagwörtern, Akten und Notizen"
+        download
+      >
+        PDF mit Notizen
+      </a>
       <button type="button" className={styles.action} onClick={onShowRaw}>
         Rohmail aus MBOX anzeigen
       </button>
