@@ -62,6 +62,32 @@
   padding: 48px;
 }
 
+/* From the facets' width on (FACETS_COLUMN_QUERY) the signal and the entity facets share one
+   column right of the table: the signals on top, the entities down to the end of the list. */
+.facets {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+.facets > section {
+  flex: none;
+}
+
+.facets > section:last-child {
+  flex-grow: 1;
+}
+
+.facets > section + section {
+  border-top: 1px solid var(--color-border);
+}
+
+@media (min-width: 1500px) {
+  .facets {
+    flex: 0 0 272px;
+  }
+}
+
 /* Narrow screens: the filters above the list instead of beside it. */
 @media (max-width: 759px) {
   .layout {
