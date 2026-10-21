@@ -129,6 +129,8 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (document) return documentApi(Number(document[1]), document[2]);
   const entities = entityApi(url);
   if (entities !== undefined) return entities;
+  const topics = topicApi(url);
+  if (topics !== undefined) return topics;
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 
@@ -190,5 +192,22 @@ function entityApi(url: URL): unknown {
     );
     return found ?? notFound(`entity with id ${detail[1]}`);
   }
+  return undefined;
+}
+
+/** The topic endpoints (milestone 13), or undefined for other paths: the periods by unit (the
+ *  months of one period when a Zeitraum is asked for), Anna's terms for any selection, the
+ *  clusters. */
+function topicApi(url: URL): unknown {
+  const path = url.pathname;
+  const search = url.searchParams;
+  if (path === "/api/topics/periods") {
+    const unit = search.get("unit");
+    if (unit === "year") return fx.topicPeriodsYear;
+    if (unit === "quarter") return fx.topicPeriodsQuarter;
+    return search.has("date_from") ? fx.topicPeriodsMore : fx.topicPeriods;
+  }
+  if (path === "/api/topics/terms") return fx.topicTerms;
+  if (path === "/api/topics/clusters") return fx.topicClusters;
   return undefined;
 }

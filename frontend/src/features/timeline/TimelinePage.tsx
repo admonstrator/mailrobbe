@@ -29,6 +29,7 @@ import { TAG_PALETTE } from "../../lib/research";
 import { filterChips } from "../mails/chips";
 import { DEFAULT_LIST_STATE, hasFilters, withFilters } from "../mails/listState";
 import { invalidTerm } from "../mails/queryText";
+import { selectionHref } from "../topics/urlState";
 import { formatBucket } from "./buckets";
 import { FirstMentionList } from "./FirstMentionList";
 import { markRules, mailsText, NO_SUBJECT } from "./labels";
@@ -125,9 +126,18 @@ export function TimelinePage() {
           <h1 className={styles.title}>Zeitachse</h1>
           <p className={styles.intro}>Mailaufkommen für die aktuelle Suche und Filter</p>
         </div>
-        <Link to={mailListHref(state.list)} className={buttonClass()}>
-          In der Mailliste öffnen
-        </Link>
+        <div className={styles.headLinks}>
+          <Link
+            to={selectionHref(state.list)}
+            className={buttonClass()}
+            title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
+          >
+            Begriffe
+          </Link>
+          <Link to={mailListHref(state.list)} className={buttonClass()}>
+            In der Mailliste öffnen
+          </Link>
+        </div>
       </div>
 
       <div className={styles.toolbar}>
