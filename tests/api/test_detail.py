@@ -38,6 +38,7 @@ from mailrobbe.api.schemas import (
     MailRaw,
     MailText,
     Note,
+    Participant,
 )
 from mailrobbe.config import Settings
 from mailrobbe.dkim.override import key_name
@@ -64,6 +65,9 @@ class Archive:
     dkim: dict[int, list[Row]]  # mail id -> dkim_result rows by signature_index
     dns: dict[str, Row]  # dns_cache rows by name
     override: dict[str, str]  # the generator's DNS override records
+    roots: dict[str, int]  # address -> its root person (D28)
+    figures: dict[int, tuple[int, int]]  # person_stats: person -> (mails, contacts)
+    edges: dict[tuple[int, int], int]  # (person_a, person_b) -> mails_total
 
     @property
     def entries(self) -> list[tuple[Record, Row]]:
@@ -107,6 +111,20 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
             for row in await rows("SELECT * FROM dkim_result ORDER BY mail_id, signature_index"):
                 dkim[row["mail_id"]].append(row)
             dns = {row["name"]: row for row in await rows("SELECT * FROM dns_cache")}
+            roots = {
+                row["canonical_email"]: row["root"]
+                for row in await rows(
+                    "SELECT canonical_email, COALESCE(merged_into, id) AS root FROM person"
+                )
+            }
+            figures = {
+                row["person_id"]: (row["mails"], row["contacts"])
+                for row in await rows("SELECT person_id, mails, contacts FROM person_stats")
+            }
+            edges = {
+                (row["person_a"], row["person_b"]): row["mails_total"]
+                for row in await rows("SELECT person_a, person_b, mails_total FROM edge")
+            }
     finally:
         await engine.dispose()
     override = json.loads(generated.dns_override.read_text(encoding="utf-8"))["records"]
@@ -119,6 +137,9 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
         dkim=dkim,
         dns=dns,
         override=override,
+        roots=roots,
+        figures=figures,
+        edges=edges,
     )
 
 
@@ -136,6 +157,21 @@ def _expected_signatures(record: Record) -> Counter[tuple[str | None, str | None
     return Counter(
         (s["domain"], s["selector"], s["expected"]) for s in record["dkim"]["signatures"]
     )
+
+
+def _expected_figures(
+    archive: Archive, participants: list[Participant]
+) -> list[tuple[int | None, int | None, int | None]]:
+    """mails, contacts and mails_with_sender of each participant, from its root's rows."""
+    roots = [archive.roots[p.email] for p in participants]
+    sender = next((archive.roots[p.email] for p in participants if p.role == "from"), None)
+    expected = []
+    for root in roots:
+        mails, contacts = archive.figures.get(root, (None, None))
+        pair = (min(root, sender), max(root, sender)) if sender is not None else None
+        together = None if pair is None or root == sender else archive.edges.get(pair)
+        expected.append((mails, contacts, together))
+    return expected
 
 
 def _sort_key(mail: Row) -> tuple[bool, datetime, int]:
@@ -181,10 +217,9 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
         assert {(p.role.value, p.email) for p in detail.participants} == expected, index
         shown = [(p.role.value, p.email, p.name) for p in detail.participants]
         assert shown == archive.participants[mail_id], index
-        # person_stats and edge stay empty until milestone 5 (D26)
-        assert {(p.mails, p.contacts, p.mails_with_sender) for p in detail.participants} == {
-            (None, None, None)
-        }
+        # The figures of each address's root (D26, D28), whatever the aggregates hold.
+        shown_figures = [(p.mails, p.contacts, p.mails_with_sender) for p in detail.participants]
+        assert shown_figures == _expected_figures(archive, detail.participants), index
 
         assert [a.model_dump() for a in detail.attachments] == [
             {
@@ -314,6 +349,53 @@ async def test_an_attachment_above_the_hash_limit_has_no_hash(
         None,
     )
     assert all(a.sha256 for a in attachments[:-1])
+
+
+async def test_participants_show_the_figures_of_their_roots(
+    mutable_client: httpx.AsyncClient, mutable_database_url: str, archive: Archive
+) -> None:
+    # A mail from s to at least two other addresses b and c. Two persons outside the mail become
+    # roots: r of s and c, a of b. The aliases' own person_stats rows are stale ones.
+    for mail in archive.mails:
+        people = archive.participants[mail["id"]]
+        addresses = list(dict.fromkeys(email for _, email, _ in people))  # the sender first
+        if people[0][0] == "from" and len(addresses) >= 4:
+            break
+    mail_id, (sender, b, c) = mail["id"], addresses[:3]
+    r, a = [root for email, root in archive.roots.items() if email not in addresses][:2]
+    aliases = {archive.roots[sender]: r, archive.roots[b]: a, archive.roots[c]: r}
+    url = mutable_database_url
+    for alias, root in aliases.items():
+        await _execute(url, "UPDATE person SET merged_into = :r WHERE id = :a", r=root, a=alias)
+    await _execute(url, "DELETE FROM person_stats")
+    await _execute(url, "DELETE FROM edge")
+    await _execute(
+        url,
+        "INSERT INTO person_stats (person_id, sent, received, contacts)"
+        " SELECT unnest(CAST(:ids AS bigint[])), 99, 99, 99",
+        ids=list(aliases),
+    )
+    await _execute(
+        url,
+        "INSERT INTO person_stats (person_id, sent, received, contacts)"
+        " VALUES (:a, 7, 5, 3), (:r, 20, 2, 9)",
+        a=a,
+        r=r,
+    )
+    await _execute(
+        url,
+        "INSERT INTO edge (person_a, person_b, mails_a_to_b, mails_b_to_a, mails_cc)"
+        " VALUES (:first, :second, 4, 1, 1)",
+        first=min(a, r),
+        second=max(a, r),
+    )
+    expected = {sender: (22, 9, None), b: (12, 3, 6), c: (22, 9, None)}
+    participants = (await _detail(mutable_client, mail_id)).participants
+    assert {p.email for p in participants} >= set(expected)
+    for p in participants:
+        assert p.person_id == archive.roots[p.email]  # the address's own person
+        shown = (p.mails, p.contacts, p.mails_with_sender)
+        assert shown == expected.get(p.email, (None, None, None)), p.email
 
 
 async def test_unknown_and_invalid_ids(client: httpx.AsyncClient) -> None:

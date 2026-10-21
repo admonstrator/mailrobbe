@@ -61,6 +61,7 @@ from mailrobbe.dkim.checker import DkimChecker
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
 from mailrobbe.mbox import read_message
+from mailrobbe.persons.roots import ROOT
 
 router = APIRouter(prefix="/api", tags=["mail"])
 log = logging.getLogger(__name__)
@@ -282,8 +283,11 @@ def _read_checked(path: Path, byte_offset: int, byte_length: int, raw_sha256: st
 async def _participants(session: AsyncSession, mail_id: int) -> list[Participant]:
     """From, to, cc, bcc (the enum's order), by name then address within a role.
 
-    The figures come from person_stats and edge, which milestone 5 fills (D26); None until then.
+    The figures are those of each address's root person (D26, D28): mails and contacts from its
+    person_stats row, mails_with_sender from the edge between the sender's root and its root
+    (none for the sender's own root). None where there is no such row.
     """
+    root = ROOT.label("root")
     rows = (
         await session.execute(
             select(
@@ -291,18 +295,19 @@ async def _participants(session: AsyncSession, mail_id: int) -> list[Participant
                 Person.id,
                 Person.canonical_email,
                 _NAME,
-                PersonStats.sent + PersonStats.received,
+                root,
+                PersonStats.mails,
                 PersonStats.contacts,
             )
             .join(Person, Person.id == Participation.person_id)
-            .outerjoin(PersonStats, PersonStats.person_id == Person.id)
+            .outerjoin(PersonStats, PersonStats.person_id == ROOT)
             .where(Participation.mail_id == mail_id)
             .order_by(Participation.role, _NAME, Person.canonical_email)
         )
     ).all()
-    sender = next((row[1] for row in rows if row[0] is ParticipationRole.FROM), None)
+    sender = next((row.root for row in rows if row.role is ParticipationRole.FROM), None)
     together: dict[int, int] = {}
-    others = {row[1] for row in rows} - {sender}
+    others = {row.root for row in rows} - {sender}
     if sender is not None and others:
         pairs = [(min(sender, other), max(sender, other)) for other in others]
         edges = await session.execute(
@@ -320,9 +325,9 @@ async def _participants(session: AsyncSession, mail_id: int) -> list[Participant
             role=role,
             mails=mails,
             contacts=contacts,
-            mails_with_sender=together.get(person_id),
+            mails_with_sender=together.get(person_root),
         )
-        for role, person_id, email, name, mails, contacts in rows
+        for role, person_id, email, name, person_root, mails, contacts in rows
     ]
 
 
