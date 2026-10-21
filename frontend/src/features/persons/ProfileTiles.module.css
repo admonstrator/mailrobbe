@@ -1,21 +1,23 @@
+/* The six figures as one compact strip, divided by thin lines. */
 .tiles {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
   list-style: none;
 }
 
 .tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
+  padding: 10px 16px;
+  box-shadow: -1px 0 var(--color-border-subtle);
 }
 
 .label,
@@ -29,8 +31,9 @@
 
 .value {
   overflow: hidden;
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -43,5 +46,11 @@
 @media (max-width: 1099px) {
   .tiles {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tile {
+    box-shadow:
+      -1px 0 var(--color-border-subtle),
+      0 -1px var(--color-border-subtle);
   }
 }
