@@ -465,7 +465,7 @@ def _outlook_text(invitation: Invitation, german: bool, rng: random.Random) -> l
     if invitation.method == "REPLY":
         assert invitation.partstat is not None
         comments = _COMMENTS[invitation.partstat][0 if german else 1]
-        return [rng.choice(comments)] if rng.random() < 0.5 else []
+        return [rng.choice(comments)]  # never empty: every generated mail has a text
     lines = [
         f"{'Wann' if german else 'When'}: {_outlook_when(meeting, german)}",
         f"{'Ort' if german else 'Where'}: {meeting.location}",

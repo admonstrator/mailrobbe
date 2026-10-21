@@ -192,6 +192,7 @@ def test_each_program_writes_its_parts(rendered: list[RenderedMail]) -> None:
             assert "BEGIN:VTIMEZONE" in text and "DTSTART;TZID=" in text
         if invitation.style == "web" and not meeting.all_day and meeting.rule is None:
             assert "BEGIN:VTIMEZONE" not in text and "Z\nDTEND:" in text
+        assert any(invitations.body_lines(mail.planned, random.Random(0)))  # never without text
         body = mail.raw.decode("utf-8", "replace")
         if invitation.style == "outlook" and invitation.method != "REPLY":
             assert invitations.OUTLOOK_RULE in body
