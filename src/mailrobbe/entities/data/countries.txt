@@ -1,0 +1,315 @@
+# Countries for the place finder (entities/names.py), detail "country", in German and English,
+# with common short and long forms. Names that are common words too are listed again in
+# ambiguous_places.txt.
+
+# Europe
+Albanien
+Albania
+Andorra
+Belarus
+Weißrussland
+Belgien
+Belgium
+Bosnien und Herzegowina
+Bosnia and Herzegovina
+Bosnien
+Bulgarien
+Bulgaria
+Dänemark
+Denmark
+Deutschland
+Germany
+Bundesrepublik Deutschland
+England
+Estland
+Estonia
+Finnland
+Finland
+Frankreich
+France
+Gibraltar
+Griechenland
+Greece
+Großbritannien
+Great Britain
+Vereinigtes Königreich
+United Kingdom
+Irland
+Ireland
+Island
+Iceland
+Italien
+Italy
+Kosovo
+Kroatien
+Croatia
+Lettland
+Latvia
+Liechtenstein
+Litauen
+Lithuania
+Luxemburg
+Luxembourg
+Malta
+Moldau
+Republik Moldau
+Moldova
+Monaco
+Montenegro
+Niederlande
+Netherlands
+Holland
+Nordirland
+Northern Ireland
+Nordmazedonien
+North Macedonia
+Mazedonien
+Norwegen
+Norway
+Österreich
+Austria
+Polen
+Poland
+Portugal
+Rumänien
+Romania
+Russland
+Russia
+Russische Föderation
+San Marino
+Schottland
+Scotland
+Schweden
+Sweden
+Schweiz
+Switzerland
+Serbien
+Serbia
+Slowakei
+Slovakia
+Slowenien
+Slovenia
+Spanien
+Spain
+Tschechien
+Tschechische Republik
+Czechia
+Czech Republic
+Türkei
+Turkey
+Ukraine
+Ungarn
+Hungary
+Vatikanstadt
+Vatikan
+Vatican
+Wales
+Zypern
+Cyprus
+
+# Caucasus and Central Asia
+Armenien
+Armenia
+Aserbaidschan
+Azerbaijan
+Georgien
+Georgia
+Kasachstan
+Kazakhstan
+Kirgisistan
+Kyrgyzstan
+Tadschikistan
+Tajikistan
+Turkmenistan
+Usbekistan
+Uzbekistan
+
+# Americas
+USA
+Vereinigte Staaten
+Vereinigte Staaten von Amerika
+United States
+United States of America
+Amerika
+America
+Kanada
+Canada
+Mexiko
+Mexico
+Argentinien
+Argentina
+Bahamas
+Barbados
+Belize
+Bermuda
+Bolivien
+Bolivia
+Brasilien
+Brazil
+Britische Jungferninseln
+British Virgin Islands
+Chile
+Costa Rica
+Dominikanische Republik
+Dominican Republic
+Ecuador
+El Salvador
+Guatemala
+Haiti
+Honduras
+Jamaika
+Jamaica
+Kaimaninseln
+Cayman Islands
+Kolumbien
+Colombia
+Kuba
+Cuba
+Nicaragua
+Panama
+Paraguay
+Peru
+Uruguay
+Venezuela
+
+# Asia
+Afghanistan
+Bahrain
+Bangladesch
+Bangladesh
+Bhutan
+Brunei
+China
+Volksrepublik China
+Indien
+India
+Indonesien
+Indonesia
+Irak
+Iraq
+Iran
+Israel
+Japan
+Jemen
+Yemen
+Jordanien
+Jordan
+Kambodscha
+Cambodia
+Katar
+Qatar
+Korea
+Kuwait
+Laos
+Libanon
+Lebanon
+Macau
+Malaysia
+Mongolei
+Mongolia
+Myanmar
+Nepal
+Nordkorea
+North Korea
+Oman
+Pakistan
+Palästina
+Palestine
+Philippinen
+Philippines
+Saudi-Arabien
+Saudi Arabia
+Singapur
+Singapore
+Sri Lanka
+Südkorea
+South Korea
+Syrien
+Syria
+Taiwan
+Thailand
+Vereinigte Arabische Emirate
+United Arab Emirates
+Vietnam
+
+# Africa
+Ägypten
+Egypt
+Algerien
+Algeria
+Angola
+Äthiopien
+Ethiopia
+Benin
+Botswana
+Burkina Faso
+Demokratische Republik Kongo
+Dschibuti
+Djibouti
+Elfenbeinküste
+Ivory Coast
+Eritrea
+Eswatini
+Gabun
+Gabon
+Gambia
+Ghana
+Guinea
+Kamerun
+Cameroon
+Kenia
+Kenya
+Kongo
+Congo
+Lesotho
+Liberia
+Libyen
+Libya
+Madagaskar
+Madagascar
+Malawi
+Mali
+Marokko
+Morocco
+Mauretanien
+Mauritania
+Mauritius
+Mosambik
+Mozambique
+Namibia
+Niger
+Nigeria
+Ruanda
+Rwanda
+Sambia
+Zambia
+Senegal
+Seychellen
+Seychelles
+Sierra Leone
+Simbabwe
+Zimbabwe
+Somalia
+Sudan
+Südafrika
+South Africa
+Südsudan
+South Sudan
+Tansania
+Tanzania
+Togo
+Tschad
+Chad
+Tunesien
+Tunisia
+Uganda
+
+# Oceania
+Australien
+Australia
+Neuseeland
+New Zealand
+Fidschi
+Fiji
+Papua-Neuguinea
+Papua New Guinea

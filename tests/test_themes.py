@@ -4,7 +4,8 @@ from urllib.parse import parse_qs
 import pytest
 
 from mailrobbe.api.query import parse_query
-from mailrobbe.themes import ThemesError, load_themes
+from mailrobbe.enums import EntityContext
+from mailrobbe.themes import ThemesError, load_entity_context, load_themes
 
 
 def test_the_shipped_themes_load() -> None:
@@ -48,3 +49,42 @@ def test_a_search_with_an_unusable_operator_is_refused(tmp_path: Path) -> None:
     )
     with pytest.raises(ThemesError, match="search A: x"):
         load_themes(_write(tmp_path, text))
+
+
+def test_the_shipped_entity_contexts_load() -> None:
+    contexts = load_entity_context()
+    assert list(contexts) == [EntityContext.CASH, EntityContext.DONATION, EntityContext.RECEIPT]
+    assert {"Bargeld", "bar"} <= set(contexts[EntityContext.CASH])
+    assert {"Spende", "Zuwendung"} <= set(contexts[EntityContext.DONATION])
+    assert {"Quittung", "Spendenbescheinigung"} <= set(contexts[EntityContext.RECEIPT])
+    # Membership fees are routine, not donations (themes.toml says why).
+    assert all("beitrag" not in word.lower() for words in contexts.values() for word in words)
+
+
+@pytest.mark.parametrize(
+    ("table", "message"),
+    [
+        ("", "the table \\[entity_context\\] is missing"),
+        ('[entity_context]\ncash = ["bar"]\ndonation = ["Spende"]\n', "the list receipt"),
+        (
+            '[entity_context]\ncash = ["bar"]\ndonation = []\nreceipt = ["Beleg"]\n',
+            "the list donation is missing or empty",
+        ),
+        (
+            '[entity_context]\ncash = ["bar", " "]\ndonation = ["Spende"]\nreceipt = ["Beleg"]\n',
+            "cash: every word must be a non-empty text",
+        ),
+        (
+            '[entity_context]\ncash = ["Bar", "bar"]\ndonation = ["Spende"]\nreceipt = ["Beleg"]\n',
+            "cash: used twice: bar",
+        ),
+        (
+            '[entity_context]\ncash = ["bar"]\ndonation = ["Spende"]\nreceipt = ["Beleg"]\n'
+            'fee = ["Beitrag"]\n',
+            "unknown lists fee",
+        ),
+    ],
+)
+def test_wrong_entity_contexts_are_refused(tmp_path: Path, table: str, message: str) -> None:
+    with pytest.raises(ThemesError, match=message):
+        load_entity_context(_write(tmp_path, table))
