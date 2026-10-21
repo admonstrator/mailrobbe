@@ -1,0 +1,144 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 56px;
+  padding: 0 24px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.logo,
+.logo:hover {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nav {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.navLink {
+  border-radius: var(--radius-control);
+  padding: 6px 12px;
+  color: var(--color-nav);
+}
+
+.navLink:hover {
+  background: var(--color-field);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.navLink.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+.search {
+  display: flex;
+  flex: 1 1 320px;
+  align-items: center;
+  gap: 8px;
+  min-width: 160px;
+  max-width: 560px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-field);
+}
+
+.search:focus-within {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  outline: none;
+}
+
+.kbd {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+.figures {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.figures strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.importState,
+.importState:hover {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+}
+
+.importDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.running .importDot {
+  background: var(--color-pass);
+}
+
+.stopped .importDot {
+  background: var(--color-no-key);
+}
+
+.done .importDot {
+  background: var(--color-unsigned);
+}
+
+/* Below this width the totals give way to the search field; the import state stays. */
+@media (max-width: 1199px) {
+  .count {
+    display: none;
+  }
+}

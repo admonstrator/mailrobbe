@@ -1,0 +1,65 @@
+.dot {
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.pass {
+  background: var(--color-pass);
+}
+
+.fail {
+  background: var(--color-fail);
+}
+
+.no_key {
+  background: var(--color-no-key);
+}
+
+.unsigned {
+  background: var(--color-unsigned);
+}
+
+/* Not a verdict yet: rings instead of filled dots. */
+.temp_error {
+  border: 2px solid var(--color-no-key);
+}
+
+.unchecked {
+  border: 2px solid var(--color-unsigned);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge_pass {
+  background: var(--color-pass-soft);
+  color: #166534;
+}
+
+.badge_fail {
+  background: var(--color-fail-soft);
+  color: #991b1b;
+}
+
+.badge_no_key,
+.badge_temp_error {
+  background: var(--color-no-key-soft);
+  color: #92400e;
+}
+
+.badge_unsigned,
+.badge_unchecked {
+  background: var(--color-unsigned-soft);
+  color: var(--color-nav);
+}
