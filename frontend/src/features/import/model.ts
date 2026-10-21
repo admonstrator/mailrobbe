@@ -8,21 +8,37 @@ import type {
   ImportStatus,
   MboxFileInfo,
   MboxStatus,
+  StepProgress,
+  StepStatus,
 } from "../../api/types";
 
 /** What the run card says about the latest import run. */
-export type RunState = "none" | "running" | "pausing" | "paused" | "done" | "aborted";
+export type RunState = "none" | "running" | "pausing" | "paused" | "done" | "aborted" | "orphaned";
 
 export function importRunState(job: ImportJob | null): RunState {
   if (!job) return "none";
   if (job.status === "running") {
-    // Running without its lock: the process ended without recording it (D47).
-    if (!job.alive) return "aborted";
+    // Running without its lock: the process ended without recording it, say because the server
+    // was restarted (D47, D110).
+    if (!job.alive) return "orphaned";
     return job.stop_requested ? "pausing" : "running";
   }
   if (job.status === "stopped") return "paused";
   return job.status === "done" ? "done" : "aborted";
 }
+
+/** A step as the dashboard shows it (D110): as reported while its run lives; afterwards a step
+ *  that never started was not reached, and one a dead process left running was cut off. */
+export type StepState = StepStatus | "unreached" | "aborted";
+
+export function stepState(step: StepProgress, alive: boolean): StepState {
+  if (alive) return step.status;
+  if (step.status === "waiting") return "unreached";
+  return step.status === "running" ? "aborted" : step.status;
+}
+
+/** Seconds without a report after which a live run is said to be silent; it reports every 2 s. */
+export const SILENT_SECONDS = 30;
 
 /** "Import fortsetzen" instead of "Import starten": the last run did not get to its end, or files
  *  wait half done (paused, or interrupted before runs were recorded). */

@@ -25,7 +25,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from pydantic import SecretStr
-from sqlalchemy import func, pool, select
+from sqlalchemy import func, pool, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from mailrobbe import jobs
@@ -246,6 +247,8 @@ async def test_status_shows_the_latest_runs_and_whether_they_live(
     status = await get(dashboard.client, "/api/import/status")
     # Rows still running whose process holds no lock: shown as not alive (aborted).
     assert (status["import_job"]["status"], status["import_job"]["alive"]) == ("running", False)
+    assert status["import_job"]["leftover"] is None  # nothing of it runs in the database
+    assert 0 <= status["import_job"]["report_age_seconds"] < 60
     assert status["import_job"]["origin"] == "cli"
     assert status["import_job"]["phase"] == "import"
     assert status["import_job"]["options"] == options.model_dump()
@@ -276,6 +279,48 @@ async def test_status_shows_the_latest_runs_and_whether_they_live(
     assert status["import_job"]["phase"] is None
     assert status["dkim_job"]["options"]["statuses"] == ["unchecked", "no_key", "temp_error"]
     assert status["defaults"] == ImportOptions.from_settings(settings).model_dump()
+
+
+async def test_status_shows_what_a_dead_run_left_running_in_the_database(
+    dashboard: Dashboard, settings: Settings
+) -> None:
+    url = dashboard.url
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    # The connections of a run whose process died, as after a restart of the server (D113).
+    dead = create_async_engine(
+        url,
+        poolclass=pool.NullPool,
+        connect_args={
+            "server_settings": {"application_name": jobs.application_name(JobKind.IMPORT, 1)}
+        },
+    )
+    try:
+        async with engine.connect() as connection:
+            options = ImportOptions.from_settings(settings)
+            await jobs.begin_job(connection, JobKind.IMPORT, JobOrigin.UI, options, "finalize")
+            await connection.commit()
+        async with dead.connect() as statement:
+            sleeping = asyncio.create_task(statement.execute(text("SELECT pg_sleep(30)")))
+
+            async def left() -> bool:
+                job = (await get(dashboard.client, "/api/import/status"))["import_job"]
+                return job["leftover"] is not None
+
+            await until(left)
+            job = (await get(dashboard.client, "/api/import/status"))["import_job"]
+            assert (job["status"], job["alive"]) == ("running", False)
+            assert job["leftover"]["seconds"] >= 0 and job["leftover"]["wait"] != "Lock"
+            # The next run of the kind ends it, since it holds the locks that run needs.
+            async with engine.connect() as connection:
+                assert await jobs.end_leftovers(connection, JobKind.IMPORT) == 1
+                await connection.commit()
+            with pytest.raises(DBAPIError):
+                await sleeping
+    finally:
+        await dead.dispose()
+        await engine.dispose()
+    job = (await get(dashboard.client, "/api/import/status"))["import_job"]
+    assert job["leftover"] is None
 
 
 # Summary ---------------------------------------------------------------------------------------
@@ -471,7 +516,8 @@ async def test_an_import_started_from_the_dashboard_runs_until_paused(
         "dkim_nameservers": "192.0.2.1, 2001:db8::1",
     }
     status = await get(client, "/api/import/status")
-    assert status["import_job"] == job | {"updated_at": status["import_job"]["updated_at"]}
+    later = {key: status["import_job"][key] for key in ("updated_at", "report_age_seconds")}
+    assert status["import_job"] == job | later
     assert (await get(client, "/api/stats"))["importer"]["running"] is True
 
     # One run at a time, of either kind.
