@@ -158,7 +158,7 @@ RECORDING_FORMS: dict[str, tuple[str | None, int]] = {
     "ogg": ("audio/ogg", 3),
     "flac": ("audio/flac", 2),
     "mp4": ("video/mp4", 2),
-    "mov": ("video/quicktime", 2),
+    "mov": ("video/mp4", 2),  # QuickTime is served as video/mp4 (preview.media)
     "webm": ("video/webm", 2),
     "wma": (None, 1),
     "avi": (None, 1),

@@ -26,6 +26,7 @@ from mailrobbe.generator.config import DNS_OVERRIDE_NAME, MANIFEST_NAME, Generat
 from mailrobbe.generator.model import AttachmentSpec, DocumentSpec
 from mailrobbe.generator.pipeline import generate
 from mailrobbe.importer.cli import run_import
+from mailrobbe.preview import media
 from mailrobbe.preview.kinds import preview_kind
 from tests.conftest import _temporary_database
 from tests.generator.conftest import small_config
@@ -148,6 +149,12 @@ def test_damaged_pictures_stop_before_their_image() -> None:
             assert classify(name, "image/png", data[:HEAD_SIZE]).kind is DocumentKind.IMAGE
 
 
+@pytest.mark.parametrize("name", RECORDINGS)
+def test_the_media_endpoint_serves_each_recording_as_the_manifest_says(name: str) -> None:
+    expected, _ = documents.RECORDING_FORMS[name.partition("-")[0]]
+    assert media.media_type(ff.fixture(name)[:HEAD_SIZE]) == expected
+
+
 @pytest.mark.parametrize(
     ("form", "filename", "mime_type", "preview", "media_type"),
     [
@@ -160,7 +167,7 @@ def test_damaged_pictures_stop_before_their_image() -> None:
         ("ogg", "Interview_Peters.ogg", "audio/ogg", "audio", "audio/ogg"),
         ("flac", "Aufnahme.flac", "audio/flac", "audio", "audio/flac"),
         ("mp4", "Video_1234.mp4", "video/mp4", "video", "video/mp4"),
-        ("mov", "IMG_1234.MOV", "video/quicktime", "video", "video/quicktime"),
+        ("mov", "IMG_1234.MOV", "video/quicktime", "video", "video/mp4"),
         ("webm", "Clip_Atlas.webm", "application/octet-stream", "video", "video/webm"),
         ("wma", "Diktat_1234.wma", "audio/x-ms-wma", None, None),
         ("avi", "MVI_1234.AVI", "video/x-msvideo", None, None),
