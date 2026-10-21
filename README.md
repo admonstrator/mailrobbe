@@ -1,8 +1,70 @@
-# Mailrobbe
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/logo/logo-wordmark-dark.svg">
+  <img src="./frontend/public/logo-wordmark.svg" alt="Mailrobbe" width="480">
+</picture>
+
+<h1>Mailrobbe</h1>
+
+[![CI](https://img.shields.io/github/actions/workflow/status/admonstrator/mailrobbe/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/admonstrator/mailrobbe/actions/workflows/ci.yml) [![Python](https://img.shields.io/badge/Python-3.12-1D5BD6?style=for-the-badge&logo=python&logoColor=white)](pyproject.toml) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=for-the-badge&logo=postgresql&logoColor=white)](docker-compose.yml) [![React](https://img.shields.io/badge/React-TypeScript-0EA5E9?style=for-the-badge&logo=react&logoColor=white)](frontend/) [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white)](#schnellstart)
+
+[Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Schnellstart](#schnellstart) | [Web-Oberfläche](#web-oberfläche) | [Häufige Fragen](#häufige-fragen)
+
+</div>
+
+---
 
 Mailrobbe liest große MBOX-Exporte ein (Zielgröße rund 400.000 Mails in etwa 70 Dateien), prüft jede Mail auf ihre DKIM-Signatur, ordnet sie den beteiligten Personen zu und macht alles in einer lokalen Web-Oberfläche durchsuchbar. Kernstück ist eine Beziehungskarte, die zeigt, wer mit wem wie oft kommuniziert.
 
 Die Rohmails bleiben unverändert in den MBOX-Dateien, die read-only eingebunden werden. Die Datenbank (PostgreSQL) hält nur Metadaten, Byte-Offsets, den Volltextindex und Aggregationen.
+
+## Auf einen Blick
+
+| Frage                                                  | Wo in Mailrobbe                                                                                     |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Wer hat mit wem wie oft geschrieben?                   | Beziehungskarte (`/karte`), Top-Kontakte im Personenprofil                                           |
+| Ist diese Mail echt?                                   | DKIM-Ergebnis je Signatur im Mail-Detail, Filter `dkim:pass` und `dkim:fail`                         |
+| Wer steckt hinter mehreren Adressen?                   | Alias-Vorschläge unter Personen; zusammengeführt wird nur von Hand                                   |
+| Wer hat dieses Dokument wann an wen geschickt?         | Anhänge (`/anhaenge`) und die Seite des Dokuments                                                    |
+| Wo steht ein Begriff, auch in PDFs und Tabellen?       | Volltextsuche über Mails und Anhänge, dazu `from:`, `to:`, `subject:`, `has:attachment`, `after:`    |
+| Womit fange ich an?                                    | Themen unter Akten: Wortfelder und 18 Suchvorlagen zu den Schwerpunkten der Recherche                |
+| Wie halte ich Funde im Team fest?                      | Rechercheakte (`/akten`): Status, Notizen, Schlagworte, Akten, gespeicherte Suchen, Permalinks       |
+| Wie gebe ich Belege an Anwälte weiter?                 | Export als ZIP mit Originalmail, PDF je Mail, Manifest und `SHA256SUMS`                              |
+
+---
+
+## Was Mailrobbe kann
+
+### Die Mails bleiben, wie sie sind
+
+Mailrobbe ändert kein Byte an den MBOX-Dateien. Es merkt sich je Mail Datei, Byte-Offset, Länge und SHA-256 und liest Text, HTML, Header, Anhänge und Downloads erst beim Öffnen aus der Datei, geprüft gegen den Hash vom Import. Der Export gibt dieselben Bytes als EML weiter.
+
+### Echtheit prüfen statt vermuten
+
+Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert: gültig, ungültig (etwa weil der Body geändert wurde), Schlüssel fehlt, unsigniert oder DNS-Fehler. Eine gültige Signatur zeigt, dass die Mail mit dem Schlüssel der signierenden Domain unterschrieben wurde und die unterschriebenen Teile seither unverändert sind.
+
+### Personen statt Adressen
+
+Aus Absendern und Empfängern werden Personen mit Kennzahlen, Top-Kontakten und Aktivität je Jahr. Mailrobbe schlägt Adressen vor, die vermutlich zu derselben Person gehören, führt sie aber nie von selbst zusammen.
+
+### Die Karte zeigt, wer mit wem
+
+Die Beziehungskarte zeichnet Ausschnitte um eine oder mehrere Personen, die aktivsten Personen oder den Verkehr zwischen zwei Domains, Jahr für Jahr. Verteiler und Automaten lassen sich ausblenden, ein Klick auf eine Verbindung öffnet die Mails dazwischen. Für Gephi gibt es GraphML.
+
+### Anhänge sind Teil der Suche
+
+Text aus PDF, Word, Excel, PowerPoint, OpenDocument und vielen weiteren Formaten landet im selben Volltextindex wie die Mails. Jedes Dokument steht einmal in der Liste, auch wenn es durch viele Mails gewandert ist, mit der Antwort auf die Frage, wer es wann an wen geschickt hat.
+
+### Die Rechercheakte hält fest, was das Team findet
+
+Prüfstatus, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen am Inhalt der Mail und überstehen deshalb auch einen Neuimport. Mailrobbe markiert und bewertet nichts von selbst: Suchen zeigen auf Mails, Menschen lesen und entscheiden.
+
+### Gebaut für 400.000 Mails
+
+Der Importer liest jede Datei sequenziell in großen Blöcken, lässt sich pausieren und setzt ohne Dubletten fort. Im Lasttest liefen 400.000 Testmails in gut vier Minuten durch, Listen und Filter antworteten danach meist in 10 bis 60 ms.
+
+---
 
 ## Schnellstart
 
@@ -80,6 +142,8 @@ Nach dem Import zeigt http://127.0.0.1:8000 die Mailliste. Alles läuft lokal: k
 - **Personenprofil**: Kennzahlen, Top-Kontakte, Aktivität pro Jahr, Anzeigenamen und Adressen der Person, darunter alle ihre Mails nach Rolle (Gesendet, Empfangen, Nur Cc), Jahr und Kontakt. Ein Klick auf ein Jahr oder einen Kontakt filtert die Liste; Vor/Zurück im Mail-Detail bleibt in diesen Mails.
 - **Aliase**: Mailrobbe führt Adressen nie von selbst zusammen. Es schlägt Adressen vor, die denselben Anzeigenamen (auch „Nachname, Vorname“) oder denselben Teil vor dem @ haben, im Reiter „Alias-Vorschläge“ und im Profil. „Zusammenführen“ macht eine Adresse zum Alias einer Person, ihre Mails zählen dann dort; „Lösen“ im Profil nimmt das zurück, „Verwerfen“ blendet einen Vorschlag dauerhaft aus. Ein Zusammenführen dauert meist rund 0,2 Sekunden; bei 400.000 Mails und den aktivsten Personen (über 40.000 Mails) sind es zwei bis drei.
 - **Anhänge** (`/anhaenge`): jedes Dokument einmal, auch wenn es in vielen Mails steckt, mit Volltextsuche über Text und Dateinamen (Fundstelle im Text hervorgehoben). Filter: Dateiname, Art, Textstatus (darunter „Gescannt (ohne Text)“ für eine spätere Texterkennung), Zeitraum, Person als Absender oder Empfänger, „in mehreren Mails“ und intern/extern. Sortiert wird nach erstem Auftauchen, Zahl der Mails oder Größe. Die Dokumentseite zeigt, wer das Dokument wann an wen geschickt hat, als Mailliste mit der ältesten Mail zuerst. Dazu kommen die Dateinamen, unter denen es lief, die häufigsten Absender und Empfänger, der ausgelesene Text, der Download und bei Bildern eine Vorschau. Im Mail-Detail führt jeder Anhang zu seinem Dokument und zum Download. Downloads liest Mailrobbe bei jedem Abruf aus der MBOX-Datei, prüft sie gegen den Hash und liefert sie immer als Datei aus, nie zum Anzeigen im Browser.
+- **Akten** (`/akten`): die Rechercheakte des Teams. Jede Mail bekommt einen Prüfstatus (ungesichtet, gesichtet, relevant, nicht relevant), eine Markierung, beliebig viele Notizen und Schlagworte und lässt sich Akten zuordnen, einzeln im Mail-Detail oder in der Mailliste für ausgewählte Mails und alle Treffer eines Filters. Reiter für Akten, Themen, gespeicherte Suchen, Schlagworte, Notizen und Exporte. Die Themen zeigen Wortfelder zu Verfassungsfeindlichkeit, Rassismus, Extremismus, Gewalt, Spendenaffären und Verschleierung mit 18 Suchvorlagen (`src/mailrobbe/themes.toml`). Der Name, unter dem Notizen und Änderungen gespeichert werden, steht oben rechts. Permalinks (`/m/<Anfang des SHA-256>`) öffnen eine Mail über ihren Inhalt und gelten auch nach einem Neuimport.
+- **Export**: bis zu 2.000 Mails (Auswahl, Filter oder Akte) als ZIP, je Mail die Originalmail als EML und ein PDF, dazu ein Manifest (JSON und CSV), `SHA256SUMS` zum Nachprüfen mit `sha256sum -c` und eine `LIESMICH.txt`. Notizen, Schlagworte und Status gehen nur auf Wunsch mit.
 - **Zugriffsschutz**: ohne Login, solange nichts eingestellt ist. `MAILROBBE_BASIC_AUTH_USER` und `MAILROBBE_BASIC_AUTH_PASSWORD` in der `.env` schalten HTTP Basic Auth ein (nur `/api/health` bleibt für den Container-Healthcheck offen).
 - **Intern/extern**: Mit `MAILROBBE_INTERNAL_DOMAINS=firma.de,firma.ch` erscheint der Filter „Nur extern ↔ intern“ (Mails, bei denen eine Seite intern und die andere extern ist; Subdomains zählen als intern).
 - **Beziehungskarte** (`/karte`): wer mit wem wie oft geschrieben hat, als Ausschnitt um eine oder mehrere Personen (bis Tiefe 3), als die aktivsten Personen des Archivs oder zwischen zwei Domains. Mindestanzahl Mails je Verbindung, Zeitraum in ganzen Jahren, nur DKIM-gültige Mails, Cc mitzählen, Verteiler und Automaten ausblenden; Knoten lassen sich aufklappen und ausblenden, ein Klick auf eine Verbindung öffnet die Mails zwischen beiden. Vier Layouts, Einfärben nach Domain, Pfeile in Senderichtung, Zeitverlauf Jahr für Jahr, Export als PNG, SVG und GraphML. Mehr als 2.000 Personen zeichnet die Karte nicht; die Vorschau neben der Schwelle sagt vorher, wie groß der Ausschnitt wird. Auch dieser Zustand steht in der Adresszeile.
@@ -111,8 +175,41 @@ Ausgelegt für macOS oder Linux mit etwa 10 GB RAM für Datenbank und Importer z
 - [docs/mockup/](docs/mockup/): klickbarer UI-Prototyp der fünf Screens (HTML-Datei im Browser öffnen)
 - [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware, DKIM, Import, Mailliste und Detail, Personen und Aliase, Beziehungskarte, Import-Dashboard)
 - [docs/LOADTEST.md](docs/LOADTEST.md): Lasttest mit 400.000 Mails, Ablauf für die Zielmaschine und Messwerte
+- [docs/logo/](docs/logo/): Logo als Wortmarke für dunkle Flächen, einfarbig und als PNG (Bildmarke, Wortmarke und Favicon liegen in `frontend/public/`)
 - [CLAUDE.md](CLAUDE.md): Entwicklungshinweise (Befehle, Konventionen, Tests)
 
 ## Stand
 
 Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads), Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl), Meilenstein 4 (API, Mailliste und Mail-Detail), Meilenstein 5 (Personen, Personenprofil, Alias-Vorschläge und Zusammenführen), Meilenstein 6 (Beziehungskarte mit GraphML-Export), Meilenstein 7 (Import-Dashboard und Lasttest mit 400.000 Mails), Meilenstein 8 (Rechercheakte) und Meilenstein 9 (Anhänge mit Volltext, Dokumentliste und Dokumentseite) sind fertig. Den Lasttest aus [docs/LOADTEST.md](docs/LOADTEST.md) gibt es für die Auswertung der Anhänge noch nicht. Offen ist die Abnahme mit dem echten Archiv auf der Zielmaschine.
+
+---
+
+## Häufige Fragen
+
+### Verändert Mailrobbe meine Mails?
+
+Nein. Die MBOX-Dateien sind schreibgeschützt eingebunden, die Datenbank hält nur Metadaten, Byte-Offsets, den Volltextindex und Aggregationen. Was die Oberfläche zeigt oder herunterlädt, liest Mailrobbe bei jedem Abruf aus der Datei und prüft es gegen den SHA-256 vom Import.
+
+### Geht dabei etwas ins Internet?
+
+Die Oberfläche lädt nichts von außen, HTML-Mails laufen in einem abgeschotteten Rahmen ohne Skripte und ohne Nachladen. Im Betrieb fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab; mit `MAILROBBE_DKIM_OFFLINE=1` nutzt es ausschließlich den Cache und fragt niemanden.
+
+### Was heißt „DKIM gültig“, und was heißt „Schlüssel fehlt“?
+
+Gültig heißt: Die Signatur passt kryptografisch zum Schlüssel der Domain, die Mail wurde also mit diesem Schlüssel unterschrieben, und die unterschriebenen Teile sind seither unverändert. Wer sie geschrieben hat, beweist das nicht. „Schlüssel fehlt“ heißt nur, dass der Schlüssel heute nicht mehr im DNS steht, was bei älteren Mails häufig vorkommt; über eine Fälschung sagt das nichts.
+
+### Können mehrere Leute gleichzeitig arbeiten?
+
+Ja, alle auf demselben Server sehen dieselbe Rechercheakte. Konten gibt es nicht: Jeder Browser trägt einmal einen Namen ein, mit dem Notizen und Änderungen gespeichert werden. Das ist eine Zuordnung, kein Zugriffsschutz; den liefert bei Bedarf Basic Auth (`MAILROBBE_BASIC_AUTH_USER`, `MAILROBBE_BASIC_AUTH_PASSWORD`).
+
+### Wo liegen Notizen, Schlagworte und Akten?
+
+In der PostgreSQL-Datenbank im Docker-Volume `mailrobbe_pgdata`, nicht in den MBOX-Dateien. Wer die Rechercheakte behalten will, sichert dieses Volume oder die Datenbank mit `pg_dump`.
+
+---
+
+<div align="center">
+
+**Mailrobbe ist von admon, für Recherchen in großen Mailarchiven.**
+
+</div>
