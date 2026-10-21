@@ -399,6 +399,7 @@ def test_a_term_inside_an_address_is_none() -> None:
         ("Donation of USD 300 in cash, receipt attached.", CASH | DONATION | RECEIPT),
         ("Die Spendeneinnahmen betragen 900 EUR.", DONATION),
         ("Die Spende kam an. Die Rechnung über 300 EUR ist offen.", NO_CONTEXT),
+        ("Die Spenden stiegen um 12 %. Der Kassenstand beträgt 1.333,38 €.", NO_CONTEXT),
         ("Mitgliedsbeitrag 60 EUR", NO_CONTEXT),
         ("Spende: " + "x" * 300 + " 700 EUR", NO_CONTEXT),  # beyond the window
     ],

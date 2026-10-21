@@ -3,7 +3,8 @@
 
 An occurrence takes the contexts of the context words (terms.find_terms) in its sentence. A
 sentence ends at ., ! or ? followed by whitespace and a capital (a dot after an abbreviation such
-as Dr. or Nr., a single letter or a number ends none: "am 3. Oktober"), at a blank line, and in a
+as Dr. or Nr., a single letter or a number ends none: "am 3. Oktober"; one after a sign such as €
+does: "auf 480,50 €. Der Kassenstand"), at a blank line, and in a
 table at the end of the line. A table line is one with a tab, two semicolons or vertical bars,
 or two commas directly before a word (Spende,DE89...): the rows of spreadsheets and CSV files,
 whose cells are no sentences. A sentence reaches at most WINDOW characters to either side of the
@@ -62,7 +63,7 @@ def _boundaries(text: str) -> list[int]:
             start = match.start()
             before = _WORD_BEFORE.search(text, max(0, start - 12), start)
             word = before.group() if before else ""
-            if len(word) < 2 or word.isdigit() or word.lower() in _ABBREVIATIONS:
+            if len(word) == 1 or word.isdigit() or word.lower() in _ABBREVIATIONS:
                 continue
         bounds.add(match.end())
     for line in _TABLE_LINE.finditer(text):
