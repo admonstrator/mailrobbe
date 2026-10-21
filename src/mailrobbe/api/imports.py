@@ -34,6 +34,7 @@ from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.query import DKIM_KEYS
 from mailrobbe.api.schemas import (
     DkimJob,
+    DkimKeysJob,
     DkimPhase,
     DkimRecheckRequest,
     FailReasonCount,
@@ -53,6 +54,7 @@ from mailrobbe.api.schemas import (
 from mailrobbe.api.stats import read_mbox_files
 from mailrobbe.config import Settings
 from mailrobbe.db.models import ImportErrorRecord, Job, MboxFile
+from mailrobbe.dkim.keys.model import DkimKeysOptions, DkimKeysPhase, DkimKeysProgress
 from mailrobbe.dkim.resolver import parse_nameservers
 from mailrobbe.enums import (
     DkimReason,
@@ -108,6 +110,7 @@ async def import_status(session: Session, settings: AppSettings) -> ImportStatus
     files = await read_mbox_files(session)
     import_row = await jobs.latest_job(session, JobKind.IMPORT)
     dkim_row = await jobs.latest_job(session, JobKind.DKIM)
+    keys_row = await jobs.latest_job(session, JobKind.DKIM_KEYS)
     return ImportStatus(
         mbox_dir=str(settings.mbox_dir),
         mbox_dir_ok=_mbox_dir_ok(settings),
@@ -115,6 +118,7 @@ async def import_status(session: Session, settings: AppSettings) -> ImportStatus
         files=files,
         import_job=None if import_row is None else await _import_job(session, settings, import_row),
         dkim_job=None if dkim_row is None else await _dkim_job(session, settings, dkim_row),
+        keys_job=None if keys_row is None else await _keys_job(session, settings, keys_row),
         defaults=_defaults(settings, import_row),
     )
 
@@ -184,6 +188,21 @@ async def _dkim_job(session: AsyncSession, settings: Settings, job: Job) -> Dkim
             "phase": job.phase if job.phase in get_args(DkimPhase) else None,
             "options": options,
             "progress": _valid(DkimProgress, job.progress) or DkimProgress(),
+        }
+    )
+
+
+async def _keys_job(session: AsyncSession, settings: Settings, job: Job) -> DkimKeysJob:
+    """A dkim-keys run as the dashboard shows it (D101)."""
+    options = _valid(DkimKeysOptions, job.options) or DkimKeysOptions(
+        task="reconstruct", workers=settings.import_workers
+    )
+    return DkimKeysJob.model_validate(
+        await _job_fields(session, job)
+        | {
+            "phase": job.phase if job.phase in get_args(DkimKeysPhase) else None,
+            "options": options,
+            "progress": _valid(DkimKeysProgress, job.progress) or DkimKeysProgress(),
         }
     )
 

@@ -30,7 +30,7 @@ import ipaddress
 import logging
 import mimetypes
 import re
-from typing import Annotated, Any, get_args
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 import fastapi
@@ -45,7 +45,7 @@ from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.detail import key_infos, mail_senders
 from mailrobbe.api.documents import CONTENT_HEADERS, content_disposition
 from mailrobbe.api.filters import _contains
-from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _job_fields, _start, _stop, _valid
+from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _keys_job, _start, _stop
 from mailrobbe.api.schemas import (
     EVIDENCE_FILE_LIMIT,
     SELECTOR_MAILS_LIMIT,
@@ -69,11 +69,9 @@ from mailrobbe.db.models import (
     DkimKeyLookup,
     DkimResult,
     DnsCache,
-    Job,
     Mail,
 )
 from mailrobbe.dkim.keys.identity import key_identity, split_key_name
-from mailrobbe.dkim.keys.model import DkimKeysOptions, DkimKeysPhase, DkimKeysProgress
 from mailrobbe.dkim.keys.store import Evidence, save_evidence, save_lookup
 from mailrobbe.dkim.resolver import is_reserved
 from mailrobbe.enums import (
@@ -633,27 +631,12 @@ async def start_keys(
         arguments.append(f"--jobs={run.workers}")
     environment = processes.child_environment(settings)
     job = await _start(session, settings, runs, JobKind.DKIM_KEYS, arguments, environment)
-    return await keys_job(session, settings, job)
+    return await _keys_job(session, settings, job)
 
 
 @router.post("/dkim/keys/run/stop", dependencies=JSON_BODY)
 async def stop_keys(_: NoOptions, session: Session, settings: AppSettings) -> DkimKeysJob:
-    return await keys_job(session, settings, await _stop(session, JobKind.DKIM_KEYS))
-
-
-async def keys_job(session: AsyncSession, settings: Settings, job: Job) -> DkimKeysJob:
-    """A dkim-keys run as the dashboard shows it; import_status serves the latest one."""
-    options = _valid(DkimKeysOptions, job.options) or DkimKeysOptions(
-        task="reconstruct", workers=settings.import_workers
-    )
-    return DkimKeysJob.model_validate(
-        await _job_fields(session, job)
-        | {
-            "phase": job.phase if job.phase in get_args(DkimKeysPhase) else None,
-            "options": options,
-            "progress": _valid(DkimKeysProgress, job.progress) or DkimKeysProgress(),
-        }
-    )
+    return await _keys_job(session, settings, await _stop(session, JobKind.DKIM_KEYS))
 
 
 def _domain(domain: str) -> str:
