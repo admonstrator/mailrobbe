@@ -23,10 +23,11 @@ west negative), altitude metres (below sea level negative), the GPS time UTC as 
 defines it.
 """
 
+import math
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from mailrobbe.attachments.kinds import classify
 from mailrobbe.enums import DocumentKind, DocumentMetadataStatus
@@ -62,7 +63,7 @@ class Summary:
     modified_by: str | None = None
     program: str | None = None
     device: str | None = None
-    created: datetime | None = None  # only a time the file states with its zone
+    created: datetime | None = None  # in UTC; only a time the file states with its zone
     gps: bool = False
 
 
@@ -86,7 +87,8 @@ class Collector:
             self._put(source, key, text)
 
     def number(self, source: str, key: str, value: int | float) -> None:
-        self._put(source, key, value)
+        if isinstance(value, int) or math.isfinite(value):  # jsonb knows no NaN or infinity
+            self._put(source, key, value)
 
     def texts(self, source: str, key: str, values: Iterable[str]) -> None:
         """A list of texts, each once, in order."""
@@ -182,12 +184,13 @@ def offset(zone: str) -> str:
 
 
 def parse_iso(value: Value | None) -> datetime | None:
-    """A stored ISO 8601 date with its zone as a datetime; None without a zone or unreadable."""
+    """A stored ISO 8601 date with its zone, in UTC; None without a zone, unreadable, or beyond
+    the years a datetime holds once in UTC (year 1 east of Greenwich, year 9999 west of it)."""
     if not isinstance(value, str) or not re.search(r"(Z|[+-]\d{2}:\d{2})$", value):
         return None
     try:
-        return datetime.fromisoformat(value)
-    except ValueError:
+        return datetime.fromisoformat(value).astimezone(UTC)
+    except (ValueError, OverflowError):
         return None
 
 
@@ -212,6 +215,9 @@ _PROGRAMS = (
     ("odf", "generator"),
     ("png", "Software"),
 )
+# Years of a creation date the summary takes: others are placeholders and typing errors (year 1,
+# 1601 and 1899 as the zero of Windows and OLE dates, years far ahead); the field keeps them.
+CREATED_YEARS = range(1900, 2200)
 _CREATED = (
     ("exif", "datetime_original"),
     ("exif", "datetime_digitized"),
@@ -243,10 +249,8 @@ def summarize(fields: Fields) -> Summary:
     exif = fields.get("exif", {})
     make, model = (str(exif.get(key, "")) for key in ("make", "model"))
     device = model if make.lower() in model.lower() else f"{make} {model}"
-    created = next(
-        (date for source, key in _CREATED if (date := parse_iso(fields.get(source, {}).get(key)))),
-        None,
-    )
+    dates = (parse_iso(fields.get(source, {}).get(key)) for source, key in _CREATED)
+    created = next((date for date in dates if date and date.year in CREATED_YEARS), None)
     gps = fields.get("gps", {})
     return Summary(
         author=text(_AUTHORS),

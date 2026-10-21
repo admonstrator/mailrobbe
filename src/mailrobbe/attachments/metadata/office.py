@@ -12,6 +12,7 @@ has any. Parts are read within the document's XML budget and parsed safely, as t
 extraction does.
 """
 
+import re
 from collections.abc import Callable
 
 from mailrobbe.attachments.extract.base import Damaged
@@ -146,10 +147,17 @@ def store(out: Collector, source: str, key: str, value: str, dates: frozenset[st
     """A property value: a date as ISO 8601, a count as a number, else the text."""
     if key in dates:
         out.date(source, key, value, W3C_DATE)
-    elif key in _NUMBERS and value.strip().isdigit():
-        out.number(source, key, int(value.strip()))
+    elif key in _NUMBERS and (number := count(value)) is not None:
+        out.number(source, key, number)
     else:
         out.text(source, key, value)
+
+
+def count(value: str) -> int | None:
+    """A count as a property states it: ASCII digits only (int() also reads other scripts'
+    digits and refuses more than 4,300), at most 18 of them."""
+    text = value.strip()
+    return int(text) if re.fullmatch("[0-9]{1,18}", text) else None
 
 
 def read_ooxml(data: bytes, out: Collector) -> Package:
