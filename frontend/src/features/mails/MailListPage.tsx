@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { ApiError, buildQuery } from "../../api/client";
 import {
   useDocument,
+  useMailDetail,
   useMailPage,
   useMailSummary,
   useMboxFiles,
@@ -27,6 +28,7 @@ import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { TAG_PALETTE } from "../../lib/research";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
+import { MiniTimeline } from "../timeline/MiniTimeline";
 import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
 import { ColumnMenu } from "./ColumnMenu";
@@ -97,6 +99,8 @@ export function MailListPage() {
   const [columns, setColumn] = useColumns();
   // The document filter's chip is named by the document (D75).
   const filtered = useDocument(state.document ?? 0, state.document !== null);
+  // The thread filter's chip is named by the subject of the thread's first mail (D95).
+  const threadMail = useMailDetail(state.thread ?? 0, state.thread !== null);
   const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -117,6 +121,8 @@ export function MailListPage() {
     collection: (id) => research.data?.collections.find((other) => other.id === id)?.name,
     document: (id) =>
       filtered.data?.id === id ? (filtered.data.name ?? "(ohne Dateinamen)") : `#${id}`,
+    thread: (id) =>
+      threadMail.data?.id === id ? threadMail.data.subject || "(kein Betreff)" : undefined,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);
@@ -152,6 +158,11 @@ export function MailListPage() {
       <main className={styles.main}>
         <h1 className="sr-only">Mails</h1>
         <SummaryTiles summary={summary} />
+        <MiniTimeline
+          filters={toFilters(state)}
+          onPick={(range) => setState(withFilters(state, range))}
+          collapsible
+        />
 
         <div className={styles.toolbar}>
           {chips.map((chip) => (
