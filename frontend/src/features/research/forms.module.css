@@ -1,0 +1,99 @@
+/* Form parts of the research dialogs and in-place edits. */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.label {
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.input,
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  background: var(--color-surface);
+  font-size: 14px;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.text {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+legend.label {
+  margin-bottom: 8px;
+}
+
+.colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 3px 10px 3px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.color input {
+  margin: 0;
+}
+
+.color:has(input:checked) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

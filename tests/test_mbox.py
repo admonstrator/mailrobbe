@@ -1,8 +1,9 @@
 import hashlib
+from pathlib import Path
 
 import pytest
 
-from mailrobbe.mbox import message_from_record, read_message, unescape_from_lines
+from mailrobbe.mbox import message_from_record, read_message, read_verified, unescape_from_lines
 from tests.conftest import GeneratedArchive
 
 
@@ -19,6 +20,19 @@ def test_read_message_rejects_a_record_beyond_the_end(generated_archive: Generat
     last = generated_archive.manifest[-1]
     with pytest.raises(ValueError, match="bytes"):
         read_message(generated_archive.mbox_dir / last["file"], last["offset"], last["length"] + 1)
+
+
+def test_read_verified_returns_only_the_imported_message(tmp_path: Path) -> None:
+    message = b"Subject: x\n\nbody\n"
+    path = tmp_path / "mbox"
+    path.write_bytes(SEPARATOR + message + b"\n")
+    sha = hashlib.sha256(message).hexdigest()
+    length = path.stat().st_size
+    assert read_verified(path, 0, length, sha) == message
+    assert read_verified(path, 0, length, "0" * 64) is None  # other bytes than imported
+    assert read_verified(path, 0, length + 1, sha) is None  # the file got shorter
+    with pytest.raises(OSError):
+        read_verified(tmp_path / "missing", 0, length, sha)
 
 
 SEPARATOR = b"From a@b.example Mon Mar  4 09:12:33 2019\n"
