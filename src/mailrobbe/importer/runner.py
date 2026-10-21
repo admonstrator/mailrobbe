@@ -455,9 +455,10 @@ class ImportFigures:
     """The live figures of an import run (jobs.ImportProgress) and its log line.
 
     The phases fill them in turn: the command the files queued after the scan, the header
-    refresh its counts, run_files the files running and ended, the workers the DKIM counter.
-    report() adds the totals of the run's files from mbox_file, as the dashboard reads them, and
-    the rates over the last RATE_WINDOW seconds of the import phase.
+    refresh its counts, run_files the files running and ended, the workers the DKIM counter,
+    the attachments phase its documents (attachments.phase). report() adds the totals of the
+    run's files from mbox_file, as the dashboard reads them, and the rates over the last
+    RATE_WINDOW seconds of the import phase and of the attachments phase.
     """
 
     def __init__(self) -> None:
@@ -466,6 +467,9 @@ class ImportFigures:
         self.workers = 0
         self.headers_total = 0
         self.headers_done = 0
+        self.documents_total = 0
+        self.documents_done = 0
+        self._documents: RateWindow | None = None  # from the start of the attachments phase
         # Mails with a DKIM verdict, added to by the worker processes per committed batch.
         self.dkim_checked: Synchronized[int] = multiprocessing.get_context("spawn").Value("q", 0)
         self._ids: list[int] = []
@@ -480,15 +484,28 @@ class ImportFigures:
         self._window = RateWindow(0, self.dkim_checked.value, 0)
         self._next_log = time.monotonic() + PROGRESS_SECONDS
 
+    def start_documents(self, total: int) -> None:
+        """The attachments phase begins with this many documents to work through."""
+        self.documents_total = total
+        self.documents_done = 0
+        self._documents = RateWindow(0)
+        self._next_log = time.monotonic() + PROGRESS_SECONDS
+
     async def report(self, db: Executor) -> ImportProgress:
-        """The figures now; while files are imported, a log line every PROGRESS_SECONDS."""
+        """The figures now; while files are imported or documents extracted, a log line every
+        PROGRESS_SECONDS."""
         progress = ImportProgress(
             workers=self.workers,
             files_queued=self.files_queued,
             files_finished=self.files_finished,
             headers_total=self.headers_total,
             headers_done=self.headers_done,
+            documents_total=self.documents_total,
+            documents_done=self.documents_done,
         )
+        if self._documents is not None:
+            (progress.documents_per_second,) = self._documents.rates(self.documents_done)
+            self._log_documents(progress.documents_per_second)
         if self._base is None or self._window is None:
             return progress
         totals = await _totals(db, self._ids)
@@ -496,7 +513,7 @@ class ImportFigures:
         size = totals.bytes_done - self._base.bytes_done
         mail_rate, dkim_rate, byte_rate = self._window.rates(mails, self.dkim_checked.value, size)
         eta = totals.left / byte_rate if byte_rate > 0 else None
-        if self.workers and time.monotonic() >= self._next_log:
+        if self.workers and self._documents is None and time.monotonic() >= self._next_log:
             self._next_log = time.monotonic() + PROGRESS_SECONDS
             log.info(
                 "files %d/%d, %d mails, %.0f mails/s, %.1f MB/s, %d import errors, %.0f%%, ETA %s",
@@ -518,6 +535,19 @@ class ImportFigures:
                 "bytes_per_second": byte_rate,
                 "eta_seconds": eta,
             }
+        )
+
+    def _log_documents(self, rate: float) -> None:
+        if not self.workers or time.monotonic() < self._next_log:
+            return
+        self._next_log = time.monotonic() + PROGRESS_SECONDS
+        left = self.documents_total - self.documents_done
+        log.info(
+            "documents %d/%d, %.1f documents/s, ETA %s",
+            self.documents_done,
+            self.documents_total,
+            rate,
+            _duration(left / rate) if rate > 0 else "unknown",
         )
 
 

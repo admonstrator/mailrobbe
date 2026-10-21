@@ -1,10 +1,12 @@
-"""The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize.
+"""The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize
+and text extraction.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import and finalize, and reports its figures (ImportFigures) every few seconds. It
-stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch,
-the files pause, the global figures count what is stored, and the finalize is left to the
-next run.
+it, D52), import, finalize and attachments (only when documents wait for their text, D72), and
+reports its figures (ImportFigures) every few seconds. It stops on Ctrl-C, SIGTERM and the
+dashboard's stop request alike: the workers store their batch, the files pause, the global
+figures count what is stored, and the finalize and the attachments are left to the next run;
+during the attachments phase, the texts stored so far stay.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error or the import could not start, 130 when it was stopped; the next run resumes.
@@ -14,6 +16,7 @@ import argparse
 import asyncio
 import logging
 import time
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +25,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from mailrobbe.aggregates import refresh_global_stats
+from mailrobbe.attachments import phase
+from mailrobbe.attachments.extract import extract_document
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
@@ -90,8 +95,9 @@ async def run_import(
     *,
     pipeline: Pipeline = DEFAULT_PIPELINE,
     origin: JobOrigin = JobOrigin.CLI,
+    extract: phase.Extractor = extract_document,
 ) -> int:
-    """The whole command; returns the exit status."""
+    """The whole command; returns the exit status. extract: tests hand in doubles."""
     if not mbox_dir.is_dir():
         log.error("%s is not a directory", mbox_dir)
         return EXIT_FAILED
@@ -106,7 +112,7 @@ async def run_import(
         ) as job:
             sessionmaker = create_sessionmaker(engine)
             ending = await _import(
-                sessionmaker, settings, mbox_dir, workers, job, figures, pipeline
+                sessionmaker, settings, mbox_dir, workers, job, figures, pipeline, extract
             )
             job.end(ending.status, ending.message)
             return ending.exit_code
@@ -132,6 +138,7 @@ async def _import(
     job: JobRun,
     figures: ImportFigures,
     pipeline: Pipeline,
+    extract: phase.Extractor,
 ) -> _Ending:
     started = time.monotonic()
     stop = job.stop
@@ -166,8 +173,13 @@ async def _import(
             result.edges.changed,
             result.edges.pairs,
         )
+    extracted = 0
+    if not stop.is_set():
+        extracted = await _extract_texts(
+            sessionmaker, settings, mbox_dir, workers, job, figures, extract
+        )
     async with sessionmaker() as session:
-        summary = await _summary(session, report, outcomes, time.monotonic() - started)
+        summary = await _summary(session, report, outcomes, extracted, time.monotonic() - started)
     print(summary.text)
     if stop.is_set():
         # The figures in the header and on the dashboard count the mails stored so far (D48).
@@ -205,6 +217,27 @@ async def _refresh_headers(
     await headers.refresh_headers(sessionmaker, mbox_dir, files, job.stop, figures)
 
 
+async def _extract_texts(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    mbox_dir: Path,
+    workers: int,
+    job: JobRun,
+    figures: ImportFigures,
+    extract: phase.Extractor,
+) -> int:
+    """The attachments phase (D72), when documents wait for their text; the documents stored."""
+    async with sessionmaker() as session:
+        waiting = await phase.waiting_documents(session, int(settings.attachment_text_max_size))
+    if not waiting:
+        return 0
+    job.set_phase("attachments")
+    result = await phase.extract_texts(
+        sessionmaker, settings, mbox_dir, waiting, workers, job.stop, figures, extract=extract
+    )
+    return result.stored
+
+
 def _log_scan(report: ScanReport, mbox_dir: Path) -> None:
     log.info(
         "scan of %s: %d MBOX files, %d new, %d to import",
@@ -229,7 +262,11 @@ class _Summary:
 
 
 async def _summary(
-    session: AsyncSession, report: ScanReport, outcomes: Sequence[FileOutcome], elapsed: float
+    session: AsyncSession,
+    report: ScanReport,
+    outcomes: Sequence[FileOutcome],
+    extracted: int,
+    elapsed: float,
 ) -> _Summary:
     """The closing summary, and how many files of this run ended in error."""
     ids = [file.id for file in report.files]
@@ -254,6 +291,14 @@ async def _summary(
             text("SELECT kind, count(*) FROM import_error GROUP BY kind ORDER BY 2 DESC, 1")
         )
     ]
+    documents: Counter[str] = Counter()
+    rows = await session.execute(
+        text("SELECT text_status::text, count(*) FROM document GROUP BY text_status")
+    )
+    for status, count in rows:
+        documents[status] = count
+    with_text = documents["text"] + documents["timeout"]  # a timeout keeps the text read
+    waiting = documents["pending"] + documents["unreadable"]
     imported = sum(outcome.mails for outcome in outcomes)
     errors = sum(count for _, count in kinds)
     by_kind = ", ".join(f"{kind} {count}" for kind, count in kinds)
@@ -265,10 +310,13 @@ async def _summary(
         f"threads:       {threads}",
         f"persons:       {persons}",
         f"import errors: {errors}" + (f" ({by_kind})" if kinds else ""),
+        f"documents:     {documents.total()} ({with_text} with text, {waiting} waiting; "
+        f"{extracted} stored in this run)",
         f"elapsed:       {elapsed:.1f} s, {imported / max(elapsed, 1e-9):.0f} mails/s",
     ]
     line = (
         f"{imported} mails imported in {elapsed:.0f} s; {mails} mails, {errors} import errors; "
+        f"{with_text} of {documents.total()} documents with text, {waiting} waiting; "
         f"files: {files}, {len(report.missing)} missing"
     )
     return _Summary("\n".join(lines), line, statuses["error"])

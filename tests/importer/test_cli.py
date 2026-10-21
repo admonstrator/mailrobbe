@@ -93,6 +93,7 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     assert "files:         2 done, 0 error, 0 missing" in out
     assert "mails:         50 (50 imported in this run)" in out
     assert "persons:       2" in out
+    assert "documents:     0 (0 with text, 0 waiting; 0 stored in this run)" in out
 
     caplog.clear()
     assert _import(database_url, mbox_dir) == 0
@@ -112,7 +113,8 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
     assert job["phase"] == "finalize"
     assert job["message"].startswith("50 mails imported in ")
     assert job["message"].endswith(
-        "s; 50 mails, 0 import errors; files: 2 done, 0 error, 0 missing"
+        "s; 50 mails, 0 import errors; 0 of 0 documents with text, 0 waiting; "
+        "files: 2 done, 0 error, 0 missing"
     )
     options = ImportOptions.model_validate(job["options"])
     assert (options.workers, options.attachment_hash_limit) == (3, 1000)
