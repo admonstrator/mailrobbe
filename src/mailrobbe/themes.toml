@@ -1,0 +1,168 @@
+# Research themes: word fields and search templates (D64).
+#
+# The themes the research concentrates on. Each one becomes a tag and a few saved searches of
+# the research file when someone clicks "Themen-Startset anlegen"; the word fields show on the
+# Akten screen, every word a search of its own. Nothing is tagged automatically: a search only
+# points to mails, people read them and decide. Later milestones (entities, anomalies, topic
+# discovery) read the same file. mailrobbe.themes loads and checks it.
+#
+# Each [[theme]]: key (stable, lowercase), name (the tag's name), color (a TagColor of
+# api/schemas.py), description, terms (the word field). Each [[theme.search]]: name and q, the
+# text of the search field (search syntax of D20). Words in q are full text with the German
+# configuration: inflections match ("Spende" finds "Spenden"), compounds do not, so they are
+# listed one by one; "or" joins alternatives; quotes make a phrase. German stop words such as
+# "mich", "an", "unter" are dropped, also inside phrases, so phrases need content words; with
+# "nicht" dropped, "nicht per Mail" would find every "per Mail", so negations are left out.
+# Terms that are numbers ("88") match every such number in the archive and are left out of
+# the searches.
+
+[[theme]]
+key = "verfassungsfeindlichkeit"
+name = "Verfassungsfeindlichkeit"
+color = "violet"
+description = "Angriffe auf die freiheitliche demokratische Grundordnung: Umsturzpläne, Verächtlichmachung von Parlament, Justiz und Presse, Reichsbürger-Erzählungen, Umgang mit dem Verfassungsschutz."
+terms = [
+    "Umsturz", "Systemwechsel", "Machtergreifung", "Machtübernahme", "Tag X", "Bürgerkrieg",
+    "Säuberung", "Widerstandsrecht", "Volksverräter", "Systemparteien", "Altparteien",
+    "Systempresse", "Lügenpresse", "Meinungsdiktatur", "Gesinnungsdiktatur", "Gleichschaltung",
+    "Volksgemeinschaft", "Ermächtigungsgesetz", "Ausnahmezustand", "Reichsbürger",
+    "Selbstverwalter", "BRD GmbH", "Reichsverfassung", "Staatsangehörigkeitsausweis",
+    "Deutsches Reich", "Verfassungsschutz", "Beobachtungsfall", "Verdachtsfall",
+    "Unvereinbarkeitsliste",
+]
+
+[[theme.search]]
+name = "Verfassungsfeindlichkeit: Umsturz und Tag X"
+q = 'Umsturz or Systemwechsel or Machtergreifung or Machtübernahme or "Tag X" or Bürgerkrieg or Säuberung'
+
+[[theme.search]]
+name = "Verfassungsfeindlichkeit: Verächtlichmachung des Staates"
+q = 'Volksverräter or Systemparteien or Altparteien or Systempresse or Lügenpresse or Meinungsdiktatur or Gesinnungsdiktatur or Gleichschaltung'
+
+[[theme.search]]
+name = "Verfassungsfeindlichkeit: Reichsbürger"
+q = 'Reichsbürger or Selbstverwalter or "BRD GmbH" or Reichsverfassung or Staatsangehörigkeitsausweis or "Deutsches Reich"'
+
+[[theme.search]]
+name = "Verfassungsfeindlichkeit: Verfassungsschutz"
+q = 'Verfassungsschutz or Beobachtungsfall or Verdachtsfall or Unvereinbarkeitsliste'
+
+[[theme]]
+key = "rassismus"
+name = "Rassismus"
+color = "pink"
+description = "Abwertung von Menschen nach Herkunft, Hautfarbe oder Religion, völkische Erzählungen vom Austausch der Bevölkerung, antisemitische Codes."
+terms = [
+    "Überfremdung", "Umvolkung", "Bevölkerungsaustausch", "großer Austausch", "Remigration",
+    "Volkstod", "Ethnopluralismus", "Rassenmischung", "Passdeutsche", "Kulturfremde",
+    "Messermigranten", "Asylanten", "Asyltouristen", "Invasoren", "Flüchtlingsflut",
+    "Islamisierung", "Kopftuchmädchen", "Neger", "Kanaken", "Zigeuner", "Schuldkult",
+    "Globalisten", "Hochfinanz", "Rothschild", "Soros", "Zionisten", "Weltverschwörung",
+]
+
+[[theme.search]]
+name = "Rassismus: Erzählungen vom Austausch"
+q = 'Umvolkung or Bevölkerungsaustausch or "großer Austausch" or Überfremdung or Remigration or Volkstod or Ethnopluralismus'
+
+[[theme.search]]
+name = "Rassismus: Abwertende Begriffe"
+q = 'Messermigranten or Asylanten or Asyltouristen or Invasoren or Kulturfremde or Passdeutsche or Kopftuchmädchen or Neger or Kanaken or Zigeuner'
+
+[[theme.search]]
+name = "Rassismus: Antisemitische Codes"
+q = 'Schuldkult or Globalisten or Hochfinanz or Rothschild or Soros or Zionisten or Weltverschwörung'
+
+[[theme]]
+key = "extremismus"
+name = "Extremismus"
+color = "red"
+description = "Bezüge zu extremistischen Gruppen, Symbolen und Codes, Verherrlichung des Nationalsozialismus, Vernetzung mit der Szene."
+terms = [
+    "Heil Hitler", "Sieg Heil", "Endsieg", "Hakenkreuz", "Schwarze Sonne", "Wolfsangel",
+    "Reichskriegsflagge", "Volksgenossen", "Nationalsozialismus", "Vogelschiss",
+    "Holocaustleugnung", "Kameradschaft", "Wehrsportgruppe", "Identitäre", "NSU",
+    "Blood and Honour", "Combat 18", "Hammerskins", "III. Weg", "NPD", "völkisch", "Arier",
+    "White Power", "Rahowa", "ZOG", "Thule", "88", "18", "HH",
+]
+
+[[theme.search]]
+name = "Extremismus: Bezüge zum Nationalsozialismus"
+q = '"Heil Hitler" or "Sieg Heil" or Endsieg or Hakenkreuz or "Schwarze Sonne" or Wolfsangel or Reichskriegsflagge or Volksgenossen or Vogelschiss or Holocaustleugnung'
+
+[[theme.search]]
+name = "Extremismus: Gruppen und Szene"
+q = 'Kameradschaft or Wehrsportgruppe or Identitäre or NSU or "Blood and Honour" or "Combat 18" or Hammerskins or "III. Weg" or NPD or völkisch'
+
+[[theme.search]]
+name = "Extremismus: Codes"
+q = '"White Power" or Rahowa or ZOG or Arier or Thule'
+
+[[theme]]
+key = "gewalt"
+name = "Gewalt"
+color = "amber"
+description = "Gewaltaufrufe, Drohungen, Waffen und Bewaffnung, Feindeslisten, Angriffe und Übergriffe."
+terms = [
+    "Gewalt", "Anschlag", "Angriff", "Übergriff", "Waffe", "Munition", "Sprengstoff", "Bombe",
+    "Pistole", "Gewehr", "Schusswaffe", "Waffenschein", "Schießstand", "Schießtraining",
+    "Wehrsport", "Miliz", "Bürgerwehr", "Kampfsport", "Schlägerei", "zusammenschlagen",
+    "abstechen", "erschießen", "aufhängen", "Galgen", "an die Wand stellen", "liquidieren",
+    "umbringen", "Drohung", "Morddrohung", "Feindesliste", "Todesliste",
+]
+
+[[theme.search]]
+name = "Gewalt: Waffen und Bewaffnung"
+q = 'Waffe or Munition or Sprengstoff or Schusswaffe or Pistole or Gewehr or Waffenschein or Schießstand or Schießtraining or Wehrsport or Miliz or Bürgerwehr'
+
+[[theme.search]]
+name = "Gewalt: Drohungen und Feindeslisten"
+q = 'Drohung or Morddrohung or Feindesliste or Todesliste or umbringen or erschießen or aufhängen or Galgen or liquidieren or "an die Wand stellen" or abstechen'
+
+[[theme.search]]
+name = "Gewalt: Angriffe und Übergriffe"
+q = 'Anschlag or Übergriff or Schlägerei or zusammenschlagen or Kampfsport'
+
+[[theme]]
+key = "spenden"
+name = "Spendenaffären"
+color = "green"
+description = "Spenden, Finanzierung und Geldflüsse: Großspenden, Stückelung, Barzahlungen, Strohleute, Geld aus dem Ausland, verdeckte Unterstützung, Rechenschaftsberichte."
+terms = [
+    "Spende", "Spender", "Großspende", "Barspende", "Sachspende", "Auslandsspende",
+    "Spendenquittung", "Spendenbescheinigung", "Zuwendungsbestätigung", "Zuwendung",
+    "Stückelung", "gestückelt", "Strohmann", "Strohleute", "Treuhänder", "Barzahlung",
+    "Bargeld", "in bar", "schwarze Kasse", "Darlehen", "Sponsoring", "Rechenschaftsbericht",
+    "Parteiengesetz", "Bundestagsverwaltung", "Unterstützerverein", "Wahlkampfhilfe",
+    "Beratervertrag", "Scheinrechnung", "Provision", "Schweiz", "Liechtenstein", "anonym",
+]
+
+[[theme.search]]
+name = "Spendenaffären: Quittungen und Bestätigungen"
+q = 'Spendenquittung or Spendenbescheinigung or Zuwendungsbestätigung or Spendenbestätigung'
+
+[[theme.search]]
+name = "Spendenaffären: Bargeld, Stückelung, Strohleute"
+q = 'Barspende or Barzahlung or Bargeld or "in bar" or Stückelung or gestückelt or Strohmann or Strohleute or Treuhänder or "schwarze Kasse"'
+
+[[theme.search]]
+name = "Spendenaffären: Großspenden, Ausland, Rechenschaft"
+q = 'Großspende or Auslandsspende or Sachspende or Rechenschaftsbericht or Parteiengesetz or Bundestagsverwaltung or Liechtenstein or Schweiz'
+
+[[theme.search]]
+name = "Spendenaffären: Verdeckte Unterstützung"
+q = 'Unterstützerverein or Wahlkampfhilfe or Sponsoring or Darlehen or Beratervertrag or Scheinrechnung or Provision'
+
+[[theme]]
+key = "verschleierung"
+name = "Verschleierung"
+color = "gray"
+description = "Hinweise auf bewusst verborgene Kommunikation: Wechsel in andere Kanäle, Bitten ums Löschen, Vorsicht vor Mitlesern. Quer zu allen Themen."
+terms = [
+    "lieber telefonieren", "telefonisch besprechen", "persönlich besprechen", "unter vier Augen",
+    "bitte löschen", "nach dem Lesen löschen", "streng vertraulich", "vertraulich behandeln",
+    "Signal", "Telegram", "Threema", "vernichten", "Schredder",
+]
+
+[[theme.search]]
+name = "Verschleierung: Kanalwechsel und Löschbitten"
+q = '"lieber telefonieren" or "telefonisch besprechen" or "persönlich besprechen" or "unter vier Augen" or "bitte löschen" or "nach dem Lesen löschen" or "streng vertraulich" or Signal or Telegram or Threema or Schredder'

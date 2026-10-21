@@ -62,7 +62,7 @@ from mailrobbe.api.schemas import (
     QueryTerm,
 )
 from mailrobbe.config import Settings
-from mailrobbe.db.models import Mail, MailNote, MboxFile, Participation, Person
+from mailrobbe.db.models import Mail, MailMark, MboxFile, Participation, Person
 from mailrobbe.enums import DkimStatus, ParticipationRole
 from mailrobbe.persons.roots import member_ids
 
@@ -142,9 +142,9 @@ async def list_mails(
             Mail.is_duplicate_of,
             Mail.byte_length,
             Mail.mbox_file_id,
-            func.coalesce(MailNote.flagged, False).label("flagged"),
+            func.coalesce(MailMark.flagged, False).label("flagged"),
         )
-        .outerjoin(MailNote, MailNote.mail_id == Mail.id)
+        .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
         .where(Mail.id == any_(literal(ids, ARRAY(BigInteger))))
     )
     found = {row.id: row for row in await session.execute(statement)}

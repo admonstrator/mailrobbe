@@ -3,7 +3,7 @@
 The list, its summary, the neighbours of a mail and the CSV export all build on these, so they
 agree on which mails match and in which order (D19 to D21). Conditions are plain columns of mail
 or EXISTS subqueries correlated to it: participants through participation and person (both
-indexed for this), flags through mail_note.
+indexed for this), research data through its tables keyed by mail.raw_sha256 (D53).
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -52,7 +52,7 @@ from mailrobbe.db.models import (
     TEXT_SEARCH_CONFIG,
     TIMESTAMPTZ,
     Mail,
-    MailNote,
+    MailMark,
     Participation,
     Person,
 )
@@ -108,7 +108,9 @@ def mail_conditions(
     if filters.hide_duplicates:
         where.append(Mail.is_duplicate_of.is_(None))
     if filters.flagged:
-        where.append(exists().where(MailNote.mail_id == Mail.id, MailNote.flagged.is_(True)))
+        where.append(
+            exists().where(MailMark.mail_sha256 == Mail.raw_sha256, MailMark.flagged.is_(True))
+        )
     if filters.mbox_file is not None:
         where.append(Mail.mbox_file_id == filters.mbox_file)
     where += [_takes_part(None, _person(person_id)) for person_id in filters.person]

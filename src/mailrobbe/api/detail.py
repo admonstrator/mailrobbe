@@ -1,8 +1,8 @@
-"""One mail: metadata, bodies read on demand from its MBOX file, EML download, DKIM recheck and
-note (D22, D23).
+"""One mail: metadata, research data, bodies read on demand from its MBOX file, EML download and
+DKIM recheck (D22, D53).
 
 Routes: GET /api/mails/{id}, /api/mails/{id}/body, /api/mails/{id}/eml,
-POST /api/mails/{id}/dkim/recheck, PUT /api/mails/{id}/note.
+POST /api/mails/{id}/dkim/recheck. Writes to the research data are in research.py.
 
 The detail comes from the database alone, in the same few queries whatever the mail. Body, EML
 and recheck read the message from its MBOX file in a worker thread and use it only while its
@@ -34,10 +34,10 @@ from mailrobbe.api.schemas import (
     MailDkim,
     MailHeaders,
     MailRaw,
+    MailResearch,
     MailSource,
     MailText,
-    Note,
-    NoteUpdate,
+    Mark,
     Participant,
     PersonRef,
     ThreadMail,
@@ -50,7 +50,7 @@ from mailrobbe.db.models import (
     DnsCache,
     Edge,
     Mail,
-    MailNote,
+    MailMark,
     MboxFile,
     Participation,
     Person,
@@ -102,9 +102,12 @@ _DETAIL = (
         Mail.dkim_status,
         Mail.thread_id,
         Mail.is_duplicate_of,
-        MailNote.flagged,
-        MailNote.note,
-        MailNote.updated_at,
+        MailMark.flagged,
+        MailMark.flagged_by,
+        MailMark.flagged_at,
+        MailMark.review,
+        MailMark.review_by,
+        MailMark.review_at,
         # The mail replied to: the original before its duplicates, then the lowest id.
         select(_REPLIED.id)
         .where(_REPLIED.message_id == Mail.in_reply_to, _REPLIED.id != Mail.id)
@@ -122,7 +125,7 @@ _DETAIL = (
         ).label("duplicates"),
     )
     .join(MboxFile, MboxFile.id == Mail.mbox_file_id)
-    .outerjoin(MailNote, MailNote.mail_id == Mail.id)
+    .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
 )
 
 
@@ -156,7 +159,19 @@ async def mail_detail(mail_id: MailId, session: Session) -> MailDetail:
         thread_size=thread_size,
         duplicate_of=mail.is_duplicate_of,
         duplicates=mail.duplicates,
-        note=Note(flagged=bool(mail.flagged), note=mail.note or "", updated_at=mail.updated_at),
+        research=MailResearch(
+            mark=Mark(
+                flagged=bool(mail.flagged),
+                flagged_by=mail.flagged_by,
+                flagged_at=mail.flagged_at,
+                review=mail.review,
+                review_by=mail.review_by,
+                review_at=mail.review_at,
+            ),
+            tags=[],
+            collections=[],
+            notes=[],
+        ),
     )
 
 
@@ -207,29 +222,6 @@ async def recheck_dkim(mail_id: MailId, session: Session, settings: AppSettings)
     await store.upsert_dns_cache(session, checker.take_new_answers())
     await session.commit()
     return await _dkim(session, mail_id, verdict.status)
-
-
-@router.put("/mails/{mail_id}/note")
-async def put_note(mail_id: MailId, update: NoteUpdate, session: Session) -> Note:
-    if await session.scalar(select(Mail.id).where(Mail.id == mail_id)) is None:
-        raise _not_found(mail_id)
-    statement = postgresql.insert(MailNote).values(
-        mail_id=mail_id, flagged=update.flagged, note=update.note, updated_at=func.now()
-    )
-    statement = statement.on_conflict_do_update(
-        index_elements=[MailNote.mail_id],
-        set_={
-            "flagged": statement.excluded.flagged,
-            "note": statement.excluded.note,
-            "updated_at": statement.excluded.updated_at,
-        },
-    )
-    saved = await session.execute(
-        statement.returning(MailNote.flagged, MailNote.note, MailNote.updated_at)
-    )
-    flagged, note, updated_at = saved.one()
-    await session.commit()
-    return Note(flagged=flagged, note=note, updated_at=updated_at)
 
 
 def _not_found(mail_id: int) -> HTTPException:

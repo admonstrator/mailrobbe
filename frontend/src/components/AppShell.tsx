@@ -13,6 +13,7 @@ const NAVIGATION = [
   { to: "/mails", label: "Mails" },
   { to: "/personen", label: "Personen" },
   { to: "/karte", label: "Karte" },
+  { to: "/akten", label: "Akten" },
   { to: "/import", label: "Import" },
 ];
 

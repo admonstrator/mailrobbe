@@ -1,6 +1,7 @@
 // Thin fetch wrapper for the backend's /api: query strings from parameter objects, JSON bodies,
-// and contract errors as ApiError.
+// the editor's name on writes (D54), and contract errors as ApiError.
 
+import { EDITOR_HEADER, editorHeader, getEditor } from "../lib/editor";
 import type { ApiErrorDetail, ErrorCode } from "./types";
 
 type ParamValue = string | number | boolean | null | undefined | readonly (string | number)[];
@@ -64,13 +65,14 @@ async function toApiError(response: Response): Promise<ApiError> {
 }
 
 async function request<T>(method: string, url: string, body?: unknown, signal?: AbortSignal) {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const editor = method === "GET" ? "" : getEditor();
+  if (editor) headers[EDITOR_HEADER] = editorHeader(editor);
   const response = await fetch(url, {
     method,
     signal,
-    headers:
-      body === undefined
-        ? { Accept: "application/json" }
-        : { Accept: "application/json", "Content-Type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) throw await toApiError(response);
@@ -92,4 +94,12 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
 
 export function apiPut<T>(path: string, body: unknown): Promise<T> {
   return request<T>("PUT", path, body);
+}
+
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PATCH", path, body);
+}
+
+export function apiDelete(path: string): Promise<void> {
+  return request<void>("DELETE", path);
 }
