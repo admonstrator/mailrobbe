@@ -64,8 +64,11 @@ services:
       # mail providers beside the list in themes.toml.
       MAILROBBE_TIMEZONE: ${MAILROBBE_TIMEZONE:-Europe/Berlin}
       MAILROBBE_PRIVATE_DOMAINS: ${MAILROBBE_PRIVATE_DOMAINS:-}
+      # Converted documents and decoded audio and video for the previews (D124); safe to delete.
+      MAILROBBE_PREVIEW_DIR: /data/previews
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
+      - previews:/data/previews
     ports:
       - "127.0.0.1:${MAILROBBE_PORT:-8000}:8000"
     depends_on:
@@ -92,3 +95,4 @@ services:
 
 volumes:
   pgdata:
+  previews:

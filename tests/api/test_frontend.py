@@ -1,18 +1,20 @@
 """Serving the built frontend (D24) from a temporary frontend_dir; no database needed."""
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
 import pytest
 
-from mailrobbe.api.frontend import ASSET_HEADERS, INDEX_HEADERS
+from mailrobbe.api.frontend import ASSET_HEADERS, INDEX_HEADERS, NONCE_PLACEHOLDER
 from mailrobbe.config import Settings
 from tests.api.conftest import _client
 
 INDEX = "<!doctype html><title>Mailrobbe</title><script type=module src=/assets/app-3f9a1c.js>"
 SCRIPT = "console.log('Mailrobbe')\n"
+VIEWER = f"<!doctype html><script nonce={NONCE_PLACEHOLDER} src=/viewer/pdf-viewer.js></script>"
 # Never connected: these tests only reach routes that do not use the database.
 NO_DATABASE = "postgresql+asyncpg://mailrobbe:x@127.0.0.1:9/mailrobbe"
 
@@ -24,6 +26,9 @@ def dist(tmp_path: Path) -> Path:
     (dist / "index.html").write_text(INDEX)
     (dist / "assets" / "app-3f9a1c.js").write_text(SCRIPT)
     (dist / "favicon.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    (dist / "viewer").mkdir()
+    (dist / "viewer" / "pdf.html").write_text(VIEWER)
+    (dist / "viewer" / "pdf-viewer.js").write_text(SCRIPT)
     (tmp_path / "secret.txt").write_text("outside the frontend")
     (dist / "link.txt").symlink_to(tmp_path / "secret.txt")
     return dist
@@ -62,6 +67,29 @@ async def test_other_files_are_served_as_they_are(client: httpx.AsyncClient) -> 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/svg+xml"
     assert "cache-control" not in response.headers
+
+
+async def test_the_pdf_viewer_runs_sandboxed_by_a_nonce_of_its_own(
+    client: httpx.AsyncClient,
+) -> None:
+    nonces = []
+    for _ in range(2):
+        response = await client.get("/viewer/pdf.html")
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        policy = response.headers["content-security-policy"]
+        nonce = re.fullmatch(r"<!doctype html><script nonce=(\S+) src=.*", response.text)
+        assert nonce is not None and NONCE_PLACEHOLDER not in response.text
+        nonces.append(nonce.group(1))
+        assert policy.startswith("sandbox allow-scripts; default-src 'none'; ")
+        assert f"script-src 'nonce-{nonce.group(1)}';" in policy
+        assert "allow-same-origin" not in policy and "connect-src" not in policy
+        assert response.headers["cache-control"] == "no-store"
+    assert nonces[0] != nonces[1]
+    script = await client.get("/viewer/pdf-viewer.js")
+    assert (script.status_code, script.text) == (200, SCRIPT)
+    assert script.headers["cache-control"] == "no-cache"
+    assert script.headers["x-content-type-options"] == "nosniff"
 
 
 async def test_head_requests(client: httpx.AsyncClient) -> None:

@@ -765,7 +765,8 @@ class Planner:
                 specs.append(documents.attach(spec, name, when, specs))
         if client in ("outlook", "apple") and rng.random() < 0.25:
             name, mime = rng.choice(vocab.INLINE_IMAGE_NAMES)
-            specs.insert(0, AttachmentSpec(name, mime, _size(rng, 12_000, 0.6), inline=True))
+            spec = AttachmentSpec(name, mime, _size(rng, 12_000, 0.6), inline=True)
+            specs.insert(0, documents.inline(spec, when))
         return tuple(specs)
 
     def _file_name(self, pattern: str, when: datetime) -> str:

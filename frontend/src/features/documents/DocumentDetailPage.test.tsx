@@ -158,6 +158,8 @@ describe("document page", () => {
     expect(screen.getByText(/Aus diesem Format liest Mailrobbe keinen Text/)).toBeTruthy();
     expect(screen.getByText("Dateiname")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Ausgelesener Text" })).toBeNull();
+    expect(preview.closest("aside")).toBeTruthy();
+    expect(screen.queryByText(/Keine Vorschau im Browser/)).toBeNull();
   });
 
   it("says so when the browser cannot show the image", async () => {
@@ -169,6 +171,34 @@ describe("document page", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("img", { name: /Vorschau/ })).toBeNull();
+  });
+
+  it.each([
+    ["pdf", "PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf"],
+    ["html", "Vorschau von Rahmenvereinbarung_2026_final.pdf"],
+    ["audio", "Rahmenvereinbarung_2026_final.pdf"],
+    ["video", "Rahmenvereinbarung_2026_final.pdf"],
+  ] as const)("shows a %s preview in a card of the main column", async (preview, title) => {
+    renderApp("/anhaenge/5101", withDocument({ preview }));
+    const shown = await screen.findByTitle(title);
+    const previewCard = card("Vorschau");
+    expect(previewCard.contains(shown)).toBe(true);
+    expect(previewCard.closest("main")).toBeTruthy();
+    expect(screen.queryByText(/Keine Vorschau im Browser/)).toBeNull();
+  });
+
+  it("says when there is no preview, and where the text is", async () => {
+    renderApp("/anhaenge/5101");
+    const line = await screen.findByText(/Keine Vorschau im Browser, nur Download\./);
+    expect(line.textContent).toBe("Keine Vorschau im Browser, nur Download. Text siehe unten.");
+    expect(line.previousElementSibling!.textContent).toBe("Vorschau");
+    expect(screen.queryByRole("heading", { name: "Vorschau" })).toBeNull();
+  });
+
+  it("says only that when there is no text either", async () => {
+    renderApp("/anhaenge/5101", withDocument({ text_status: "unsupported" }));
+    const line = await screen.findByText(/Keine Vorschau im Browser/);
+    expect(line.textContent).toBe("Keine Vorschau im Browser, nur Download.");
   });
 
   it("copies the SHA-256", async () => {

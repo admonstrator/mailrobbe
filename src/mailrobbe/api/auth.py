@@ -1,4 +1,5 @@
-"""Optional HTTP Basic Auth for everything but /api/health (D4, D24)."""
+"""Optional HTTP Basic Auth for everything but /api/health and the PDF viewer's files (D4, D24,
+D121)."""
 
 import base64
 import binascii
@@ -11,6 +12,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from mailrobbe.config import Settings
 
 OPEN_PATH = "/api/health"  # for container health checks, GET only
+# The PDF viewer's page and scripts hold no data, only code, and run on an opaque origin whose
+# requests a browser need not send credentials with (D121); GET and HEAD only.
+OPEN_PREFIX = "/viewer/"
 
 
 def install(app: FastAPI, settings: Settings) -> None:
@@ -50,7 +54,12 @@ class BasicAuth:
 
     @staticmethod
     def _open(scope: Scope) -> bool:
-        return scope["type"] == "http" and (scope["method"], scope["path"]) == ("GET", OPEN_PATH)
+        if scope["type"] != "http":
+            return False
+        method, path = scope["method"], scope["path"]
+        if (method, path) == ("GET", OPEN_PATH):
+            return True
+        return method in ("GET", "HEAD") and path.startswith(OPEN_PREFIX) and ".." not in path
 
     def _authorized(self, scope: Scope) -> bool:
         header = next((value for name, value in scope["headers"] if name == b"authorization"), b"")
