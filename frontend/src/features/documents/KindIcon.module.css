@@ -1,0 +1,34 @@
+.icon {
+  flex-shrink: 0;
+}
+
+.pdf {
+  color: var(--color-fail);
+}
+
+.document,
+.email {
+  color: var(--color-accent);
+}
+
+.spreadsheet {
+  color: var(--color-pass-text);
+}
+
+.presentation,
+.archive {
+  color: var(--color-no-key);
+}
+
+.image {
+  color: var(--color-no-key-text);
+}
+
+.text,
+.media {
+  color: var(--color-nav);
+}
+
+.other {
+  color: var(--color-muted);
+}

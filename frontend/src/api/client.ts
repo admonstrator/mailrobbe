@@ -93,3 +93,9 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
 export function apiPut<T>(path: string, body: unknown): Promise<T> {
   return request<T>("PUT", path, body);
 }
+
+/** An attachment's bytes, read from its MBOX file on request (D76): a download, or the image of
+ *  a preview for raster images. */
+export function attachmentContentUrl(attachmentId: number): string {
+  return `/api/attachments/${attachmentId}/content`;
+}

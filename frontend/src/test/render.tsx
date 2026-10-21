@@ -47,6 +47,16 @@ function personApi(method: string, url: URL, id: number, endpoint: string | unde
   return notFound("such endpoint");
 }
 
+/** A document page or its text: the contract PDF and the photo exist. */
+function documentApi(id: number, endpoint: string | undefined): unknown {
+  const document = [fx.documentDetail, fx.imageDocument].find((candidate) => candidate.id === id);
+  if (!document) return notFound(`document with id ${id}`);
+  if (endpoint === undefined) return document;
+  return document.text_status === "text"
+    ? fx.documentText
+    : { text: "", truncated: false, text_status: document.text_status };
+}
+
 /** The fixture backend: every endpoint the screens use, answered from fixtures.ts. An answer is
  *  a JSON body, or a Response for anything else. */
 export function fixtureApi({ method, url }: ApiCall): unknown {
@@ -59,6 +69,7 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
       ? fx.summaryFiltered
       : fx.summaryAll;
   }
+  if (path === "/api/mails" && url.searchParams.has("document")) return fx.documentMailPage;
   if (path === "/api/mails" && url.searchParams.has("person")) return fx.personMailPage;
   if (path === "/api/mails") {
     return (url.searchParams.get("q") ?? "").includes("subject:") ? fx.filteredPage : fx.mailPage;
@@ -88,6 +99,12 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (path === "/api/import/rescan") return fx.scanResult;
   if (path === "/api/dkim/recheck") return Response.json(fx.dkimJobRunning, { status: 202 });
   if (path === "/api/dkim/recheck/stop") return { ...fx.dkimJobRunning, stop_requested: true };
+  if (path === "/api/documents") return fx.documentPage;
+  if (path === "/api/documents/summary") {
+    return url.searchParams.size > 0 ? fx.documentSummaryFiltered : fx.documentSummary;
+  }
+  const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);
+  if (document) return documentApi(Number(document[1]), document[2]);
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 

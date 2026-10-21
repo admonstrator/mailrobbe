@@ -1,6 +1,7 @@
 import { Navigate, type RouteObject } from "react-router";
 
 import { AppShell } from "./components/AppShell";
+import { DocumentDetailRoute, DocumentListRoute } from "./features/documents/lazyPages";
 import { GraphPage } from "./features/graph/GraphPage";
 import { ImportPage } from "./features/import/ImportPage";
 import { MailDetailPage } from "./features/mail/MailDetailPage";
@@ -19,6 +20,8 @@ export const routes: RouteObject[] = [
       { path: "/mails/:id", element: <MailDetailPage /> },
       { path: "/personen", element: <PersonsPage /> },
       { path: "/personen/:id", element: <PersonProfilePage /> },
+      { path: "/anhaenge", element: <DocumentListRoute /> },
+      { path: "/anhaenge/:id", element: <DocumentDetailRoute /> },
       { path: "/karte", element: <GraphPage /> },
       { path: "/import", element: <ImportPage /> },
       { path: "*", element: <NotFoundPage /> },

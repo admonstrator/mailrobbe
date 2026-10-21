@@ -1,41 +1,73 @@
+import { Link } from "react-router";
+
+import { attachmentContentUrl } from "../../api/client";
 import type { AttachmentInfo } from "../../api/types";
 import { Card, CardTitle } from "../../components/Card";
-import { FileIcon } from "../../components/icons";
 import { formatBytes, formatNumber } from "../../lib/format";
+import { KindIcon } from "../documents/KindIcon";
+import { kindFromMimeType, pagesText, statusNote } from "../documents/labels";
+import { documentPath } from "../documents/urlState";
 import styles from "./AttachmentsCard.module.css";
 
-/** Icon colour by MIME type. */
-function kind(mimeType: string): string {
-  const type = mimeType.toLowerCase();
-  if (type === "application/pdf") return styles.pdf;
-  if (/spreadsheet|excel|csv/.test(type)) return styles.sheet;
-  if (/^image\/|word|document|^text\//.test(type)) return styles.document;
-  if (/zip|compressed|tar|rar|7z/.test(type)) return styles.archive;
-  return styles.other;
+/** "auch in 5 weiteren Mails" when the document travels in others too, else "Zum Dokument". */
+function documentLinkText(mails: number | null): string {
+  const others = (mails ?? 1) - 1;
+  if (others <= 0) return "Zum Dokument";
+  return others === 1
+    ? "auch in 1 weiteren Mail"
+    : `auch in ${formatNumber(others)} weiteren Mails`;
 }
 
-/** Metadata of the attachments (D18); the files themselves stay in the MBOX. */
+/** The attachments (D18, D75): metadata, the download read from the MBOX file (D76), and the
+ *  document each one is, with the other mails that carry it. */
 export function AttachmentsCard({ attachments }: { attachments: AttachmentInfo[] }) {
   return (
     <Card className={styles.card}>
       <CardTitle>Anhänge ({formatNumber(attachments.length)})</CardTitle>
       <ul className={styles.list}>
-        {attachments.map((attachment) => (
-          <li key={attachment.id} className={styles.item}>
-            <FileIcon size={20} className={kind(attachment.mime_type)} />
-            <span className={styles.text}>
-              <span className={styles.name}>{attachment.filename || "(ohne Namen)"}</span>
-              <span className={styles.meta}>
-                {attachment.mime_type} · {formatBytes(attachment.size)} ·{" "}
-                {attachment.sha256 ? (
-                  <span title={attachment.sha256}>SHA-256 {attachment.sha256.slice(0, 4)}…</span>
-                ) : (
-                  "nicht gehasht (über 50 MB)"
-                )}
+        {attachments.map((attachment) => {
+          const kind = attachment.kind ?? kindFromMimeType(attachment.mime_type);
+          const note = statusNote(attachment.text_status);
+          const name = attachment.filename || "(ohne Namen)";
+          return (
+            <li key={attachment.id} className={styles.item}>
+              <KindIcon kind={kind} labelled />
+              <span className={styles.text}>
+                <span className={styles.name}>{name}</span>
+                <span className={styles.meta}>
+                  <span className={styles.mime} title={attachment.mime_type}>
+                    {attachment.mime_type}
+                  </span>
+                  {attachment.pages !== null && ` · ${pagesText(attachment.pages)}`}
+                  {` · ${formatBytes(attachment.size)} · `}
+                  {attachment.sha256 ? (
+                    <span title={attachment.sha256}>SHA-256 {attachment.sha256.slice(0, 4)}…</span>
+                  ) : (
+                    "nicht gehasht (über 50 MB)"
+                  )}
+                  {note && <span className={styles.status}>{note}</span>}
+                </span>
+                <span className={styles.links}>
+                  <a
+                    href={attachmentContentUrl(attachment.id)}
+                    download
+                    aria-label={`${name} herunterladen`}
+                  >
+                    Herunterladen
+                  </a>
+                  {attachment.document_id !== null && (
+                    <Link
+                      to={documentPath(attachment.document_id)}
+                      title="Wer hat dieses Dokument wann an wen geschickt"
+                    >
+                      {documentLinkText(attachment.document_mails)}
+                    </Link>
+                  )}
+                </span>
               </span>
-            </span>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </Card>
   );

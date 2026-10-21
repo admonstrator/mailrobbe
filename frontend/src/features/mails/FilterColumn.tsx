@@ -197,7 +197,7 @@ function isDay(value: string): boolean {
 /** A date input that changes the filter only for complete days: while the year is being typed
  *  the browser reports days such as 0002-01-01, which lie outside the archive's range and wait
  *  for the field to lose focus. */
-function DateField({
+export function DateField({
   id,
   label,
   value,

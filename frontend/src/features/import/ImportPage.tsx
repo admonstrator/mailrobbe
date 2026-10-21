@@ -21,6 +21,7 @@ import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { ArchiveTiles } from "./ArchiveTiles";
 import { DkimResult } from "./DkimResult";
+import { DocumentResult } from "./DocumentResult";
 import { ErrorDialog } from "./ErrorDialog";
 import { ErrorLog } from "./ErrorLog";
 import { FileTable } from "./FileTable";
@@ -162,6 +163,7 @@ function Dashboard({ status }: { status: ImportStatus }) {
         </div>
         <div className={styles.side}>
           {summary.data && <DkimResult summary={summary.data} />}
+          {summary.data && <DocumentResult summary={summary.data} />}
           <ErrorLog alive={runAlive(status)} onShowAll={() => setErrorFilters({})} />
           <SettingsCard defaults={status.defaults} draft={draft} onChange={setDraft} />
         </div>

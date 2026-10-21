@@ -1,0 +1,157 @@
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-hover);
+}
+
+.table th.num,
+.num {
+  text-align: right;
+}
+
+.iconCol {
+  width: 20px;
+}
+
+.icon {
+  line-height: 0;
+}
+
+.document {
+  min-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.name,
+.name:hover {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.names {
+  color: var(--color-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status {
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.notable {
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+}
+
+.problem {
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+}
+
+.snippet {
+  display: block;
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.snippet mark {
+  border-radius: 2px;
+  padding: 0 1px;
+  background: var(--color-no-key-soft);
+  color: var(--color-text);
+}
+
+.kind {
+  white-space: nowrap;
+}
+
+.pages {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.size,
+.mails,
+.date {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.mails {
+  color: var(--color-text);
+}
+
+.sender {
+  overflow-wrap: anywhere;
+}
+
+.person,
+.person:hover {
+  color: var(--color-text);
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table {
+    transition: none;
+  }
+}
