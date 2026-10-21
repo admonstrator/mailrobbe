@@ -74,6 +74,7 @@ async function request<T>(method: string, url: string, body?: unknown, signal?: 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) throw await toApiError(response);
+  if (response.status === 204) return undefined as T; // no body, e.g. a dismissed suggestion
   return (await response.json()) as T;
 }
 
