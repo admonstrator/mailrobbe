@@ -6,6 +6,9 @@ from enum import IntFlag, StrEnum
 
 class DkimStatus(StrEnum):
     PASS = "pass"
+    # Verified only with a key Mailrobbe reconstructed from signatures (D100): the signatures
+    # come from one private key, but nothing binds that key to the domain. Never pass.
+    CONSISTENT = "consistent"
     FAIL = "fail"
     NO_KEY = "no_key"
     UNSIGNED = "unsigned"
@@ -13,14 +16,16 @@ class DkimStatus(StrEnum):
 
 
 # Lower is better. A mail with several signatures takes the best one as its overall status:
-# temp_error may still turn into pass on recheck, no_key cannot be verified but is not proven
-# bad, fail is proven bad, unsigned has nothing to verify.
+# consistent holds cryptographically but its key is not bound to the domain, temp_error may
+# still turn into pass on recheck, no_key cannot be verified but is not proven bad, fail is
+# proven bad, unsigned has nothing to verify.
 DKIM_STATUS_RANK: dict[DkimStatus, int] = {
     DkimStatus.PASS: 0,
-    DkimStatus.TEMP_ERROR: 1,
-    DkimStatus.NO_KEY: 2,
-    DkimStatus.FAIL: 3,
-    DkimStatus.UNSIGNED: 4,
+    DkimStatus.CONSISTENT: 1,
+    DkimStatus.TEMP_ERROR: 2,
+    DkimStatus.NO_KEY: 3,
+    DkimStatus.FAIL: 4,
+    DkimStatus.UNSIGNED: 5,
 }
 
 
@@ -48,6 +53,8 @@ class DkimReason(StrEnum):
     # no_key: the key is not published (any more)
     KEY_NOT_FOUND = "key_not_found"  # NXDOMAIN or no TXT record
     KEY_REVOKED = "key_revoked"  # record with an empty p=
+    # keys for the name from other sources exist (dkim_key, D100), none verifies the signature
+    KEY_MISMATCH = "key_mismatch"
     # temp_error: try again later
     DNS_TIMEOUT = "dns_timeout"  # timeout, SERVFAIL or no reachable nameserver
     DNS_OFFLINE = "dns_offline"  # offline mode and the key is not in the cache
@@ -101,6 +108,7 @@ class JobKind(StrEnum):
 
     IMPORT = "import"  # mailrobbe import
     DKIM = "dkim"  # mailrobbe dkim
+    DKIM_KEYS = "dkim_keys"  # mailrobbe dkim-keys: keys of deleted selectors (D101)
 
 
 class JobStatus(StrEnum):
@@ -187,3 +195,48 @@ class EntityContext(IntFlag):
     CASH = 1  # Bargeld, bar, Barzahlung, cash
     DONATION = 2  # Spende, Zuwendung, donation
     RECEIPT = 4  # Quittung, Spendenbescheinigung, Zuwendungsbestätigung, receipt
+
+
+class KeyOrigin(StrEnum):
+    """Where the key a DKIM result rests on comes from (D100): dkim_result.key_origin,
+    dkim_key.origin, dkim_key_evidence.origin. Strongest first."""
+
+    DNS = "dns"  # the domain publishes it today (dns_cache, live DNS or the override table)
+    OBSERVED = "observed"  # a third party saw it in the domain's DNS (key archive live_dns)
+    DOCUMENTED = "documented"  # a document holds it: a find in the archive, a manual record
+    RECONSTRUCTED = "reconstructed"  # computed from signatures; binds it to no domain
+
+
+KEY_ORIGIN_RANK: dict[KeyOrigin, int] = {origin: rank for rank, origin in enumerate(KeyOrigin)}
+
+
+def strongest_origin(origins: Iterable[KeyOrigin]) -> KeyOrigin | None:
+    """The strongest of the origins; None when there are none."""
+    return min(origins, key=KEY_ORIGIN_RANK.__getitem__, default=None)
+
+
+def origin_status(origin: KeyOrigin) -> DkimStatus:
+    """The status of a signature whose header and body a key of this origin verifies: pass,
+    or consistent for a reconstructed key (D100)."""
+    return DkimStatus.CONSISTENT if origin is KeyOrigin.RECONSTRUCTED else DkimStatus.PASS
+
+
+class KeyLookupSource(StrEnum):
+    """dkim_key_lookup.source: where Mailrobbe looked for keys of deleted selectors (D101).
+
+    Stored as text, so sources of a later stage (passive DNS) need no migration.
+    """
+
+    RECONSTRUCTION = "reconstruction"  # computed from two or more signatures (GCD)
+    ARCHIVE_TEXT = "archive_text"  # a key record quoted in a mail or an attachment's text
+    MANUAL = "manual"  # entered by a person, with a reference
+    ZKEMAIL = "zkemail"  # the ZK Email DKIM archive, one request per domain
+    DNS = "dns"  # today's DNS answer of another selector of the same domain
+
+
+class LookupOutcome(StrEnum):
+    """dkim_key_lookup.outcome."""
+
+    FOUND = "found"  # the answer holds at least one key
+    NOT_FOUND = "not_found"  # a valid answer without a key
+    ERROR = "error"  # no valid answer: network, HTTP status, malformed reply

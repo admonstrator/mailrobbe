@@ -130,3 +130,8 @@ export function attachmentMediaUrl(attachmentId: number): string {
 
 /** The PDF viewer's page (D121): pdf.js on an opaque origin, given the PDF by postMessage. */
 export const PDF_VIEWER_URL = "/viewer/pdf.html";
+
+/** A key source's answer as it came, stored with its SHA-256 (D101): a download. */
+export function lookupRawUrl(lookupId: number): string {
+  return `/api/dkim/lookups/${lookupId}/raw`;
+}

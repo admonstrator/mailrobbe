@@ -1,9 +1,11 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import type { ReactNode } from "react";
+import { createMemoryRouter, RouterProvider, type RouteObject } from "react-router";
 import { vi } from "vitest";
 
 import { createQueryClient } from "../api/queries";
+import { PAGE_SIZE, type DkimKeysRunRequest, type SelectorPage } from "../api/types";
 import { routes } from "../routes";
 import * as fx from "./fixtures";
 
@@ -11,6 +13,7 @@ export interface ApiCall {
   method: string;
   url: URL;
   body: unknown;
+  headers: Headers;
 }
 
 const FILTER_KEYS = ["q", "dkim", "sender_domain", "date_from", "date_to", "has_attachment"];
@@ -57,6 +60,27 @@ function documentApi(id: number, endpoint: string | undefined): unknown {
     : { text: "", truncated: false, text_status: document.text_status };
 }
 
+/** The selector list: the fixture names matching q and show, a page at offset. */
+function selectorsMatching(search: URLSearchParams): SelectorPage {
+  const q = (search.get("q") ?? "").toLowerCase();
+  const show = search.get("show") ?? "open";
+  const offset = Number(search.get("offset") ?? 0);
+  const limit = Number(search.get("limit") ?? PAGE_SIZE);
+  const items = fx.selectorItems.filter(
+    (item) => (show === "all" || (show === "resolved") === item.keys > 0) && item.name.includes(q),
+  );
+  return { items: items.slice(offset, offset + limit), total: items.length };
+}
+
+/** A selector page, or a manual key for it: only s2019 has signatures. */
+function selectorApi(method: string, name: string, endpoint: string | undefined): unknown {
+  if (name !== fx.s2019Name) return notFound(`signatures of ${name}`);
+  if (endpoint === "/keys" && method === "POST") {
+    return Response.json(fx.selectorDetail, { status: 201 });
+  }
+  return endpoint === undefined ? fx.selectorDetail : notFound("such endpoint");
+}
+
 /** The timeline for these parameters: by split, Anna's for a person filter, else the archive. */
 function timelineFor(search: URLSearchParams): unknown {
   const split = search.get("split");
@@ -68,7 +92,7 @@ function timelineFor(search: URLSearchParams): unknown {
 
 /** The fixture backend: every endpoint the screens use, answered from fixtures.ts. An answer is
  *  a JSON body, or a Response for anything else. */
-export function fixtureApi({ method, url }: ApiCall): unknown {
+export function fixtureApi({ method, url, body }: ApiCall): unknown {
   const path = url.pathname;
   if (path === "/api/stats") return fx.stats;
   if (path === "/api/research") return fx.research;
@@ -132,13 +156,24 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (attachment?.[1] === "html") {
     return new Response(fx.attachmentHtml, { headers: { "Content-Type": "text/html" } });
   }
+  if (path === "/api/dkim/selectors/summary") return fx.selectorSummary;
+  if (path === "/api/dkim/selectors") return selectorsMatching(url.searchParams);
+  const selector = /^\/api\/dkim\/selectors\/([^/]+)(\/keys)?$/.exec(path);
+  if (selector) return selectorApi(method, decodeURIComponent(selector[1]), selector[2]);
+  if (path === "/api/dkim/archive/preview") return fx.archivePreview;
+  if (path === "/api/dkim/keys/run") {
+    const { task, names = [], domains = [] } = body as DkimKeysRunRequest;
+    const options = { ...fx.keysJobRunning.options, task, names, domains };
+    return Response.json({ ...fx.keysJobRunning, id: 12, options }, { status: 202 });
+  }
+  if (path === "/api/dkim/keys/run/stop") return { ...fx.keysJobRunning, stop_requested: true };
   const entities = entityApi(url);
   if (entities !== undefined) return entities;
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 
-/** Renders the app at path against a fake backend; calls records every request. */
-export function renderApp(path: string, api: (call: ApiCall) => unknown = fixtureApi) {
+/** Renders routes at path against a fake backend; calls records every request. */
+function renderRoutes(routeList: RouteObject[], path: string, api: (call: ApiCall) => unknown) {
   const calls: ApiCall[] = [];
   vi.stubGlobal(
     "fetch",
@@ -147,13 +182,14 @@ export function renderApp(path: string, api: (call: ApiCall) => unknown = fixtur
         method: init?.method ?? "GET",
         url: new URL(String(input), "http://localhost"),
         body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        headers: new Headers(init?.headers),
       };
       calls.push(call);
       const answer = api(call);
       return answer instanceof Response ? answer : Response.json(answer);
     }),
   );
-  const router = createMemoryRouter(routes, { initialEntries: [path] });
+  const router = createMemoryRouter(routeList, { initialEntries: [path] });
   const queryClient = createQueryClient();
   queryClient.setDefaultOptions({
     queries: { ...queryClient.getDefaultOptions().queries, retry: false },
@@ -164,6 +200,17 @@ export function renderApp(path: string, api: (call: ApiCall) => unknown = fixtur
     </QueryClientProvider>,
   );
   return { router, calls };
+}
+
+/** Renders the app at path against a fake backend; calls records every request. */
+export function renderApp(path: string, api: (call: ApiCall) => unknown = fixtureApi) {
+  return renderRoutes(routes, path, api);
+}
+
+/** Renders one part of a screen on its own, such as a dashboard card before a screen mounts
+ *  it, at /import against the same fake backend. */
+export function renderElement(element: ReactNode, api: (call: ApiCall) => unknown = fixtureApi) {
+  return renderRoutes([{ path: "*", element }], "/import", api);
 }
 
 /** The entity endpoints (milestone 10), or undefined for other paths. The facets of a filter are

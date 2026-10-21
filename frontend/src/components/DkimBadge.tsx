@@ -6,6 +6,7 @@ import { AlertIcon, CheckIcon, CrossIcon, MinusIcon } from "./icons";
 
 const ICONS = {
   pass: CheckIcon,
+  consistent: CheckIcon,
   fail: CrossIcon,
   no_key: AlertIcon,
   temp_error: AlertIcon,

@@ -27,7 +27,20 @@ Every signature gets the outcome of the first check it does not pass:
 7. pass
 
 t= and x= are recorded but never judged (D10). The body hash is compared before the key lookup,
-so body_hash_ok is known for no_key and temp_error results as well.
+so body_hash_ok is known for no_key and temp_error results as well. Every result from step 4 on
+that rests on the key found in DNS has key_origin dns.
+
+Keys of deleted selectors (D100): when step 4 or 6 ends the check (today's DNS gives no key, a
+revoked or unusable one, a temp_error, or a key that does not verify), the candidate keys of the
+name are tried, strongest origin first. A candidate counts only when it suits the signature
+(key type, h=, s=, at least 1024 bits for RSA) and verifies its header hash; the first that does
+decides: pass for an intact body (consistent for a reconstructed key), fail body_hash_mismatch
+for a changed one, with the candidate's key_id, key_origin and key_bits. When none does, the
+result of DNS stays, except that no_key becomes no_key key_mismatch. Without candidates the
+results are those of DNS alone.
+
+signature_material gives what reconstructing and testing keys need from each signature: the
+header hash b= signs, b= itself and its hash algorithm (dkim/keys).
 """
 
 import base64
@@ -37,6 +50,7 @@ import functools
 import hashlib
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import getaddresses
@@ -57,9 +71,17 @@ from dkim.crypto import parse_public_key
 from dkim.util import InvalidTagValueList, parse_tag_value
 
 from mailrobbe.dkim.canonical import canonical_blocks
-from mailrobbe.dkim.model import KeySource, MailVerdict, SignatureResult
+from mailrobbe.dkim.model import (
+    NO_CANDIDATES,
+    DnsAnswer,
+    KeyCandidates,
+    KeySource,
+    MailVerdict,
+    SignatureMaterial,
+    SignatureResult,
+)
 from mailrobbe.dkim.override import key_name
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus
+from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin, origin_status
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +106,14 @@ _WHITESPACE = re.compile(rb"\s+")
 _NOT_IN_NAME = re.compile(r"[\x00-\x1f\x7f\s()<>\[\]:;@\\,\"]")
 
 
-def verify_mail(raw: bytes, keys: KeySource) -> MailVerdict:
-    """Verify every DKIM-Signature header field of raw (LF or CRLF line endings)."""
+def verify_mail(
+    raw: bytes, keys: KeySource, candidates: KeyCandidates = NO_CANDIDATES
+) -> MailVerdict:
+    """Verify every DKIM-Signature header field of raw (LF or CRLF line endings).
+
+    candidates: keys from other sources than today's DNS by key name (D100), tried when DNS
+    gives no key that verifies.
+    """
     header_end, body_start = _split(raw)
     head = raw[:header_end]
     if b"dkim-signature" not in head.lower():
@@ -97,10 +125,41 @@ def verify_mail(raw: bytes, keys: KeySource) -> MailVerdict:
     mail = _Mail(raw, body_start, headers)
     return MailVerdict(
         tuple(
-            mail.check(name, value, keys)
+            mail.check(name, value, keys, candidates)
             for name, value in headers
             if name.lower() == b"dkim-signature"
         )
+    )
+
+
+def signature_material(raw: bytes) -> list[SignatureMaterial]:
+    """What each verifiable DKIM-Signature of raw signs; never raises.
+
+    Signatures that fail before their key is asked for (malformed, unsupported algorithm, From
+    not signed) have none; the others keep their signature_index.
+    """
+    header_end, body_start = _split(raw)
+    head = raw[:header_end]
+    if b"dkim-signature" not in head.lower():
+        return []
+    try:
+        headers, _ = dkim.rfc822_parse(head)
+    except Exception:
+        return []
+    mail = _Mail(raw, body_start, headers)
+    fields = [(name, value) for name, value in headers if name.lower() == b"dkim-signature"]
+    found = (mail.material(index, name, value) for index, (name, value) in enumerate(fields))
+    return [material for material in found if material is not None]
+
+
+def key_verifies(record: str, material: SignatureMaterial) -> bool:
+    """Whether the key of a record may verify this signature and verifies its header hash: the
+    rule every candidate key follows (D100), for keys found outside the check."""
+    key = parse_key_record(record)
+    return (
+        not isinstance(key, DkimReason)
+        and key.fits(material.key_type.encode(), material.hash_name)
+        and key.verifies(material.header_hash, material.signature, material.hash_name)
     )
 
 
@@ -132,6 +191,8 @@ class _Details:
     signed_at: datetime | None = None
     aligned: bool | None = None
     dns_cached: bool = False
+    key_id: int | None = None
+    key_origin: KeyOrigin | None = None
 
     def describe(self, tags: dict[bytes, bytes], author: str | None) -> None:
         """Fill in what the tags say, whether or not they are valid."""
@@ -162,6 +223,8 @@ class _Details:
             signed_at=self.signed_at,
             aligned=self.aligned,
             dns_cached=self.dns_cached,
+            key_id=self.key_id,
+            key_origin=self.key_origin,
         )
 
 
@@ -181,8 +244,8 @@ class _Signature:
 
 
 @dataclass(frozen=True, slots=True)
-class _PublicKey:
-    """A key record that holds a key, parsed once per process and record."""
+class PublicKey:
+    """A key record that holds a key, parsed once per process and record (parse_key_record)."""
 
     key_type: bytes  # k=
     hashes: frozenset[bytes] | None  # h=: hash algorithms the key may be used with; None: any
@@ -191,27 +254,33 @@ class _PublicKey:
     public: rsa.RSAPublicKey | Ed25519PublicKey
     modulus: int = 0  # RSA only
 
-    def suits(self, signature: _Signature) -> bool:
+    def suits(self, key_type: bytes, hash_name: str) -> bool:
+        """The key's k=, h= and s= allow a signature of this key type and hash algorithm."""
         return (
-            self.key_type == signature.key_type
+            self.key_type == key_type
             and self.for_email
-            and (self.hashes is None or signature.hash_name.encode() in self.hashes)
+            and (self.hashes is None or hash_name.encode() in self.hashes)
         )
 
-    def verifies(self, digest: bytes, signature: _Signature) -> bool:
+    def fits(self, key_type: bytes, hash_name: str) -> bool:
+        """suits, and large enough to count (RFC 8301): what a candidate key must be (D100)."""
+        return self.suits(key_type, hash_name) and (key_type != b"rsa" or self.bits >= MIN_RSA_BITS)
+
+    def verifies(self, digest: bytes, signature: bytes, hash_name: str) -> bool:
+        """b= is the key's signature of the header hash."""
         try:
             if isinstance(self.public, Ed25519PublicKey):
-                self.public.verify(signature.signature, digest)
+                self.public.verify(signature, digest)
             else:
                 # dkimpy's RSASSA_PKCS1_v1_5_verify takes b= as a number, so a value with its
                 # leading zero bytes dropped (or one above the modulus) verifies there too;
                 # OpenSSL wants exactly the modulus length.
-                value = int.from_bytes(signature.signature) % self.modulus
+                value = int.from_bytes(signature) % self.modulus
                 self.public.verify(
                     value.to_bytes((self.bits + 7) // 8),
                     digest,
                     padding.PKCS1v15(),
-                    _PREHASHED[signature.hash_name],
+                    _PREHASHED[hash_name],
                 )
         except InvalidSignature:
             return False
@@ -231,11 +300,13 @@ class _Mail:
     def __post_init__(self) -> None:
         self.author = _author_domain(self.headers)
 
-    def check(self, name: bytes, value: bytes, keys: KeySource) -> SignatureResult:
+    def check(
+        self, name: bytes, value: bytes, keys: KeySource, candidates: KeyCandidates
+    ) -> SignatureResult:
         """The result for one DKIM-Signature header field; never raises."""
         details = _Details()
         try:
-            status, reason = self._check(name, value, keys, details)
+            status, reason = self._check(name, value, keys, candidates, details)
         except Exception:
             logger.warning(
                 "unexpected error checking the DKIM signature d=%s s=%s",
@@ -244,10 +315,16 @@ class _Mail:
                 exc_info=True,
             )
             status, reason = DkimStatus.FAIL, DkimReason.SIGNATURE_MALFORMED
+            details.key_id = details.key_origin = None
         return details.result(status, reason)
 
     def _check(
-        self, name: bytes, value: bytes, keys: KeySource, details: _Details
+        self,
+        name: bytes,
+        value: bytes,
+        keys: KeySource,
+        candidates: KeyCandidates,
+        details: _Details,
     ) -> tuple[DkimStatus, DkimReason | None]:
         try:
             tags = parse_tag_value(value)
@@ -261,28 +338,81 @@ class _Mail:
         if b"from" not in signature.headers:
             return DkimStatus.FAIL, DkimReason.FROM_NOT_SIGNED
 
-        answer = keys(key_name(signature.selector, signature.domain))
+        digest = functools.cache(lambda: self._header_hash(name, value, signature))
+        dns_name = key_name(signature.selector, signature.domain)
+        answer = keys(dns_name)
         details.dns_cached = answer.from_cache
+        status, reason = self._with_dns_key(answer, signature, digest, details)
+        if status is DkimStatus.PASS or reason is DkimReason.BODY_HASH_MISMATCH:
+            return status, reason
+        found = candidates.get(dns_name, ())
+        for candidate in found:
+            key = parse_key_record(candidate.record)
+            if (
+                isinstance(key, DkimReason)
+                or not key.fits(signature.key_type, signature.hash_name)
+                or not key.verifies(digest(), signature.signature, signature.hash_name)
+            ):
+                continue
+            details.key_bits = key.bits
+            details.key_id, details.key_origin = candidate.key_id, candidate.origin
+            if not details.body_hash_ok:
+                return DkimStatus.FAIL, DkimReason.BODY_HASH_MISMATCH
+            return origin_status(candidate.origin), None
+        if found and status is DkimStatus.NO_KEY:
+            return DkimStatus.NO_KEY, DkimReason.KEY_MISMATCH
+        return status, reason
+
+    def _with_dns_key(
+        self,
+        answer: DnsAnswer,
+        signature: _Signature,
+        digest: Callable[[], bytes],
+        details: _Details,
+    ) -> tuple[DkimStatus, DkimReason | None]:
+        """Steps 4 to 7 with today's DNS answer."""
         if answer.status is DnsStatus.TEMP_ERROR:
             return DkimStatus.TEMP_ERROR, answer.reason or DkimReason.DNS_TIMEOUT
         if answer.status is DnsStatus.NOT_FOUND or answer.record is None:
             return DkimStatus.NO_KEY, DkimReason.KEY_NOT_FOUND
-        key = _public_key(answer.record)
+        key = parse_key_record(answer.record)
         if key is DkimReason.KEY_REVOKED:
             return DkimStatus.NO_KEY, key
+        details.key_origin = KeyOrigin.DNS
         if isinstance(key, DkimReason):
             return DkimStatus.FAIL, key
         details.key_bits = key.bits
-        if not key.suits(signature):
+        if not key.suits(signature.key_type, signature.hash_name):
             return DkimStatus.FAIL, DkimReason.KEY_MALFORMED
         if key.key_type == b"rsa" and key.bits < MIN_RSA_BITS:
             return DkimStatus.FAIL, DkimReason.KEY_TOO_SHORT
 
         if not details.body_hash_ok:
             return DkimStatus.FAIL, DkimReason.BODY_HASH_MISMATCH
-        if not key.verifies(self._header_hash(name, value, signature), signature):
+        if not key.verifies(digest(), signature.signature, signature.hash_name):
             return DkimStatus.FAIL, DkimReason.SIGNATURE_MISMATCH
         return DkimStatus.PASS, None
+
+    def material(self, index: int, name: bytes, value: bytes) -> SignatureMaterial | None:
+        """signature_material of one DKIM-Signature header field; never raises."""
+        try:
+            tags = parse_tag_value(value)
+            signature = _parse_signature(tags)
+            if isinstance(signature, DkimReason) or b"from" not in signature.headers:
+                return None
+            return SignatureMaterial(
+                index=index,
+                name=key_name(signature.selector, signature.domain),
+                key_type=signature.key_type.decode(),
+                hash_name=signature.hash_name,
+                header_hash=self._header_hash(name, value, signature),
+                signature=signature.signature,
+                body_hash_ok=self._body_hash(signature) == signature.body_hash,
+                signed_at=_timestamp(tags[b"t"]) if b"t" in tags else None,
+            )
+        except Exception:
+            logger.warning("unexpected error reading the DKIM signature %d", index, exc_info=True)
+            return None
 
     def _body_hash(self, signature: _Signature) -> bytes:
         """The hash of the canonical body, computed once per canonicalisation, l= and hash."""
@@ -360,7 +490,7 @@ def _parse_signature(tags: dict[bytes, bytes]) -> _Signature | DkimReason:
 
 
 @functools.lru_cache(maxsize=4096)
-def _public_key(record: str) -> _PublicKey | DkimReason:
+def parse_key_record(record: str) -> PublicKey | DkimReason:
     """The key in a DKIM key record (RFC 6376 3.6.1), or why there is none to use."""
     try:
         tags = parse_tag_value(record.encode("utf-8", "replace"))
@@ -383,7 +513,7 @@ def _public_key(record: str) -> _PublicKey | DkimReason:
     try:
         der = base64.b64decode(data)
         if key_type == b"ed25519":
-            return _PublicKey(
+            return PublicKey(
                 key_type, hashes, for_email, 256, Ed25519PublicKey.from_public_bytes(der)
             )
         numbers = parse_public_key(der)  # SubjectPublicKeyInfo or a bare RSAPublicKey
@@ -391,7 +521,7 @@ def _public_key(record: str) -> _PublicKey | DkimReason:
         public = rsa.RSAPublicNumbers(numbers["publicExponent"], modulus).public_key()
     except Exception:
         return DkimReason.KEY_MALFORMED
-    return _PublicKey(key_type, hashes, for_email, modulus.bit_length(), public, modulus)
+    return PublicKey(key_type, hashes, for_email, modulus.bit_length(), public, modulus)
 
 
 def _malformed_message(value: bytes) -> SignatureResult:

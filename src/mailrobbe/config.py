@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     dkim_offline: bool = False  # no DNS lookups: keys not in the cache become temp_error
     dkim_dns_timeout: float = 5.0  # seconds per key name, retries included
     dkim_nameservers: str = ""  # comma-separated IP addresses; empty: the system resolver
+    # Keys of deleted selectors (D102): the ZK Email DKIM archive, asked only on request, one
+    # request per domain; "off" switches it off (an empty variable counts as unset).
+    dkim_key_archive_url: str = "https://archive.zk.email"
+    dkim_key_archive_timeout: float = 30.0  # seconds per request
     # Web UI and API (milestone 4). Basic Auth (D4) is on when both are set, an error when only
     # one is; /api/health stays open for container health checks.
     basic_auth_user: str = ""

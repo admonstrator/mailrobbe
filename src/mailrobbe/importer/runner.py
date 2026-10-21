@@ -103,7 +103,7 @@ class _Worker:
     def __init__(
         self,
         settings: Settings,
-        preload: Any,
+        preload: dkim_hook.Preload,
         mbox_dir: Path,
         pipeline: Pipeline,
         worker_id: int,
@@ -272,7 +272,7 @@ _worker: _Worker | None = None
 
 def _init_worker(
     settings: Settings,
-    preload: Any,
+    preload: dkim_hook.Preload,
     mbox_dir: Path,
     pipeline: Pipeline,
     worker_ids: "Queue[int]",

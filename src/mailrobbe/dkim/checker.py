@@ -4,7 +4,9 @@ Every process that verifies mails (importer worker, recheck worker, API) builds 
 DkimChecker.from_settings, preloaded with the dns_cache rows the main process read once
 (store.load_dns_cache). Answers the checker had to look up are collected for persistence:
 take_new_answers hands them out once, and the caller writes them with store.upsert_dns_cache.
-lookups and hits give the cache hit rate for the import dashboard.
+lookups and hits give the cache hit rate for the import dashboard. The candidate keys of deleted
+selectors (D100) come the same way: read once per run (keys.store.load_candidates) and handed
+to every checker, which tries them when DNS gives no key that verifies (verify.py).
 
 Key sources, chosen from the settings (resolver.py):
 
@@ -23,7 +25,7 @@ from pathlib import Path
 from typing import Self
 
 from mailrobbe.config import Settings
-from mailrobbe.dkim.model import DnsAnswer, KeySource, MailVerdict
+from mailrobbe.dkim.model import NO_CANDIDATES, DnsAnswer, KeyCandidates, KeySource, MailVerdict
 from mailrobbe.dkim.override import DnsOverrideTable
 from mailrobbe.dkim.resolver import (
     DnsResolver,
@@ -48,9 +50,10 @@ def dns_override_path(settings: Settings) -> Path | None:
 class DkimChecker:
     """verify_mail with a KeyCache in front of the key source. Not shared between threads."""
 
-    def __init__(self, keys: KeySource) -> None:
+    def __init__(self, keys: KeySource, candidates: KeyCandidates = NO_CANDIDATES) -> None:
         # A KeyCache is used as given; any other source gets an empty cache in front.
         self._keys = keys if isinstance(keys, KeyCache) else KeyCache(keys)
+        self._candidates = candidates
 
     @classmethod
     def from_settings(
@@ -59,12 +62,14 @@ class DkimChecker:
         *,
         preload: Iterable[DnsAnswer] = (),
         refresh_negative: bool = False,
+        candidates: KeyCandidates = NO_CANDIDATES,
     ) -> Self:
         """The checker for this process; does no network access.
 
         preload: answers from dns_cache; expired ones are ignored unless offline.
         refresh_negative: ignore preloaded not_found and temp_error answers (recheck runs), so
         every missing or unreachable key is asked for once more.
+        candidates: keys of deleted selectors by name (keys.store.load_candidates).
 
         Invalid DNS settings raise ValueError here, so a typo fails at start, not per mail.
         """
@@ -88,11 +93,11 @@ class DkimChecker:
             refresh_negative=refresh_negative,
             offline=settings.dkim_offline,
         )
-        return cls(cache)
+        return cls(cache, candidates)
 
     def check(self, raw: bytes) -> MailVerdict:
         """Verify one mail; never raises."""
-        return verify_mail(raw, self._keys)
+        return verify_mail(raw, self._keys, self._candidates)
 
     def take_new_answers(self) -> list[DnsAnswer]:
         """Answers looked up since the last call, for store.upsert_dns_cache (ttl > 0 only).

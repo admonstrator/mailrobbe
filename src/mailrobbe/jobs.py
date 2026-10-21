@@ -1,7 +1,8 @@
-"""Runs of the importer and the DKIM check, as the import dashboard sees them (D46, D47).
+"""Runs of the importer, the DKIM check and the key runs, as the import dashboard sees them (D46,
+D47, D101).
 
-Every `mailrobbe import` and `mailrobbe dkim` run holds the advisory lock of its kind for its
-whole length (a session lock on a connection it keeps open) and records itself in `job`:
+Every run holds the advisory lock of its kind for its whole length (a session lock on a
+connection it keeps open; dkim-keys shares the DKIM lock) and records itself in `job`:
 
     begin_job    right after taking the lock: marks earlier rows of the kind that never
                  recorded their end as failed, then inserts the running row
@@ -40,7 +41,12 @@ RATE_WINDOW = 60.0  # seconds the throughput figures average over
 # Session-level advisory locks held by a run from start to end: one run per kind at a time.
 IMPORT_LOCK_KEY = int.from_bytes(b"mailrobb", "big")
 DKIM_LOCK_KEY = int.from_bytes(b"mrdkimrn", "big")
-LOCK_KEYS: dict[JobKind, int] = {JobKind.IMPORT: IMPORT_LOCK_KEY, JobKind.DKIM: DKIM_LOCK_KEY}
+# A dkim-keys run checks mails again at its end, so it shares the DKIM lock (D101).
+LOCK_KEYS: dict[JobKind, int] = {
+    JobKind.IMPORT: IMPORT_LOCK_KEY,
+    JobKind.DKIM: DKIM_LOCK_KEY,
+    JobKind.DKIM_KEYS: DKIM_LOCK_KEY,
+}
 
 # The phases a run goes through, in order (job.phase).
 ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments", "entities"]
@@ -49,7 +55,7 @@ DkimPhase = Literal["check", "aggregates"]
 LOST_MESSAGE = "the run ended without recording its end"
 
 StepStatus = Literal["waiting", "running", "done", "stopped", "skipped", "failed"]
-StepUnit = Literal["bytes", "mails", "documents"]  # what a step's done and total count
+StepUnit = Literal["bytes", "mails", "documents", "names", "domains"]  # what done and total count
 
 
 class StepProgress(BaseModel):
@@ -147,6 +153,11 @@ class DkimProgress(RunProgress):
     eta_seconds: float | None = None
 
 
+def lock_sharers(kind: JobKind) -> list[JobKind]:
+    """The kinds whose runs hold the same lock as runs of this kind, this kind included."""
+    return [other for other, key in LOCK_KEYS.items() if key == LOCK_KEYS[kind]]
+
+
 async def begin_job(
     db: Executor,
     kind: JobKind,
@@ -156,12 +167,13 @@ async def begin_job(
 ) -> int:
     """Record a run that has just taken the lock of its kind; returns its job id.
 
-    Holding the lock means no other run of the kind is alive, so rows still running belong to
-    runs that died (killed, out of memory, container stopped) and are marked failed.
+    Holding the lock means no other run of the kind, or of a kind sharing its lock, is alive, so
+    rows still running belong to runs that died (killed, out of memory, container stopped) and
+    are marked failed.
     """
     await db.execute(
         update(Job)
-        .where(Job.kind == kind, Job.status == JobStatus.RUNNING)
+        .where(Job.kind.in_(lock_sharers(kind)), Job.status == JobStatus.RUNNING)
         .values(status=JobStatus.FAILED, message=LOST_MESSAGE, finished_at=Job.updated_at)
     )
     job_id = await db.scalar(

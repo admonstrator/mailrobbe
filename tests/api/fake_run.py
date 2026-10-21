@@ -1,6 +1,8 @@
-"""A stand-in for `mailrobbe import` and `mailrobbe dkim` in the dashboard's tests.
+"""A stand-in for `mailrobbe import`, `mailrobbe dkim` and `mailrobbe dkim-keys` in the
+dashboard's tests.
 
     python fake_run.py BEHAVIOUR KIND --origin ORIGIN [--workers N] [--status S...] [--jobs N]
+    python fake_run.py BEHAVIOUR dkim-keys --origin ORIGIN TASK [--name N]... [--domain D]...
 
 Tests put (sys.executable, this file, BEHAVIOUR) into api.processes.CLI. Like the real commands,
 it takes the advisory lock of its kind, records its run with jobs.begin_job (options from its
@@ -26,6 +28,7 @@ from sqlalchemy import func, select
 from mailrobbe import jobs
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine
+from mailrobbe.dkim.keys.model import DkimKeysOptions
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus
 
 EXIT_STATUS = 3
@@ -35,6 +38,13 @@ REPORT_SECONDS = 0.1
 def _options(kind: JobKind, args: argparse.Namespace, settings: Settings) -> BaseModel:
     if kind is JobKind.IMPORT:
         return jobs.ImportOptions.from_settings(settings, args.workers)
+    if kind is JobKind.DKIM_KEYS:
+        return DkimKeysOptions(
+            task=args.task,
+            names=args.name or [],
+            domains=args.domain or [],
+            workers=args.jobs or settings.import_workers,
+        )
     return jobs.DkimOptions(
         statuses=args.status,
         workers=args.jobs or settings.import_workers,
@@ -49,8 +59,11 @@ async def main(argv: Sequence[str]) -> int:
     parser.add_argument("--workers", type=int)
     parser.add_argument("--jobs", type=int)
     parser.add_argument("--status", nargs="+")
+    parser.add_argument("task", nargs="?")  # dkim-keys
+    parser.add_argument("--name", action="append")
+    parser.add_argument("--domain", action="append")
     args = parser.parse_args(rest)
-    kind = JobKind(kind_name)
+    kind = JobKind(kind_name.replace("-", "_"))
     if behaviour == "exit":
         return EXIT_STATUS
     terminated = asyncio.Event()
