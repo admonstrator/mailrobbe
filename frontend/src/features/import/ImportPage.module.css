@@ -71,23 +71,26 @@
   font-size: 13px;
 }
 
+/* The file table over the whole width, the result cards below it in as many columns of at
+   least 320 px as fit, each card kept whole. */
 .columns {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 16px;
 }
 
 .main {
-  flex: 999 1 560px;
   min-width: 0;
 }
 
 .side {
-  display: flex;
-  flex: 1 1 340px;
-  flex-direction: column;
-  gap: 16px;
   min-width: 0;
-  max-width: 420px;
+  margin-bottom: -16px;
+  column-gap: 16px;
+  column-width: 320px;
+}
+
+.side > * {
+  margin-bottom: 16px;
+  break-inside: avoid;
 }

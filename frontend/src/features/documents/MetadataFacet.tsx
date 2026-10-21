@@ -10,6 +10,7 @@ import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { Spinner } from "../../components/Spinner";
 import { useDebounced } from "../../lib/useDebounced";
+import { FilterGroup } from "../mails/FilterGroup";
 import styles from "./DocumentFilterColumn.module.css";
 
 /** Values shown before "mehr". */
@@ -57,8 +58,7 @@ export function MetadataFacet({
   };
 
   return (
-    <fieldset className={`${styles.group} ${styles.tight}`}>
-      <legend className={styles.legend}>{names.title}</legend>
+    <FilterGroup id={`documents.${field}`} title={names.title} active={selected.length > 0}>
       {selected.map((value) => (
         <span key={value} className={styles.chip}>
           <span className={styles.chipText}>{value}</span>
@@ -120,6 +120,6 @@ export function MetadataFacet({
           Die {METADATA_VALUES_LIMIT} häufigsten; weitere über die Suche.
         </p>
       )}
-    </fieldset>
+    </FilterGroup>
   );
 }

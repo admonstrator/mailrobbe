@@ -4,11 +4,18 @@
   gap: 12px;
 }
 
+/* The unit stays in view below the shell's header while the periods scroll. */
 .controls {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 24px;
+  margin: -8px 0;
+  padding: 8px 0;
+  background: var(--color-bg);
 }
 
 .summary {
@@ -19,6 +26,7 @@
 .card {
   gap: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .loading {
@@ -27,7 +35,11 @@
   padding: 48px;
 }
 
+/* The periods in as many columns of at least 440 px as fit, divided by thin lines; the card
+   clips the lines at its edges. */
 .periods {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -43,14 +55,17 @@
   flex-direction: column;
   gap: 8px;
   padding: 14px 20px;
+  box-shadow:
+    -1px 0 var(--color-border-subtle),
+    0 -1px var(--color-border-subtle);
+}
+
+.period:hover {
+  background: var(--color-hover);
 }
 
 .older {
   padding: 12px 20px;
-  border-top: 1px solid var(--color-border-subtle);
-}
-
-.period + .period {
   border-top: 1px solid var(--color-border-subtle);
 }
 

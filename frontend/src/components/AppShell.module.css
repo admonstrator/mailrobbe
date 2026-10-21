@@ -1,17 +1,27 @@
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .header {
   display: flex;
   align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 30;
   gap: 24px;
-  height: 56px;
+  box-sizing: border-box;
+  height: var(--header-height);
   padding: 0 24px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
+  transition: box-shadow var(--transition-fast);
+}
+
+/* Lifted off the page once the window scrolls. */
+.scrolled {
+  box-shadow: 0 4px 16px rgb(22 24 29 / 7%);
 }
 
 .logo,
@@ -23,75 +33,70 @@
   color: var(--color-text);
   font-size: 16px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   text-decoration: none;
 }
 
+/* The links fill the header's height, so the active one's bar sits on its lower edge. */
 .nav {
   display: flex;
   flex-shrink: 0;
+  align-self: stretch;
   gap: 4px;
 }
 
 .navLink {
-  border-radius: var(--radius-control);
-  padding: 6px 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
   color: var(--color-nav);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.navLink::before {
+  position: absolute;
+  inset: 12px 0;
+  z-index: -1;
+  border-radius: var(--radius-control);
+  background: transparent;
+  content: "";
+  transition: background-color var(--transition-fast);
+}
+
+.navLink::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: transparent;
+  content: "";
 }
 
 .navLink:hover {
-  background: var(--color-field);
   color: var(--color-text);
   text-decoration: none;
 }
 
-.navLink.active {
-  background: var(--color-accent-soft);
+.navLink:hover::before {
+  background: var(--color-field);
+}
+
+.navLink:focus-visible {
+  outline-offset: -10px;
+}
+
+.navLink.active,
+.navLink.active:hover {
   color: var(--color-accent-hover);
   font-weight: 600;
 }
 
-.search {
-  display: flex;
-  flex: 1 1 320px;
-  align-items: center;
-  gap: 8px;
-  min-width: 160px;
-  max-width: 560px;
-  height: 36px;
-  box-sizing: border-box;
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-field);
-}
-
-.search:focus-within {
-  border-color: var(--color-accent);
-  background: var(--color-surface);
-}
-
-.searchIcon {
-  flex-shrink: 0;
-  color: var(--color-muted);
-}
-
-.searchInput {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  font-size: 14px;
-  outline: none;
-}
-
-.kbd {
-  border: 1px solid var(--color-border-strong);
-  border-radius: 4px;
-  padding: 1px 5px;
-  background: var(--color-surface);
-  color: var(--color-muted);
-  font-family: var(--font-sans);
-  font-size: 11px;
+.navLink.active::after {
+  background: var(--color-accent);
 }
 
 .figures {
@@ -161,11 +166,12 @@
   font-weight: 600;
 }
 
-/* The header keeps one row of 56px (the map's height depends on it), so on narrower screens
+/* The header keeps one row of --header-height (the map's height and every sticky part depend on it), so on narrower screens
    its parts give way in steps: first the totals, then spacing and the editor's label, then the
    words of the logo and of the import state, whose dot and title stay, and last the spacing of
-   the navigation. With ten entries every step leaves room for a running import's longer state
-   (measured from 1024 to 1920 px). */
+   the navigation. With ten entries and the search menu's button every step leaves the search
+   field at least 50 px above its minimum, room for a running import's longer state (measured
+   from 1024 to 2560 px). */
 @media (max-width: 1799px) {
   .count {
     display: none;
@@ -179,7 +185,7 @@
   }
 
   .navLink {
-    padding: 6px 8px;
+    padding: 0 8px;
   }
 
   .editorPrefix {
@@ -197,10 +203,6 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-
-  .search {
-    min-width: 120px;
-  }
 }
 
 @media (max-width: 1099px) {
@@ -209,11 +211,35 @@
   }
 
   .navLink {
-    padding: 6px 6px;
+    padding: 0 6px;
+  }
+
+  .navLink::after {
+    right: 4px;
+    left: 4px;
   }
 
   .editor {
     max-width: 128px;
+  }
+}
+
+/* Below the narrowest step the navigation scrolls sideways inside the header instead of widening
+   the page. */
+@media (max-width: 1023px) {
+  .nav {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .navLink {
+    flex-shrink: 0;
+  }
+
+  .navLink::after {
+    bottom: 0;
   }
 }
 

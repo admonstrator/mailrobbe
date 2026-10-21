@@ -1,16 +1,27 @@
-/* The filter column of the document list, in the look of the mail list's column. */
+/* The filter column of the document list, in the look of the mail list's column: beside the
+   list it stays below the shell header, as high as the window, and scrolls on its own. */
 
 .column {
+  position: sticky;
+  top: var(--sticky-top);
   flex: 0 1 264px;
-  align-self: stretch;
+  align-self: flex-start;
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  min-width: 240px;
+  gap: 16px;
   box-sizing: border-box;
-  padding: 20px;
+  height: var(--content-height);
+  min-width: 240px;
+  padding: 16px 18px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
+  scrollbar-width: thin;
+}
+
+.column > * {
+  flex-shrink: 0;
 }
 
 .head {
@@ -35,10 +46,6 @@
   margin: 0;
   padding: 0;
   border: 0;
-}
-
-.tight {
-  gap: 6px;
 }
 
 .legend {
@@ -66,7 +73,16 @@ label.legend {
 
 .dates {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* "von" and "bis" (DateField) each beside its field, so the fields keep their width. */
+.dates > * {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
 }
 
 .input,
@@ -201,7 +217,10 @@ label.legend {
 
 @media (max-width: 759px) {
   .column {
+    position: static;
     flex: 1 1 100%;
+    height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
   }

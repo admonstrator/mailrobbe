@@ -128,7 +128,6 @@
 .tableCard {
   gap: 0;
   padding: 0;
-  overflow: hidden;
 }
 
 .loading {
@@ -148,5 +147,25 @@
 
   .sortLabel {
     margin-left: 0;
+  }
+}
+
+/* From 1024 px the toolbar fits one row: it sticks below the shell's header, --bar-height
+   high, and the table's header below it. */
+@media (min-width: 1024px) {
+  .page {
+    --bar-height: 56px;
+  }
+
+  .toolbar {
+    position: sticky;
+    top: var(--sticky-top);
+    z-index: 10;
+    height: var(--bar-height);
+    background: var(--color-bg);
+  }
+
+  .panel {
+    gap: 4px;
   }
 }

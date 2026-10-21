@@ -1,0 +1,141 @@
+.menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.note {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.reset {
+  margin-left: auto;
+}
+
+/* Options and exclusion on the left, saved searches and syntax on the right. */
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 20px;
+}
+
+.column + .column {
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-bg);
+}
+
+.heading {
+  margin: 0 0 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.text {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.text code {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.exclude {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.exclude .heading {
+  margin: 0;
+}
+
+.excludeRow {
+  display: flex;
+  gap: 8px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 10px;
+  background: var(--color-surface);
+  font-size: 13px;
+}
+
+.input:focus-visible {
+  border-color: var(--color-accent);
+  outline: 2px solid var(--color-accent-soft);
+  outline-offset: 0;
+}
+
+.saved {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 168px;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.savedLink {
+  display: block;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  padding: 4px 8px;
+  margin: 0 -8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedLink:hover {
+  background: var(--color-accent-soft);
+  text-decoration: none;
+}
+
+.save {
+  align-self: flex-start;
+}
+
+@media (max-width: 759px) {
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .column + .column {
+    border-top: 1px solid var(--color-border-subtle);
+    border-left: 0;
+  }
+}

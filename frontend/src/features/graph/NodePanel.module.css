@@ -169,10 +169,20 @@
   margin-top: auto;
 }
 
-@media (max-width: 1100px) {
+/* Below the map on medium windows, with a scroll of its own; below it at full length on narrow
+   ones. */
+@media (max-width: 1279px) {
   .panel {
-    flex: none;
+    flex: 0 1 auto;
+    max-height: 40%;
     border-left: 0;
     border-top: 1px solid var(--color-border);
+  }
+}
+
+@media (max-width: 1023px) {
+  .panel {
+    flex: none;
+    max-height: none;
   }
 }

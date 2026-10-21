@@ -11,6 +11,16 @@
   line-height: 1.25;
   cursor: pointer;
   white-space: nowrap;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.default,
+.primary {
+  box-shadow: var(--shadow-card);
 }
 
 a.button:hover {
@@ -19,8 +29,15 @@ a.button:hover {
 
 .default:hover:not(:disabled),
 a.default:hover {
+  border-color: var(--color-unsigned);
   background: var(--color-hover);
   color: var(--color-text);
+}
+
+.default:active:not(:disabled),
+a.default:active {
+  background: var(--color-field);
+  box-shadow: none;
 }
 
 .primary {
@@ -32,8 +49,14 @@ a.default:hover {
 
 .primary:hover:not(:disabled),
 a.primary:hover {
+  border-color: var(--color-accent-hover);
   background: var(--color-accent-hover);
   color: #fff;
+}
+
+.primary:active:not(:disabled),
+a.primary:active {
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 20%);
 }
 
 .outline {
@@ -42,7 +65,7 @@ a.primary:hover {
   font-weight: 500;
 }
 
-.outline:hover,
+.outline:hover:not(:disabled),
 a.outline:hover {
   background: var(--color-accent-soft);
   color: var(--color-accent-hover);
@@ -62,6 +85,7 @@ a.outline:hover {
 
 .button:disabled,
 .button[aria-disabled="true"] {
+  box-shadow: none;
   cursor: default;
   color: var(--color-muted);
   opacity: 0.6;

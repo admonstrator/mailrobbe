@@ -76,8 +76,13 @@ describe("timeline screen", () => {
     expect(total.getAttribute("aria-valuemax")).toBe("35");
     expect(total.getAttribute("aria-valuenow")).toBe("35");
 
-    // The marks are explained beside the chart, with the numbers of the month rules.
-    expect(screen.getByText(/mit den sechs Monaten davor verglichen/)).toBeTruthy();
+    // The marks are explained beside the chart, with the numbers of the month rules, folded
+    // behind "Wie lese ich das?" until asked for.
+    const help = screen.getByText("Wie lese ich das?").closest("details")!;
+    expect(help.open).toBe(false);
+    expect(within(help).getByText(/mit den sechs Monaten davor verglichen/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Wie lese ich das?"));
+    expect(help.open).toBe(true);
     expect(screen.getByText(/mindestens dreimal so viele Mails/)).toBeTruthy();
     expect(screen.getByText(/mindestens 3 Monate lang/)).toBeTruthy();
     const legend = screen.getByRole("list", { name: "Zeichen in der Zeitachse" });

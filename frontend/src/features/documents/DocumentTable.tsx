@@ -66,83 +66,87 @@ export function DocumentTable({
   }
 
   return (
-    <div className={styles.scroll}>
-      <table className={cx(styles.table, stale && styles.stale)}>
-        <thead>
-          <tr>
-            <th className={styles.iconCol}>
-              <span className="sr-only">Art</span>
-            </th>
-            <th>Dokument</th>
-            <th>Art</th>
-            <th className={styles.num}>Größe</th>
-            <th className={styles.num}>Mails</th>
-            <th>Erstmals</th>
-            <th>Zuletzt</th>
-            <th>Zuerst gesendet von</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((doc) => (
-            <tr key={doc.id} onClick={(event) => openRow(event, doc.id)}>
-              <td className={styles.icon}>
-                <KindIcon kind={doc.kind} />
-              </td>
-              <td className={styles.document}>
-                <span className={styles.title}>
-                  <Link
-                    to={documentPath(doc.id)}
-                    className={cx(styles.name, !doc.name && styles.muted)}
-                  >
-                    {documentName(doc.name)}
-                  </Link>
-                  {doc.names > 1 && (
-                    <span
-                      className={styles.names}
-                      title={`Unter ${doc.names} verschiedenen Dateinamen verschickt`}
+    <div className={styles.frame}>
+      <div className={styles.scroll}>
+        <table className={cx(styles.table, stale && styles.stale)}>
+          <thead>
+            <tr>
+              <th className={styles.iconCol}>
+                <span className="sr-only">Art</span>
+              </th>
+              <th>Dokument</th>
+              <th>Art</th>
+              <th className={styles.num}>Größe</th>
+              <th className={styles.num}>Mails</th>
+              <th>Erstmals</th>
+              <th>Zuletzt</th>
+              <th>Zuerst gesendet von</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((doc) => (
+              <tr key={doc.id} onClick={(event) => openRow(event, doc.id)}>
+                <td className={styles.icon}>
+                  <KindIcon kind={doc.kind} />
+                </td>
+                <td className={styles.document}>
+                  <span className={styles.title}>
+                    <Link
+                      to={documentPath(doc.id)}
+                      className={cx(styles.name, !doc.name && styles.muted)}
                     >
-                      {otherNamesText(doc.names)}
+                      {documentName(doc.name)}
+                    </Link>
+                    {doc.names > 1 && (
+                      <span
+                        className={styles.names}
+                        title={`Unter ${doc.names} verschiedenen Dateinamen verschickt`}
+                      >
+                        {otherNamesText(doc.names)}
+                      </span>
+                    )}
+                    <StatusLabel status={doc.text_status} />
+                  </span>
+                  {doc.snippet && (
+                    <span className={styles.snippet}>
+                      <Highlighted text={doc.snippet} terms={terms} />
                     </span>
                   )}
-                  <StatusLabel status={doc.text_status} />
-                </span>
-                {doc.snippet && (
-                  <span className={styles.snippet}>
-                    <Highlighted text={doc.snippet} terms={terms} />
-                  </span>
-                )}
-              </td>
-              <td className={styles.kind}>
-                {doc.kind ? KIND_LABELS[doc.kind] : <span className={styles.muted}>–</span>}
-                {doc.pages !== null && <span className={styles.pages}>{pagesText(doc.pages)}</span>}
-              </td>
-              <td className={cx(styles.num, styles.size)}>{formatBytes(doc.size)}</td>
-              <td className={cx(styles.num, styles.mails)}>{mailsText(doc.mails)}</td>
-              <td className={styles.date}>
-                {doc.first_date ? (
-                  <span title={formatDateTime(doc.first_date)}>{formatDate(doc.first_date)}</span>
-                ) : (
-                  "–"
-                )}
-              </td>
-              <td className={styles.date}>
-                {doc.last_date ? (
-                  <span title={formatDateTime(doc.last_date)}>{formatDate(doc.last_date)}</span>
-                ) : (
-                  "–"
-                )}
-              </td>
-              <td className={styles.sender}>
-                {doc.first_sender ? (
-                  <PersonLink person={doc.first_sender} className={styles.person} />
-                ) : (
-                  <span className={styles.muted}>(unbekannt)</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                </td>
+                <td className={styles.kind}>
+                  {doc.kind ? KIND_LABELS[doc.kind] : <span className={styles.muted}>–</span>}
+                  {doc.pages !== null && (
+                    <span className={styles.pages}>{pagesText(doc.pages)}</span>
+                  )}
+                </td>
+                <td className={cx(styles.num, styles.size)}>{formatBytes(doc.size)}</td>
+                <td className={cx(styles.num, styles.mails)}>{mailsText(doc.mails)}</td>
+                <td className={styles.date}>
+                  {doc.first_date ? (
+                    <span title={formatDateTime(doc.first_date)}>{formatDate(doc.first_date)}</span>
+                  ) : (
+                    "–"
+                  )}
+                </td>
+                <td className={styles.date}>
+                  {doc.last_date ? (
+                    <span title={formatDateTime(doc.last_date)}>{formatDate(doc.last_date)}</span>
+                  ) : (
+                    "–"
+                  )}
+                </td>
+                <td className={styles.sender}>
+                  {doc.first_sender ? (
+                    <PersonLink person={doc.first_sender} className={styles.person} />
+                  ) : (
+                    <span className={styles.muted}>(unbekannt)</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

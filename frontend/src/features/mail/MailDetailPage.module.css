@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 16px 24px 0;
+  padding: 12px 24px 0;
   color: var(--color-muted);
   font-size: 13px;
 }
@@ -28,15 +28,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 20px;
-  padding: 16px 24px 24px;
+  gap: 16px 20px;
+  padding: 12px 24px 24px;
 }
 
 .main {
   display: flex;
   flex: 999 1 560px;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -44,9 +44,30 @@
   display: flex;
   flex: 1 1 320px;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
   max-width: 360px;
+}
+
+.side > * {
+  flex-shrink: 0;
+}
+
+/* Beside the mail the column stays in view below the header and the compact bar (48 px), where
+   it also starts on the page, and scrolls on its own; the 2 px around it keep focus rings inside
+   its edge. */
+@media (min-width: 960px) {
+  .side {
+    position: sticky;
+    top: calc(var(--sticky-top) + 52px);
+    box-sizing: border-box;
+    max-height: calc(var(--content-height) - 48px - 20px);
+    margin: -2px;
+    padding: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }
 
 .loading {

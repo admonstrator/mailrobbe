@@ -15,8 +15,9 @@
   padding: 7px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-tile);
-  /* The jump from a search hit stops below the compact bar (48 px). */
-  scroll-margin: 64px 0 16px;
+  /* The jump from a search hit stops below the header (the window's scroll padding) and the
+     compact bar (48 px). */
+  scroll-margin: 56px 0 16px;
 }
 
 .item + .item {

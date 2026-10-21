@@ -25,8 +25,8 @@ const BUCKET_NAMES: Record<TimelineBucket, string> = { day: "Tag", week: "Woche"
 
 // The chart in pixels: room for ▲ above the bars, the bars, ▽ under the axis.
 const TOP = 10;
-const AXIS = 70;
-const HEIGHT = 80;
+const AXIS = 48;
+const HEIGHT = 58;
 
 const STORAGE_KEY = "mailrobbe.timeline";
 
@@ -339,7 +339,7 @@ export function MiniTimeline({
   }
 
   return (
-    <Card className={styles.card}>
+    <Card className={styles.card} data-timeline={shown ? "shown" : "hidden"}>
       <div className={styles.head}>
         <CardTitle>
           {shownBucket ? `Verlauf pro ${BUCKET_NAMES[shownBucket]}` : "Verlauf"}

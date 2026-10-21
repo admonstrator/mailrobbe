@@ -144,97 +144,102 @@ export function TimelinePage() {
         </div>
       </div>
 
-      <div className={styles.toolbar}>
-        <form role="search" className={styles.search} onSubmit={onSearch}>
-          <SearchIcon className={styles.searchIcon} />
-          <label htmlFor="timeline-search" className="sr-only">
-            Mails durchsuchen
-          </label>
-          <input
-            key={state.list.q}
-            id="timeline-search"
-            name="q"
-            type="search"
-            defaultValue={state.list.q}
-            placeholder="Suche wie in der Mailliste, z. B. Spende oder from:kasse@ …"
-            autoComplete="off"
-            spellCheck={false}
-            className={styles.searchInput}
-          />
-        </form>
-        {chips.map((chip) => (
-          <Chip
-            key={chip.id}
-            label={chip.label}
-            color={chip.color && TAG_PALETTE[chip.color].text}
-            onRemove={() => setState({ ...state, list: chip.next })}
-          />
-        ))}
-      </div>
-
-      <Card className={styles.chartCard}>
-        <TimelineControls
-          state={state}
-          onChange={setState}
-          timeline={data}
-          seriesName={seriesName}
-          onPickPerson={(person) => setPicked(new Map(picked).set(person.id, personName(person)))}
-        />
-        {timeline.isPending ? (
-          <div className={styles.loading}>
-            <Spinner label="Zeitachse wird gezählt" />
-          </div>
-        ) : timeline.isError ? (
-          <TimelineError
-            error={timeline.error}
+      {/* The controls stick below the header while the chart is in view; the first mentions'
+          table header takes their place further down. */}
+      <section className={styles.chartArea} aria-label="Zeitachse">
+        <div className={styles.bar}>
+          <TimelineControls
             state={state}
             onChange={setState}
-            onRetry={() => void timeline.refetch()}
-          />
-        ) : timeline.data.total === null ? (
-          <EmptyState title="Die Zählung hat zu lange gedauert.">
-            Grenzen Sie die Suche ein, etwa mit einem Zeitraum.
-          </EmptyState>
-        ) : timeline.data.total.total === 0 ? (
-          <NoMatches timeline={timeline.data} state={state} />
-        ) : (
-          <>
-            <p className={styles.summary}>
-              {mailsText(timeline.data.total.total)} von{" "}
-              {formatBucket(timeline.data.starts[0], timeline.data.bucket)} bis{" "}
-              {formatBucket(
-                timeline.data.starts[timeline.data.starts.length - 1],
-                timeline.data.bucket,
-              )}
-              {timeline.data.undated ? ` · ${undatedText(timeline.data.undated)}` : ""}
-            </p>
-            {timeline.data.timed_out && (
-              <p className={styles.notice} role="status">
-                {state.split !== "none" && timeline.data.series.length === 0
-                  ? "Die Aufschlüsselung hat zu lange gedauert."
-                  : "Die Zählung hat zu lange gedauert."}{" "}
-                Grenzen Sie die Suche ein, etwa mit einem Zeitraum.
-              </p>
-            )}
-            {state.split === "term" && state.term.length === 0 && (
-              <p className={styles.notice}>
-                Fügen Sie oben Suchbegriffe hinzu, um sie einzeln über die Zeit zu vergleichen.
-              </p>
-            )}
-            <TimelineChart
-              bucket={timeline.data.bucket}
-              starts={timeline.data.starts}
-              total={timeline.data.total}
-              series={timeline.data.series}
-              mentions={mentions.data?.timed_out === false ? mentions.data.items : []}
-              mentionPersons={mentions.data?.persons ?? null}
-              hrefFor={hrefFor}
-              stale={timeline.isPlaceholderData}
+            timeline={data}
+            seriesName={seriesName}
+            onPickPerson={(person) => setPicked(new Map(picked).set(person.id, personName(person)))}
+          >
+            <form role="search" className={styles.search} onSubmit={onSearch}>
+              <SearchIcon className={styles.searchIcon} />
+              <label htmlFor="timeline-search" className="sr-only">
+                Mails durchsuchen
+              </label>
+              <input
+                key={state.list.q}
+                id="timeline-search"
+                name="q"
+                type="search"
+                defaultValue={state.list.q}
+                placeholder="Suche wie in der Mailliste, z. B. Spende oder from:kasse@ …"
+                autoComplete="off"
+                spellCheck={false}
+                className={styles.searchInput}
+              />
+            </form>
+            {chips.map((chip) => (
+              <Chip
+                key={chip.id}
+                label={chip.label}
+                color={chip.color && TAG_PALETTE[chip.color].text}
+                onRemove={() => setState({ ...state, list: chip.next })}
+              />
+            ))}
+          </TimelineControls>
+        </div>
+
+        <Card className={styles.chartCard}>
+          {timeline.isPending ? (
+            <div className={styles.loading}>
+              <Spinner label="Zeitachse wird gezählt" />
+            </div>
+          ) : timeline.isError ? (
+            <TimelineError
+              error={timeline.error}
+              state={state}
+              onChange={setState}
+              onRetry={() => void timeline.refetch()}
             />
-            <Explanation timeline={timeline.data} total={timeline.data.total} />
-          </>
-        )}
-      </Card>
+          ) : timeline.data.total === null ? (
+            <EmptyState title="Die Zählung hat zu lange gedauert.">
+              Grenzen Sie die Suche ein, etwa mit einem Zeitraum.
+            </EmptyState>
+          ) : timeline.data.total.total === 0 ? (
+            <NoMatches timeline={timeline.data} state={state} />
+          ) : (
+            <>
+              <p className={styles.summary}>
+                {mailsText(timeline.data.total.total)} von{" "}
+                {formatBucket(timeline.data.starts[0], timeline.data.bucket)} bis{" "}
+                {formatBucket(
+                  timeline.data.starts[timeline.data.starts.length - 1],
+                  timeline.data.bucket,
+                )}
+                {timeline.data.undated ? ` · ${undatedText(timeline.data.undated)}` : ""}
+              </p>
+              {timeline.data.timed_out && (
+                <p className={styles.notice} role="status">
+                  {state.split !== "none" && timeline.data.series.length === 0
+                    ? "Die Aufschlüsselung hat zu lange gedauert."
+                    : "Die Zählung hat zu lange gedauert."}{" "}
+                  Grenzen Sie die Suche ein, etwa mit einem Zeitraum.
+                </p>
+              )}
+              {state.split === "term" && state.term.length === 0 && (
+                <p className={styles.notice}>
+                  Fügen Sie oben Suchbegriffe hinzu, um sie einzeln über die Zeit zu vergleichen.
+                </p>
+              )}
+              <TimelineChart
+                bucket={timeline.data.bucket}
+                starts={timeline.data.starts}
+                total={timeline.data.total}
+                series={timeline.data.series}
+                mentions={mentions.data?.timed_out === false ? mentions.data.items : []}
+                mentionPersons={mentions.data?.persons ?? null}
+                hrefFor={hrefFor}
+                stale={timeline.isPlaceholderData}
+              />
+              <Explanation timeline={timeline.data} total={timeline.data.total} />
+            </>
+          )}
+        </Card>
+      </section>
 
       <FirstMentionList
         state={state}
@@ -278,17 +283,20 @@ function Explanation({ timeline, total }: { timeline: Timeline; total: TimelineS
           )}
         </ul>
       )}
-      <p className={styles.rules}>
-        {rules.compare} Jede Zeile hat ihren eigenen Maßstab: Ihr höchster Balken ist ihre Spitze.
-        Die Punkte bei „Erste Erwähnungen“ zeigen, wann Personen zum ersten Mal unter den Treffern
-        auftauchen (Liste unten). Ein Klick auf einen Balken öffnet diese Mails in der Mailliste.
-        Die Zeichen bewerten nichts, sie zeigen Stellen zum Nachlesen.
-      </p>
-      <ul className={styles.rules}>
-        <li>▲ viel mehr als üblich: {rules.high}</li>
-        <li>▽ viel weniger als üblich: {rules.low}</li>
-        <li>verstummt: {rules.silent}</li>
-      </ul>
+      <details className={styles.help}>
+        <summary>Wie lese ich das?</summary>
+        <p className={styles.rules}>
+          {rules.compare} Jede Zeile hat ihren eigenen Maßstab: Ihr höchster Balken ist ihre Spitze.
+          Die Punkte bei „Erste Erwähnungen“ zeigen, wann Personen zum ersten Mal unter den Treffern
+          auftauchen (Liste unten). Ein Klick auf einen Balken öffnet diese Mails in der Mailliste.
+          Die Zeichen bewerten nichts, sie zeigen Stellen zum Nachlesen.
+        </p>
+        <ul className={styles.rules}>
+          <li>▲ viel mehr als üblich: {rules.high}</li>
+          <li>▽ viel weniger als üblich: {rules.low}</li>
+          <li>verstummt: {rules.silent}</li>
+        </ul>
+      </details>
     </div>
   );
 }

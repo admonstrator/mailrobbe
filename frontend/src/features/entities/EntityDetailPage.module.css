@@ -135,24 +135,26 @@
   border-top: 1px solid var(--color-border-subtle);
 }
 
+/* The four figures as one compact strip, divided by thin lines. */
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
   list-style: none;
 }
 
 .tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
+  padding: 10px 16px;
+  box-shadow: -1px 0 var(--color-border-subtle);
 }
 
 .tileLabel,
@@ -166,8 +168,9 @@
 
 .tileValue {
   overflow: hidden;
-  font-size: 22px;
+  font-size: 19px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -317,6 +320,27 @@
 @media (max-width: 1279px) {
   .tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tile {
+    box-shadow:
+      -1px 0 var(--color-border-subtle),
+      0 -1px var(--color-border-subtle);
+  }
+}
+
+/* Beside the main column the side column stays in view, with a scroll of its own. */
+@media (min-width: 1024px) {
+  .side {
+    position: sticky;
+    top: var(--sticky-top);
+    box-sizing: border-box;
+    max-height: var(--content-height);
+    margin-top: -16px;
+    padding: 16px 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
   }
 }
 

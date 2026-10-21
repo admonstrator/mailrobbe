@@ -9,7 +9,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 28px;
+  gap: 8px 20px;
 }
 
 .control {
@@ -82,8 +82,10 @@
   min-width: 0;
 }
 
+/* The hint beside the field it explains, below it where the row is too narrow. */
 .detail > .hint {
-  flex: 1 1 100%;
+  flex: 1 1 320px;
+  order: 1;
 }
 
 .chipRow {

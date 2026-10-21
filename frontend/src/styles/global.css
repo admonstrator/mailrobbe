@@ -38,8 +38,23 @@
   --radius-tile: 8px;
   --radius-control: 6px;
   --shadow-popover: 0 8px 24px rgb(22 24 29 / 12%);
+  --shadow-card: 0 1px 2px rgb(22 24 29 / 4%);
+  --transition-fast: 120ms ease-out;
+
+  /* The shell's header stays at the top of the window; everything sticky on a page sits below
+     it at --sticky-top, and a pane that fills the window below the header is --content-height
+     high. Pages scroll with the window, so find in page, scroll restoration and the detail
+     pages' compact bars keep working. */
+  --header-height: 56px;
+  --sticky-top: var(--header-height);
+  --content-height: calc(100dvh - var(--header-height));
 
   color-scheme: light;
+}
+
+html {
+  scroll-padding-top: calc(var(--header-height) + 8px);
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -74,8 +89,12 @@ textarea {
   outline-offset: 2px;
 }
 
+/* Pinned to the start of its containing block: left at its own place, a label in a wide table
+   cell would stick out of the table's scroll area and widen the page. */
 .sr-only {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
@@ -85,4 +104,25 @@ textarea {
 
 .mono {
   font-family: var(--font-mono);
+}
+
+/* Inner scroll areas (filter columns, lists, menus) get a thin, quiet scrollbar; the window keeps
+   the platform's own. */
+:where(body *) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+::selection {
+  background: var(--color-accent-soft);
+}
+
+/* Without motion, hover and state changes switch at once; animations keep their own rules (the
+   spinner turns slower instead of stopping). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0s !important;
+  }
 }
