@@ -1,0 +1,78 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.summary {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.message {
+  gap: 0;
+  padding: 0;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
+  background: var(--color-surface);
+}
+
+.label {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.figures {
+  margin: -6px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sparkline {
+  display: block;
+  overflow: visible;
+}
+
+.bars {
+  fill: color-mix(in srgb, var(--color-accent) 55%, white);
+}
+
+.baseline {
+  stroke: var(--color-border-strong);
+  vector-effect: non-scaling-stroke;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: auto;
+  padding-top: 2px;
+  font-size: 13px;
+}
