@@ -10,9 +10,7 @@ SHA-256 is still raw_sha256; parsing and DKIM checks run in a worker thread too.
 """
 
 import asyncio
-import hashlib
 import logging
-from pathlib import Path
 from typing import Annotated, Literal, cast
 
 import fastapi
@@ -69,7 +67,7 @@ from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
-from mailrobbe.mbox import read_message
+from mailrobbe.mbox import read_verified
 from mailrobbe.persons.roots import ROOT
 
 router = APIRouter(prefix="/api", tags=["mail"])
@@ -192,7 +190,7 @@ async def mail_body(
     settings: AppSettings,
     view: Annotated[BodyFormat, Query(alias="format")] = "text",
 ) -> MailText | MailHeaders | MailRaw | Response:
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     if view == "html":
         html = await asyncio.to_thread(body.mail_html, message)
         if html is None:
@@ -207,7 +205,7 @@ async def mail_body(
 
 @router.get("/mails/{mail_id}/eml")
 async def mail_eml(mail_id: MailId, session: Session, settings: AppSettings) -> Response:
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     disposition = f'attachment; filename="mail-{mail_id}.eml"'
     return Response(
         message, media_type="message/rfc822", headers={"Content-Disposition": disposition}
@@ -217,7 +215,7 @@ async def mail_eml(mail_id: MailId, session: Session, settings: AppSettings) -> 
 @router.post("/mails/{mail_id}/dkim/recheck")
 async def recheck_dkim(mail_id: MailId, session: Session, settings: AppSettings) -> MailDkim:
     """Check the mail again (SPEC 3.4, D13): keys that were missing or timed out are asked anew."""
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     answers = await store.load_dns_cache(session)
     await session.commit()  # no transaction stays open while DNS answers
     try:
@@ -241,7 +239,7 @@ def _not_found(mail_id: int) -> HTTPException:
 # Reading the source ------------------------------------------------------------------------
 
 
-async def _message(session: AsyncSession, settings: Settings, mail_id: int) -> bytes:
+async def stored_message(session: AsyncSession, settings: Settings, mail_id: int) -> bytes:
     """The mail's message from its MBOX file, only while it is the imported one (D22)."""
     found = await session.execute(
         select(MboxFile.path, Mail.byte_offset, Mail.byte_length, Mail.raw_sha256)
@@ -255,7 +253,7 @@ async def _message(session: AsyncSession, settings: Settings, mail_id: int) -> b
     path, byte_offset, byte_length, raw_sha256 = row
     try:
         message = await asyncio.to_thread(
-            _read_checked, settings.mbox_dir / path, byte_offset, byte_length, raw_sha256
+            read_verified, settings.mbox_dir / path, byte_offset, byte_length, raw_sha256
         )
     except OSError as error:
         log.warning("mail %d: cannot read %s: %s", mail_id, path, error)
@@ -268,15 +266,6 @@ async def _message(session: AsyncSession, settings: Settings, mail_id: int) -> b
             409, "source_changed", f"{path} at offset {byte_offset} no longer holds mail {mail_id}"
         )
     return message
-
-
-def _read_checked(path: Path, byte_offset: int, byte_length: int, raw_sha256: str) -> bytes | None:
-    """The message, or None when the bytes at its offset are not the imported ones any more."""
-    try:
-        message = read_message(path, byte_offset, byte_length)
-    except ValueError:  # the file is shorter than the record now
-        return None
-    return message if hashlib.sha256(message).hexdigest() == raw_sha256 else None
 
 
 # Parts of the detail -----------------------------------------------------------------------
@@ -456,7 +445,7 @@ async def _thread(
             .order_by(members.c.position)
         )
     ).all()
-    senders = await _senders(session, [row.id for row in rows])
+    senders = await mail_senders(session, [row.id for row in rows])
     thread = [
         ThreadMail(
             id=row.id,
@@ -470,7 +459,7 @@ async def _thread(
     return thread, rows[0].size if rows else 0
 
 
-async def _senders(session: AsyncSession, mail_ids: list[int]) -> dict[int, PersonRef]:
+async def mail_senders(session: AsyncSession, mail_ids: list[int]) -> dict[int, PersonRef]:
     """The sender of each mail: its first from participant by name, then address."""
     if not mail_ids:
         return {}

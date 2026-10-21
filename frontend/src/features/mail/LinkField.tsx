@@ -21,7 +21,8 @@ const fold = (name: string) => name.trim().toLocaleLowerCase("de");
 
 /** The tags or Akten of a mail: chips that remove one, and a field that adds an existing one
  *  from its suggestions or creates one under the typed name. Enter takes the highlighted
- *  suggestion; without one it is the item of exactly that name, else a new one. */
+ *  option; without one it is the item of exactly that name, else the first suggestion, else a
+ *  new one, so a shared vocabulary does not split into near-duplicates by accident. */
 export function LinkField({
   label,
   addLabel,
@@ -62,10 +63,12 @@ export function LinkField({
     .slice(0, SUGGESTIONS)
     .map((item) => ({ item }));
   if (name && !exact) options.push({ create: name });
-  // What Enter does without a highlighted suggestion is highlighted too.
-  const fallback = name
-    ? options.findIndex((option) => ("item" in option ? option.item === exact : true))
-    : -1;
+  // What Enter does without a highlighted option is highlighted too.
+  const fallback = !name
+    ? -1
+    : exact
+      ? options.findIndex((option) => "item" in option && option.item === exact)
+      : 0;
   const current = active ?? fallback;
   const shown = open && options.length > 0;
 

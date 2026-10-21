@@ -138,7 +138,7 @@ ErrorCode = Literal[
     "mbox_dir_missing",  # 409: MAILROBBE_MBOX_DIR is no directory the server can read
     "invalid_option",  # 400: an option of a start request cannot be used; message names it
     "job_failed",  # 500: the started process ended before it recorded its run
-    "duplicate_name",  # 409: a tag or Akte with this name, ignoring case, exists already
+    "duplicate_name",  # 409: a tag, Akte or saved search of this name (any case) exists
     "invalid_selection",  # 400: not exactly one of ids and filters, or an action lacks its value
     "empty_selection",  # 400: the selection matches no mail
     "too_many_mails",  # 400: above BULK_LIMIT or EXPORT_LIMIT; message names the count

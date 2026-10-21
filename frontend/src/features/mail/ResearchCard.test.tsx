@@ -187,13 +187,10 @@ describe("research card", () => {
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "spenden" } });
     await within(card).findByRole("option", { name: "Spenden 2024" });
-    // The new Akte under this name is highlighted first; the arrow goes on to the suggestion.
+    // The first suggestion is highlighted, not a new Akte of nearly the same name.
     expect(
-      within(card)
-        .getByRole("option", { name: "Neue Akte „spenden“ anlegen" })
-        .getAttribute("aria-selected"),
+      within(card).getByRole("option", { name: "Spenden 2024" }).getAttribute("aria-selected"),
     ).toBe("true");
-    fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
     fireEvent.change(input, { target: { value: "Vergabe Hafen" } });

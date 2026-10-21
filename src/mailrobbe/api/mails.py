@@ -89,7 +89,7 @@ CSV_HEADER = (
     "MBOX-Datei",
     "Offset",
 )
-_BOM = "\ufeff"  # spreadsheet programs then read the file as UTF-8
+CSV_BOM = "\ufeff"  # spreadsheet programs then read the file as UTF-8
 # Cells a spreadsheet would read as a formula get a leading apostrophe.
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
@@ -457,7 +457,7 @@ async def _csv_chunks(
     session may be gone while the response streams."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
-    buffer.write(_BOM)
+    buffer.write(CSV_BOM)
     writer.writerow(CSV_HEADER)
     async with sessionmaker() as session:
         result = await session.stream(statement.execution_options(yield_per=CSV_BATCH))
@@ -475,18 +475,18 @@ def _csv_row(row: _Row) -> list[str]:
         str(mail_id),
         "" if date_utc is None else date_utc.isoformat(),
         "unchecked" if status is None else status.value,
-        _cell(name),
-        _cell(email),
-        _cell(recipients),
-        _cell(subject),
+        csv_cell(name),
+        csv_cell(email),
+        csv_cell(recipients),
+        csv_cell(subject),
         "ja" if attached else "nein",
-        _cell(message_id),
-        _cell(path),
+        csv_cell(message_id),
+        csv_cell(path),
         str(offset),
     ]
 
 
-def _cell(value: str | None) -> str:
+def csv_cell(value: str | None) -> str:
     """Text for a CSV cell; one a spreadsheet would take for a formula gets a leading '."""
     text = value or ""
     return "'" + text if text.startswith(_FORMULA_START) else text

@@ -18,7 +18,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
-from mailrobbe.api.detail import MailId, _message
+from mailrobbe.api.detail import MailId, stored_message
 from mailrobbe.api.schemas import EXPORT_LIMIT, EXPORTS_LISTED, ExportInfo, ExportRequest
 from mailrobbe.api.selection import resolve_selection
 from mailrobbe.db.models import MailExport
@@ -88,7 +88,7 @@ async def mail_pdf(
     notes = None
     if research:
         notes = (await records.research(session, [mail.raw_sha256]))[mail.raw_sha256]
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     pdf = await asyncio.to_thread(
         render_pdf, mail, message, created_at=datetime.now(UTC), research=notes
     )

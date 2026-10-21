@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from mailrobbe.api.mails import _BOM, _cell
+from mailrobbe.api.mails import CSV_BOM, csv_cell
 from mailrobbe.api.schemas import MailResearch, PersonRef
 from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, ParticipationRole, ReviewStatus
 from mailrobbe.export.pdf import REVIEW_TEXTS
@@ -273,11 +273,11 @@ def manifest_csv(manifest: Manifest) -> bytes:
     export = manifest.export
     research = export.include_research
     buffer = io.StringIO()
-    buffer.write(_BOM)
+    buffer.write(CSV_BOM)
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
     writer.writerow(["Mailrobbe-Export", str(export.id)])
-    writer.writerow(["Bezeichnung", _cell(export.label)])
-    writer.writerow(["Erstellt von", _cell(export.created_by)])
+    writer.writerow(["Bezeichnung", csv_cell(export.label)])
+    writer.writerow(["Erstellt von", csv_cell(export.created_by)])
     writer.writerow(["Erstellt am (UTC)", _time(export.created_at)])
     writer.writerow(["Mails", str(export.mails)])
     writer.writerow(["Davon mit Fehler", str(export.errors)])
@@ -293,19 +293,19 @@ def manifest_csv(manifest: Manifest) -> bytes:
             mail.files.pdf.sha256 if mail.files else "",
             mail.error.message if mail.error else "",
             _time(mail.date),
-            _cell(_people(mail.from_)),
-            _cell(_people(mail.to)),
-            _cell(_people(mail.cc)),
-            _cell(_people(mail.bcc)),
-            _cell(mail.subject),
-            _cell(mail.message_id),
-            _cell(mail.in_reply_to),
-            _cell(mail.source.file if mail.source else None),
+            csv_cell(_people(mail.from_)),
+            csv_cell(_people(mail.to)),
+            csv_cell(_people(mail.cc)),
+            csv_cell(_people(mail.bcc)),
+            csv_cell(mail.subject),
+            csv_cell(mail.message_id),
+            csv_cell(mail.in_reply_to),
+            csv_cell(mail.source.file if mail.source else None),
             str(mail.source.byte_offset) if mail.source else "",
             str(mail.source.byte_length) if mail.source else "",
             _dkim_status(mail.dkim),
-            _cell(_signatures(mail.dkim)),
-            _cell(_attachments(mail.attachments)),
+            csv_cell(_signatures(mail.dkim)),
+            csv_cell(_attachments(mail.attachments)),
         ]
         if research:
             row += _research_cells(mail.research)
@@ -365,7 +365,7 @@ def _research_cells(research: ManifestResearch | None) -> list[str]:
     return [
         review,
         "ja" if research.flagged else "nein",
-        _cell(", ".join(research.tags)),
-        _cell(", ".join(research.collections)),
-        _cell(notes),
+        csv_cell(", ".join(research.tags)),
+        csv_cell(", ".join(research.collections)),
+        csv_cell(notes),
     ]

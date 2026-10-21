@@ -16,7 +16,7 @@ from sqlalchemy import case, delete, func, select, true, tuple_, update
 from sqlalchemy.dialects import postgresql
 
 from mailrobbe.api.deps import Editor, Session, api_error
-from mailrobbe.api.detail import NOTE_COLUMNS, MailId, _senders
+from mailrobbe.api.detail import NOTE_COLUMNS, MailId, mail_senders
 from mailrobbe.api.filters import _contains
 from mailrobbe.api.persons import _Cursor, _int, _stamp
 from mailrobbe.api.research import RowId, mail_sha256, trimmed
@@ -109,7 +109,7 @@ async def list_notes(params: Annotated[NoteListParams, Query()], session: Sessio
     more = len(rows) > params.limit
     del rows[params.limit :]
     total = await session.scalar(select(func.count()).select_from(Note).where(*where))
-    senders = await _senders(session, [row.mail_id for row in rows if row.mail_id is not None])
+    senders = await mail_senders(session, [row.mail_id for row in rows if row.mail_id is not None])
     next_cursor = None
     if more:
         last = rows[-1]
