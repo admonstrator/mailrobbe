@@ -79,9 +79,17 @@ async def list_notes(params: Annotated[NoteListParams, Query()], session: Sessio
     cursor = _Cursor.decode(params.cursor, scope, (_stamp, _int))
     where = [Note.body.ilike(_contains(q))] if q else []
     start = [] if cursor is None else [tuple_(Note.created_at, Note.id) < tuple_(*cursor.key)]
+    # The page first, then the mail of each of its notes.
+    page = (
+        select(*NOTE_COLUMNS, Note.mail_sha256)
+        .where(*where, *start)
+        .order_by(Note.created_at.desc(), Note.id.desc())
+        .limit(params.limit + 1)
+        .subquery("page")
+    )
     original = (
         select(Mail.id, Mail.subject, Mail.date_utc)
-        .where(Mail.raw_sha256 == Note.mail_sha256)
+        .where(Mail.raw_sha256 == page.c.mail_sha256)
         .order_by(Mail.is_duplicate_of.is_not(None), Mail.id)
         .limit(1)
         .lateral("original")
@@ -89,16 +97,13 @@ async def list_notes(params: Annotated[NoteListParams, Query()], session: Sessio
     rows = list(
         await session.execute(
             select(
-                *NOTE_COLUMNS,
-                Note.mail_sha256,
+                page,
                 original.c.id.label("mail_id"),
                 original.c.subject,
                 original.c.date_utc,
             )
             .outerjoin(original, true())
-            .where(*where, *start)
-            .order_by(Note.created_at.desc(), Note.id.desc())
-            .limit(params.limit + 1)
+            .order_by(page.c.created_at.desc(), page.c.id.desc())
         )
     )
     more = len(rows) > params.limit
