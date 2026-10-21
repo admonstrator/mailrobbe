@@ -19,6 +19,24 @@ EVENT_KINDS: tuple[EventKind, ...] = get_args(EventKind)
 
 FIGURES_KEY = "calendar"  # global_stats key of CalendarFigures
 DESCRIPTION_LIMIT = 2_000  # characters of calendar_event.description
+TEXT_LIMIT = 500  # characters of a summary, a location, a name and the other short values
+EVENT_LIMIT = 100  # events kept of one mail (a calendar export can hold thousands)
+ATTENDEE_LIMIT = 500  # attendees kept of one event
+
+# The candidate rule (D154): which mails the phase reads. An iCalendar part by its type or name
+# among the attachments, inline parts (no name, as Outlook sends them) by the marks of an
+# invitation in the subject (after Re:, AW:, WG:, Fwd:) or in the text.
+CALENDAR_TYPES = ("text/calendar", "application/ics", "text/x-vcalendar")
+CALENDAR_SUFFIXES = (".ics", ".vcs")
+SUBJECT_MARKS = (
+    *("Einladung", "Aktualisierte Einladung", "Angenommen", "Abgelehnt"),
+    *("Mit Vorbehalt angenommen", "Abgesagt", "Invitation", "Updated invitation"),
+    *("Accepted", "Declined", "Tentative", "Canceled", "Cancelled"),
+)
+OUTLOOK_RULE = "*~*~*~*~*~*~*~*~*~*"  # Outlook's line between the time and the text
+WHEN_MARKS = ("When", "Wann")  # a line starting "Wann:" together with one starting "Ort:"
+WHERE_MARKS = ("Where", "Wo", "Ort")
+CALENDAR_MARK = "BEGIN:VCALENDAR"
 
 _REPLIES = frozenset({"REPLY", "COUNTER", "DECLINECOUNTER"})
 
