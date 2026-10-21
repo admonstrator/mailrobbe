@@ -45,6 +45,7 @@ import type {
   MailNeighbors,
   MailPage,
   MailRaw,
+  MailSignals,
   MailSummary,
   MailText,
   MboxFileInfo,
@@ -63,11 +64,18 @@ import type {
   PersonPage,
   PersonProfile,
   PersonRef,
+  PersonSignals,
   PersonSummary,
   ScanResult,
   SelectorDetail,
   SelectorItem,
   SelectorSummary,
+  SignalFacets,
+  SignalGroup,
+  SignalInfo,
+  SignalKey,
+  SignalOverview,
+  SignalReason,
   Stats,
   StepProgress,
   SuggestionPage,
@@ -1403,7 +1411,7 @@ export const themes: ThemeInfo[] = [
     color: "green",
     description: "Spenden, Finanzierung und Geldflüsse.",
     terms: ["Spende", "Barspende", "Spendenquittung", "in bar"],
-    term_ids: [301, null, 302, null],
+    term_ids: [302, null, null, null],
     searches: [
       {
         name: "Spendenaffären: Bargeld, Stückelung, Strohleute",
@@ -2575,3 +2583,184 @@ export const mailEntities: MailEntity[] = [
   mention(e.amount5000),
   mention(e.barspende, 1, contract),
 ];
+
+// Signals (milestone 12, D130 to D139) ----------------------------------------------------------
+
+const sender = (ref: PersonRef, mails: number) => ({ person: ref, mails });
+
+function signalInfo(
+  key: SignalKey,
+  group: SignalGroup,
+  mails: number,
+  persons: number,
+  senders: ReturnType<typeof sender>[] = [],
+  theme: string | null = null,
+): SignalInfo {
+  return { key, group, theme, available: true, mails, persons, senders };
+}
+
+/** The overview after a signals phase with internal domains set: 409.880 mails without
+ *  duplicates, every signal of the rules, three persons fallen silent. */
+export const signalOverview: SignalOverview = {
+  signals: [
+    signalInfo("private", "addresses", 18240, 1210, [
+      sender(anna, 412),
+      sender(jonas, 288),
+      sender(sofia, 201),
+      sender(thomas, 190),
+      sender(peter, 77),
+    ]),
+    signalInfo("internal_to_private", "addresses", 6120, 342, [
+      sender(anna, 380),
+      sender(lukas, 211),
+      sender(jonas, 96),
+    ]),
+    signalInfo("private_to_internal", "addresses", 4877, 410, [
+      sender(sofia, 201),
+      sender(thomas, 190),
+    ]),
+    signalInfo("private_alias", "addresses", 1934, 61, [sender(anna, 160), sender(jonas, 18)]),
+    signalInfo("bcc", "recipients", 9821, 803, [sender(anna, 290), sender(lukas, 102)]),
+    signalInfo("many_recipients", "recipients", 3315, 122, [
+      sender(billing, 1203),
+      sender(lukas, 84),
+    ]),
+    signalInfo("forward", "recipients", 22408, 2103, [sender(anna, 512), sender(miriam, 230)]),
+    signalInfo("forward_out", "recipients", 3127, 451, [sender(anna, 88), sender(peter, 41)]),
+    signalInfo("night", "time", 15873, 1902, [sender(lukas, 340), sender(anna, 96)]),
+    signalInfo("weekend", "time", 21190, 2410, [sender(lukas, 512), sender(anna, 233)]),
+    signalInfo("term:spenden", "wording", 2210, 301, [sender(anna, 41)], "Spendenaffären"),
+    signalInfo("term:gewalt", "wording", 412, 77, [], "Gewalt"),
+  ],
+  settings: {
+    internal_domains: ["nordlicht-gmbh.example"],
+    private_domains: 78,
+    timezone: "Europe/Berlin",
+    timezone_known: true,
+    night_from: 22,
+    night_to: 6,
+    many_recipients: 25,
+    forward_prefixes: ["Fwd", "Fw", "WG", "TR", "RV", "ENC", "Doorst", "VS", "VB"],
+  },
+  computed_at: "2026-10-20T01:14:00Z",
+  outdated: false,
+  mails: 409880,
+  silent: [
+    { person: lukas, since: "2025-07-01T00:00:00Z", mails: 214 },
+    { person: katrin, since: "2025-07-01T00:00:00Z", mails: 31 },
+    { person: mehmet, since: "2024-12-01T00:00:00Z", mails: 12 },
+  ],
+  silent_count: 3,
+  sender_domains: [],
+};
+
+/** The overview of an archive imported before milestone 12: no phase ran, no internal domains,
+ *  so the sender domains are offered as a help. */
+export const signalOverviewNever: SignalOverview = {
+  ...signalOverview,
+  signals: signalOverview.signals.map((info) => ({
+    ...info,
+    available: !["internal_to_private", "private_to_internal", "private_alias"].includes(info.key),
+    mails: 0,
+    persons: 0,
+    senders: [],
+  })),
+  settings: { ...signalOverview.settings, internal_domains: [] },
+  computed_at: null,
+  mails: 0,
+  silent: [],
+  silent_count: 0,
+  sender_domains: stats.sender_domains.slice(0, 4),
+};
+
+/** The facets without filters: the last phase's figures. */
+export const signalFacets: SignalFacets = {
+  signals: Object.fromEntries(signalOverview.signals.map((info) => [info.key, info.mails])),
+  mails: null,
+  sampled: false,
+};
+
+/** The facets of a filter, counted over its 1.207 mails. */
+export const signalFacetsFiltered: SignalFacets = {
+  signals: { private: 31, bcc: 12, weekend: 140, "term:spenden": 77 },
+  mails: 1207,
+  sampled: false,
+};
+
+function reason(key: SignalKey, group: SignalGroup, extra: Partial<SignalReason> = {}) {
+  return {
+    key,
+    group,
+    theme: null,
+    persons: [],
+    local_time: null,
+    recipients: null,
+    forward_prefix: null,
+    forwarded_mail: null,
+    terms: [],
+    ...extra,
+  } satisfies SignalReason;
+}
+
+/** Why the mail detail's mail (184221) shows signals: Anna sent it on a Sunday with her private
+ *  address in Bcc, and it names donations. */
+export const mailSignals: MailSignals = {
+  signals: [
+    reason("private", "addresses", { persons: [annaPrivate] }),
+    reason("internal_to_private", "addresses", { persons: [anna, annaPrivate] }),
+    reason("private_alias", "addresses", { persons: [annaPrivate] }),
+    reason("bcc", "recipients", { persons: [annaPrivate] }),
+    reason("weekend", "time", { local_time: "2026-10-18T14:32:07+02:00" }),
+    reason("term:spenden", "wording", {
+      theme: "Spendenaffären",
+      terms: [entities.spende, entities.barspende],
+    }),
+  ],
+  timezone: "Europe/Berlin",
+  computed_at: "2026-10-20T01:14:00Z",
+};
+
+/** The other shapes of a reason: recipients, forwards, an hour of the night in another zone. */
+export const mailSignalsForward: MailSignals = {
+  signals: [
+    reason("many_recipients", "recipients", { recipients: 31 }),
+    reason("forward", "recipients", { forward_prefix: "WG", forwarded_mail: "Angebot.eml" }),
+    reason("forward_out", "recipients", {
+      persons: [thomas],
+      forward_prefix: "Fwd",
+      forwarded_mail: "",
+    }),
+    reason("night", "time", { local_time: "2025-11-04T23:41:00-05:00" }),
+  ],
+  timezone: "America/New_York",
+  computed_at: "2026-10-20T01:14:00Z",
+};
+
+const archiveShare = (key: SignalKey) =>
+  (signalOverview.signals.find((info) => info.key === key)?.mails ?? 0) / signalOverview.mails;
+
+function personCount(
+  key: SignalKey,
+  group: SignalGroup,
+  mails: number,
+  theme: string | null = null,
+) {
+  return { key, group, theme, mails, archive_share: archiveShare(key) };
+}
+
+/** The signals of Anna's 3.412 sent mails; she did not fall silent. */
+export const personSignals: PersonSignals = {
+  sent: 3412,
+  signals: [
+    personCount("private", "addresses", 412),
+    personCount("internal_to_private", "addresses", 380),
+    personCount("private_alias", "addresses", 160),
+    personCount("bcc", "recipients", 290),
+    personCount("forward", "recipients", 512),
+    personCount("night", "time", 96),
+    personCount("weekend", "time", 233),
+    personCount("term:spenden", "wording", 41, "Spendenaffären"),
+  ],
+  silent_since: null,
+  silent_mails: null,
+};

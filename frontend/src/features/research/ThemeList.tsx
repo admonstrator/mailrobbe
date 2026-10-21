@@ -6,10 +6,17 @@ import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { entityMailsHref } from "../entities/urlState";
 import styles from "./AktenScreen.module.css";
 import { ColorChip } from "./ColorChip";
 import forms from "./forms.module.css";
 import { researchErrorText, searchHref, termHref } from "./labels";
+
+/** A term's mails: those its entity is found in, where the entities phase found it, since the
+ *  full text search drops stop words such as "nicht" of a phrase (D138); else the search. */
+function termLink(term: string, entityId: number | null): string {
+  return entityId === null ? termHref(term) : entityMailsHref([entityId]);
+}
 
 /** The Themen tab (D64): each research theme with its word field and search templates, and the
  *  starter set that creates their tags and saved searches. */
@@ -76,9 +83,12 @@ export function ThemeList({ starterMissing }: { starterMissing: number }) {
                 </ul>
               )}
               <ul className={styles.terms} aria-label={`Wortfeld ${theme.name}`}>
-                {theme.terms.map((term) => (
+                {theme.terms.map((term, index) => (
                   <li key={term}>
-                    <Link to={termHref(term)} className={styles.term}>
+                    <Link
+                      to={termLink(term, theme.term_ids[index] ?? null)}
+                      className={styles.term}
+                    >
                       {term}
                     </Link>
                   </li>

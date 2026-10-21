@@ -40,6 +40,7 @@ const full: ListState = {
   entity: [31, 7],
   amount_min: 10000.5,
   amount_context: ["cash", "receipt"],
+  signal: ["night", "term:spenden"],
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -87,6 +88,7 @@ describe("list state in the URL", () => {
       "entity",
       "amount_min",
       "amount_context",
+      "signal",
       "sort",
       "cursor",
       "limit",
@@ -210,5 +212,24 @@ describe("API parameters from the list state", () => {
     expect(
       buildQuery(toListParams(parse("dkim=pass&dkim=fail&has_attachment=true"))).toString(),
     ).toBe("dkim=pass&dkim=fail&has_attachment=true");
+  });
+});
+
+describe("the signal filter in the URL (D136)", () => {
+  it("keeps kinds and word fields in the URL's order, once each, and hands them to the API", () => {
+    const state = parse(
+      "signal=weekend&signal=term%3Aspenden&signal=weekend&signal=bogus&signal=term%3A&signal=silent",
+    );
+    expect(state.signal).toEqual(["weekend", "term:spenden"]);
+    expect(toFilters(state)).toEqual({ signal: ["weekend", "term:spenden"] });
+    expect(search(state)).toBe("signal=weekend&signal=term%3Aspenden");
+    expect(parse(search(state))).toEqual(state);
+    expect(withoutSidebarFilters(state)).toEqual(DEFAULT_LIST_STATE);
+  });
+
+  it("comes last among the filters, so the profile's links match what the list writes", () => {
+    const state = parse("signal=night&person=11&person_role=sent");
+    expect(search(state)).toBe("person=11&person_role=sent&signal=night");
+    expect(withFilters(state, { signal: [] }).signal).toEqual([]);
   });
 });

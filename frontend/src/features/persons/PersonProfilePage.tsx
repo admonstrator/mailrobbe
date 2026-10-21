@@ -14,6 +14,7 @@ import { personLabel } from "./labels";
 import { MergeDialog } from "./MergeDialog";
 import { PersonMails } from "./PersonMails";
 import styles from "./PersonProfilePage.module.css";
+import { PersonSignalsCard } from "./PersonSignalsCard";
 import { ProfileHeader } from "./ProfileHeader";
 import { ProfileTiles } from "./ProfileTiles";
 import { TopContacts } from "./TopContacts";
@@ -126,6 +127,7 @@ function Profile({ profile }: { profile: PersonProfile }) {
         onPick={(range) => void navigate(withQuery("/mails", { ...mails, ...range }))}
         silenceLine
       />
+      <PersonSignalsCard personId={profile.id} />
       <PersonMails profile={profile} state={state} onChange={setState} href={href} />
       {merging && <MergeDialog profile={profile} onClose={() => setMerging(false)} />}
     </div>

@@ -48,6 +48,7 @@ import styles from "./MailListPage.module.css";
 import { MailTable, type TableSelection } from "./MailTable";
 import { invalidTerm } from "./queryText";
 import { SaveSearchDialog } from "./SaveSearchDialog";
+import { SignalFacets, useSignalChipNames } from "./SignalFacets";
 import { formatTotal, SummaryTiles } from "./SummaryTiles";
 import { useListState } from "./useListState";
 
@@ -103,6 +104,7 @@ export function MailListPage() {
   // The thread filter's chip is named by the subject of the thread's first mail (D95).
   const threadMail = useMailDetail(state.thread ?? 0, state.thread !== null);
   const entityNames = useEntityChipNames(state.entity);
+  const signalNames = useSignalChipNames();
   const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -126,6 +128,7 @@ export function MailListPage() {
     thread: (id) =>
       threadMail.data?.id === id ? threadMail.data.subject || "(kein Betreff)" : undefined,
     entity: entityNames,
+    signal: signalNames,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);
@@ -245,6 +248,7 @@ export function MailListPage() {
           )
         )}
 
+        <SignalFacets state={state} onChange={setState} placement="top" />
         <EntityFacets state={state} onChange={setState} placement="top" />
         <Card className={styles.tableCard}>
           {page.isPending ? (
@@ -294,7 +298,10 @@ export function MailListPage() {
           />
         )}
       </main>
-      <EntityFacets state={state} onChange={setState} placement="column" />
+      <div className={styles.facets}>
+        <SignalFacets state={state} onChange={setState} placement="column" />
+        <EntityFacets state={state} onChange={setState} placement="column" />
+      </div>
 
       {saving && (
         <SaveSearchDialog

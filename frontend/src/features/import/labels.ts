@@ -40,6 +40,7 @@ export const STEP_LABELS: Record<string, string> = {
   global_stats: "Kennzahlen des Archivs",
   attachments: "Text aus Anhängen lesen",
   entities: "Entitäten erkennen",
+  signals: "Signale berechnen",
   check: "Signaturen prüfen",
   // dkim-keys runs (D101)
   select: "Selektoren auswählen",
