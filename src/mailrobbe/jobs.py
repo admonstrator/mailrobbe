@@ -49,7 +49,9 @@ LOCK_KEYS: dict[JobKind, int] = {
 }
 
 # The phases a run goes through, in order (job.phase).
-ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments", "entities", "signals"]
+ImportPhase = Literal[
+    "scan", "headers", "import", "finalize", "attachments", "entities", "signals", "topics"
+]
 DkimPhase = Literal["check", "aggregates"]
 
 LOST_MESSAGE = "the run ended without recording its end"

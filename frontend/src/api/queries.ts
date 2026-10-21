@@ -113,6 +113,11 @@ import type {
   ThemeInfo,
   Timeline,
   TimelineParams,
+  TopicClusters,
+  TopicPeriodParams,
+  TopicPeriods,
+  TopicTermParams,
+  TopicTerms,
 } from "./types";
 
 export function createQueryClient(): QueryClient {
@@ -983,6 +988,49 @@ export function useMailEntities(id: number) {
   return useQuery({
     queryKey: entityKeys.mail(id),
     queryFn: ({ signal }) => apiGet<MailEntity[]>(`/api/mails/${id}/entities`, undefined, signal),
+  });
+}
+
+// Topics (D140 to D148) -------------------------------------------------------------------------
+
+export const topicKeys = {
+  /** Prefix of what the topics phase stores; an import computes it again (D146). */
+  topics: ["topics"] as const,
+  periods: (params: TopicPeriodParams) => ["topics", "periods", params] as const,
+  clusters: ["topics", "clusters"] as const,
+  /** Under the mail list's prefix: the terms of a selection count the mails of a filter
+   *  (D144), so whatever changes the list's contents changes them. */
+  terms: (params: TopicTermParams) => ["mails", "topic-terms", params] as const,
+};
+
+/** The terms per month, quarter or year as the topics phase stored them (D143); the previous
+ *  unit stays while the next loads. */
+export function useTopicPeriods(params: TopicPeriodParams, enabled = true) {
+  return useQuery({
+    queryKey: topicKeys.periods(params),
+    queryFn: ({ signal }) => apiGet<TopicPeriods>("/api/topics/periods", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The terms of the mails of the mail list's filters, counted on request (D144); the previous
+ *  ones stay while the next are counted. */
+export function useTopicTerms(params: TopicTermParams, enabled = true) {
+  return useQuery({
+    queryKey: topicKeys.terms(params),
+    queryFn: ({ signal }) => apiGet<TopicTerms>("/api/topics/terms", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The clusters of terms that stand together across the archive (D145). */
+export function useTopicClusters(enabled = true) {
+  return useQuery({
+    queryKey: topicKeys.clusters,
+    queryFn: ({ signal }) => apiGet<TopicClusters>("/api/topics/clusters", undefined, signal),
+    enabled,
   });
 }
 

@@ -29,6 +29,7 @@ import { formatNumber } from "../../lib/format";
 import { TAG_PALETTE } from "../../lib/research";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
 import { MiniTimeline } from "../timeline/MiniTimeline";
+import { hasSelection, selectionHref } from "../topics/urlState";
 import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
 import { ColumnMenu } from "./ColumnMenu";
@@ -183,6 +184,15 @@ export function MailListPage() {
             <Button variant="link" size="sm" onClick={() => setSaving(true)}>
               Suche speichern
             </Button>
+          )}
+          {hasSelection(state) && (
+            <Link
+              to={selectionHref(state)}
+              className={buttonClass("link", "sm")}
+              title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
+            >
+              Begriffe
+            </Link>
           )}
           <span className={styles.hits} aria-live="polite">
             {hitText(summary.data, state)}

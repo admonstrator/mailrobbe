@@ -21,6 +21,12 @@
   gap: 4px 12px;
 }
 
+.headLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .title {
   margin: 0;
   font-size: 22px;

@@ -183,3 +183,28 @@ def load_signal_lists(path: Path = THEMES_FILE) -> SignalLists:
         many_recipients=many,
         forward_prefixes=tuple(dict.fromkeys(prefixes)),
     )
+
+
+@cache
+def load_topic_ignore(path: Path = THEMES_FILE) -> tuple[str, ...]:
+    """The words of [topics] ignore that the topics leave out (D141), in file order: non-empty
+    texts, none used twice ignoring case. The topics phase compares their stems, so one form of
+    a word leaves out all of its forms."""
+    with path.open("rb") as file:
+        data = tomllib.load(file)
+    table = data.get("topics")
+    if not isinstance(table, dict):
+        raise ThemesError(f"{path.name}: the table [topics] is missing")
+    words = table.get("ignore", [])
+    if not isinstance(words, list) or not all(
+        isinstance(word, str) and word.strip() for word in words
+    ):
+        raise ThemesError("[topics] ignore: every word must be a non-empty text")
+    folded = [word.casefold() for word in words]
+    duplicates = sorted({word for word in folded if folded.count(word) > 1})
+    if duplicates:
+        raise ThemesError(f"[topics] ignore: used twice: {', '.join(duplicates)}")
+    unknown = sorted(set(table) - {"ignore"})
+    if unknown:
+        raise ThemesError(f"[topics]: unknown keys {', '.join(unknown)}")
+    return tuple(words)

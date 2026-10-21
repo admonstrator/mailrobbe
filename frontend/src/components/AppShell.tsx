@@ -19,6 +19,7 @@ const NAVIGATION = [
   { to: "/auffaelligkeiten", label: "Signale" },
   { to: "/karte", label: "Karte" },
   { to: "/zeitachse", label: "Zeitachse" },
+  { to: "/themen", label: "Themen" },
   { to: "/akten", label: "Akten" },
   { to: "/import", label: "Import" },
 ];

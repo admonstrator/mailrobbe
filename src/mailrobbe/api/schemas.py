@@ -1,4 +1,4 @@
-"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 12): query parameters and responses.
+"""The HTTP contract of the web UI (SPEC 4, milestones 4 to 13): query parameters and responses.
 
 frontend/src/api/types.ts mirrors these models by hand; change both together. Times are ISO 8601
 in UTC, ids are mail.id/person.id/mbox_file.id. Errors are {"detail": ApiErrorDetail} with the
@@ -101,6 +101,12 @@ Entities (milestone 10, D80 to D89):
     GET  /api/entities/{id}                      EntityDetail (D88)
     GET  /api/mails/facets?EntityFacetParams     EntityFacets: top entities of a filter (D87)
     GET  /api/mails/{id}/entities                list[MailEntity], what was found in one mail
+
+Topics (milestone 13, D140 to D148):
+
+    GET  /api/topics/periods?TopicPeriodParams   TopicPeriods: terms per month, quarter, year
+    GET  /api/topics/terms?TopicTermParams       TopicTerms: terms of a selection (D144)
+    GET  /api/topics/clusters                    TopicClusters (D145)
 
 Signals (milestone 12, D130 to D139):
 
@@ -805,7 +811,7 @@ class GraphSize(BaseModel):
 
 ERROR_PAGE_SIZE = 50  # default page of /api/import/errors
 ImportPhase = Literal[
-    "scan", "headers", "import", "finalize", "attachments", "entities", "signals"
+    "scan", "headers", "import", "finalize", "attachments", "entities", "signals", "topics"
 ]  # jobs.ImportPhase
 DkimPhase = Literal["check", "aggregates"]  # jobs.DkimPhase
 
@@ -1687,6 +1693,111 @@ class MailEntity(BaseModel):
     context: list[EntityContextKey]
     document_id: int | None  # found in this attachment's document; None: in the mail's text
     document_name: str | None
+
+
+# Topics (milestone 13, D140 to D148) ---------------------------------------------------------
+#
+# A term is a lexeme of mail.tsv (the German stem PostgreSQL indexes) with the spelling used most
+# as its label, which is also the word the mail list searches for (q). Figures count the mails
+# that are no duplicates, from their own subject and text; attachments do not count (D140). A
+# term stands out in a scope when keyness.keyness says so (D142); share is its share of the
+# scope's mails, rest_share its share of the rest of the archive. Before the first topics phase
+# (state.computed_at None) every list is empty.
+
+TopicUnit = Literal["month", "quarter", "year"]  # topics.model.Unit
+TOPIC_TERMS = 10  # default terms per period in TopicPeriods
+TOPIC_PERIOD_TERMS = 30  # terms kept per period (topics.model.PERIOD_TERMS)
+TOPIC_SELECTION_TERMS = 30  # default terms of a selection in TopicTerms
+MAX_TOPIC_SELECTION_TERMS = 100
+TOPIC_SAMPLE = 5_000  # mails of a selection the terms are counted over at most (D144)
+
+
+class TopicState(BaseModel):
+    """What the topics phase last computed (D146)."""
+
+    computed_at: datetime | None  # None: never; the next import computes them
+    mails: int  # the archive's mails that are no duplicates, then; the N of every comparison
+    terms: int  # the vocabulary
+    clusters: int
+
+
+class TopicTerm(BaseModel):
+    term: str  # the lexeme, as in mail.tsv; stable across computations
+    label: str  # the spelling used most; the word to search for
+    mails: int  # mails of the scope holding it (estimated from a sample when sampled)
+    share: float  # of the scope's mails, 0 to 1
+    rest_share: float  # of the other mails of the archive, 0 to 1
+    ratio: float | None  # share / rest_share; None: no other mail holds it
+    score: float  # G2 (D142)
+    themes: list[str]  # keys of the themes (themes.toml) whose word field holds the word
+
+
+class TopicPeriodParams(BaseModel):
+    unit: TopicUnit = "month"
+    # Only periods overlapping these UTC days, both inclusive; None: from the first, to the last.
+    date_from: date | None = None
+    date_to: date | None = None
+    limit: int = Field(TOPIC_TERMS, ge=1, le=TOPIC_PERIOD_TERMS)  # terms per period
+
+
+class TopicPeriod(BaseModel):
+    start: date  # first day (UTC)
+    end: date  # last day, inclusive, as date_to of the mail list
+    mails: int  # its mails that are no duplicates
+    terms: list[TopicTerm]  # standing out most first; may be empty
+
+
+class TopicPeriods(BaseModel):
+    state: TopicState
+    unit: TopicUnit
+    periods: list[TopicPeriod]  # newest first; periods without mails left out
+
+
+class TopicTermParams(MailFilters):
+    """The terms of the mails of the mail list's filters (D144)."""
+
+    limit: int = Field(TOPIC_SELECTION_TERMS, ge=1, le=MAX_TOPIC_SELECTION_TERMS)
+
+
+class TopicTerms(BaseModel):
+    state: TopicState
+    mails: int | None  # the selection's mails that are no duplicates; None: not counted in time
+    counted: int  # mails the terms were counted over: all, or TOPIC_SAMPLE of them
+    sampled: bool  # counted over TOPIC_SAMPLE of more mails; figures are estimates
+    terms: list[TopicTerm]  # standing out and not common, highest score first, at most limit
+    # Standing out in more than half of the selection's mails (signatures, greetings, a list's
+    # footer; D142), most mails first, at most limit.
+    common: list[TopicTerm]
+    timed_out: bool  # a query ran out of MAILROBBE_API_COUNT_TIMEOUT; the lists are then empty
+
+
+class TopicClusterTerm(BaseModel):
+    term: str  # the lexeme
+    label: str
+    mails: int  # archive mails holding it (no duplicates)
+    weight: float  # its links inside the cluster (D145)
+    themes: list[str]
+
+
+class TopicMonth(BaseModel):
+    month: date  # first day (UTC)
+    mails: int
+
+
+class TopicCluster(BaseModel):
+    id: int  # valid until the next computation
+    label: str  # its first three term labels
+    query: str  # search string in the syntax of q: its first five labels joined by "or"
+    mails: int  # mails the query finds in their own text, no duplicates
+    first_date: datetime | None
+    last_date: datetime | None
+    terms: list[TopicClusterTerm]  # strongest first
+    months: list[TopicMonth]  # months with such mails, ascending
+
+
+class TopicClusters(BaseModel):
+    state: TopicState
+    clusters: list[TopicCluster]  # most mails first
 
 
 # Signals (milestone 12, D130 to D139) ---------------------------------------------------------

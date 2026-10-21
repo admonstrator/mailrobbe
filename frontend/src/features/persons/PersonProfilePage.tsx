@@ -10,6 +10,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { MiniTimeline } from "../timeline/MiniTimeline";
+import { PersonTermsCard } from "../topics/PersonTermsCard";
 import { personLabel } from "./labels";
 import { MergeDialog } from "./MergeDialog";
 import { PersonMails } from "./PersonMails";
@@ -121,6 +122,7 @@ function Profile({ profile }: { profile: PersonProfile }) {
           onSelect={(year) => setState(withSelection(state, { year }))}
         />
       </div>
+      {profile.figures?.sent !== 0 && <PersonTermsCard personId={profile.id} />}
       <MiniTimeline
         filters={mails}
         bucket="month"

@@ -79,6 +79,13 @@ import type {
   Stats,
   StepProgress,
   SuggestionPage,
+  TopicCluster,
+  TopicClusters,
+  TopicPeriod,
+  TopicPeriods,
+  TopicState,
+  TopicTerm,
+  TopicTerms,
 } from "../api/types";
 
 const person = (person_id: number, name: string | null, email: string): PersonRef => ({
@@ -2583,6 +2590,240 @@ export const mailEntities: MailEntity[] = [
   mention(e.amount5000),
   mention(e.barspende, 1, contract),
 ];
+
+// Topics (milestone 13) ---------------------------------------------------------------------------
+
+/** Computed at 14:05 Berlin time over 398,112 mails that are no duplicates. */
+export const topicState: TopicState = {
+  computed_at: "2026-10-21T12:05:00Z",
+  mails: 398_112,
+  terms: 18_234,
+  clusters: 2,
+};
+
+export const topicStateNever: TopicState = {
+  computed_at: null,
+  mails: 0,
+  terms: 0,
+  clusters: 0,
+};
+
+/** A term in a scope of scope mails, a of them holding it, against an archive in which df
+ *  mails hold it: the figures as the API derives them (D142). */
+function topicTerm(
+  label: string,
+  a: number,
+  scope: number,
+  df: number,
+  themes: string[] = [],
+): TopicTerm {
+  const share = a / scope;
+  const restShare = (df - a) / (topicState.mails - scope);
+  return {
+    term: label.toLowerCase().replace(/ä/g, "a").replace(/ö/g, "o").replace(/ü/g, "u"),
+    label,
+    mails: a,
+    share,
+    rest_share: restShare,
+    ratio: restShare > 0 ? share / restShare : null,
+    score: Math.round(a * Math.log(share / Math.max(restShare, 1e-6)) * 10) / 10,
+    themes,
+  };
+}
+
+const october: TopicPeriod = {
+  start: "2025-10-01",
+  end: "2025-10-31",
+  mails: 412,
+  terms: [
+    topicTerm("Spende", 37, 412, 1628, ["spenden"]),
+    topicTerm("Mitgliederversammlung", 25, 412, 1100),
+    topicTerm("Vorstandssitzung", 22, 412, 600),
+    topicTerm("Barspende", 14, 412, 90, ["spenden"]),
+    topicTerm("Satzungsänderung", 11, 412, 120),
+    topicTerm("Kassenprüfung", 9, 412, 9),
+    topicTerm("Rechenschaftsbericht", 8, 412, 70),
+    topicTerm("Wahlkampf", 8, 412, 210),
+    topicTerm("Plakate", 6, 412, 50),
+    topicTerm("Landesparteitag", 5, 412, 140),
+  ],
+};
+
+/** Months, newest first: October with ten terms (so "mehr" may find more), September with
+ *  three, August with none. */
+export const topicPeriods: TopicPeriods = {
+  state: topicState,
+  unit: "month",
+  periods: [
+    october,
+    {
+      start: "2025-09-01",
+      end: "2025-09-30",
+      mails: 388,
+      terms: [
+        topicTerm("Landesparteitag", 31, 388, 140),
+        topicTerm("Delegierte", 18, 388, 160),
+        topicTerm("Antragskommission", 7, 388, 12),
+      ],
+    },
+    { start: "2025-08-01", end: "2025-08-31", mails: 95, terms: [] },
+  ],
+};
+
+/** October alone with all the terms the phase kept. */
+export const topicPeriodsMore: TopicPeriods = {
+  state: topicState,
+  unit: "month",
+  periods: [
+    {
+      ...october,
+      terms: [...october.terms, topicTerm("Flyer", 5, 412, 60), topicTerm("Druckerei", 4, 412, 30)],
+    },
+  ],
+};
+
+export const topicPeriodsQuarter: TopicPeriods = {
+  state: topicState,
+  unit: "quarter",
+  periods: [
+    {
+      start: "2025-10-01",
+      end: "2025-12-31",
+      mails: 1204,
+      terms: [topicTerm("Spende", 61, 1204, 1628, ["spenden"])],
+    },
+    {
+      start: "2025-07-01",
+      end: "2025-09-30",
+      mails: 1350,
+      terms: [topicTerm("Landesparteitag", 44, 1350, 140)],
+    },
+  ],
+};
+
+/** The years with one term each, the answer the screen reads the state from. */
+export const topicPeriodsYear: TopicPeriods = {
+  state: topicState,
+  unit: "year",
+  periods: [
+    {
+      start: "2025-01-01",
+      end: "2025-12-31",
+      mails: 4800,
+      terms: [topicTerm("Landesparteitag", 120, 4800, 140)],
+    },
+    {
+      start: "2024-01-01",
+      end: "2024-12-31",
+      mails: 5100,
+      terms: [topicTerm("Wahlkampf", 160, 5100, 210)],
+    },
+  ],
+};
+
+/** Anna Keller's sent mails: every one counted. */
+export const topicTerms: TopicTerms = {
+  state: topicState,
+  mails: 3412,
+  counted: 3412,
+  sampled: false,
+  terms: [
+    topicTerm("Rahmenvertrag", 212, 3412, 640),
+    topicTerm("Wartung", 180, 3412, 900),
+    topicTerm("Umspannwerk", 95, 3412, 140),
+    topicTerm("Spende", 40, 3412, 1628, ["spenden"]),
+    topicTerm("Kassenprüfung", 4, 3412, 4),
+  ],
+  common: [topicTerm("Nordlicht", 2100, 3412, 9000)],
+  timed_out: false,
+};
+
+/** A large selection: counted over a sample, figures estimated. */
+export const topicTermsSampled: TopicTerms = {
+  ...topicTerms,
+  mails: 48_210,
+  counted: 5000,
+  sampled: true,
+  terms: [topicTerm("Rahmenvertrag", 2990, 48_210, 9000)],
+  common: [],
+};
+
+export const topicTermsTimedOut: TopicTerms = {
+  state: topicState,
+  mails: null,
+  counted: 0,
+  sampled: false,
+  terms: [],
+  common: [],
+  timed_out: true,
+};
+
+const cluster = (
+  id: number,
+  terms: [string, number, string[]?][],
+  mails: number,
+  months: [string, number][],
+): TopicCluster => {
+  const labels = terms.map(([label]) => label);
+  return {
+    id,
+    label: labels.slice(0, 3).join(", "),
+    query: labels.slice(0, 5).join(" or "),
+    mails,
+    first_date: `${months[0][0]}T08:14:00Z`,
+    last_date: `${months[months.length - 1][0].slice(0, 8)}18T12:32:07Z`,
+    terms: terms.map(([label, count, themes = []], index) => ({
+      term: label.toLowerCase(),
+      label,
+      mails: count,
+      weight: Math.round((10 - index) * 13.7) / 10,
+      themes,
+    })),
+    months: months.map(([month, count]) => ({ month, mails: count })),
+  };
+};
+
+/** Two clusters, most mails first, on the months of 2024 and 2025. */
+export const topicClusters: TopicClusters = {
+  state: topicState,
+  clusters: [
+    cluster(
+      7,
+      [
+        ["Angebot", 1200],
+        ["Preis", 900],
+        ["Lieferung", 700],
+        ["Rabatt", 300],
+        ["Bestellung", 650],
+        ["Lieferschein", 120],
+      ],
+      1840,
+      [
+        ["2024-01-01", 80],
+        ["2024-02-01", 95],
+        ["2024-06-01", 140],
+        ["2025-03-01", 60],
+        ["2025-10-01", 30],
+      ],
+    ),
+    cluster(
+      3,
+      [
+        ["Spende", 1628, ["spenden"]],
+        ["Quittung", 410],
+        ["Barzahlung", 120, ["spenden"]],
+        ["Kasse", 380],
+        ["Beleg", 300],
+      ],
+      640,
+      [
+        ["2024-11-01", 12],
+        ["2025-09-01", 44],
+        ["2025-10-01", 61],
+      ],
+    ),
+  ],
+};
 
 // Signals (milestone 12, D130 to D139) ----------------------------------------------------------
 

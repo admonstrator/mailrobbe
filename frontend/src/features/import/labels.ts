@@ -41,6 +41,10 @@ export const STEP_LABELS: Record<string, string> = {
   attachments: "Text aus Anhängen lesen",
   entities: "Entitäten erkennen",
   signals: "Signale berechnen",
+  topic_terms: "Begriffe zählen",
+  topic_labels: "Schreibweisen der Begriffe",
+  topic_periods: "Begriffe je Zeitraum",
+  topic_clusters: "Themen-Cluster bilden",
   check: "Signaturen prüfen",
   // dkim-keys runs (D101)
   select: "Selektoren auswählen",

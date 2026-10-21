@@ -1,4 +1,4 @@
-"""The signals phase as the import's last phase (D135), on the generated archive imported
+"""The signals phase of every import (D135), on the generated archive imported
 before: "Import starten" fills every signal under the rules of the moment, and a time zone
 PostgreSQL does not know fails the run without touching the stored signals."""
 
