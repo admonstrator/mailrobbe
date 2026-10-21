@@ -201,6 +201,23 @@ async def test_new_mails_an_older_version_and_a_deleted_mail(url: str) -> None:
     assert await figures(url) == (1, 3, 3)
 
 
+async def test_a_text_the_rule_fails_on_gets_no_fingerprint_and_the_rest_goes_on(
+    url: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    ids = await insert(url, ARCHIVE)
+
+    def failing(subject: str | None, body: str | None) -> bytes | None:
+        if subject == ARCHIVE["a2"].subject:
+            raise ValueError("a text the rule cannot take")
+        return fingerprint(subject, body)
+
+    monkeypatch.setattr(phase, "fingerprint", failing)
+    waiting, stored, _ = await run(url)
+    assert (waiting, stored) == (8, 8)
+    assert await groups(url, ids) == GROUPED | {"a2": None}
+    assert f"mail {ids['a2']}: ValueError: a text the rule cannot take" in caplog.text
+
+
 async def test_a_stop_ends_the_fingerprints_between_two_batches(
     url: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

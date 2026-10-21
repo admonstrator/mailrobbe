@@ -25,7 +25,7 @@ from sqlalchemy import CursorResult, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from mailrobbe.db.models import NEAR_VERSION
-from mailrobbe.jobrun import Step
+from mailrobbe.jobrun import Step, describe
 from mailrobbe.near.model import NearFigures, fingerprint, write_figures
 
 log = logging.getLogger(__name__)
@@ -114,7 +114,15 @@ async def fingerprint_mails(
 
 
 def _fingerprints(rows: Sequence[Any]) -> list[bytes | None]:
-    return [fingerprint(row.subject, row.body_text) for row in rows]
+    """A mail whose text the rule fails on gets none, so one mail never stops the step."""
+    found: list[bytes | None] = []
+    for row in rows:
+        try:
+            found.append(fingerprint(row.subject, row.body_text))
+        except Exception as error:  # fingerprint never raises: a bug, for this mail alone
+            log.warning("near duplicates: mail %d: %s", row.id, describe(error))
+            found.append(None)
+    return found
 
 
 async def group_mails(
