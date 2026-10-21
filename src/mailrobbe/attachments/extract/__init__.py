@@ -7,8 +7,8 @@ characters. It never raises for a bad document: damage, encryption and limits ar
 
 Modules: base (the Sink extractors write to, their exceptions), sandbox (the child process),
 packages (ZIP containers of XML parts, safe XML parsing), one module per format family: pdf,
-ooxml (DOCX, XLSX, PPTX), odf (ODT, ODS, ODP), rtf, plain (text, CSV, HTML, XML, JSON,
-iCalendar, vCard), mail (attached mails), archive (ZIP member names).
+ooxml (DOCX, XLSX, PPTX), odf (ODT, ODS, ODP), xps (XPS, OpenXPS), rtf, plain (text, CSV, HTML,
+XML, JSON, iCalendar, vCard), mail (attached mails), archive (ZIP member names).
 """
 
 from dataclasses import dataclass
@@ -29,6 +29,7 @@ from mailrobbe.attachments.extract.plain import (
     extract_xml,
 )
 from mailrobbe.attachments.extract.rtf import extract_rtf
+from mailrobbe.attachments.extract.xps import extract_xps
 from mailrobbe.attachments.kinds import HEAD_SIZE, classify
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT
 from mailrobbe.enums import DocumentKind, DocumentTextStatus
@@ -62,6 +63,7 @@ EXTRACTORS: dict[str, Extractor] = {
     "odt": extract_odf,
     "ods": extract_odf,
     "odp": extract_odf,
+    "xps": extract_xps,
     "rtf": extract_rtf,
     "csv": extract_text,
     "text": extract_text,

@@ -5,9 +5,11 @@ import type { MailHeaders, MailRaw, MailText } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
+import { MarkedParts, type SearchMarks } from "../../components/Highlighted";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatBytes, formatNumber } from "../../lib/format";
+import { highlightParts, markCount } from "../../lib/highlight";
 import { splitQuoted } from "../../lib/quote";
 import styles from "./BodyCard.module.css";
 import { sourceErrorText } from "./errors";
@@ -16,16 +18,19 @@ export type BodyTab = "text" | "html" | "headers" | "raw";
 
 const ID_PREFIX = "body";
 
-/** The mail's content in four views, each read from the MBOX file when first opened (D22). */
+/** The mail's content in four views, each read from the MBOX file when first opened (D22); the
+ *  text view marks the search words (D79). */
 export function BodyCard({
   mailId,
   tab,
   onTab,
+  marks,
   ref,
 }: {
   mailId: number;
   tab: BodyTab;
   onTab: (tab: BodyTab) => void;
+  marks?: SearchMarks;
   ref?: Ref<HTMLElement>;
 }) {
   // The text view is the default, and it tells whether there is an HTML part to show.
@@ -57,7 +62,9 @@ export function BodyCard({
         end="Body wird on-demand aus der MBOX gelesen"
       />
       <div {...tabPanelProps(ID_PREFIX, tab)} className={styles.panel}>
-        {tab === "text" && <Loaded query={text}>{(data) => <TextView data={data} />}</Loaded>}
+        {tab === "text" && (
+          <Loaded query={text}>{(data) => <TextView data={data} marks={marks} />}</Loaded>
+        )}
         {tab === "html" && (
           <iframe
             className={styles.html}
@@ -102,31 +109,58 @@ function Loaded<T>({
   );
 }
 
-function TextView({ data }: { data: MailText }) {
-  const [showQuoted, setShowQuoted] = useState(false);
+const places = (count: number) =>
+  count === 1 ? "1 Fundstelle" : `${formatNumber(count)} Fundstellen`;
+
+function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
+  // null: as the hits suggest, open when only the quoted part holds a search word
+  const [showQuoted, setShowQuoted] = useState<boolean | null>(null);
   const split = useMemo(() => splitQuoted(data.text), [data.text]);
+  const parts = useMemo(() => {
+    const mark = (text: string) => highlightParts(text, marks?.words ?? [], marks?.stems ?? []);
+    return split
+      ? { body: mark(split.body), quoted: mark(split.quoted) }
+      : { body: mark(data.text), quoted: [] };
+  }, [data.text, split, marks]);
   if (data.source === "none" || !data.text.trim()) {
     return <p className={styles.note}>Diese Mail enthält keinen Text.</p>;
   }
+  const inBody = markCount(parts.body);
+  const inQuoted = markCount(parts.quoted);
+  const open = showQuoted ?? (inBody === 0 && inQuoted > 0);
   return (
     <>
-      {data.source === "text/html" && <p className={styles.note}>aus HTML umgewandelt</p>}
-      <div className={styles.text}>{split ? split.body : data.text}</div>
+      {(data.source === "text/html" || inBody + inQuoted > 0) && (
+        <p className={styles.note}>
+          {data.source === "text/html" && "aus HTML umgewandelt"}
+          {data.source === "text/html" && inBody + inQuoted > 0 && " · "}
+          {inBody + inQuoted > 0 && `${places(inBody + inQuoted)} markiert`}
+        </p>
+      )}
+      <div className={styles.text}>
+        <MarkedParts parts={parts.body} />
+      </div>
       {split && (
         <>
           <div className={styles.quoteToggle}>
             <button
               type="button"
               className={styles.linkButton}
-              aria-expanded={showQuoted}
-              onClick={() => setShowQuoted(!showQuoted)}
+              aria-expanded={open}
+              onClick={() => setShowQuoted(!open)}
             >
-              {showQuoted
+              {open
                 ? "Zitierten Verlauf ausblenden"
-                : `Zitierten Verlauf einblenden (${formatNumber(split.quotedLines)} Zeilen)`}
+                : `Zitierten Verlauf einblenden (${formatNumber(split.quotedLines)} Zeilen${
+                    inQuoted > 0 ? `, ${places(inQuoted)}` : ""
+                  })`}
             </button>
           </div>
-          {showQuoted && <div className={`${styles.text} ${styles.quoted}`}>{split.quoted}</div>}
+          {open && (
+            <div className={`${styles.text} ${styles.quoted}`}>
+              <MarkedParts parts={parts.quoted} />
+            </div>
+          )}
         </>
       )}
       {data.truncated && (

@@ -13,6 +13,7 @@ cell joined by spaces.
 
 import io
 import posixpath
+import re
 import zipfile
 import zlib
 from collections.abc import Callable, Iterable, Iterator
@@ -23,6 +24,7 @@ from mailrobbe.attachments.extract.base import Damaged, Encrypted, reason
 
 XML_BUDGET = 256 * 1024**2  # decompressed XML bytes one document may read in all
 _PIECE = 1 << 20
+_NUMBER = re.compile(r"(\d+)")
 
 # What reading a member of a broken or unusual ZIP raises.
 _ZIP_ERRORS = (
@@ -58,6 +60,11 @@ class LineBuffer:
 
     def block(self) -> None:
         self.lines.append("")
+
+
+def natural(name: str) -> list[object]:
+    """Sort key of member names: header2.xml before header10.xml."""
+    return [int(part) if part.isdigit() else part for part in _NUMBER.split(name)]
 
 
 def attribute(attrs: dict[str, str], local: str) -> str | None:

@@ -9,7 +9,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
-import { highlightParts } from "../documents/highlight";
+import { highlightParts } from "../../lib/highlight";
 import { documentName } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
 import styles from "./EntityDetailPage.module.css";

@@ -35,7 +35,7 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - job holds one row per run of `mailrobbe import` and `mailrobbe dkim` with its live figures
   and the dashboard's stop request (migration 0006, D47); mbox_file.header_version says whether
   the mails of a file have every parsed header field (HEADER_VERSION, D52).
-- Entities (migration 0009, D80 to D85): entity holds one row per kind and normalised key with
+- Entities (migration 0010, D80 to D85): entity holds one row per kind and normalised key with
   its figures; mail_entity and document_entity record where each is mentioned (the mail's own
   subject and text, or a document's extracted text); mail_entity_scan and document_entity_scan
   record which mails and document texts were scanned, by which scan version.
@@ -144,7 +144,7 @@ DOCUMENT_TSV_EXPRESSION = (
 # The entity list sorts by the same expression over entity.first_date (D88).
 FIRST_DATE_SORT_KEY = "COALESCE(first_date, '-infinity'::timestamp with time zone)"
 
-# Version of the entity extraction's code (migration 0009, D84): raising it scans every mail and
+# Version of the entity extraction's code (migration 0010, D84): raising it scans every mail and
 # document again at the next import. The scan tables store entities.model.scan_version(), which
 # also changes when the word lists or gazetteers change.
 ENTITY_VERSION = 1

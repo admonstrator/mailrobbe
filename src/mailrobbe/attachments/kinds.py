@@ -6,6 +6,12 @@ classify looks at the content's first bytes when it has them, then at the file n
 then at the declared MIME type: mail programs often declare application/octet-stream, and a
 decisive signature (%PDF-, PNG, ...) wins over a misleading name. ZIP and OLE containers say only
 that they are containers; which Office format they hold comes from the name or the MIME type.
+
+Some content holds no text a reader would search, only markup or encoded data (D78): an SVG is an
+image whatever it is called, armoured keys, signatures and certificates (-----BEGIN ...) and
+style sheets and scripts are other, and a ZIP container named or declared as some format other
+than a ZIP (EPUB, JAR, KMZ, ...) is other too, since its member names are no text. Markup that
+calls itself plain text is read as the markup it is, so its attributes stay out of the text.
 """
 
 import re
@@ -30,7 +36,7 @@ def _formats(kind: DocumentKind, extractable: bool, *names: str) -> dict[str, Fi
 K = DocumentKind
 FORMATS: dict[str, FileFormat] = {
     **_formats(K.PDF, True, "pdf"),
-    **_formats(K.DOCUMENT, True, "docx", "odt", "rtf"),
+    **_formats(K.DOCUMENT, True, "docx", "odt", "rtf", "xps"),
     **_formats(K.DOCUMENT, False, "doc"),
     **_formats(K.SPREADSHEET, True, "xlsx", "ods", "csv"),
     **_formats(K.SPREADSHEET, False, "xls"),
@@ -55,6 +61,7 @@ _EXTENSIONS = {
     **dict.fromkeys(("ods", "ots"), "ods"),
     **dict.fromkeys(("odp", "otp"), "odp"),
     **dict.fromkeys(("rtf",), "rtf"),
+    **dict.fromkeys(("xps", "oxps"), "xps"),
     **dict.fromkeys(("doc", "dot"), "doc"),
     **dict.fromkeys(("xls", "xlt"), "xls"),
     **dict.fromkeys(("ppt", "pps", "pot"), "ppt"),
@@ -68,6 +75,7 @@ _EXTENSIONS = {
     **dict.fromkeys(("eml",), "eml"),
     **dict.fromkeys(("msg",), "msg"),
     **dict.fromkeys(("zip",), "zip"),
+    **dict.fromkeys(("css", "js", "mjs"), "other"),
     **dict.fromkeys(("rar", "7z", "gz", "tgz", "tar", "bz2", "xz", "cab", "arj"), "archive"),
     **dict.fromkeys(
         ("jpg", "jpeg", "jpe", "png", "gif", "bmp", "tif", "tiff", "webp", "heic", "svg", "ico"),
@@ -96,6 +104,8 @@ _MIME_TYPES = {
     "application/vnd.oasis.opendocument.spreadsheet": "ods",
     "application/vnd.oasis.opendocument.presentation": "odp",
     "application/rtf": "rtf",
+    "application/vnd.ms-xpsdocument": "xps",
+    "application/oxps": "xps",
     "text/rtf": "rtf",
     "text/csv": "csv",
     "text/tab-separated-values": "csv",
@@ -104,6 +114,10 @@ _MIME_TYPES = {
     "text/xml": "xml",
     "application/xml": "xml",
     "application/json": "json",
+    "text/css": "other",
+    "text/javascript": "other",
+    "application/javascript": "other",
+    "application/x-javascript": "other",
     "text/calendar": "calendar",
     "text/vcard": "vcard",
     "text/x-vcard": "vcard",
@@ -122,7 +136,7 @@ _MIME_TYPES = {
 }
 
 # Formats a ZIP or an OLE container can hold; another name or type leaves it a container.
-_IN_ZIP = frozenset({"docx", "xlsx", "pptx", "odt", "ods", "odp", "zip"})
+_IN_ZIP = frozenset({"docx", "xlsx", "pptx", "odt", "ods", "odp", "xps", "zip"})
 _IN_OLE = frozenset({"doc", "xls", "ppt", "msg", "docx", "xlsx", "pptx"})  # OOXML: encrypted
 _ODF_MIMETYPE = re.compile(
     rb"mimetypeapplication/vnd\.oasis\.opendocument\.(text|spreadsheet|presentation)"
@@ -149,6 +163,13 @@ _SIGNATURES: tuple[tuple[bytes, int, str], ...] = (  # (bytes, offset, format)
 )
 _ZIP = b"PK\x03\x04"
 _OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_BOM = b"\xef\xbb\xbf"
+_PROLOG = rb"\s*(?:<\?xml[^>]*>\s*)?(?:<!--.*?-->\s*|<!DOCTYPE[^>]*>\s*)*"
+_SVG = re.compile(_PROLOG + rb"<svg[\s>]", re.DOTALL | re.IGNORECASE)
+_XML = re.compile(rb"\s*<\?xml[\s?]")
+_HTML = re.compile(_PROLOG + rb"<html[\s>]", re.DOTALL | re.IGNORECASE)
+# keys, signatures, certificates; a clear-signed message has its text in front of the signature
+_ARMOURED = re.compile(rb"\s*-----BEGIN (?!PGP SIGNED MESSAGE)[A-Z0-9 ]+-----")
 
 
 def classify(filename: str | None, mime_type: str, head: bytes = b"") -> FileFormat:
@@ -158,21 +179,28 @@ def classify(filename: str | None, mime_type: str, head: bytes = b"") -> FileFor
     declared = by_name or by_type
     sniffed = _by_signature(head)
     if sniffed == "zip":
-        name = by_name if by_name in _IN_ZIP else by_type if by_type in _IN_ZIP else "zip"
+        name = by_name if by_name in _IN_ZIP else by_type if by_type in _IN_ZIP else None
+        if name is None:  # a ZIP only when nothing names it another format
+            name = "zip" if by_type is None and not _extension(filename) else "other"
         return FORMATS[name]
     if sniffed == "ole":
         name = by_name if by_name in _IN_OLE else by_type if by_type in _IN_OLE else "ole"
         return FORMATS[name]
+    if sniffed is None and declared == "text":
+        sniffed = _markup(head)
     return FORMATS[sniffed or declared or "other"]
 
 
-def _by_extension(filename: str | None) -> str | None:
+def _extension(filename: str | None) -> str | None:
     if not filename:
         return None
     stem, dot, extension = filename.strip().rpartition(".")
-    if not dot or not stem:
-        return None
-    return _EXTENSIONS.get(extension.lower())
+    return extension.lower() if dot and stem else None
+
+
+def _by_extension(filename: str | None) -> str | None:
+    extension = _extension(filename)
+    return _EXTENSIONS.get(extension) if extension else None
 
 
 def _by_mime_type(mime_type: str) -> str | None:
@@ -214,4 +242,17 @@ def _by_signature(head: bytes) -> str | None:
     for signature, offset, name in _SIGNATURES:
         if head[offset : offset + len(signature)] == signature:
             return name
+    text = head.removeprefix(_BOM)
+    if _SVG.match(text):
+        return "image"
+    if _ARMOURED.match(text):
+        return "other"
     return None
+
+
+def _markup(head: bytes) -> str | None:
+    """xml or html for markup declared as plain text, read as what it is."""
+    text = head.removeprefix(_BOM)
+    if _HTML.match(text):
+        return "html"
+    return "xml" if _XML.match(text) else None

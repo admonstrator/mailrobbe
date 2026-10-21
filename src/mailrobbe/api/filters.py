@@ -179,12 +179,17 @@ def mail_conditions(
     return where
 
 
+def text_search(terms: Sequence[QueryTerm]) -> str:
+    """q's full text words as websearch_to_tsquery reads them; "" without any."""
+    return " ".join(_phrase(term) for term in terms if term.key == "text")
+
+
 def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
     """The tsquery of q's full text words; None without any."""
-    words = [_phrase(term) for term in terms if term.key == "text"]
+    words = text_search(terms)
     if not words:
         return None
-    return func.websearch_to_tsquery(_TEXT_SEARCH, " ".join(words))
+    return func.websearch_to_tsquery(_TEXT_SEARCH, words)
 
 
 def full_text(query: ColumnElement[Any]) -> ColumnElement[bool]:

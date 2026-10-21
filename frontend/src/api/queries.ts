@@ -64,6 +64,7 @@ import type {
   MailRaw,
   MailResearch,
   MailSummary,
+  MailHits,
   MailText,
   Mark,
   MarkUpdate,
@@ -153,6 +154,7 @@ export const queryKeys = {
   documentSummary: (filters: DocumentFilters) => ["documents", "summary", filters] as const,
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
+  hits: (id: number, q: string) => ["documents", "hits", id, q] as const,
   timeline: (params: TimelineParams) => ["mails", "timeline", params] as const,
   firstMentions: (params: FirstMentionParams) => ["mails", "first-mentions", params] as const,
 };
@@ -750,6 +752,16 @@ export function useDocumentText(id: number, enabled: boolean) {
     queryKey: queryKeys.documentText(id),
     queryFn: ({ signal }) => apiGet<DocumentText>(`/api/documents/${id}/text`, undefined, signal),
     enabled,
+  });
+}
+
+/** Where the mail list's full text words occur in one mail (D79); under the documents prefix,
+ *  so an import's new texts refresh it. */
+export function useMailHits(id: number, q: string) {
+  return useQuery({
+    queryKey: queryKeys.hits(id, q),
+    queryFn: ({ signal }) => apiGet<MailHits>(`/api/mails/${id}/hits`, { q }, signal),
+    enabled: q.trim() !== "",
   });
 }
 
