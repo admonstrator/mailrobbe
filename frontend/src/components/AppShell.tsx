@@ -3,6 +3,12 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useStats } from "../api/queries";
 import type { ImportState } from "../api/types";
+import {
+  DEFAULT_LIST_STATE,
+  listSearch,
+  parseListState,
+  searchOptions,
+} from "../features/mails/listState";
 import { cx } from "../lib/cx";
 import { useEditor } from "../lib/editor";
 import { formatNumber } from "../lib/format";
@@ -54,14 +60,14 @@ export function AppShell() {
 }
 
 /** Search over the whole archive: Enter opens the mail list with just this query, "/" focuses
- *  the field, and on the list it shows the list's query. */
+ *  the field, and on the list it shows the list's query. A search started on the list (or on a
+ *  mail opened from it) keeps the list's search options (D177). */
 function GlobalSearch() {
   const navigate = useNavigate();
   const location = useLocation();
   const input = useRef<HTMLInputElement>(null);
-  const current = location.pathname.startsWith("/mails")
-    ? (new URLSearchParams(location.search).get("q") ?? "")
-    : "";
+  const onList = location.pathname.startsWith("/mails");
+  const current = onList ? (new URLSearchParams(location.search).get("q") ?? "") : "";
 
   useEffect(() => {
     if (input.current) input.current.value = current;
@@ -81,7 +87,11 @@ function GlobalSearch() {
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const q = input.current?.value.trim() ?? "";
-    void navigate(q ? `/mails?${new URLSearchParams({ q })}` : "/mails");
+    const options = onList
+      ? searchOptions(parseListState(new URLSearchParams(location.search)))
+      : {};
+    const search = listSearch({ ...DEFAULT_LIST_STATE, ...options, q }).toString();
+    void navigate(search ? `/mails?${search}` : "/mails");
   }
 
   return (

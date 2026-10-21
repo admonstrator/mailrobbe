@@ -25,7 +25,9 @@ function documentLinkText(mails: number | null): string {
 /** Where an attachment holds a search word (D79): the text around it, or the name. */
 function hitText(hit: AttachmentHit, marks: SearchMarks | undefined) {
   if (hit.snippet !== null) return <Highlighted text={`…${hit.snippet}…`} marks={marks} />;
-  return hit.in_name ? "Suchwort im Dateinamen" : "Suchwort im Text, in einer anderen Wortform";
+  return hit.in_name && !hit.in_text
+    ? "Suchwort im Dateinamen"
+    : "Suchwort im Text, in einer anderen Wortform";
 }
 
 /** The attachments (D18, D75): metadata, the download read from the MBOX file (D76), and the

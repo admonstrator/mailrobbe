@@ -174,6 +174,71 @@ describe("filterChips", () => {
     expect(stale.map((chip) => chip.label)).toEqual(["Suche: „neu“"]);
   });
 
+  it("names the search options after the terms and drops each alone (D177)", () => {
+    const options: ListState = {
+      ...DEFAULT_LIST_STATE,
+      q: "Neger",
+      scope: ["subject", "body"],
+      whole_word: true,
+      min_hits: 3,
+      dkim: ["pass"],
+      cursor: "abc",
+      page: 2,
+    };
+    const neger = [{ key: "text" as const, value: "Neger", raw: "Neger", negated: false }];
+    const chips = filterChips(options, neger, names);
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Volltext: „Neger“",
+      "Nur in: Betreff, Mailtext",
+      "Ganzes Wort",
+      "Mindestens 3 Treffer",
+      "DKIM: Gültig",
+    ]);
+    const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip.next]));
+    expect(byId.scope).toEqual({ ...options, scope: [], cursor: null, page: 1 });
+    expect(byId.whole_word).toEqual({ ...options, whole_word: false, cursor: null, page: 1 });
+    expect(byId.min_hits).toEqual({ ...options, min_hits: null, cursor: null, page: 1 });
+    expect(
+      filterChips({ ...DEFAULT_LIST_STATE, scope: ["filename"], min_hits: 1200 }, [], names).map(
+        (chip) => chip.label,
+      ),
+    ).toEqual(["Nur in: Dateiname", "Mindestens 1.200 Treffer"]);
+  });
+
+  it("reads a minus as an exclusion, and removing it drops it from q (D175)", () => {
+    const q = 'Neger -datei:NEG -from:anna -has:attachment -negere -"in Ordnung" betreff:Neger';
+    const terms = [
+      { key: "text" as const, value: "Neger", raw: "Neger", negated: false },
+      { key: "in_filename" as const, value: "NEG", raw: "-datei:NEG", negated: true },
+      { key: "from" as const, value: "anna", raw: "-from:anna", negated: true },
+      { key: "has" as const, value: "attachment", raw: "-has:attachment", negated: true },
+      { key: "text" as const, value: "-negere", raw: "-negere", negated: false },
+      { key: "text" as const, value: "-in Ordnung", raw: '-"in Ordnung"', negated: false },
+      { key: "in_subject" as const, value: "Neger", raw: "betreff:Neger", negated: false },
+    ];
+    const chips = filterChips({ ...DEFAULT_LIST_STATE, q }, terms, names);
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "Volltext: „Neger“",
+      "Nicht im Dateinamen: „NEG“",
+      "Nicht from: anna",
+      "Nicht mit Anhang",
+      "Ohne: „negere“",
+      "Ohne: „in Ordnung“",
+      "Im Betreff: „Neger“",
+    ]);
+    expect(chips[1].next.q).toBe(
+      'Neger -from:anna -has:attachment -negere -"in Ordnung" betreff:Neger',
+    );
+    expect(chips[4].next.q).toBe(
+      'Neger -datei:NEG -from:anna -has:attachment -"in Ordnung" betreff:Neger',
+    );
+    // A lone minus is no exclusion of anything.
+    const minus = [{ key: "text" as const, value: "-", raw: "-", negated: false }];
+    expect(filterChips({ ...DEFAULT_LIST_STATE, q: "-" }, minus, names)[0].label).toBe(
+      "Volltext: „-“",
+    );
+  });
+
   it("names each signal of the filter, a word field by its theme, and drops it alone (D136)", () => {
     const state: ListState = {
       ...DEFAULT_LIST_STATE,
