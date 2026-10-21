@@ -21,6 +21,7 @@ import styles from "./MailDetailPage.module.css";
 import { ParticipantsCard } from "./ParticipantsCard";
 import { ResearchCard } from "./ResearchCard";
 import { SearchHitsCard } from "./SearchHitsCard";
+import { SignalsCard } from "./SignalsCard";
 import { ThreadCard } from "./ThreadCard";
 
 /** The mail detail (SPEC 5.2). The list's parameters travel in the query string, so Vorherige,
@@ -157,6 +158,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
           </main>
           <aside className={styles.side} aria-label="Zur Mail">
             <ResearchCard mail={detail.data} />
+            <SignalsCard mailId={id} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
             <EntitiesCard mailId={id} />
