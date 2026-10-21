@@ -27,7 +27,7 @@ _STATUSES: dict[str, DkimStatus | None] = {
 _DEFAULT = [name for name, status in _STATUSES.items() if status in DEFAULT_STATUSES]
 
 
-def _positive(value: str) -> int:
+def positive_int(value: str) -> int:
     if not value.isdigit() or int(value) < 1:
         raise argparse.ArgumentTypeError(f"not a positive integer: {value!r}")
     return int(value)
@@ -48,13 +48,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--mail",
         action="append",
-        type=_positive,
+        type=positive_int,
         metavar="ID",
         help="check this mail whatever its status; repeatable, overrides the status selection",
     )
     parser.add_argument(
         "--jobs",
-        type=_positive,
+        type=positive_int,
         metavar="N",
         help="worker processes (default: MAILROBBE_IMPORT_WORKERS)",
     )
@@ -105,13 +105,13 @@ def run(args: argparse.Namespace) -> int:
         logging.error("%s", refusal)
         return 1
     except (SQLAlchemyError, OSError) as error:
-        logging.error("database error: %s", _message(error))
+        logging.error("database error: %s", error_line(error))
         return 1
     print(json.dumps(asdict(result.summary), indent=2))
     return EXIT_INTERRUPTED if result.stopped else 0
 
 
-def _message(error: Exception) -> str:
+def error_line(error: Exception) -> str:
     """The first line of the error, without SQLAlchemy's wrapping."""
     cause: BaseException = error.orig if isinstance(error, DBAPIError) and error.orig else error
     text = str(cause).strip()

@@ -62,8 +62,8 @@ NO_CANDIDATES: KeyCandidates = {}
 class SignatureResult:
     """Outcome of one DKIM-Signature header field; mirrors the dkim_result columns."""
 
-    status: DkimStatus  # pass, fail, no_key or temp_error, never unsigned
-    reason: DkimReason | None  # None exactly when status is pass
+    status: DkimStatus  # pass, consistent, fail, no_key or temp_error, never unsigned
+    reason: DkimReason | None  # None exactly when status is pass or consistent
     domain: str | None  # d=, lowercase; None when the header field is too broken to tell
     selector: str | None  # s=
     algorithm: str | None  # a=, e.g. "rsa-sha256"
@@ -78,6 +78,24 @@ class SignatureResult:
     # Origin of the key the result rests on (D100); None when it rests on none: no_key,
     # temp_error, or a failure found before the key was asked for.
     key_origin: KeyOrigin | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SignatureMaterial:
+    """What one DKIM-Signature signs, for rebuilding and testing keys (verify.signature_material).
+
+    For RSA, b= read as a number s and the header hash encoded for the key's length m satisfy
+    s^e = m modulo the key's modulus (keys/reconstruct.py).
+    """
+
+    index: int  # signature_index: position among the mail's DKIM-Signature fields
+    name: str  # the key name, '<selector>._domainkey.<domain>'
+    key_type: str  # the k= its key must have: rsa or ed25519
+    hash_name: str  # sha256 or sha1
+    header_hash: bytes  # the digest b= signs
+    signature: bytes  # b=
+    body_hash_ok: bool
+    signed_at: datetime | None  # t=, UTC
 
 
 @dataclass(frozen=True, slots=True)
