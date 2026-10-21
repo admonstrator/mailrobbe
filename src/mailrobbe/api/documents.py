@@ -57,7 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.util import ClauseAdapter
 
 from mailrobbe.api.deps import AppSettings, Session, api_error
-from mailrobbe.api.detail import _senders
+from mailrobbe.api.detail import mail_senders
 from mailrobbe.api.filters import (
     WALK_ROWS,
     FilterError,
@@ -270,7 +270,7 @@ async def list_documents(
     del rows[params.limit :]
     if reverse:
         rows.reverse()
-    senders = await _senders(session, [row.first_mail_id for row in rows if row.first_mail_id])
+    senders = await mail_senders(session, [row.first_mail_id for row in rows if row.first_mail_id])
     snippets = await _snippets(session, params.q, [row.id for row in rows])
 
     def at(row: Any, before: bool) -> str:
@@ -582,7 +582,7 @@ async def _first_mail(session: AsyncSession, mail_id: int | None) -> ThreadMail 
     ).one_or_none()
     if row is None:
         return None
-    senders = await _senders(session, [mail_id])
+    senders = await mail_senders(session, [mail_id])
     return ThreadMail(
         id=row.id,
         date=row.date_utc,

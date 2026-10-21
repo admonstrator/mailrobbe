@@ -65,7 +65,7 @@ async def test_with_credentials_every_request_needs_them(
                 ("GET", "/"),
                 ("GET", "/mails/1?q=x"),
                 ("GET", "/api/mails/1"),
-                ("PUT", "/api/mails/1/note"),
+                ("PUT", "/api/mails/1/mark"),
                 ("POST", "/api/health"),
             ):
                 response = await http.request(method, path)

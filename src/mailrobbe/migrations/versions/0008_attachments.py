@@ -1,11 +1,8 @@
 """Attachments: documents with their text, and where each attachment sits in its mail
 
 Revision ID: 0008
-Revises: 0006
+Revises: 0007
 Create Date: 2026-10-21
-
-Milestone 8 (Rechercheakte) takes 0007 in parallel; whichever merges second points its
-down_revision at the other one.
 """
 
 from collections.abc import Sequence
@@ -15,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0008"
-down_revision: str | None = "0006"
+down_revision: str | None = "0007"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

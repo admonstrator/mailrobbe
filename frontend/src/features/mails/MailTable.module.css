@@ -44,6 +44,29 @@
   background: var(--color-hover);
 }
 
+.table tbody tr.selected td {
+  background: var(--color-accent-soft);
+}
+
+/* The checkbox's label fills its cell, so a click near the box selects instead of opening. */
+.table .selectCol,
+.table .select {
+  width: 18px;
+  padding: 0;
+}
+
+.selectLabel {
+  display: flex;
+  align-items: center;
+  padding: 11px 0 11px 12px;
+  cursor: pointer;
+}
+
+.selectLabel input {
+  margin: 0;
+  cursor: pointer;
+}
+
 .dkimCol {
   width: 36px;
 }
@@ -99,6 +122,45 @@
 
 .duplicate {
   color: var(--color-muted);
+}
+
+.subject > :first-child {
+  margin-right: 4px;
+}
+
+/* Tags and notes after the subject, wrapping as one. */
+.research {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  white-space: nowrap;
+  vertical-align: -1px;
+}
+
+.tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tagDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.more {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.notes {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .icon {

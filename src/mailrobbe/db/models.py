@@ -19,8 +19,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - ix_mail_sort orders mails by MAIL_SORT_KEY (date, missing dates oldest) and id, for keyset
   paging in the mail list (D19), ix_mail_dkim_sort the same within one DKIM status (it replaced
   ix_mail_dkim_status); ix_mail_subject_trgm serves the subject: search (D20).
-- mail_note holds the flag and note a user sets on a mail (D23); merges (person.merged_into)
-  and alias_dismissal are the other data users write (D28).
+- The research file (migration 0007, D53 to D62) is the data users write, apart from merges
+  (person.merged_into) and alias_dismissal (D28): mail_mark (bookmark and review status), note,
+  tag/mail_tag, collection/collection_mail (Akten), saved_search and mail_export. Rows about a
+  mail are keyed by its raw_sha256 (mail_sha256) instead of mail.id, so they have no foreign key
+  to mail and outlive re-imports (D53); mail_mark replaced mail_note (D23).
 - edge and edge_year carry the same counters (migration 0004, D36): mails_a_to_b/mails_b_to_a
   (To and Bcc), mails_cc (either direction) and their pass_* counterparts over the mails whose
   DKIM check passed; edge_year has no single count. Both join root persons only.
@@ -69,6 +72,7 @@ from mailrobbe.enums import (
     MboxStatus,
     ParticipationRole,
     PersonKind,
+    ReviewStatus,
 )
 
 
@@ -88,6 +92,7 @@ dns_status_enum = _pg_enum(DnsStatus, "dns_status")
 person_kind_enum = _pg_enum(PersonKind, "person_kind")
 job_kind_enum = _pg_enum(JobKind, "job_kind")
 job_status_enum = _pg_enum(JobStatus, "job_status")
+review_status_enum = _pg_enum(ReviewStatus, "review_status")
 document_kind_enum = _pg_enum(DocumentKind, "document_kind")
 document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
 
@@ -194,17 +199,6 @@ class Mail(Base):
     reference_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     list_id: Mapped[str | None] = mapped_column(Text)
     automated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-
-
-class MailNote(Base):
-    __tablename__ = "mail_note"
-
-    mail_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
-    )
-    flagged: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
-    note: Mapped[str] = mapped_column(Text, server_default="")
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
 
 
 class MailHeader(Base):
@@ -540,3 +534,122 @@ class Job(Base):
     started_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+# Research file (migration 0007, D53 to D62): mails are named by their raw SHA-256.
+
+
+class MailMark(Base):
+    """Bookmark and review status of a mail's content (D55); no row: neither set yet."""
+
+    __tablename__ = "mail_mark"
+
+    mail_sha256: Mapped[str] = mapped_column(Text, primary_key=True)
+    flagged: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    flagged_by: Mapped[str | None] = mapped_column(Text)
+    flagged_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    review: Mapped[ReviewStatus | None] = mapped_column(review_status_enum)
+    review_by: Mapped[str | None] = mapped_column(Text)
+    review_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+class Note(Base):
+    __tablename__ = "note"
+    __table_args__ = (
+        Index("ix_note_mail_sha256", "mail_sha256", "id"),
+        Index(
+            "ix_note_body_trgm",
+            "body",
+            postgresql_using="gin",
+            postgresql_ops={"body": "gin_trgm_ops"},
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    mail_sha256: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    author: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class Tag(Base):
+    __tablename__ = "tag"
+    __table_args__ = (Index("ux_tag_name", text("lower(name)"), unique=True),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(Text)  # schemas.TagColor
+    description: Mapped[str] = mapped_column(Text, server_default="")
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class MailTag(Base):
+    __tablename__ = "mail_tag"
+    __table_args__ = (Index("ix_mail_tag_mail_sha256", "mail_sha256"),)
+
+    tag_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True
+    )
+    mail_sha256: Mapped[str] = mapped_column(Text, primary_key=True)
+    added_by: Mapped[str | None] = mapped_column(Text)
+    added_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class Collection(Base):
+    """An Akte (D58): a named collection of mails."""
+
+    __tablename__ = "collection"
+    __table_args__ = (Index("ux_collection_name", text("lower(name)"), unique=True),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, server_default="")
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class CollectionMail(Base):
+    __tablename__ = "collection_mail"
+    __table_args__ = (Index("ix_collection_mail_mail_sha256", "mail_sha256"),)
+
+    collection_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("collection.id", ondelete="CASCADE"), primary_key=True
+    )
+    mail_sha256: Mapped[str] = mapped_column(Text, primary_key=True)
+    added_by: Mapped[str | None] = mapped_column(Text)
+    added_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class SavedSearch(Base):
+    __tablename__ = "saved_search"
+    __table_args__ = (Index("ix_saved_search_collection_id", "collection_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    query: Mapped[str] = mapped_column(Text)  # query string of the mail list (D59)
+    collection_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("collection.id", ondelete="SET NULL")
+    )
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class MailExport(Base):
+    """One export (D62): who asked for which mails, in export order, and its manifest hash."""
+
+    __tablename__ = "mail_export"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    label: Mapped[str] = mapped_column(Text, server_default="")
+    selection: Mapped[dict[str, Any]] = mapped_column(JSONB)  # the MailSelection as requested
+    include_research: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    mail_sha256: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    # SHA-256 of the ZIP's SHA256SUMS and the time of the first complete download; None before
+    manifest_sha256: Mapped[str | None] = mapped_column(Text)
+    downloaded_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())

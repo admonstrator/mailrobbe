@@ -117,6 +117,14 @@ class JobOrigin(StrEnum):
     UI = "ui"
 
 
+class ReviewStatus(StrEnum):
+    """mail_mark.review: how far the team has looked at a mail (D55); NULL is unreviewed."""
+
+    SEEN = "seen"  # gesichtet: looked at, no verdict
+    RELEVANT = "relevant"
+    IRRELEVANT = "irrelevant"  # nicht relevant
+
+
 class DocumentKind(StrEnum):
     """document.kind (D71): what a document is, for the filters and icons of the UI.
 

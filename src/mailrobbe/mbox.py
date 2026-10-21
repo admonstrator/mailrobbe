@@ -7,9 +7,10 @@ line, with mboxrd quoting undone (`>From ` -> `From `, `>>From ` -> `>From `, ..
 of the message is mail.raw_sha256 and, for generated data, the manifest's sha256.
 
 The importer (mailrobbe.importer.split) finds records; the DKIM recheck and the mail detail
-view read them back through read_message.
+view read them back through read_message, the export through read_verified.
 """
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -54,3 +55,16 @@ def read_message(path: Path, byte_offset: int, byte_length: int) -> bytes:
             f"{path}: record at {byte_offset} has {len(record)} of {byte_length} bytes"
         )
     return message_from_record(record)
+
+
+def read_verified(path: Path, byte_offset: int, byte_length: int, raw_sha256: str) -> bytes | None:
+    """The message of the record at byte_offset while it is still the imported one: None when
+    the file is shorter than the record now or the message's SHA-256 is not raw_sha256.
+
+    Raises OSError when the file cannot be read.
+    """
+    try:
+        message = read_message(path, byte_offset, byte_length)
+    except ValueError:
+        return None
+    return message if hashlib.sha256(message).hexdigest() == raw_sha256 else None

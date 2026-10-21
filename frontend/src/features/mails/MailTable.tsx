@@ -1,17 +1,24 @@
 import type { MouseEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
-import type { MailListItem, PersonRef } from "../../api/types";
+import { useResearch } from "../../api/queries";
+import type { MailListItem, PersonRef, TagRef } from "../../api/types";
 import { DkimDot } from "../../components/DkimDot";
-import { CopyIcon, FlagIcon, PaperclipIcon } from "../../components/icons";
+import { CopyIcon, FlagIcon, NoteIcon, PaperclipIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
-import { formatBytes, formatDateTime } from "../../lib/format";
+import { formatBytes, formatDateTime, formatNumber } from "../../lib/format";
+import { TAG_PALETTE } from "../../lib/research";
 import type { ColumnChoice } from "./columns";
 import styles from "./MailTable.module.css";
+import { ReviewMark } from "./ReviewMark";
 
 const personLabel = (person: PersonRef) => person.name || person.email;
+const notesLabel = (count: number) => (count === 1 ? "1 Notiz" : `${formatNumber(count)} Notizen`);
+
+/** Tag dots shown per row; the rest is "+n", all names are in the tooltip. */
+const TAG_DOTS = 3;
 
 /** "Jonas Brandt +2": all names for up to two recipients, else the first one and the rest. */
 function Recipients({ mail }: { mail: MailListItem }) {
@@ -27,14 +34,43 @@ function Recipients({ mail }: { mail: MailListItem }) {
   );
 }
 
+/** A mail's tags as coloured dots, by the colours and names of the research overview. */
+function TagDots({ ids, tags }: { ids: number[]; tags: Map<number, TagRef> }) {
+  const names = ids.map((id) => tags.get(id)?.name ?? `Schlagwort #${id}`).join(", ");
+  return (
+    <span className={styles.tags} role="img" aria-label={`Schlagwörter: ${names}`} title={names}>
+      {ids.slice(0, TAG_DOTS).map((id) => {
+        const tag = tags.get(id);
+        return (
+          <span
+            key={id}
+            className={styles.tagDot}
+            style={{ background: TAG_PALETTE[tag?.color ?? "gray"].text }}
+          />
+        );
+      })}
+      {ids.length > TAG_DOTS && <span className={styles.more}>+{ids.length - TAG_DOTS}</span>}
+    </span>
+  );
+}
+
+/** The checkboxes of the rows: which are selected and how a click changes that. */
+export interface TableSelection {
+  ids: ReadonlySet<number>;
+  onToggle: (id: number, selected: boolean) => void;
+  onTogglePage: (selected: boolean) => void;
+}
+
 /** One page of the mail list. Each row opens the mail; the subject is the real link, so
- *  middle-click and "open in new tab" work. */
+ *  middle-click and "open in new tab" work. With a selection, each row has a checkbox, which
+ *  selects and never opens. */
 export function MailTable({
   items,
   columns,
   detailSearch,
   mboxPath,
   stale,
+  selection,
 }: {
   items: MailListItem[];
   columns: ColumnChoice;
@@ -42,9 +78,13 @@ export function MailTable({
   detailSearch: string;
   mboxPath: (id: number) => string;
   stale: boolean;
+  selection?: TableSelection;
 }) {
   const navigate = useNavigate();
+  const research = useResearch();
+  const tags = new Map(research.data?.tags.map((tag) => [tag.id, tag]));
   const href = (id: number) => `/mails/${id}${detailSearch ? `?${detailSearch}` : ""}`;
+  const selectedOnPage = selection ? items.filter((mail) => selection.ids.has(mail.id)).length : 0;
 
   function openRow(event: MouseEvent<HTMLTableRowElement>, id: number) {
     const target = event.target as HTMLElement;
@@ -57,6 +97,22 @@ export function MailTable({
       <table className={cx(styles.table, stale && styles.stale)}>
         <thead>
           <tr>
+            {selection && (
+              <th className={styles.selectCol}>
+                <label className={styles.selectLabel}>
+                  <input
+                    type="checkbox"
+                    aria-label="Alle Mails dieser Seite auswählen"
+                    checked={selectedOnPage > 0 && selectedOnPage === items.length}
+                    ref={(box) => {
+                      if (box)
+                        box.indeterminate = selectedOnPage > 0 && selectedOnPage < items.length;
+                    }}
+                    onChange={(event) => selection.onTogglePage(event.target.checked)}
+                  />
+                </label>
+              </th>
+            )}
             <th className={styles.dkimCol}>DKIM</th>
             <th>Von</th>
             {columns.to && <th>An</th>}
@@ -72,58 +128,94 @@ export function MailTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((mail) => (
-            <tr key={mail.id} onClick={(event) => openRow(event, mail.id)}>
-              <td>
-                <DkimDot status={dkimKey(mail.dkim_status)} />
-              </td>
-              <td className={styles.from}>
-                {mail.sender ? (
-                  <>
-                    <PersonLink person={mail.sender} className={styles.name} />
-                    {mail.sender.name && (
-                      <span className={styles.address}>{mail.sender.email}</span>
-                    )}
-                  </>
-                ) : (
-                  <span className={styles.muted}>(unbekannt)</span>
+          {items.map((mail) => {
+            const selected = selection?.ids.has(mail.id) ?? false;
+            return (
+              <tr
+                key={mail.id}
+                className={cx(selected && styles.selected)}
+                onClick={(event) => openRow(event, mail.id)}
+              >
+                {selection && (
+                  <td className={styles.select}>
+                    <label className={styles.selectLabel}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Auswählen: ${mail.subject || "(kein Betreff)"}`}
+                        checked={selected}
+                        onChange={(event) => selection.onToggle(mail.id, event.target.checked)}
+                      />
+                    </label>
+                  </td>
                 )}
-              </td>
-              {columns.to && (
-                <td className={styles.to}>
-                  <Recipients mail={mail} />
+                <td>
+                  <DkimDot status={dkimKey(mail.dkim_status)} />
                 </td>
-              )}
-              <td className={styles.subject}>
-                <Link
-                  to={href(mail.id)}
-                  className={cx(styles.subjectLink, !mail.subject && styles.muted)}
-                >
-                  {mail.subject || "(kein Betreff)"}
-                </Link>
-                {mail.flagged && <FlagIcon size={13} label="Markiert" className={styles.flag} />}
-                {mail.is_duplicate && (
-                  <CopyIcon size={13} label="Duplikat" className={styles.duplicate} />
+                <td className={styles.from}>
+                  {mail.sender ? (
+                    <>
+                      <PersonLink person={mail.sender} className={styles.name} />
+                      {mail.sender.name && (
+                        <span className={styles.address}>{mail.sender.email}</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className={styles.muted}>(unbekannt)</span>
+                  )}
+                </td>
+                {columns.to && (
+                  <td className={styles.to}>
+                    <Recipients mail={mail} />
+                  </td>
                 )}
-              </td>
-              {columns.attachment && (
-                <td className={styles.icon}>
-                  {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
-                  {mail.attachment_match && (
-                    <span
-                      className={styles.inAttachment}
-                      title="Suchbegriff steht im Text eines Anhangs"
-                    >
-                      im Anhang
+                <td className={styles.subject}>
+                  <ReviewMark status={mail.review ?? "unreviewed"} />
+                  <Link
+                    to={href(mail.id)}
+                    className={cx(styles.subjectLink, !mail.subject && styles.muted)}
+                  >
+                    {mail.subject || "(kein Betreff)"}
+                  </Link>
+                  {mail.flagged && <FlagIcon size={13} label="Markiert" className={styles.flag} />}
+                  {mail.is_duplicate && (
+                    <CopyIcon size={13} label="Duplikat" className={styles.duplicate} />
+                  )}
+                  {(mail.tags.length > 0 || mail.notes > 0) && (
+                    <span className={styles.research}>
+                      {mail.tags.length > 0 && <TagDots ids={mail.tags} tags={tags} />}
+                      {mail.notes > 0 && (
+                        <span
+                          className={styles.notes}
+                          role="img"
+                          aria-label={notesLabel(mail.notes)}
+                          title={notesLabel(mail.notes)}
+                        >
+                          <NoteIcon size={13} />
+                          {formatNumber(mail.notes)}
+                        </span>
+                      )}
                     </span>
                   )}
                 </td>
-              )}
-              {columns.size && <td className={styles.size}>{formatBytes(mail.size)}</td>}
-              {columns.mbox && <td className={styles.mbox}>{mboxPath(mail.mbox_file_id)}</td>}
-              <td className={styles.date}>{mail.date ? formatDateTime(mail.date) : "–"}</td>
-            </tr>
-          ))}
+                {columns.attachment && (
+                  <td className={styles.icon}>
+                    {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
+                    {mail.attachment_match && (
+                      <span
+                        className={styles.inAttachment}
+                        title="Suchbegriff steht im Text eines Anhangs"
+                      >
+                        im Anhang
+                      </span>
+                    )}
+                  </td>
+                )}
+                {columns.size && <td className={styles.size}>{formatBytes(mail.size)}</td>}
+                {columns.mbox && <td className={styles.mbox}>{mboxPath(mail.mbox_file_id)}</td>}
+                <td className={styles.date}>{mail.date ? formatDateTime(mail.date) : "–"}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

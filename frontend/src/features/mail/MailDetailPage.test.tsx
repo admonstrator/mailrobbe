@@ -118,24 +118,6 @@ describe("mail detail", () => {
     expect(calls.some((call) => call.method === "POST")).toBe(true);
   });
 
-  it("saves flag and note", async () => {
-    const { calls } = renderApp("/mails/184221", (call) =>
-      call.method === "PUT"
-        ? { ...(call.body as object), updated_at: "2026-10-21T08:00:00Z" }
-        : fixtureApi(call),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Markieren / Notiz hinzufügen" }));
-    const save = screen.getByRole("button", { name: "Speichern" });
-    expect(save).toHaveProperty("disabled", true);
-    fireEvent.click(screen.getByRole("checkbox", { name: /Markiert/ }));
-    fireEvent.change(screen.getByLabelText("Notiz"), { target: { value: "Für Anwalt" } });
-    fireEvent.click(save);
-    expect(await screen.findByText("Gespeichert 21.10.2026 10:00")).toBeTruthy();
-    const put = calls.find((call) => call.method === "PUT")!;
-    expect(put.url.pathname).toBe("/api/mails/184221/note");
-    expect(put.body).toEqual({ flagged: true, note: "Für Anwalt" });
-  });
-
   it("says when a mail does not exist", async () => {
     renderApp("/mails/999", (call) =>
       call.url.pathname === "/api/mails/999"

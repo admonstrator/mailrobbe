@@ -19,7 +19,6 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/mails/{id}/body?format=raw         MailRaw
     GET  /api/mails/{id}/eml                     message/rfc822 download
     POST /api/mails/{id}/dkim/recheck            MailDkim, after checking the mail again
-    PUT  /api/mails/{id}/note                    NoteUpdate -> Note (D23)
     GET  /api/persons?PersonListParams           PersonPage (D31)
     GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, every open one (D30)
     POST /api/persons/suggestions/dismiss        SuggestionDismiss -> 204 (D28)
@@ -44,6 +43,36 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
+
+Research file (milestone 8, D53 to D63); writes take the editor from X-Mailrobbe-Editor (D54):
+
+    GET    /api/research                         ResearchOverview: tags, Akten, searches, counts
+    GET    /api/research/themes                  list[ThemeInfo], the themes of themes.toml (D64)
+    POST   /api/research/starter                 ResearchOverview, after creating the themes'
+                                                 missing tags and searches (D64)
+    POST   /api/tags                             TagCreate -> 201 TagInfo
+    PATCH  /api/tags/{id}                        TagUpdate -> TagInfo
+    DELETE /api/tags/{id}                        204; off every mail
+    POST   /api/collections                      CollectionCreate -> 201 CollectionInfo
+    GET    /api/collections/{id}                 CollectionDetail
+    PATCH  /api/collections/{id}                 CollectionUpdate -> CollectionInfo
+    DELETE /api/collections/{id}                 204; its mails stay, its searches lose it
+    POST   /api/searches                         SavedSearchCreate -> 201 SavedSearch
+    PATCH  /api/searches/{id}                    SavedSearchUpdate -> SavedSearch
+    DELETE /api/searches/{id}                    204
+    PUT    /api/mails/{id}/mark                  MarkUpdate -> Mark
+    POST   /api/mails/{id}/tags                  LinkChange -> list[TagRef], the mail's tags now
+    POST   /api/mails/{id}/collections           LinkChange -> list[CollectionRef]
+    POST   /api/mails/{id}/notes                 NoteCreate -> 201 NoteInfo
+    PATCH  /api/notes/{id}                       NoteEdit -> NoteInfo
+    DELETE /api/notes/{id}                       204
+    GET    /api/notes?NoteListParams             NotePage, newest first
+    POST   /api/mails/bulk                       BulkRequest -> BulkResult (D60)
+    GET    /api/permalink/{hash}                 PermalinkTarget (D61)
+    GET    /api/mails/{id}/pdf?research=         application/pdf rendition of one mail (D63)
+    POST   /api/exports                          ExportRequest -> 201 ExportInfo (D62)
+    GET    /api/exports                          list[ExportInfo], newest first
+    GET    /api/exports/{id}/download            application/zip, the export (D62)
 
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
@@ -70,8 +99,12 @@ from mailrobbe.enums import (
     MboxStatus,
     ParticipationRole,
     PersonKind,
+    ReviewStatus,
 )
 from mailrobbe.jobs import DkimOptions, DkimProgress, ImportOptions, ImportProgress
+
+# Tag colours (D57): the UI maps each to a fixed pair of background and text colours.
+TagColor = Literal["blue", "teal", "green", "amber", "red", "pink", "violet", "gray"]
 
 # Exact counts stop here (SPEC 6.6): MailSummary falls back to "more than COUNT_LIMIT" and
 # MailNeighbors.position is None beyond it.
@@ -86,6 +119,8 @@ TEXT_LIMIT = 1_000_000  # characters of MailText.text
 RAW_LIMIT = 2 * 1024**2  # bytes of the message shown as MailRaw.raw; the EML has all
 NOTE_LIMIT = 10_000  # characters of a note
 
+# Review statuses as filter and count keys (D55); unreviewed stands for no status.
+ReviewKey = Literal["unreviewed", "seen", "relevant", "irrelevant"]
 # mail.dkim_status values as filter and count keys; unchecked stands for NULL (not checked yet).
 DkimKey = Literal["pass", "fail", "no_key", "unsigned", "temp_error", "unchecked"]
 SortOrder = Literal["date_desc", "date_asc"]
@@ -111,6 +146,11 @@ ErrorCode = Literal[
     "mbox_dir_missing",  # 409: MAILROBBE_MBOX_DIR is no directory the server can read
     "invalid_option",  # 400: an option of a start request cannot be used; message names it
     "job_failed",  # 500: the started process ended before it recorded its run
+    "duplicate_name",  # 409: a tag, Akte or saved search of this name (any case) exists
+    "invalid_selection",  # 400: not exactly one of ids and filters, or an action lacks its value
+    "empty_selection",  # 400: the selection matches no mail
+    "too_many_mails",  # 400: above BULK_LIMIT or EXPORT_LIMIT; message names the count
+    "ambiguous_permalink",  # 409: the hash prefix fits mails with different contents
 ]
 
 
@@ -134,12 +174,18 @@ class MailFilters(BaseModel):
     in_thread: bool = False  # thread_id is set
     hide_duplicates: bool = False  # is_duplicate_of is NULL
     external: bool = False  # between internal and external domains (D21)
-    flagged: bool = False  # flagged in mail_note (D23)
+    flagged: bool = False  # bookmarked (mail_mark.flagged, D55)
     mbox_file: int | None = None
     person: list[int] = []  # each of these persons takes part, in any role
     between: list[int] = []  # exactly two persons: one sent it, the other received it (to/cc/bcc)
     # The role of the person in `person`, which must then name exactly one (D32); None: any role.
     person_role: PersonRole | None = None
+    # Research file (D55 to D58): the mail's content has any of these review statuses, carries
+    # any of these tags, is in any of these Akten, has at least one note.
+    review: list[ReviewKey] = []
+    tag: list[int] = []
+    collection: list[int] = []
+    has_note: bool = False
     document: int | None = None  # one of the mail's attachments is this document (D75)
 
 
@@ -150,11 +196,6 @@ class MailOrderParams(MailFilters):
 class MailListParams(MailOrderParams):
     cursor: str | None = None  # next_cursor or prev_cursor of a MailPage with the same sort
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
-
-
-class NoteUpdate(BaseModel):
-    flagged: bool
-    note: str = Field("", max_length=NOTE_LIMIT)
 
 
 # Mail list ------------------------------------------------------------------------------------
@@ -185,12 +226,15 @@ class MailListItem(BaseModel):
     recipient_count: int  # all To, Cc and Bcc recipients
     thread_id: int | None
     is_duplicate: bool
-    flagged: bool
+    flagged: bool  # bookmarked (D55)
     size: int  # byte_length of the MBOX record
     mbox_file_id: int
     # With exactly one person filtered for: that person's first role in the mail (from, to, cc,
     # bcc, counting its aliases); None otherwise.
     person_role: ParticipationRole | None = None
+    review: ReviewStatus | None = None  # None: unreviewed (D55)
+    tags: list[int] = []  # ids of the mail's tags, by tag name
+    notes: int = 0  # notes on the mail
     # q has full text words and the text of one of the mail's attachments matches them (D73)
     attachment_match: bool = False
 
@@ -331,10 +375,43 @@ class ThreadMail(BaseModel):
     dkim_status: DkimStatus | None
 
 
-class Note(BaseModel):
+class Mark(BaseModel):
+    """Bookmark and review status of a mail (D55); *_by None: no editor name was given."""
+
     flagged: bool
-    note: str  # empty: no note
-    updated_at: datetime | None  # None: never set
+    flagged_by: str | None
+    flagged_at: datetime | None  # last change of the bookmark; None: never set
+    review: ReviewStatus | None  # None: unreviewed
+    review_by: str | None
+    review_at: datetime | None
+
+
+class TagRef(BaseModel):
+    id: int
+    name: str
+    color: TagColor
+
+
+class CollectionRef(BaseModel):
+    id: int
+    name: str
+
+
+class NoteInfo(BaseModel):
+    id: int
+    body: str
+    author: str | None  # the editor who wrote it; None: unknown (D54)
+    created_at: datetime
+    updated_at: datetime  # equals created_at until edited
+
+
+class MailResearch(BaseModel):
+    """The research file's data on one mail (D53 to D58), shared by its byte-identical copies."""
+
+    mark: Mark
+    tags: list[TagRef]  # by name
+    collections: list[CollectionRef]  # by name
+    notes: list[NoteInfo]  # oldest first
 
 
 class MailDetail(BaseModel):
@@ -356,7 +433,7 @@ class MailDetail(BaseModel):
     thread_size: int  # all mails of the thread
     duplicate_of: int | None
     duplicates: list[int]  # mails that are duplicates of this one; at most DUPLICATES_LIMIT
-    note: Note
+    research: MailResearch
 
 
 # Bodies, read on demand from the MBOX file -------------------------------------------------
@@ -415,7 +492,7 @@ class SuggestionListParams(BaseModel):
 
 
 class PersonMailCountParams(BaseModel):
-    year: int | None = Field(None, ge=1, le=9999)  # mails dated in this UTC year
+    year: int | None = Field(default=None, ge=1, le=9999)  # mails dated in this UTC year
     contact: int | None = None  # mails between both persons, as the between filter counts them
 
 
@@ -564,8 +641,8 @@ class GraphParams(BaseModel):
     limit: int = Field(GRAPH_TOP, ge=1, le=MAX_GRAPH_NODES)  # top: number of persons
     domain: list[str] = []  # domains: exactly two, each with its subdomains (lowercase)
     min_edge: int = Field(1, ge=1)  # lighter edges are neither shown nor followed
-    year_from: int | None = Field(None, ge=1900, le=2200)  # UTC year, inclusive
-    year_to: int | None = Field(None, ge=1900, le=2200)  # UTC year, inclusive
+    year_from: int | None = Field(default=None, ge=1900, le=2200)  # UTC year, inclusive
+    year_to: int | None = Field(default=None, ge=1900, le=2200)  # UTC year, inclusive
     dkim_only: bool = False  # count only mails whose DKIM check passed
     cc: bool = False  # Cc counts towards the weight
     hide_lists: bool = False  # leave out lists and automated senders, apart from centers
@@ -736,8 +813,8 @@ class ImportErrorPage(BaseModel):
 class ImportStartRequest(BaseModel):
     """Options of an import started from the dashboard (D49); None: as in ImportStatus.defaults."""
 
-    workers: int | None = Field(None, ge=1, le=64)
-    attachment_hash_limit: int | None = Field(None, ge=0)  # bytes
+    workers: int | None = Field(default=None, ge=1, le=64)
+    attachment_hash_limit: int | None = Field(default=None, ge=0)  # bytes
     dkim_nameservers: str | None = None  # comma-separated IP addresses; "": system resolver
 
 
@@ -746,7 +823,7 @@ class DkimRecheckRequest(BaseModel):
     temp_error)."""
 
     statuses: list[DkimKey] = Field(["unchecked", "no_key", "temp_error"], min_length=1)
-    workers: int | None = Field(None, ge=1, le=64)
+    workers: int | None = Field(default=None, ge=1, le=64)
 
 
 class FileProblem(BaseModel):
@@ -763,6 +840,238 @@ class ScanResult(BaseModel):
     replaced: list[FileProblem]  # changed files whose mails were removed, imported again
     missing: list[str]  # known files no longer there; their mails stay
     unreadable: list[FileProblem]  # skipped
+
+
+# Research file (milestone 8, D53 to D63) -----------------------------------------------------
+#
+# Research data is keyed by the raw SHA-256 of a mail (D53): it holds for every byte-identical
+# copy and outlives re-imports. Writes record the editor of X-Mailrobbe-Editor (D54); *_by and
+# author are None without one. Counts of mails are of mail rows, as the list's filters count.
+
+NAME_LIMIT = 120  # characters of an Akte's or saved search's name
+TAG_NAME_LIMIT = 60
+DESCRIPTION_LIMIT = 4_000
+QUERY_LIMIT = 4_000  # characters of a saved search's query string
+LABEL_LIMIT = 200  # characters of an export's label
+SELECTION_IDS_LIMIT = 1_000  # ids in one MailSelection
+BULK_LIMIT = 50_000  # mails one bulk change may touch (D60)
+EXPORT_LIMIT = 2_000  # mails in one export (D62)
+EXPORTS_LISTED = 100  # newest exports in /api/exports
+COLLECTION_PERSONS = 10  # persons listed in CollectionDetail
+PERMALINK_DIGITS = 16  # hex digits of the raw SHA-256 in a permalink (D61)
+PERMALINK_MIN_DIGITS = 12
+
+BulkAction = Literal[
+    "tag_add", "tag_remove", "collection_add", "collection_remove", "review", "flag"
+]
+
+
+class TagInfo(TagRef):
+    description: str
+    mails: int  # mails carrying it
+    created_by: str | None
+    created_at: datetime
+
+
+class TagCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=TAG_NAME_LIMIT)  # trimmed; unique ignoring case
+    color: TagColor = "blue"
+    description: str = Field(default="", max_length=DESCRIPTION_LIMIT)
+
+
+class TagUpdate(BaseModel):
+    """Fields left out stay as they are."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=TAG_NAME_LIMIT)
+    color: TagColor | None = None
+    description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
+
+
+class CollectionInfo(CollectionRef):
+    description: str
+    mails: int  # mails in it, as the collection filter counts them
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime  # last change of name, description or mails
+
+
+class CollectionCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=NAME_LIMIT)  # trimmed; unique ignoring case
+    description: str = Field(default="", max_length=DESCRIPTION_LIMIT)
+
+
+class CollectionUpdate(BaseModel):
+    """Fields left out stay as they are."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=NAME_LIMIT)
+    description: str | None = Field(default=None, max_length=DESCRIPTION_LIMIT)
+
+
+class SavedSearch(BaseModel):
+    """A search of the mail list kept under a name (D59)."""
+
+    id: int
+    name: str
+    query: str  # query string of /mails as the UI writes it (MailListParams without cursor)
+    collection_id: int | None  # the Akte it belongs to
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SavedSearchCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=NAME_LIMIT)
+    query: str = Field(default="", max_length=QUERY_LIMIT)
+    collection_id: int | None = None
+
+
+class SavedSearchUpdate(BaseModel):
+    """Fields left out stay as they are; collection_id null detaches it from its Akte."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=NAME_LIMIT)
+    query: str | None = Field(default=None, max_length=QUERY_LIMIT)
+    collection_id: int | None = None
+
+
+class ResearchOverview(BaseModel):
+    """Everything the filter column and the Akten screen list, in one request."""
+
+    tags: list[TagInfo]  # by name, ignoring case
+    collections: list[CollectionInfo]  # last changed first
+    searches: list[SavedSearch]  # by name, ignoring case
+    review: dict[ReviewKey, int]  # mails per review status, every key present
+    flagged: int  # bookmarked mails
+    notes: int  # notes in total
+    # Tags and saved searches of the themes (D64) without one of the same name, ignoring case;
+    # POST /api/research/starter creates them.
+    starter_missing: int
+
+
+class ThemeSearchInfo(BaseModel):
+    name: str
+    query: str  # query string of /mails, as SavedSearch.query
+
+
+class ThemeInfo(BaseModel):
+    """A research theme of themes.toml (D64): its word field and search templates."""
+
+    key: str
+    name: str  # also the name of its tag
+    color: TagColor
+    description: str
+    terms: list[str]  # the word field; each one a full-text search on its own
+    searches: list[ThemeSearchInfo]
+
+
+class CollectionPerson(BaseModel):
+    person: PersonRef  # a root person; name is its display name
+    mails: int  # mails of the Akte it takes part in, any role
+
+
+class CollectionDetail(CollectionInfo):
+    date_min: datetime | None  # of its mails
+    date_max: datetime | None
+    missing: int  # contents in it that are in no mail of the archive (any more)
+    persons: list[CollectionPerson]  # most mails first, at most COLLECTION_PERSONS
+    searches: list[SavedSearch]  # by name
+
+
+class MarkUpdate(BaseModel):
+    """Fields left out stay as they are; "review": null makes the mail unreviewed again."""
+
+    flagged: bool | None = None
+    review: ReviewStatus | None = None
+
+
+class LinkChange(BaseModel):
+    """Tags or Akten to add to and remove from one mail; unknown ids are not_found."""
+
+    add: list[int] = []
+    remove: list[int] = []
+
+
+class NoteCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=NOTE_LIMIT)
+
+
+class NoteEdit(BaseModel):
+    body: str = Field(min_length=1, max_length=NOTE_LIMIT)
+
+
+class NoteListParams(BaseModel):
+    q: str = ""  # part of the note text, any case
+    cursor: str | None = None  # next_cursor of the previous page with the same q
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class NoteMail(BaseModel):
+    id: int | None  # the original mail with this content; None: not in the archive (any more)
+    subject: str | None
+    date: datetime | None
+    sender: PersonRef | None
+
+
+class NoteItem(NoteInfo):
+    mail_sha256: str
+    mail: NoteMail
+
+
+class NotePage(BaseModel):
+    items: list[NoteItem]  # newest first (created_at, then id)
+    next_cursor: str | None
+    total: int  # notes matching q
+
+
+class MailSelection(BaseModel):
+    """The mails a bulk change or an export applies to: exactly one of ids and filters."""
+
+    ids: list[int] | None = Field(default=None, max_length=SELECTION_IDS_LIMIT)  # these mails
+    filters: MailFilters | None = None  # every mail matching these filters
+
+
+class BulkRequest(MailSelection):
+    """One change to every selected mail (D60); the field named by the action must be set:
+    tag_id for tag_*, collection_id for collection_*, review (null: unreviewed) for review,
+    flagged for flag."""
+
+    action: BulkAction
+    tag_id: int | None = None
+    collection_id: int | None = None
+    review: ReviewStatus | None = None
+    flagged: bool | None = None
+
+
+class BulkResult(BaseModel):
+    mails: int  # mails selected
+    changed: int  # contents whose research data changed (byte-identical mails count once)
+
+
+class PermalinkTarget(BaseModel):
+    mail_id: int  # the original (no duplicate, lowest id) among the mails with this content
+    raw_sha256: str
+
+
+class ExportRequest(MailSelection):
+    """An export of the selected mails, oldest first (D62)."""
+
+    include_research: bool = False  # notes, tags, status and Akten in PDFs and manifest
+    label: str = Field(
+        default="", max_length=LABEL_LIMIT
+    )  # e.g. the Akte's name, for the export log
+
+
+class ExportInfo(BaseModel):
+    id: int
+    label: str
+    mails: int
+    include_research: bool
+    created_by: str | None
+    created_at: datetime
+    # SHA-256 of the ZIP's SHA256SUMS (which lists every other file) at the first complete
+    # download; None before
+    manifest_sha256: str | None
+    downloaded_at: datetime | None
+    download_url: str  # /api/exports/{id}/download
 
 
 # Attachments and documents (milestone 9, D70 to D77) -----------------------------------------

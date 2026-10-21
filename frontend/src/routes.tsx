@@ -5,10 +5,13 @@ import { DocumentDetailRoute, DocumentListRoute } from "./features/documents/laz
 import { GraphPage } from "./features/graph/GraphPage";
 import { ImportPage } from "./features/import/ImportPage";
 import { MailDetailPage } from "./features/mail/MailDetailPage";
+import { PermalinkPage } from "./features/mail/PermalinkPage";
 import { MailListPage } from "./features/mails/MailListPage";
 import { PersonProfilePage } from "./features/persons/PersonProfilePage";
 import { PersonsPage } from "./features/persons/PersonsPage";
 import { NotFoundPage } from "./features/placeholder/Placeholders";
+import { AktenPage } from "./features/research/AktenPage";
+import { CollectionPage } from "./features/research/CollectionPage";
 
 /** One entry per screen, all inside the shell. */
 export const routes: RouteObject[] = [
@@ -23,6 +26,9 @@ export const routes: RouteObject[] = [
       { path: "/anhaenge", element: <DocumentListRoute /> },
       { path: "/anhaenge/:id", element: <DocumentDetailRoute /> },
       { path: "/karte", element: <GraphPage /> },
+      { path: "/akten", element: <AktenPage /> },
+      { path: "/akten/:id", element: <CollectionPage /> },
+      { path: "/m/:hash", element: <PermalinkPage /> },
       { path: "/import", element: <ImportPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],

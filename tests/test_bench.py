@@ -25,6 +25,10 @@ FULL = bench.Samples(
     middle_rank=75,
     ego_thresholds={1: 1, 2: 4},
     domains_threshold=2,
+    review="relevant",
+    tag=5,
+    collection=6,
+    notes=12,
     documents=40,
     document_id=12,
     text_document_id=13,
@@ -46,7 +50,7 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
     found, skipped = bench.scenarios(FULL)
     names = [scenario.name for scenario in found]
     assert skipped == []
-    assert len(names) == len(set(names)) == 53
+    assert len(names) == len(set(names)) == 58
     paths = {scenario.name: scenario.paths for scenario in found}
     assert paths["mail list, next page"] == ("/api/mails?cursor=abc",)
     assert paths["filter full text word"] == ("/api/mails?q=vertrag", "/api/mails?q=angebot")
@@ -59,6 +63,10 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
     assert paths["map, two domains"] == (
         "/api/graph?mode=domains&domain=a.example&domain=b.example&min_edge=2",
     )
+    assert paths["filter review status"] == ("/api/mails?review=relevant",)
+    assert paths["filter tag"] == ("/api/mails?tag=5",)
+    assert paths["Akte detail"] == ("/api/collections/6",)
+    assert paths["notes list"] == ("/api/notes",)
     assert paths["documents by size"] == ("/api/documents?sort=size",)
     assert paths["documents, full text word"] == (
         "/api/documents?q=spenden",
@@ -90,12 +98,14 @@ def test_an_empty_archive_skips_what_needs_a_sample() -> None:
         "filter has_attachment",
         "summary, unfiltered",
         "summary, dkim=pass",
+        "research overview",
         "import status",
         "import summary",
         "import errors",
     ]
     assert "profile, top person" in skipped and "documents, newest first" in skipped
-    assert len(found) + len(skipped) == 53
+    assert "filter tag" in skipped
+    assert len(found) + len(skipped) == 58
 
 
 def test_table_rows_mark_slow_and_failed_scenarios() -> None:

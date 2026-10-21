@@ -4,7 +4,8 @@ clicks through the screens (D51).
 It first picks its samples through the API itself: the newest mails and words of their
 subjects, the person with the most mails and one from the middle of the person list, that
 person's strongest contact and busiest year, the top sender domains, thresholds at which the
-map's excerpts stay below 2,000 nodes, the document carried by the most mails and words of the
+map's excerpts stay below 2,000 nodes, from the research file the review status, the tag and
+the Akte with the most mails, and the document carried by the most mails and words of the
 busiest document with text. So it needs nothing but the server's URL and runs on the
 host or in the container (`docker compose exec backend mailrobbe bench`) against any archive.
 Then it requests every scenario `--rounds` times, one request after the other over one
@@ -146,6 +147,10 @@ class Samples:
     middle_rank: int | None = None  # 1-based, in the person list by mails
     ego_thresholds: dict[int, int] = field(default_factory=dict)  # depth -> min_edge
     domains_threshold: int | None = None
+    review: str | None = None  # the review status with the most mails
+    tag: int | None = None  # the tag with the most mails
+    collection: int | None = None  # the Akte with the most mails
+    notes: int = 0
     documents: int = 0
     document_id: int | None = None  # the document carried by the most mails
     text_document_id: int | None = None  # the one with text carried by the most mails
@@ -177,10 +182,25 @@ def pick_samples(client: Client) -> Samples:
                 samples.neighbours = (*filtered, items[len(items) // 2]["id"])
     if samples.persons:
         _pick_persons(client, samples)
+    _pick_research(client, samples)
     samples.documents = sum(client.json("/api/import/summary")["documents"].values())
     if samples.documents:
         _pick_documents(client, samples)
     return samples
+
+
+def _pick_research(client: Client, samples: Samples) -> None:
+    overview = client.json("/api/research")
+    samples.notes = overview["notes"]
+    reviewed = {key: count for key, count in overview["review"].items() if key != "unreviewed"}
+    if any(reviewed.values()):
+        samples.review = max(reviewed, key=lambda key: reviewed[key])
+    tags = [tag for tag in overview["tags"] if tag["mails"]]
+    if tags:
+        samples.tag = max(tags, key=lambda tag: tag["mails"])["id"]
+    collections = [collection for collection in overview["collections"] if collection["mails"]]
+    if collections:
+        samples.collection = max(collections, key=lambda collection: collection["mails"])["id"]
 
 
 def _pick_persons(client: Client, samples: Samples) -> None:
@@ -312,6 +332,12 @@ def scenarios(samples: Samples, with_export: bool = False) -> tuple[list[Scenari
     add("body text", mail and f"{mail}/body?format=text")
     add("body headers", mail and f"{mail}/body?format=headers")
     add("body raw", mail and f"{mail}/body?format=raw")
+
+    add("research overview", "/api/research")
+    add("filter review status", s.review and mails(("review", s.review)))
+    add("filter tag", s.tag and mails(("tag", s.tag)))
+    add("Akte detail", s.collection and f"/api/collections/{s.collection}")
+    add("notes list", s.notes and "/api/notes")
 
     persons = s.persons and "/api/persons"
     add("persons by mails", persons)
@@ -476,6 +502,15 @@ def describe(samples: Samples) -> list[str]:
         if s.domains_threshold is not None:
             parts.append(f"{s.domains_threshold} for two domains")
         lines.append(f"  map min_edge    {', '.join(parts)}, so they have at most 2,000 nodes")
+    marked = [
+        *([] if s.review is None else [f"review status {s.review}"]),
+        *([] if s.tag is None else [f"tag #{s.tag}"]),
+        *([] if s.collection is None else [f"Akte #{s.collection}"]),
+    ]
+    if marked:
+        lines.append(f"  research file   {', '.join(marked)}, each with the most mails")
+    if s.notes:
+        lines.append(f"  notes           {s.notes:,}")
     if s.document_id is not None:
         lines.append(f"  document        #{s.document_id} of {s.documents:,}, in the most mails")
     if s.document_words:

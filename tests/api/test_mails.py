@@ -436,6 +436,9 @@ async def test_items_show_the_mail_and_its_participants(
             "size": mail.byte_length,
             "mbox_file_id": mail.mbox_file_id,
             "person_role": None,
+            "review": None,
+            "tags": [],
+            "notes": 0,
             "attachment_match": False,
         }
 
@@ -731,7 +734,8 @@ async def test_flagged_filter_and_items(
     flagged, unflagged = (await ids(mutable_database_url))[5:7]
     await rows(
         mutable_database_url,
-        "INSERT INTO mail_note (mail_id, flagged, note) VALUES (:a, true, ''), (:b, false, 'x')",
+        "INSERT INTO mail_mark (mail_sha256, flagged) SELECT raw_sha256, id = :a FROM mail"
+        " WHERE id IN (:a, :b)",
         a=flagged,
         b=unflagged,
     )

@@ -1,12 +1,14 @@
-import { useEffect, useRef, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 
 import { useStats } from "../api/queries";
 import type { ImportState } from "../api/types";
 import { cx } from "../lib/cx";
+import { useEditor } from "../lib/editor";
 import { formatNumber } from "../lib/format";
 import { isPlainKey } from "../lib/keys";
 import styles from "./AppShell.module.css";
+import { EditorDialog } from "./EditorDialog";
 import { LogoIcon, SearchIcon } from "./icons";
 
 const NAVIGATION = [
@@ -14,6 +16,7 @@ const NAVIGATION = [
   { to: "/personen", label: "Personen" },
   { to: "/anhaenge", label: "Anhänge" },
   { to: "/karte", label: "Karte" },
+  { to: "/akten", label: "Akten" },
   { to: "/import", label: "Import" },
 ];
 
@@ -39,6 +42,7 @@ export function AppShell() {
         </nav>
         <GlobalSearch />
         <HeaderFigures />
+        <EditorName />
       </header>
       <Outlet />
     </div>
@@ -112,6 +116,31 @@ function HeaderFigures() {
       </span>
       <ImportIndicator importer={stats.importer} />
     </div>
+  );
+}
+
+/** The editor's name (D54), which notes and changes carry; a click changes it. */
+function EditorName() {
+  const editor = useEditor();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className={styles.editor}
+        title="Name für Notizen und Änderungen"
+        onClick={() => setOpen(true)}
+      >
+        {editor ? (
+          <>
+            <span className={styles.editorPrefix}>Bearbeitet als</span> <strong>{editor}</strong>
+          </>
+        ) : (
+          "Namen eintragen"
+        )}
+      </button>
+      {open && <EditorDialog onClose={() => setOpen(false)} />}
+    </>
   );
 }
 

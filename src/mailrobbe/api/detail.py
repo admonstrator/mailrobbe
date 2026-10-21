@@ -1,8 +1,8 @@
-"""One mail: metadata, bodies read on demand from its MBOX file, EML download, DKIM recheck and
-note (D22, D23).
+"""One mail: metadata, research data, bodies read on demand from its MBOX file, EML download and
+DKIM recheck (D22, D53).
 
 Routes: GET /api/mails/{id}, /api/mails/{id}/body, /api/mails/{id}/eml,
-POST /api/mails/{id}/dkim/recheck, PUT /api/mails/{id}/note.
+POST /api/mails/{id}/dkim/recheck. Writes to the research data are in research.py.
 
 The detail comes from the database alone, in the same few queries whatever the mail. Body, EML
 and recheck read the message from its MBOX file in a worker thread and use it only while its
@@ -10,10 +10,8 @@ SHA-256 is still raw_sha256; parsing and DKIM checks run in a worker thread too.
 """
 
 import asyncio
-import hashlib
 import logging
-from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 import fastapi
 from fastapi import APIRouter, HTTPException, Query
@@ -29,39 +27,48 @@ from mailrobbe.api.schemas import (
     DUPLICATES_LIMIT,
     THREAD_LIMIT,
     AttachmentInfo,
+    CollectionRef,
     DkimSignature,
     MailDetail,
     MailDkim,
     MailHeaders,
     MailRaw,
+    MailResearch,
     MailSource,
     MailText,
-    Note,
-    NoteUpdate,
+    Mark,
+    NoteInfo,
     Participant,
     PersonRef,
+    TagColor,
+    TagRef,
     ThreadMail,
 )
 from mailrobbe.config import Settings
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     Attachment,
+    Collection,
+    CollectionMail,
     DkimResult,
     DnsCache,
     Document,
     Edge,
     Mail,
-    MailNote,
+    MailMark,
+    MailTag,
     MboxFile,
+    Note,
     Participation,
     Person,
     PersonStats,
+    Tag,
 )
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
-from mailrobbe.mbox import read_message
+from mailrobbe.mbox import read_verified
 from mailrobbe.persons.roots import ROOT
 
 router = APIRouter(prefix="/api", tags=["mail"])
@@ -84,6 +91,7 @@ HTML_HEADERS = {
 }
 
 _NAME = func.coalesce(Participation.display_name, Person.display_name)  # as used in that mail
+NOTE_COLUMNS = (Note.id, Note.body, Note.author, Note.created_at, Note.updated_at)  # a NoteInfo
 _REPLIED = aliased(Mail)
 _DUPLICATE = aliased(Mail)
 _DETAIL = (
@@ -103,9 +111,12 @@ _DETAIL = (
         Mail.dkim_status,
         Mail.thread_id,
         Mail.is_duplicate_of,
-        MailNote.flagged,
-        MailNote.note,
-        MailNote.updated_at,
+        MailMark.flagged,
+        MailMark.flagged_by,
+        MailMark.flagged_at,
+        MailMark.review,
+        MailMark.review_by,
+        MailMark.review_at,
         # The mail replied to: the original before its duplicates, then the lowest id.
         select(_REPLIED.id)
         .where(_REPLIED.message_id == Mail.in_reply_to, _REPLIED.id != Mail.id)
@@ -123,7 +134,7 @@ _DETAIL = (
         ).label("duplicates"),
     )
     .join(MboxFile, MboxFile.id == Mail.mbox_file_id)
-    .outerjoin(MailNote, MailNote.mail_id == Mail.id)
+    .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
 )
 
 
@@ -157,7 +168,19 @@ async def mail_detail(mail_id: MailId, session: Session) -> MailDetail:
         thread_size=thread_size,
         duplicate_of=mail.is_duplicate_of,
         duplicates=mail.duplicates,
-        note=Note(flagged=bool(mail.flagged), note=mail.note or "", updated_at=mail.updated_at),
+        research=MailResearch(
+            mark=Mark(
+                flagged=bool(mail.flagged),
+                flagged_by=mail.flagged_by,
+                flagged_at=mail.flagged_at,
+                review=mail.review,
+                review_by=mail.review_by,
+                review_at=mail.review_at,
+            ),
+            tags=await tag_refs(session, mail.raw_sha256),
+            collections=await collection_refs(session, mail.raw_sha256),
+            notes=await mail_notes(session, mail.raw_sha256),
+        ),
     )
 
 
@@ -168,7 +191,7 @@ async def mail_body(
     settings: AppSettings,
     view: Annotated[BodyFormat, Query(alias="format")] = "text",
 ) -> MailText | MailHeaders | MailRaw | Response:
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     if view == "html":
         html = await asyncio.to_thread(body.mail_html, message)
         if html is None:
@@ -183,7 +206,7 @@ async def mail_body(
 
 @router.get("/mails/{mail_id}/eml")
 async def mail_eml(mail_id: MailId, session: Session, settings: AppSettings) -> Response:
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     disposition = f'attachment; filename="mail-{mail_id}.eml"'
     return Response(
         message, media_type="message/rfc822", headers={"Content-Disposition": disposition}
@@ -193,7 +216,7 @@ async def mail_eml(mail_id: MailId, session: Session, settings: AppSettings) -> 
 @router.post("/mails/{mail_id}/dkim/recheck")
 async def recheck_dkim(mail_id: MailId, session: Session, settings: AppSettings) -> MailDkim:
     """Check the mail again (SPEC 3.4, D13): keys that were missing or timed out are asked anew."""
-    message = await _message(session, settings, mail_id)
+    message = await stored_message(session, settings, mail_id)
     answers = await store.load_dns_cache(session)
     await session.commit()  # no transaction stays open while DNS answers
     try:
@@ -210,29 +233,6 @@ async def recheck_dkim(mail_id: MailId, session: Session, settings: AppSettings)
     return await _dkim(session, mail_id, verdict.status)
 
 
-@router.put("/mails/{mail_id}/note")
-async def put_note(mail_id: MailId, update: NoteUpdate, session: Session) -> Note:
-    if await session.scalar(select(Mail.id).where(Mail.id == mail_id)) is None:
-        raise _not_found(mail_id)
-    statement = postgresql.insert(MailNote).values(
-        mail_id=mail_id, flagged=update.flagged, note=update.note, updated_at=func.now()
-    )
-    statement = statement.on_conflict_do_update(
-        index_elements=[MailNote.mail_id],
-        set_={
-            "flagged": statement.excluded.flagged,
-            "note": statement.excluded.note,
-            "updated_at": statement.excluded.updated_at,
-        },
-    )
-    saved = await session.execute(
-        statement.returning(MailNote.flagged, MailNote.note, MailNote.updated_at)
-    )
-    flagged, note, updated_at = saved.one()
-    await session.commit()
-    return Note(flagged=flagged, note=note, updated_at=updated_at)
-
-
 def _not_found(mail_id: int) -> HTTPException:
     return api_error(404, "not_found", f"no mail with id {mail_id}")
 
@@ -240,7 +240,7 @@ def _not_found(mail_id: int) -> HTTPException:
 # Reading the source ------------------------------------------------------------------------
 
 
-async def _message(session: AsyncSession, settings: Settings, mail_id: int) -> bytes:
+async def stored_message(session: AsyncSession, settings: Settings, mail_id: int) -> bytes:
     """The mail's message from its MBOX file, only while it is the imported one (D22)."""
     found = await session.execute(
         select(MboxFile.path, Mail.byte_offset, Mail.byte_length, Mail.raw_sha256)
@@ -254,7 +254,7 @@ async def _message(session: AsyncSession, settings: Settings, mail_id: int) -> b
     path, byte_offset, byte_length, raw_sha256 = row
     try:
         message = await asyncio.to_thread(
-            _read_checked, settings.mbox_dir / path, byte_offset, byte_length, raw_sha256
+            read_verified, settings.mbox_dir / path, byte_offset, byte_length, raw_sha256
         )
     except OSError as error:
         log.warning("mail %d: cannot read %s: %s", mail_id, path, error)
@@ -269,16 +269,39 @@ async def _message(session: AsyncSession, settings: Settings, mail_id: int) -> b
     return message
 
 
-def _read_checked(path: Path, byte_offset: int, byte_length: int, raw_sha256: str) -> bytes | None:
-    """The message, or None when the bytes at its offset are not the imported ones any more."""
-    try:
-        message = read_message(path, byte_offset, byte_length)
-    except ValueError:  # the file is shorter than the record now
-        return None
-    return message if hashlib.sha256(message).hexdigest() == raw_sha256 else None
-
-
 # Parts of the detail -----------------------------------------------------------------------
+
+
+async def tag_refs(session: AsyncSession, mail_sha256: str) -> list[TagRef]:
+    """The tags of a mail's content, by name ignoring case (research.py answers links with it)."""
+    rows = await session.execute(
+        select(Tag.id, Tag.name, Tag.color)
+        .join(MailTag, MailTag.tag_id == Tag.id)
+        .where(MailTag.mail_sha256 == mail_sha256)
+        .order_by(func.lower(Tag.name), Tag.id)
+    )
+    return [TagRef(id=id_, name=name, color=cast(TagColor, color)) for id_, name, color in rows]
+
+
+async def collection_refs(session: AsyncSession, mail_sha256: str) -> list[CollectionRef]:
+    """The Akten holding a mail's content, by name ignoring case."""
+    rows = await session.execute(
+        select(Collection.id, Collection.name)
+        .join(CollectionMail, CollectionMail.collection_id == Collection.id)
+        .where(CollectionMail.mail_sha256 == mail_sha256)
+        .order_by(func.lower(Collection.name), Collection.id)
+    )
+    return [CollectionRef(id=id_, name=name) for id_, name in rows]
+
+
+async def mail_notes(session: AsyncSession, mail_sha256: str) -> list[NoteInfo]:
+    """The notes on a mail's content, oldest first."""
+    rows = await session.execute(
+        select(*NOTE_COLUMNS)
+        .where(Note.mail_sha256 == mail_sha256)
+        .order_by(Note.created_at, Note.id)
+    )
+    return [NoteInfo(**row._mapping) for row in rows]
 
 
 async def _participants(session: AsyncSession, mail_id: int) -> list[Participant]:
@@ -441,7 +464,7 @@ async def _thread(
             .order_by(members.c.position)
         )
     ).all()
-    senders = await _senders(session, [row.id for row in rows])
+    senders = await mail_senders(session, [row.id for row in rows])
     thread = [
         ThreadMail(
             id=row.id,
@@ -455,7 +478,7 @@ async def _thread(
     return thread, rows[0].size if rows else 0
 
 
-async def _senders(session: AsyncSession, mail_ids: list[int]) -> dict[int, PersonRef]:
+async def mail_senders(session: AsyncSession, mail_ids: list[int]) -> dict[int, PersonRef]:
     """The sender of each mail: its first from participant by name, then address."""
     if not mail_ids:
         return {}

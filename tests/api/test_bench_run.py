@@ -8,6 +8,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+import httpx
 import pytest
 import uvicorn
 from pydantic import SecretStr
@@ -41,15 +42,32 @@ def running_server(settings: Settings) -> Iterator[str]:
         sock.close()
 
 
+def research_file(url: str) -> None:
+    """A tag, an Akte, a review status and a note on the newest mail, so that the research
+    scenarios have their samples."""
+    with httpx.Client(base_url=url) as http:
+        mail_id = http.get("/api/mails").json()["items"][0]["id"]
+        tag = http.post("/api/tags", json={"name": "Vertrag"}).json()["id"]
+        collection = http.post("/api/collections", json={"name": "Akte A"}).json()["id"]
+        changes = [
+            http.post(f"/api/mails/{mail_id}/tags", json={"add": [tag]}),
+            http.post(f"/api/mails/{mail_id}/collections", json={"add": [collection]}),
+            http.post(f"/api/mails/{mail_id}/notes", json={"body": "Wichtig"}),
+            http.put(f"/api/mails/{mail_id}/mark", json={"review": "relevant"}),
+        ]
+        assert all(response.is_success for response in changes)
+
+
 def test_bench_measures_every_scenario_of_a_real_server(
-    imported_database_url: str,
+    mutable_database_url: str,
     generated_archive: GeneratedArchive,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    settings = api_settings(imported_database_url, generated_archive, tmp_path / "no-frontend")
+    settings = api_settings(mutable_database_url, generated_archive, tmp_path / "no-frontend")
     report = tmp_path / "bench.json"
     with running_server(settings) as url:
+        research_file(url)
         status = cli.main(
             ["bench", "--url", url, "--rounds", "1", "--with-export", "--json", str(report)]
         )
@@ -58,11 +76,12 @@ def test_bench_measures_every_scenario_of_a_real_server(
     results = json.loads(report.read_text())
     assert results["skipped"] == []
     assert results["failed"] == 0
-    assert len(results["scenarios"]) == results["requests"] == 54
+    assert len(results["scenarios"]) == results["requests"] == 59
     assert all(row["errors"] == [] and row["size_bytes"] > 0 for row in results["scenarios"])
     assert results["samples"]["top_person"] is not None
+    assert results["samples"]["tag"] is not None
     assert results["samples"]["document_words"] and results["samples"]["document_id"]
-    assert "All 54 requests succeeded" in output
+    assert "All 59 requests succeeded" in output
     for row in results["scenarios"]:
         assert row["name"] in output
 

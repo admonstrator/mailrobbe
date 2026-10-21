@@ -29,15 +29,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from mailrobbe.api import body
 from mailrobbe.api.detail import HTML_HEADERS
 from mailrobbe.api.schemas import (
-    NOTE_LIMIT,
     RAW_LIMIT,
     THREAD_LIMIT,
     MailDetail,
     MailDkim,
     MailHeaders,
     MailRaw,
+    MailResearch,
     MailText,
-    Note,
+    Mark,
     Participant,
 )
 from mailrobbe.config import Settings
@@ -48,6 +48,11 @@ from tests.api.conftest import _client
 from tests.conftest import GeneratedArchive
 
 pytestmark = pytest.mark.db
+
+EMPTY_MARK = Mark(
+    flagged=False, flagged_by=None, flagged_at=None, review=None, review_by=None, review_at=None
+)
+EMPTY_RESEARCH = MailResearch(mark=EMPTY_MARK, tags=[], collections=[], notes=[])
 
 Record = dict[str, Any]  # one manifest entry
 Row = dict[str, Any]  # one mail row, with its file's path
@@ -295,7 +300,7 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
         assert len(members) < THREAD_LIMIT  # the window is tested on its own below
         assert [m.id for m in detail.thread] == [m["id"] for m in members], index
         assert detail.thread_size == len(members)
-        assert detail.note == Note(flagged=False, note="", updated_at=None)
+        assert detail.research == EMPTY_RESEARCH
 
 
 async def test_dns_records_of_pass_fail_and_no_key_signatures(
@@ -678,26 +683,6 @@ async def test_recheck_with_wrong_dns_settings(
     assert [s.checked_at for s in detail.dkim.signatures] == [
         row["checked_at"] for row in archive.dkim[mail["id"]]
     ]
-
-
-async def test_note_round_trip(mutable_client: httpx.AsyncClient, archive: Archive) -> None:
-    mail_id = archive.mails[0]["id"]
-    url = f"/api/mails/{mail_id}/note"
-    response = await mutable_client.put(url, json={"flagged": True, "note": "Rückruf bei Eva"})
-    assert response.status_code == 200
-    first = Note.model_validate(response.json())
-    assert (first.flagged, first.note) == (True, "Rückruf bei Eva") and first.updated_at
-    assert (await _detail(mutable_client, mail_id)).note == first
-
-    second = Note.model_validate((await mutable_client.put(url, json={"flagged": False})).json())
-    assert (second.flagged, second.note) == (False, "")
-    assert second.updated_at and second.updated_at >= first.updated_at
-    assert (await _detail(mutable_client, mail_id)).note == second
-
-    too_long = {"flagged": False, "note": "x" * (NOTE_LIMIT + 1)}
-    assert (await mutable_client.put(url, json=too_long)).status_code == 422
-    unknown = await mutable_client.put("/api/mails/987654321/note", json={"flagged": True})
-    assert (unknown.status_code, unknown.json()["detail"]["code"]) == (404, "not_found")
 
 
 # Helpers -------------------------------------------------------------------------------------

@@ -3,10 +3,11 @@
 The list, its summary, the neighbours of a mail and the CSV export all build on these, so they
 agree on which mails match and in which order (D19 to D21). Conditions are plain columns of mail
 or EXISTS subqueries correlated to it: participants through participation and person (both
-indexed for this), flags through mail_note, documents through attachment. The full text words
-match the mail's own text or the text of one of its attachments' documents (D73): both GIN
-indexes give mail ids, which PostgreSQL ORs as bitmaps (full_text); first_ids's walk tests the
-mails it passes one by one instead, as it did for the mail's own text alone.
+indexed for this), research data through its tables keyed by mail.raw_sha256 (D53), documents
+through attachment. The full text words match the mail's own text or the text of one of its
+attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL ORs as bitmaps
+(full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
+mail's own text alone.
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -17,7 +18,8 @@ ix_mail_sort until enough mails match, or collecting every match and sorting it,
 that assumes matches are spread evenly over the order. Matches cluster (an old project's name,
 one person's mails), and a walk past most of the archive takes a second at 400,000 mails. So the
 walk is bounded to WALK_ROWS mails, and when that is not enough every match is collected. Date
-bounds and a single DKIM status narrow the walk itself (see _ranges).
+bounds and a single DKIM status narrow the walk itself (see _ranges). A research filter with few
+contents replaces the walk: its mails are looked up and checked first (resolve_contents).
 """
 
 import base64
@@ -27,13 +29,15 @@ import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import (
     BigInteger,
     BinaryExpression,
     ColumnElement,
+    ScalarSelect,
     Select,
+    Text,
     UnaryExpression,
     and_,
     any_,
@@ -47,8 +51,10 @@ from sqlalchemy import (
     true,
     tuple_,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import QueryableAttribute, aliased
+from sqlalchemy.sql import operators
 from sqlalchemy.sql.util import ClauseAdapter
 
 from mailrobbe.api.query import parse_day
@@ -58,19 +64,24 @@ from mailrobbe.db.models import (
     TEXT_SEARCH_CONFIG,
     TIMESTAMPTZ,
     Attachment,
+    CollectionMail,
     Document,
     Mail,
-    MailNote,
+    MailMark,
+    MailTag,
+    Note,
     Participation,
     Person,
 )
-from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.enums import DkimStatus, ParticipationRole, ReviewStatus
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
 _NO_DATE = literal_column("'-infinity'::timestamp with time zone", TIMESTAMPTZ)
 _TEXT_SEARCH: ColumnElement[Any] = literal_column(f"'{TEXT_SEARCH_CONFIG}'::regconfig")
-# The table column itself, so that _ranges recognises conditions on it.
+# The table columns themselves, so that _ranges and _contents recognise conditions on them.
 _DKIM_STATUS: ColumnElement[DkimStatus | None] = Mail.__table__.c.dkim_status
+_mail_id: ColumnElement[int] = Mail.__table__.c.id
+_raw_sha256: ColumnElement[str] = Mail.__table__.c.raw_sha256
 _SENDER = (ParticipationRole.FROM,)
 _RECIPIENTS = (ParticipationRole.TO, ParticipationRole.CC, ParticipationRole.BCC)
 # Mails of the order a filtered page looks at before collecting all matches instead: a filter
@@ -81,6 +92,11 @@ WALK_ROWS = 5000
 _WALK_FORMS: "weakref.WeakKeyDictionary[ColumnElement[bool], ColumnElement[bool]]" = (
     weakref.WeakKeyDictionary()
 )
+
+# Contents of a research filter (a tag, an Akte, a review status, notes, bookmarks) that are
+# looked up one by one in ix_mail_raw_sha256 instead of walking (resolve_contents): about the
+# cost of a walk.
+CONTENT_ROWS = 5000
 
 
 class FilterError(ValueError):
@@ -120,7 +136,18 @@ def mail_conditions(
     if filters.hide_duplicates:
         where.append(Mail.is_duplicate_of.is_(None))
     if filters.flagged:
-        where.append(exists().where(MailNote.mail_id == Mail.id, MailNote.flagged.is_(True)))
+        where.append(_content_in(select(MailMark.mail_sha256).where(MailMark.flagged.is_(True))))
+    if filters.review:
+        where.append(_review(filters.review))
+    if filters.tag:
+        tags = sorted(set(filters.tag))
+        where.append(_content_in(select(MailTag.mail_sha256).where(MailTag.tag_id.in_(tags))))
+    if filters.collection:
+        collections = sorted(set(filters.collection))
+        member = CollectionMail.collection_id.in_(collections)
+        where.append(_content_in(select(CollectionMail.mail_sha256).where(member)))
+    if filters.has_note:
+        where.append(_content_in(select(Note.mail_sha256)))
     if filters.mbox_file is not None:
         where.append(Mail.mbox_file_id == filters.mbox_file)
     where += [_takes_part(None, _person(person_id)) for person_id in filters.person]
@@ -242,6 +269,25 @@ def _dkim(keys: Sequence[str]) -> ColumnElement[bool]:
     return conditions[0] if len(conditions) == 1 else or_(false(), *conditions)
 
 
+def _content_in(contents: Select[str]) -> ColumnElement[bool]:
+    """The mail's content is one of contents, a set of the research file (D53); first_ids and
+    the summary may look a small set up first (resolve_contents)."""
+    return _raw_sha256.in_(contents)
+
+
+def _review(keys: Sequence[str]) -> ColumnElement[bool]:
+    """Any of these review statuses (D55); unreviewed is no mark with a status. With unreviewed
+    this is one NOT EXISTS (no mark with another status), which PostgreSQL runs as an anti join
+    instead of OR-ing two subqueries."""
+    statuses = sorted({ReviewStatus(key) for key in keys if key != "unreviewed"})
+    if "unreviewed" not in keys:
+        return _content_in(select(MailMark.mail_sha256).where(MailMark.review.in_(statuses)))
+    others: ColumnElement[bool] = MailMark.review.is_not(None)
+    if statuses:
+        others = and_(others, MailMark.review.not_in(statuses))
+    return ~exists().where(MailMark.mail_sha256 == Mail.raw_sha256, others)
+
+
 def _takes_part(
     roles: Sequence[ParticipationRole] | None, person: ColumnElement[bool]
 ) -> ColumnElement[bool]:
@@ -354,6 +400,9 @@ async def first_ids(
     if not where:
         plain = select(Mail.id).where(*start).order_by(*order(sort, reverse)).limit(limit)
         return list(await session.scalars(plain))
+    where = await resolve_contents(session, where)
+    if any(_resolved(condition) for condition in where):
+        return await _collected(session, [*start, *where], sort, reverse, limit)
     # The walk: the next WALK_ROWS mails in order within the ranges, the other conditions moved
     # onto them. Its LIMIT lets PostgreSQL test participants mail by mail (a nested loop semi
     # join) instead of hashing every participation of, say, the owner's domain first. Unused
@@ -375,15 +424,86 @@ async def first_ids(
     walked = list(await session.scalars(_ordered(window, sort, reverse, limit).where(*rest)))
     if len(walked) == limit:
         return walked
-    # Too few matches near the start: collect every match, then sort. MATERIALIZED keeps
-    # PostgreSQL from turning this back into an unbounded walk.
+    # Too few matches near the start: collect every match, then sort.
+    return await _collected(session, [*start, *where], sort, reverse, limit)
+
+
+async def _collected(
+    session: AsyncSession,
+    where: Sequence[ColumnElement[bool]],
+    sort: SortOrder,
+    reverse: bool,
+    limit: int,
+) -> list[int]:
+    """The first ids of every match, collected and then sorted. MATERIALIZED keeps PostgreSQL
+    from turning this back into an unbounded walk."""
     matched = (
         select(Mail.id, _sort_key.label("key"))
-        .where(*start, *where)
+        .where(*where)
         .cte("matched")
         .prefix_with("MATERIALIZED")
     )
     return list(await session.scalars(_ordered(matched, sort, reverse, limit)))
+
+
+async def resolve_contents(
+    session: AsyncSession, where: Sequence[ColumnElement[bool]]
+) -> list[ColumnElement[bool]]:
+    """where with its research filters resolved when one of them names at most CONTENT_ROWS
+    contents: to the list of the contents all of them allow, or with other conditions than
+    ranges (see _ranges), to the list of the matching mails' ids.
+
+    A research filter is a small table, but PostgreSQL estimates a person or a domain to have a
+    few dozen mails even when it has 30,000, starts from them and reads all of them to find the
+    40 of a tag. So the mails of the listed contents are looked up first (ix_mail_raw_sha256),
+    behind OFFSET 0 so that PostgreSQL cannot reorder that, and the other conditions are checked
+    on them only, the way the walk checks them on its window.
+    """
+    listed: set[str] | None = None
+    rest = []
+    for condition in where:
+        contents = _contents(condition)
+        found: set[str] = (
+            set()
+            if contents is None
+            else set(await session.scalars(contents.distinct().limit(CONTENT_ROWS + 1)))
+        )
+        if contents is None or len(found) > CONTENT_ROWS:
+            rest.append(condition)
+        else:
+            listed = found if listed is None else listed & found
+    if listed is None:
+        return list(where)
+    ranges = [condition for condition in rest if _ranges(condition)]
+    in_listed = _raw_sha256 == any_(literal(sorted(listed), ARRAY(Text)))
+    if len(ranges) == len(rest):
+        return [in_listed, *ranges]
+    candidates = select(*Mail.__table__.c).where(in_listed, *ranges).offset(0).subquery("listed")
+    on_candidates = ClauseAdapter(candidates).traverse
+    others = [on_candidates(condition) for condition in rest if not _ranges(condition)]
+    ids = await session.scalars(select(candidates.c.id).where(*others))
+    return [_mail_id == any_(literal(sorted(ids), ARRAY(BigInteger)))]
+
+
+def _contents(condition: ColumnElement[bool]) -> Select[str] | None:
+    """The contents a research filter allows (see _content_in); None for other conditions."""
+    if (
+        isinstance(condition, BinaryExpression)
+        and condition.left is _raw_sha256
+        and condition.operator is operators.in_op
+        and isinstance(condition.right, ScalarSelect)
+    ):
+        return cast(Select[str], condition.right.element)
+    return None
+
+
+def _resolved(condition: ColumnElement[bool]) -> bool:
+    """A condition resolve_contents wrote: the mail or its content is one of a list."""
+    return (
+        isinstance(condition, BinaryExpression)
+        and (condition.left is _mail_id or condition.left is _raw_sha256)
+        and condition.operator is operators.eq
+    )
 
 
 def _ranges(condition: ColumnElement[bool]) -> bool:

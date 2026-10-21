@@ -25,13 +25,13 @@ from mailrobbe.enums import (
     MboxStatus,
     ParticipationRole,
     PersonKind,
+    ReviewStatus,
 )
 
 TABLES = {
     "mbox_file",
     "mail",
     "mail_header",
-    "mail_note",
     "person",
     "person_email",
     "participation",
@@ -47,6 +47,14 @@ TABLES = {
     "alias_suggestion",
     "alias_dismissal",
     "job",
+    "mail_mark",
+    "note",
+    "tag",
+    "mail_tag",
+    "collection",
+    "collection_mail",
+    "saved_search",
+    "mail_export",
     "document",
 }
 
@@ -58,6 +66,7 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
     "person_kind": (PersonKind, ["list", "automated"]),
     "job_kind": (JobKind, ["import", "dkim"]),
     "job_status": (JobStatus, ["running", "done", "stopped", "failed"]),
+    "review_status": (ReviewStatus, ["seen", "relevant", "irrelevant"]),
     "document_kind": (
         DocumentKind,
         [
@@ -274,7 +283,9 @@ def test_upgrade_renders_offline_without_database() -> None:
     command.upgrade(config, "head", sql=True)
     sql = buffer.getvalue()
 
-    assert sql.count("CREATE TABLE ") == len(TABLES) + 1
+    # alembic_version, and mail_note of 0003, which 0007 replaces by mail_mark and note
+    assert sql.count("CREATE TABLE ") == len(TABLES) + 2
+    assert "DROP TABLE mail_note;" in sql
     assert "CREATE EXTENSION IF NOT EXISTS pg_trgm;" in sql
     assert (
         "CREATE TYPE dkim_status AS ENUM ('pass', 'fail', 'no_key', 'unsigned', 'temp_error');"
@@ -303,12 +314,56 @@ def test_upgrade_renders_offline_without_database() -> None:
         in sql
     )
     assert (
-        "UPDATE alembic_version SET version_num='0008' WHERE alembic_version.version_num = '0006'"
+        "UPDATE alembic_version SET version_num='0007' WHERE alembic_version.version_num = '0006'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0008' WHERE alembic_version.version_num = '0007'"
         in sql
     )
 
 
 @pytest.mark.db
+async def test_research_migration_keeps_flags_and_notes(empty_database_url: str) -> None:
+    """0007 turns D23's flag and note into a mark and a note keyed by content, and back."""
+
+    async def sql(statement: str) -> list[tuple[Any, ...]]:
+        engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)
+        try:
+            async with engine.begin() as connection:
+                result = await connection.execute(text(statement))
+                return [tuple(row) for row in result] if result.returns_rows else []
+        finally:
+            await engine.dispose()
+
+    await asyncio.to_thread(migrate.upgrade, "0006", empty_database_url)
+    await sql(
+        "INSERT INTO mbox_file (id, path, size_bytes) OVERRIDING SYSTEM VALUE VALUES (1, 'a', 9)"
+    )
+    await sql(
+        "INSERT INTO mail (id, mbox_file_id, byte_offset, byte_length, raw_sha256)"
+        " OVERRIDING SYSTEM VALUE VALUES (1, 1, 0, 3, 'aa'), (2, 1, 3, 3, 'bb'), (3, 1, 6, 3, 'aa')"
+    )
+    await sql(
+        "INSERT INTO mail_note (mail_id, flagged, note) VALUES"
+        " (1, true, ''), (2, false, 'Rückruf bei Eva'), (3, false, 'Kopie')"
+    )
+    await asyncio.to_thread(migrate.upgrade, "head", empty_database_url)
+    assert await sql("SELECT mail_sha256, flagged, flagged_at IS NOT NULL FROM mail_mark") == [
+        ("aa", True, True)
+    ]
+    assert await sql("SELECT mail_sha256, body, author FROM note ORDER BY id") == [
+        ("bb", "Rückruf bei Eva", None),
+        ("aa", "Kopie", None),
+    ]
+
+    await asyncio.to_thread(migrate.downgrade, "0006", empty_database_url)
+    assert await sql("SELECT mail_id, flagged, note FROM mail_note ORDER BY mail_id") == [
+        (1, True, "Kopie"),
+        (2, False, "Rückruf bei Eva"),
+    ]
+
+
 async def test_0008_numbers_the_attachments_of_older_imports(empty_database_url: str) -> None:
     await asyncio.to_thread(migrate.upgrade, "0006", empty_database_url)
     engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)

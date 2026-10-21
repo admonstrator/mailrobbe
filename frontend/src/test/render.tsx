@@ -62,6 +62,14 @@ function documentApi(id: number, endpoint: string | undefined): unknown {
 export function fixtureApi({ method, url }: ApiCall): unknown {
   const path = url.pathname;
   if (path === "/api/stats") return fx.stats;
+  if (path === "/api/research") return fx.research;
+  if (path === "/api/research/themes") return fx.themes;
+  if (path === "/api/research/starter") return { ...fx.research, starter_missing: 0 };
+  if (method === "GET" && /^\/api\/collections\/\d+$/.test(path)) return fx.collectionDetail;
+  if (path === "/api/notes") return fx.notePage;
+  if (path === "/api/exports" && method === "GET") return fx.exports;
+  if (path === "/api/exports") return Response.json(fx.exports[0], { status: 201 });
+  if (path.startsWith("/api/permalink/")) return fx.permalink;
   if (path === "/api/mbox-files") return fx.mboxFiles;
   if (path === "/api/stats/sender-domains") return fx.stats.sender_domains;
   if (path === "/api/mails/summary") {
