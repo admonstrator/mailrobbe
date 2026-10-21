@@ -72,6 +72,14 @@ describe("sizes and labels", () => {
     expect(nodeLabel({ name: "  ", email: "info@x.example" })).toBe("info");
   });
 
+  it("label named nodes with the team's name first (D157)", () => {
+    const anna = { name: "Anna Keller", email: "anna@x.example" };
+    expect(nodeLabel({ ...anna, label: { name: "Kassenwartin", role: null } })).toBe(
+      "Kassenwartin",
+    );
+    expect(nodeLabel({ ...anna, label: { name: null, role: "Vorstand" } })).toBe("Anna Keller");
+  });
+
   it("give big nodes and centers bigger labels", () => {
     expect(labelFont(12, false)).toBe(11);
     expect(labelFont(64, false)).toBe(29);

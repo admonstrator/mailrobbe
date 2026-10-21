@@ -21,7 +21,7 @@ export function PersonBadge({
 }) {
   return (
     <span className={styles.badge}>
-      <Avatar personId={person.id} name={person.name} email={person.email} />
+      <Avatar personId={person.id} name={person.label?.name || person.name} email={person.email} />
       <span className={styles.text}>
         {link ? (
           <Link to={personPath(person.id)} className={styles.name}>
@@ -30,7 +30,9 @@ export function PersonBadge({
         ) : (
           <span className={styles.name}>{personLabel(person)}</span>
         )}
-        {person.name && <span className={styles.address}>{person.email}</span>}
+        {(person.label?.name || person.name) && (
+          <span className={styles.address}>{person.email}</span>
+        )}
         <span className={styles.meta}>
           {formatNumber(person.figures.mails)} Mails
           {children}

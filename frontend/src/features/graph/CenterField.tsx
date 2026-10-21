@@ -5,6 +5,7 @@ import type { Graph, PersonSummary } from "../../api/types";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { useDebounced } from "../../lib/useDebounced";
 import { nodeLabel } from "./elements";
 import styles from "./GraphSidebar.module.css";
@@ -142,7 +143,7 @@ export function CenterField({
                     onMouseEnter={() => setActive(index)}
                     onClick={() => pick(person)}
                   >
-                    <span className={styles.resultName}>{person.name || person.email}</span>
+                    <span className={styles.resultName}>{personName(person)}</span>
                     <span className={styles.resultMeta}>
                       <span className={cx("mono", styles.resultEmail)}>{person.email}</span>
                       <span className={styles.resultCount}>

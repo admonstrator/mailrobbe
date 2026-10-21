@@ -87,9 +87,10 @@ export function NodePanel({
   return (
     <aside className={styles.panel} aria-label="Ausgewählte Person">
       <div className={styles.head}>
-        <Avatar personId={node.id} name={node.name} email={node.email} />
+        <Avatar personId={node.id} name={node.label?.name || node.name} email={node.email} />
         <div className={styles.who}>
           <strong className={styles.name}>{nodeLabel(node)}</strong>
+          {node.label?.role && <span className={styles.labelRole}>{node.label.role}</span>}
           <span className={`mono ${styles.email}`} title={node.email}>
             {node.email}
           </span>

@@ -135,7 +135,9 @@ function Persons({ persons }: { persons: PersonRef[] }) {
     <Fragment key={`${person.person_id}-${person.email}`}>
       {index > 0 && ", "}
       <PersonLink person={person} />
-      {person.name && <span className={styles.address}> ({person.email})</span>}
+      {(person.label?.name || person.name) && (
+        <span className={styles.address}> ({person.email})</span>
+      )}
     </Fragment>
   ));
 }

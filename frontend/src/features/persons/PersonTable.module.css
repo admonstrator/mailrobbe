@@ -88,6 +88,12 @@
   font-size: 12px;
 }
 
+.role {
+  margin-left: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
 .domain {
   color: var(--color-nav);
   overflow-wrap: anywhere;

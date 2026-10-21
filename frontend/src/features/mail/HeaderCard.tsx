@@ -27,7 +27,7 @@ function People({ people, strong }: { people: Participant[]; strong?: boolean })
   return people.map((person, index) => (
     <Fragment key={person.person_id}>
       {index > 0 && ", "}
-      {person.name ? (
+      {person.label?.name || person.name ? (
         <>
           <PersonLink person={person} className={cx(styles.person, strong && styles.strong)} />{" "}
           <span className={styles.address}>&lt;{person.email}&gt;</span>

@@ -37,6 +37,13 @@
   overflow-wrap: anywhere;
 }
 
+.labelRole {
+  max-width: 100%;
+  color: var(--color-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .email {
   max-width: 100%;
   overflow: hidden;

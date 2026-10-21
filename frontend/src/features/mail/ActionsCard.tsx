@@ -2,6 +2,7 @@ import { Link } from "react-router";
 
 import type { MailDetail } from "../../api/types";
 import { Card, CardTitle } from "../../components/Card";
+import { personName } from "../../lib/person";
 import styles from "./ActionsCard.module.css";
 
 export function ActionsCard({ mail, onShowRaw }: { mail: MailDetail; onShowRaw: () => void }) {
@@ -35,7 +36,7 @@ export function ActionsCard({ mail, onShowRaw }: { mail: MailDetail; onShowRaw: 
           to={`/mails?between=${sender.person_id}&between=${recipient.person_id}`}
           className={styles.action}
         >
-          Alle Mails zwischen {sender.name || sender.email} und {recipient.name || recipient.email}
+          Alle Mails zwischen {personName(sender)} und {personName(recipient)}
         </Link>
       )}
     </Card>
