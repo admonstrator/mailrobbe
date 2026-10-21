@@ -26,12 +26,10 @@ page shows as a key with 0 signatures.
 import base64
 import binascii
 import hashlib
-import ipaddress
 import logging
 import mimetypes
 import re
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 
 import fastapi
 from fastapi import APIRouter, HTTPException, Query
@@ -49,7 +47,6 @@ from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _keys_job, _start,
 from mailrobbe.api.schemas import (
     EVIDENCE_FILE_LIMIT,
     SELECTOR_MAILS_LIMIT,
-    ArchiveDomain,
     DkimKeysJob,
     DkimKeysRunRequest,
     KeyArchivePreview,
@@ -62,7 +59,6 @@ from mailrobbe.api.schemas import (
     SelectorPage,
     SelectorSummary,
 )
-from mailrobbe.config import Settings
 from mailrobbe.db.models import (
     DkimKey,
     DkimKeyEvidence,
@@ -71,15 +67,12 @@ from mailrobbe.db.models import (
     DnsCache,
     Mail,
 )
-from mailrobbe.dkim.keys.identity import key_identity, split_key_name
-from mailrobbe.dkim.keys.store import Evidence, save_evidence, save_lookup
-from mailrobbe.dkim.resolver import is_reserved
+from mailrobbe.dkim.keys import store, zkemail
+from mailrobbe.dkim.keys.identity import split_key_name
+from mailrobbe.dkim.keys.store import NAMED, NOT_DUPLICATE
 from mailrobbe.enums import (
     DkimStatus,
     JobKind,
-    KeyLookupSource,
-    KeyOrigin,
-    LookupOutcome,
 )
 
 router = APIRouter(prefix="/api", tags=["keys"])
@@ -88,10 +81,6 @@ log = logging.getLogger(__name__)
 LookupId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
 
 # The SQL below names statuses and origins by their values, which are fixed by the migrations.
-_NOT_DUPLICATE = (
-    "NOT EXISTS (SELECT FROM mail d WHERE d.id = r.mail_id AND d.is_duplicate_of IS NOT NULL)"
-)
-_NAMED = "r.domain IS NOT NULL AND r.selector IS NOT NULL"
 _OPEN = (
     "r.status = 'no_key' OR (r.status = 'fail' AND r.reason = 'signature_mismatch' "
     "AND r.body_hash_ok)"
@@ -116,13 +105,13 @@ def _names(where: str) -> str:
                count(*) FILTER (WHERE r.key_id IS NOT NULL) AS resolved
                {_STATUSES}
         FROM dkim_result r
-        WHERE {_NAMED} AND {_NOT_DUPLICATE} AND {where}
+        WHERE {NAMED} AND {NOT_DUPLICATE} AND {where}
         GROUP BY r.domain, r.selector
     ),
     repeated AS (
         SELECT r.domain, r.selector, count(*) AS signatures
         FROM dkim_result r
-        WHERE r.signature_index > 0 AND {_NAMED} AND {_NOT_DUPLICATE} AND {where}
+        WHERE r.signature_index > 0 AND {NAMED} AND {NOT_DUPLICATE} AND {where}
           AND EXISTS (
               SELECT FROM dkim_result e
               WHERE e.mail_id = r.mail_id AND e.signature_index < r.signature_index
@@ -165,67 +154,9 @@ _ONE_NAME = "r.domain = :domain AND r.selector = :selector"
 # The selector list and its summary ------------------------------------------------------------
 
 
-_ORIGIN_COUNTS = "".join(
-    f", count(*) FILTER (WHERE r.key_origin = '{origin}') AS origin_{origin}"
-    for origin in KeyOrigin
-)
-_ORIGIN_SUMS = "".join(f", COALESCE(sum(origin_{o}), 0) AS origin_{o}" for o in KeyOrigin)
-_SUMMARY_NAMES = text(f"""
-    WITH names AS (
-        SELECT count(*) FILTER (WHERE r.status = 'no_key') AS no_key,
-               count(*) FILTER (WHERE r.algorithm LIKE 'rsa-%') AS rsa_signatures,
-               count(*) FILTER (WHERE r.key_id IS NOT NULL) AS resolved
-               {_ORIGIN_COUNTS}
-        FROM dkim_result r
-        WHERE {_NAMED} AND {_NOT_DUPLICATE}
-        GROUP BY r.domain, r.selector
-    )
-    SELECT count(*) FILTER (WHERE no_key > 0) AS names_missing,
-           count(*) FILTER (WHERE no_key > 0 AND rsa_signatures >= 2) AS reconstructable,
-           count(*) FILTER (WHERE resolved > 0) AS names_resolved
-           {_ORIGIN_SUMS}
-    FROM names
-""")
-# Mails by status through ix_mail_dkim_sort, less the duplicates through ix_mail_is_duplicate_of.
-_SUMMARY_MAILS = text("""
-    SELECT (SELECT count(*) FROM mail WHERE dkim_status = 'no_key')
-           - (SELECT count(*) FROM mail
-              WHERE is_duplicate_of IS NOT NULL AND dkim_status = 'no_key') AS no_key,
-           (SELECT count(*) FROM mail WHERE dkim_status = 'consistent')
-           - (SELECT count(*) FROM mail
-              WHERE is_duplicate_of IS NOT NULL AND dkim_status = 'consistent') AS consistent
-""")
-
-
 @router.get("/dkim/selectors/summary")
 async def selector_summary(session: Session) -> SelectorSummary:
-    names = (await session.execute(_SUMMARY_NAMES)).one()
-    mails = (await session.execute(_SUMMARY_MAILS)).one()
-    keys = dict.fromkeys(KeyOrigin, 0)
-    factorable = 0
-    for origin, number, broken in await session.execute(
-        select(DkimKey.origin, count(), count().filter(DkimKey.factorable)).group_by(DkimKey.origin)
-    ):
-        keys[origin] = number
-        factorable += broken
-    lookups = dict.fromkeys(KeyLookupSource, 0)
-    for source, number in await session.execute(
-        select(DkimKeyLookup.source, count()).group_by(DkimKeyLookup.source)
-    ):
-        if source in lookups:
-            lookups[KeyLookupSource(source)] = number
-    return SelectorSummary(
-        names_missing=names.names_missing,
-        mails_missing=mails.no_key,
-        reconstructable=names.reconstructable,
-        names_resolved=names.names_resolved,
-        mails_consistent=mails.consistent,
-        keys=keys,
-        factorable=factorable,
-        signatures={origin: getattr(names, f"origin_{origin}") for origin in KeyOrigin},
-        lookups=lookups,
-        last_lookup_at=await session.scalar(select(func.max(DkimKeyLookup.asked_at))),
-    )
+    return await store.selector_summary(session)
 
 
 @router.get("/dkim/selectors")
@@ -401,8 +332,6 @@ def _key_name(name: str) -> str:
 
 # Manual keys (D103) --------------------------------------------------------------------------
 
-_BASE64 = re.compile(r"[A-Za-z0-9+/]+={0,2}")
-_QUOTED = re.compile(r'"((?:[^"\\]|\\.)*)"')
 _DATA_URL = re.compile(r"data:([^,;]*)(?:;[^,;]*)*;base64,", re.IGNORECASE)
 _MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
 
@@ -420,16 +349,29 @@ async def add_key(
     name = _key_name(name)
     if await _name_figures(session, name) is None:
         raise api_error(404, "not_found", f"no signature names the key {name}")
-    record = manual_record(request.record)
-    if key_identity(record) is None:
-        raise api_error(400, "invalid_key", "the record holds no usable DKIM key")
     if (
         request.observed_from
         and request.observed_to
         and request.observed_from > request.observed_to
     ):
         raise api_error(400, "invalid_option", "observed_from is after observed_to")
-    key_id = await add_manual_key(session, name, record, request, editor)
+    file = _evidence_file(request)
+    try:
+        key_id = await store.add_manual_key(
+            session,
+            name,
+            request.record,
+            reference=request.reference.strip(),
+            note=request.note.strip() or None,
+            observed_from=request.observed_from,
+            observed_to=request.observed_to,
+            file_name=None if file is None else (request.file_name or "beleg"),
+            file_bytes=None if file is None else file[0],
+            file_type=None if file is None else file[1],
+            editor=editor,
+        )
+    except store.KeyRejected as error:
+        raise api_error(400, "invalid_key", str(error)) from None
     await session.commit()
     try:
         arguments = ["check", f"--name={name}"]
@@ -438,52 +380,6 @@ async def add_key(
     except HTTPException as error:
         log.info("key %d of %s waits for the next check: %s", key_id, name, error.detail)
     return await _selector(session, name)
-
-
-async def add_manual_key(
-    session: AsyncSession, name: str, record: str, request: ManualKeyRequest, editor: str | None
-) -> int:
-    """The lookup of source manual with the evidence file as its answer, and the key with
-    evidence of origin documented; the key's id. Runs in the caller's transaction."""
-    domain = name.partition("._domainkey.")[2]
-    file = _evidence_file(request)
-    lookup_id = await save_lookup(
-        session,
-        KeyLookupSource.MANUAL,
-        name,
-        LookupOutcome.FOUND,
-        domain=domain,
-        name=name,
-        raw=None if file is None else file[0],
-        raw_type=None if file is None else file[1],
-        raw_name=None if file is None else (request.file_name or "beleg"),
-        editor=editor,
-    )
-    evidence = Evidence(
-        origin=KeyOrigin.DOCUMENTED,
-        observed_from=request.observed_from,
-        observed_to=request.observed_to,
-        reference=request.reference.strip(),
-        note=request.note.strip() or None,
-        details={"record": request.record},  # as entered
-        editor=editor,
-    )
-    key_id = await save_evidence(session, lookup_id, name, record, evidence)
-    assert key_id is not None, "the record was checked"
-    return key_id
-
-
-def manual_record(entered: str) -> str:
-    """The key record of what a person entered: the record itself, a record as a zone file
-    quotes it ("v=DKIM1; k=rsa; " "p=MIIB..."), or only the p= value."""
-    value = entered.strip()
-    quoted = _QUOTED.findall(value)
-    if quoted:
-        value = "".join(part.replace('\\"', '"') for part in quoted)
-    bare = re.sub(r"\s+", "", value)
-    if _BASE64.fullmatch(bare):
-        return f"v=DKIM1; k=rsa; p={bare}"
-    return value
 
 
 def _evidence_file(request: ManualKeyRequest) -> tuple[bytes, str] | None:
@@ -548,64 +444,12 @@ def _extension(media_type: str) -> str:
 
 # The key archive's preview (D102) ------------------------------------------------------------
 
-# Per domain the names with an open or resolved signature and the mails carrying one, in one
-# scan; a resolved name may still gain a stronger origin from the archive.
-_ARCHIVE_DOMAINS = text(f"""
-    SELECT r.domain,
-           count(DISTINCT r.selector) AS names,
-           count(DISTINCT r.mail_id) AS mails
-    FROM dkim_result r
-    WHERE {_NAMED} AND {_NOT_DUPLICATE} AND ({_OPEN} OR r.key_id IS NOT NULL)
-    GROUP BY r.domain
-""")
-
 
 @router.get("/dkim/archive/preview")
 async def archive_preview(session: Session, settings: AppSettings) -> KeyArchivePreview:
     """The domains a fetch would ask the key archive for, before anything is sent."""
-    url = archive_url(settings)
-    local = url is not None and _loopback(url)
-    asked, skipped = [], []
-    for row in await session.execute(_ARCHIVE_DOMAINS):
-        if is_reserved(row.domain) and not local:
-            skipped.append(row.domain)
-        else:
-            asked.append(row)
-    asked_at = await session.execute(
-        select(DkimKeyLookup.domain, func.max(DkimKeyLookup.asked_at))
-        .where(
-            DkimKeyLookup.source == KeyLookupSource.ZKEMAIL.value,
-            DkimKeyLookup.domain.in_([row.domain for row in asked]),
-        )
-        .group_by(DkimKeyLookup.domain)
-    )
-    last = {domain: at for domain, at in asked_at}
-    domains = [
-        ArchiveDomain(
-            domain=row.domain, names=row.names, mails=row.mails, last_asked_at=last.get(row.domain)
-        )
-        for row in asked
-    ]
-    domains.sort(key=lambda item: (-item.mails, item.domain.encode()))
-    return KeyArchivePreview(url=url, domains=domains, skipped=sorted(skipped, key=str.encode))
-
-
-def archive_url(settings: Settings) -> str | None:
-    """The key archive's base URL; None when MAILROBBE_DKIM_KEY_ARCHIVE_URL is off."""
-    url = settings.dkim_key_archive_url.strip()
-    return None if url.lower() in ("", "off") else url.rstrip("/")
-
-
-def _loopback(url: str) -> bool:
-    """Whether the archive runs on this machine: only such an archive is asked for domains
-    under reserved TLDs (D102)."""
-    host = (urlsplit(url).hostname or "").lower()
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    plan = await zkemail.fetch_plan(session, zkemail.archive_url(settings))
+    return KeyArchivePreview.model_validate(plan, from_attributes=True)
 
 
 # Runs (D101) -------------------------------------------------------------------------------
@@ -623,7 +467,7 @@ async def start_keys(
         raise api_error(400, "invalid_option", f"the task {run.task} takes no key names")
     if run.domains and run.task != "fetch":
         raise api_error(400, "invalid_option", f"the task {run.task} takes no domains")
-    if run.task == "fetch" and archive_url(settings) is None:
+    if run.task == "fetch" and zkemail.archive_url(settings) is None:
         raise api_error(409, "archive_off", "the key archive is switched off")
     arguments += [f"--name={name}" for name in dict.fromkeys(map(_key_name, run.names))]
     arguments += [f"--domain={domain}" for domain in dict.fromkeys(map(_domain, run.domains))]

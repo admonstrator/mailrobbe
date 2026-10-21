@@ -72,6 +72,7 @@ from mailrobbe.db.models import (
 )
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
+from mailrobbe.dkim.keys.store import load_candidates
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
 from mailrobbe.mbox import read_verified
@@ -224,9 +225,12 @@ async def recheck_dkim(mail_id: MailId, session: Session, settings: AppSettings)
     """Check the mail again (SPEC 3.4, D13): keys that were missing or timed out are asked anew."""
     message = await stored_message(session, settings, mail_id)
     answers = await store.load_dns_cache(session)
+    candidates = await load_candidates(session)  # keys of deleted selectors (D100)
     await session.commit()  # no transaction stays open while DNS answers
     try:
-        checker = DkimChecker.from_settings(settings, preload=answers, refresh_negative=True)
+        checker = DkimChecker.from_settings(
+            settings, preload=answers, refresh_negative=True, candidates=candidates
+        )
     except (OSError, ValueError) as error:
         log.error(
             "cannot recheck DKIM of mail %d, the DKIM DNS settings are wrong: %s", mail_id, error

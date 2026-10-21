@@ -1,23 +1,13 @@
-"""What the RSA equation of one DKIM signature needs (D104, D105): s^e = m (mod n), with s the
-signature (b=) as a number and m the header hash encoded per EMSA-PKCS1-v1_5 for the key's size.
-
-A stand-in with the verifier's own parsing and header hash (dkim.verify), until dkim/keys offers
-the signature material the reconstruction works with; the export reads it from here.
+"""What the RSA equation of one exported DKIM signature needs (D104, D105): s^e = m (mod n), with
+s the signature (b=) as a number and m the header hash encoded per EMSA-PKCS1-v1_5 for the key's
+size, both as the reconstruction computes them (dkim.verify.signature_material,
+dkim.keys.reconstruct.encoded_message).
 """
 
 from dataclasses import dataclass
 
-import dkim
-from dkim.util import InvalidTagValueList, parse_tag_value
-
-from mailrobbe.dkim import verify
-from mailrobbe.enums import DkimReason
-
-# DER of DigestInfo up to the digest (RFC 8017 9.2, note 1)
-DIGEST_INFO = {
-    "sha256": bytes.fromhex("3031300d060960864801650304020105000420"),
-    "sha1": bytes.fromhex("3021300906052b0e03021a05000414"),
-}
+from mailrobbe.dkim.keys import reconstruct
+from mailrobbe.dkim.verify import signature_material as signatures_of
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,28 +22,18 @@ class SignatureMaterial:
 
 
 def encoded_message(digest: bytes, hash_name: str, bits: int) -> int:
-    size = (bits + 7) // 8
-    info = DIGEST_INFO[hash_name] + digest
-    return int.from_bytes(b"\x00\x01" + b"\xff" * (size - len(info) - 3) + b"\x00" + info)
+    message = reconstruct.encoded_message(hash_name, digest, (bits + 7) // 8)
+    if message is None:
+        raise ValueError(f"no PKCS#1 v1.5 encoding of a {hash_name} digest for {bits} bits")
+    return message
 
 
 def signature_material(raw: bytes, index: int) -> SignatureMaterial | None:
     """The material of the index-th DKIM-Signature field of raw (topmost 0), as verify_mail
     checks it; None when that is no valid RSA signature or the header cannot be parsed."""
-    header_end, body_start = verify._split(raw)
-    try:
-        headers, _ = dkim.rfc822_parse(raw[:header_end])
-    except Exception:  # as in verify_mail
-        return None
-    fields = [(name, value) for name, value in headers if name.lower() == b"dkim-signature"]
-    if index >= len(fields):
-        return None
-    name, value = fields[index]
-    try:
-        signature = verify._parse_signature(parse_tag_value(value))
-    except InvalidTagValueList:
-        return None
-    if isinstance(signature, DkimReason) or signature.key_type != b"rsa":
-        return None
-    digest = verify._Mail(raw, body_start, headers)._header_hash(name, value, signature)
-    return SignatureMaterial(int.from_bytes(signature.signature), digest, signature.hash_name)
+    for material in signatures_of(raw):
+        if material.index == index and material.key_type == "rsa":
+            return SignatureMaterial(
+                int.from_bytes(material.signature), material.header_hash, material.hash_name
+            )
+    return None

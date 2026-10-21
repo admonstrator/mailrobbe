@@ -29,7 +29,6 @@ from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe.api import keys
-from mailrobbe.api.keys import manual_record
 from mailrobbe.api.schemas import (
     DkimKeyInfo,
     KeyEvidenceInfo,
@@ -493,16 +492,6 @@ async def test_unknown_names(dashboard: Dashboard) -> None:
 
 
 # Manual keys and raw answers ------------------------------------------------------------------
-
-
-def test_a_manual_record_as_entered() -> None:
-    record = "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx"
-    assert manual_record(f"  {record}\n") == record
-    assert manual_record("MIIBIjANBgkqh\n  kiG9w0BAQEFAAOC") == (
-        "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOC"
-    )
-    zone = 'sel._domainkey IN TXT ( "v=DKIM1; k=rsa; " "p=MIIBIjAN" \n "BgkqhkiG" )'
-    assert manual_record(zone) == "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG"
 
 
 async def _open_name(url: str, retired: Retired) -> str:

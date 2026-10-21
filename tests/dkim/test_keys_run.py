@@ -322,7 +322,7 @@ def test_reconstruct_rebuilds_the_keys_of_retired_selectors(
     assert steps["check"] == ("done", "mails", mails, mails)
     assert all(steps[key][0] == "done" for key in aggregates.STEPS)
     assert job["message"] == (
-        f"reconstruct: 2 key names, 1 keys found, 0 factorable; {mails} mails checked, "
+        f"reconstruct: 2 key names, 1 key found, 0 factorable; {mails} mails checked, "
         f"{mails} changed"
     )
 

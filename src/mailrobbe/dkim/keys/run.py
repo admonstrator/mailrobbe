@@ -178,12 +178,18 @@ async def run_keys(
 def _one_line(summary: KeysSummary) -> str:
     """The summary in one line, for job.message."""
     line = (
-        f"{summary.task}: {summary.names} key names, {summary.keys_found} keys found, "
-        f"{summary.factorable} factorable; {summary.mails_checked} mails checked, "
-        f"{summary.mails_changed} changed"
+        f"{summary.task}: {_many(summary.names, 'key name')}, "
+        f"{_many(summary.keys_found, 'key')} found, {summary.factorable} factorable; "
+        f"{_many(summary.mails_checked, 'mail')} checked, {summary.mails_changed} changed"
     )
     skipped = len(summary.skipped_domains)
-    return f"{line}; {skipped} domains under reserved TLDs skipped" if skipped else line
+    if skipped:
+        line += f"; {_many(skipped, 'domain')} under reserved TLDs skipped"
+    return line
+
+
+def _many(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 class _CheckTally(CheckTally):

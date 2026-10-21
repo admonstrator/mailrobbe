@@ -21,13 +21,13 @@ from datetime import datetime
 from importlib.metadata import version
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select, tuple_, update
+from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from mailrobbe.api.schemas import SelectorSummary
-from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult, Mail
-from mailrobbe.dkim.keys.identity import KEY_NAME_INFIX, key_identity, split_key_name
+from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult
+from mailrobbe.dkim.keys.identity import key_identity, split_key_name
 from mailrobbe.dkim.model import CandidateKey
 from mailrobbe.enums import (
     KEY_ORIGIN_RANK,
@@ -51,6 +51,15 @@ CONCERNED = or_(
         DkimResult.reason == DkimReason.SIGNATURE_MISMATCH.value,
         DkimResult.body_hash_ok.is_(True),
     ),
+)
+
+
+# SQL conditions on dkim_result r for figures per key name (the API's selector pages too): a
+# signature with a key name, on a mail that is no duplicate (an anti join with the few
+# duplicates through ix_mail_is_duplicate_of reads no other mail row).
+NAMED = "r.domain IS NOT NULL AND r.selector IS NOT NULL"
+NOT_DUPLICATE = (
+    "NOT EXISTS (SELECT FROM mail d WHERE d.id = r.mail_id AND d.is_duplicate_of IS NOT NULL)"
 )
 
 
@@ -233,7 +242,8 @@ def manual_record(text: str) -> str | None:
     """
     strings = _QUOTED.findall(text)
     record = "".join(strings) if strings else text.strip()
-    for form in (record, f"v=DKIM1; k=rsa; p={record}", f"v=DKIM1; k=ed25519; p={record}"):
+    bare = re.sub(r"\s+", "", record)  # a p= value copied over several lines
+    for form in (record, f"v=DKIM1; k=rsa; p={bare}", f"v=DKIM1; k=ed25519; p={bare}"):
         if key_identity(form) is not None:
             return form
     return None
@@ -250,6 +260,7 @@ async def add_manual_key(
     observed_to: datetime | None = None,
     file_name: str | None = None,
     file_bytes: bytes | None = None,
+    file_type: str | None = None,
     editor: str | None = None,
 ) -> int:
     """Store a key a person found elsewhere (D103); its key id. Raises KeyRejected.
@@ -270,7 +281,7 @@ async def add_manual_key(
         raw, raw_type = record.encode("utf-8"), "text/plain; charset=utf-8"
     else:
         guessed, _ = mimetypes.guess_type(file_name or "")
-        raw, raw_type = file_bytes, guessed or "application/octet-stream"
+        raw, raw_type = file_bytes, file_type or guessed or "application/octet-stream"
     lookup_id = await save_lookup(
         db,
         KeyLookupSource.MANUAL,
@@ -297,65 +308,60 @@ async def add_manual_key(
     return key_id
 
 
+_ORIGIN_COUNTS = "".join(
+    f", count(*) FILTER (WHERE r.key_origin = '{origin}') AS origin_{origin}"
+    for origin in KeyOrigin
+)
+_ORIGIN_SUMS = "".join(f", COALESCE(sum(origin_{o}), 0) AS origin_{o}" for o in KeyOrigin)
+_SUMMARY_NAMES = text(f"""
+    WITH names AS (
+        SELECT count(*) FILTER (WHERE r.status = 'no_key') AS no_key,
+               count(*) FILTER (WHERE r.algorithm LIKE 'rsa-%') AS rsa_signatures,
+               count(*) FILTER (WHERE r.key_id IS NOT NULL) AS resolved
+               {_ORIGIN_COUNTS}
+        FROM dkim_result r
+        WHERE {NAMED} AND {NOT_DUPLICATE}
+        GROUP BY r.domain, r.selector
+    )
+    SELECT count(*) FILTER (WHERE no_key > 0) AS names_missing,
+           count(*) FILTER (WHERE no_key > 0 AND rsa_signatures >= 2) AS reconstructable,
+           count(*) FILTER (WHERE resolved > 0) AS names_resolved
+           {_ORIGIN_SUMS}
+    FROM names
+""")
+# Mails by status through ix_mail_dkim_sort, less the duplicates through ix_mail_is_duplicate_of.
+_SUMMARY_MAILS = text("""
+    SELECT (SELECT count(*) FROM mail WHERE dkim_status = 'no_key')
+           - (SELECT count(*) FROM mail
+              WHERE is_duplicate_of IS NOT NULL AND dkim_status = 'no_key') AS no_key,
+           (SELECT count(*) FROM mail WHERE dkim_status = 'consistent')
+           - (SELECT count(*) FROM mail
+              WHERE is_duplicate_of IS NOT NULL AND dkim_status = 'consistent') AS consistent
+""")
+
+
 async def selector_summary(db: Executor) -> SelectorSummary:
     """The figures of the dashboard card "Gelöschte Selektoren" (and `mailrobbe dkim-keys
-    status`), live. Key names are normalised as the checker forms them (lowercase, d= without a
-    trailing dot); "2 distinct RSA signatures" counts mails that are no duplicates."""
-    name = func.concat(
-        func.lower(DkimResult.selector),
-        KEY_NAME_INFIX,
-        func.lower(func.rtrim(DkimResult.domain, ".")),
-    ).label("name")
-    rsa_mails = func.count(DkimResult.mail_id.distinct()).filter(
-        DkimResult.algorithm.like("rsa-%"), Mail.is_duplicate_of.is_(None)
-    )
-    missing = (
-        select(name, rsa_mails.label("rsa_mails"))
-        .join(Mail, Mail.id == DkimResult.mail_id)
-        .where(
-            DkimResult.status == DkimStatus.NO_KEY,
-            DkimResult.domain.is_not(None),
-            DkimResult.selector.is_not(None),
-        )
-        .group_by(name)
-        .subquery()
-    )
-    names_missing, reconstructable = (
-        await db.execute(
-            select(func.count(), func.count().filter(missing.c.rsa_mails >= 2)).select_from(missing)
-        )
-    ).one()
-    resolved = select(name).where(DkimResult.key_id.is_not(None)).distinct().subquery()
-    names_resolved = await db.scalar(select(func.count()).select_from(resolved))
-    mails = await _counts(
-        db,
-        select(Mail.dkim_status, func.count())
-        .where(Mail.dkim_status.in_([DkimStatus.NO_KEY, DkimStatus.CONSISTENT]))
-        .group_by(Mail.dkim_status),
-    )
+    status`), live, over the mails that are no duplicates: one scan of dkim_result grouped by
+    key name, the mails through the indexes on mail.dkim_status and is_duplicate_of."""
+    names = (await db.execute(_SUMMARY_NAMES)).one()
+    mails = (await db.execute(_SUMMARY_MAILS)).one()
     keys = await _counts(db, select(DkimKey.origin, func.count()).group_by(DkimKey.origin))
     factorable = await db.scalar(select(func.count()).where(DkimKey.factorable.is_(True)))
-    signatures = await _counts(
-        db,
-        select(DkimResult.key_origin, func.count())
-        .where(DkimResult.key_origin.is_not(None))
-        .group_by(DkimResult.key_origin),
-    )
     lookups = await _counts(
         db, select(DkimKeyLookup.source, func.count()).group_by(DkimKeyLookup.source)
     )
-    last_lookup_at = await db.scalar(select(func.max(DkimKeyLookup.asked_at)))
     return SelectorSummary(
-        names_missing=names_missing,
-        mails_missing=mails.get(DkimStatus.NO_KEY, 0),
-        reconstructable=reconstructable,
-        names_resolved=names_resolved or 0,
-        mails_consistent=mails.get(DkimStatus.CONSISTENT, 0),
+        names_missing=names.names_missing,
+        mails_missing=mails.no_key,
+        reconstructable=names.reconstructable,
+        names_resolved=names.names_resolved,
+        mails_consistent=mails.consistent,
         keys={origin: keys.get(origin, 0) for origin in KeyOrigin},
         factorable=factorable or 0,
-        signatures={origin: signatures.get(origin, 0) for origin in KeyOrigin},
+        signatures={origin: getattr(names, f"origin_{origin}") for origin in KeyOrigin},
         lookups={source: lookups.get(source.value, 0) for source in KeyLookupSource},
-        last_lookup_at=last_lookup_at,
+        last_lookup_at=await db.scalar(select(func.max(DkimKeyLookup.asked_at))),
     )
 
 

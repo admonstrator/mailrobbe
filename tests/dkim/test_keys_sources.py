@@ -162,6 +162,8 @@ def test_a_manual_record_in_the_forms_people_paste() -> None:
     quoted = " ".join(f'"{part}"' for part in _chunks(whole, 50))
     assert manual_record(f"s1._domainkey IN TXT ( {quoted} )") == whole
     assert manual_record(_p("rsa1024")) == f"v=DKIM1; k=rsa; p={_p('rsa1024')}"
+    wrapped = "\n  ".join(_chunks(_p("rsa1024"), 64))  # copied from a mail, line by line
+    assert manual_record(wrapped) == f"v=DKIM1; k=rsa; p={_p('rsa1024')}"
     assert manual_record(_p("ed25519")) == f"v=DKIM1; k=ed25519; p={_p('ed25519')}"
     assert manual_record("v=DKIM1; k=rsa; p=") is None
     assert manual_record("kein Schlüssel") is None

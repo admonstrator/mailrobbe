@@ -35,7 +35,14 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DkimKeyLookup, DkimResult, Mail
 from mailrobbe.dkim.keys.identity import key_identity
-from mailrobbe.dkim.keys.store import CONCERNED, TOOL_VERSION, Evidence, save_evidence, save_lookup
+from mailrobbe.dkim.keys.store import (
+    CONCERNED,
+    TOOL_VERSION,
+    Evidence,
+    Executor,
+    save_evidence,
+    save_lookup,
+)
 from mailrobbe.dkim.override import key_name, normalise_name
 from mailrobbe.dkim.resolver import is_reserved
 from mailrobbe.enums import KeyLookupSource, KeyOrigin, LookupOutcome
@@ -81,9 +88,7 @@ class FetchPlan:
     skipped: list[str]  # under reserved TLDs, not sent to an archive elsewhere
 
 
-async def fetch_plan(
-    db: AsyncConnection, url: str | None, domains: Collection[str] = ()
-) -> FetchPlan:
+async def fetch_plan(db: Executor, url: str | None, domains: Collection[str] = ()) -> FetchPlan:
     """The domains a fetch asks: the concerned ones, or the given ones (with their figures)."""
     given = sorted({normalise_name(domain) for domain in domains if normalise_name(domain)})
     concerned = (
