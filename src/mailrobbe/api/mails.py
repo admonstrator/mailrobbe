@@ -22,6 +22,7 @@ from sqlalchemy import (
     Executable,
     Row,
     ScalarSelect,
+    Text,
     any_,
     distinct,
     func,
@@ -64,9 +65,20 @@ from mailrobbe.api.schemas import (
     QueryTerm,
 )
 from mailrobbe.config import Settings
-from mailrobbe.db.models import Mail, MailMark, MailTag, MboxFile, Note, Participation, Person, Tag
+from mailrobbe.db.models import (
+    Mail,
+    MailMark,
+    MailSignal,
+    MailTag,
+    MboxFile,
+    Note,
+    Participation,
+    Person,
+    Tag,
+)
 from mailrobbe.enums import DkimStatus, ParticipationRole
 from mailrobbe.persons.roots import member_ids
+from mailrobbe.signals.model import rules
 
 router = APIRouter(prefix="/api", tags=["mails"])
 
@@ -89,6 +101,7 @@ CSV_HEADER = (
     "Message-ID",
     "MBOX-Datei",
     "Offset",
+    "Signale",
 )
 CSV_BOM = "\ufeff"  # spreadsheet programs then read the file as UTF-8
 # Cells a spreadsheet would read as a formula get a leading apostrophe.
@@ -446,6 +459,11 @@ async def export_csv(
         .where(recipient_link.mail_id == Mail.id, recipient_link.role != ParticipationRole.FROM)
         .scalar_subquery()
     )
+    # The signals the last signals phase stored (D139), named in display order in Python.
+    signals = func.array(
+        select(MailSignal.signal).where(MailSignal.mail_id == Mail.id).scalar_subquery(),
+        type_=ARRAY(Text),
+    )
     statement = (
         select(
             Mail.id,
@@ -459,24 +477,28 @@ async def export_csv(
             Mail.message_id,
             MboxFile.path,
             Mail.byte_offset,
+            signals,
         )
         .join(MboxFile, MboxFile.id == Mail.mbox_file_id)
         .outerjoin(first_sender, true())
         .where(*where)
         .order_by(*order(params.sort))
     )
+    signal_rules = rules(settings)
+    labels = {key: signal_rules.label(key) for key in signal_rules.keys}
     return StreamingResponse(
-        _csv_chunks(request.app.state.sessionmaker, statement),
+        _csv_chunks(request.app.state.sessionmaker, statement, labels),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{CSV_FILENAME}"'},
     )
 
 
 async def _csv_chunks(
-    sessionmaker: async_sessionmaker[AsyncSession], statement: Executable
+    sessionmaker: async_sessionmaker[AsyncSession], statement: Executable, labels: dict[str, str]
 ) -> AsyncIterator[bytes]:
     """The CSV in chunks, read through a server-side cursor; its own session, as the request's
-    session may be gone while the response streams."""
+    session may be gone while the response streams. labels: the German name of each signal, in
+    display order."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
     buffer.write(CSV_BOM)
@@ -485,14 +507,14 @@ async def _csv_chunks(
         result = await session.stream(statement.execution_options(yield_per=CSV_BATCH))
         async for rows in result.partitions():
             for row in rows:
-                writer.writerow(_csv_row(row))
+                writer.writerow(_csv_row(row, labels))
             yield _take(buffer).encode()
     yield _take(buffer).encode()
 
 
-def _csv_row(row: _Row) -> list[str]:
+def _csv_row(row: _Row, labels: dict[str, str]) -> list[str]:
     mail_id, date_utc, status, name, email, recipients, subject, attached, *rest = row
-    message_id, path, offset = rest
+    message_id, path, offset, signals = rest
     return [
         str(mail_id),
         "" if date_utc is None else date_utc.isoformat(),
@@ -505,6 +527,7 @@ def _csv_row(row: _Row) -> list[str]:
         csv_cell(message_id),
         csv_cell(path),
         str(offset),
+        csv_cell(", ".join(label for key, label in labels.items() if key in signals)),
     ]
 
 

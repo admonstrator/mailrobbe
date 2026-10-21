@@ -14,6 +14,7 @@ import { PersonsPage } from "./features/persons/PersonsPage";
 import { NotFoundPage } from "./features/placeholder/Placeholders";
 import { AktenPage } from "./features/research/AktenPage";
 import { CollectionPage } from "./features/research/CollectionPage";
+import { SignalsRoute } from "./features/signals/lazyPages";
 import { TimelineRoute } from "./features/timeline/lazyPages";
 import { TopicsRoute } from "./features/topics/lazyPages";
 
@@ -31,6 +32,7 @@ export const routes: RouteObject[] = [
       { path: "/anhaenge/:id", element: <DocumentDetailRoute /> },
       { path: "/entitaeten", element: <EntityListRoute /> },
       { path: "/entitaeten/:id", element: <EntityDetailRoute /> },
+      { path: "/auffaelligkeiten", element: <SignalsRoute /> },
       { path: "/karte", element: <GraphPage /> },
       { path: "/zeitachse", element: <TimelineRoute /> },
       { path: "/themen", element: <TopicsRoute /> },

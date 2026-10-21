@@ -60,6 +60,10 @@ services:
       MAILROBBE_BASIC_AUTH_USER: ${MAILROBBE_BASIC_AUTH_USER:-}
       MAILROBBE_BASIC_AUTH_PASSWORD: ${MAILROBBE_BASIC_AUTH_PASSWORD:-}
       MAILROBBE_INTERNAL_DOMAINS: ${MAILROBBE_INTERNAL_DOMAINS:-}
+      # Signals (D131, D133): the time zone of night hours and weekends, and domains of private
+      # mail providers beside the list in themes.toml.
+      MAILROBBE_TIMEZONE: ${MAILROBBE_TIMEZONE:-Europe/Berlin}
+      MAILROBBE_PRIVATE_DOMAINS: ${MAILROBBE_PRIVATE_DOMAINS:-}
       # Converted documents and decoded audio and video for the previews (D124); safe to delete.
       MAILROBBE_PREVIEW_DIR: /data/previews
     volumes:

@@ -3,6 +3,7 @@
 
 import { buildQuery } from "../../api/client";
 import {
+  MAIL_SIGNAL_KINDS,
   PAGE_SIZE,
   type DkimKey,
   type EntityContextKey,
@@ -11,6 +12,7 @@ import {
   type MailOrderParams,
   type PersonRole,
   type ReviewKey,
+  type SignalKey,
   type SortOrder,
 } from "../../api/types";
 import { DKIM_KEYS } from "../../lib/dkim";
@@ -48,6 +50,8 @@ export interface ListState {
   entity: number[];
   amount_min: number | null;
   amount_context: EntityContextKey[];
+  /** Signals (D136): each of these holds for the mail. */
+  signal: SignalKey[];
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -82,6 +86,7 @@ export const DEFAULT_LIST_STATE: ListState = {
   entity: [],
   amount_min: null,
   amount_context: [],
+  signal: [],
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -118,6 +123,14 @@ function ids(search: URLSearchParams, key: string): number[] {
   return unique(search.getAll(key).flatMap((v) => positiveInt(v) ?? []));
 }
 
+/** A signal of a mail as the filter takes it: a kind, or "term:" and a theme key (D132). Which
+ *  themes exist the API knows; an unknown one is its invalid_filter. */
+export function isSignalKey(value: string): value is SignalKey {
+  return (
+    (MAIL_SIGNAL_KINDS as readonly string[]).includes(value) || /^term:[a-z0-9_-]+$/.test(value)
+  );
+}
+
 /** The list state a query string describes; values that cannot be used are ignored. */
 export function parseListState(search: URLSearchParams): ListState {
   const state: ListState = { ...DEFAULT_LIST_STATE };
@@ -149,6 +162,7 @@ export function parseListState(search: URLSearchParams): ListState {
   state.amount_context = ENTITY_CONTEXTS.filter((key) =>
     search.getAll("amount_context").includes(key),
   );
+  state.signal = unique(search.getAll("signal").filter(isSignalKey));
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -180,6 +194,7 @@ export function toFilters(state: ListState): MailFilters {
   if (state.entity.length) filters.entity = state.entity;
   if (state.amount_min !== null) filters.amount_min = state.amount_min;
   if (state.amount_context.length) filters.amount_context = state.amount_context;
+  if (state.signal.length) filters.signal = state.signal;
   return filters;
 }
 

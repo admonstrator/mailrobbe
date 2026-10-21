@@ -240,3 +240,22 @@ class LookupOutcome(StrEnum):
     FOUND = "found"  # the answer holds at least one key
     NOT_FOUND = "not_found"  # a valid answer without a key
     ERROR = "error"  # no valid answer: network, HTTP status, malformed reply
+
+
+class SignalKind(StrEnum):
+    """The signals of milestone 12 (D130 to D134): simple conditions on a mail's addresses,
+    recipients and time, and a person falling silent, that point to mails worth reading. They
+    rate nothing. A mail also has a signal "term:<theme key>" per research theme whose word
+    field it mentions (D132); mailrobbe.signals.model names them all."""
+
+    PRIVATE = "private"  # a sender or recipient uses a private mail provider
+    INTERNAL_TO_PRIVATE = "internal_to_private"  # an internal sender, a private recipient
+    PRIVATE_TO_INTERNAL = "private_to_internal"  # a private sender, an internal recipient
+    PRIVATE_ALIAS = "private_alias"  # a private address of a person with an internal one
+    BCC = "bcc"  # a recipient in Bcc
+    MANY_RECIPIENTS = "many_recipients"  # at least [signals] many_recipients recipients
+    FORWARD = "forward"  # a forwarded mail
+    FORWARD_OUT = "forward_out"  # a forwarded mail going outside
+    NIGHT = "night"  # sent at night, local time (MAILROBBE_TIMEZONE)
+    WEEKEND = "weekend"  # sent on a Saturday or Sunday, local time
+    SILENT = "silent"  # persons only: no mail since a month after steady activity (D134)

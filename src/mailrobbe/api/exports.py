@@ -25,6 +25,7 @@ from mailrobbe.db.models import MailExport
 from mailrobbe.export import records
 from mailrobbe.export.bundle import folder_name, stream_export
 from mailrobbe.export.pdf import render_pdf
+from mailrobbe.signals.model import rules
 
 router = APIRouter(prefix="/api", tags=["exports"])
 
@@ -90,7 +91,12 @@ async def mail_pdf(
         notes = (await records.research(session, [mail.raw_sha256]))[mail.raw_sha256]
     message = await stored_message(session, settings, mail_id)
     pdf = await asyncio.to_thread(
-        render_pdf, mail, message, created_at=datetime.now(UTC), research=notes
+        render_pdf,
+        mail,
+        message,
+        created_at=datetime.now(UTC),
+        research=notes,
+        signals=mail.signal_names(rules(settings)),
     )
     return Response(
         pdf,

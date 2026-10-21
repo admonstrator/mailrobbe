@@ -127,6 +127,11 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str]:
     return re.compile("".join(pieces) + r"(?!\w)", flags)
 
 
+def term_key(theme_key: str, term: str) -> str:
+    """entity.key of a theme's term (D83): the theme's key and the case-folded term."""
+    return f"{theme_key}:{' '.join(term.casefold().split())}"
+
+
 @cache
 def matcher() -> WordMatcher:
     """The terms of every theme and the context words, from themes.toml."""
@@ -134,7 +139,7 @@ def matcher() -> WordMatcher:
     seen: set[str] = set()
     for theme in load_themes():
         for term in theme.terms:
-            key = f"{theme.key}:{' '.join(term.casefold().split())}"
+            key = term_key(theme.key, term)
             if key not in seen:
                 seen.add(key)
                 words.append((term, Term(key, term, theme.key)))

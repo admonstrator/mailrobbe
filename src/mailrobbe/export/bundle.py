@@ -50,6 +50,7 @@ from mailrobbe.export.material import SignatureMaterial, signature_material
 from mailrobbe.export.pdf import render_pdf
 from mailrobbe.export.readme import readme
 from mailrobbe.mbox import read_verified
+from mailrobbe.signals.model import rules
 
 log = logging.getLogger(__name__)
 
@@ -138,6 +139,7 @@ def _add_mail(
     signatures that rest on a dkim_key in signed."""
     if mail is None:
         return mail_entry(number, sha, None, research, error="not_in_archive")
+    signals = mail.signal_names(rules(settings))  # kept only with research data
     message = _read(settings, mail, f"export {export.id}")
     for signature in mail.signatures:
         if signature.key_id is not None:
@@ -145,7 +147,7 @@ def _add_mail(
             if signature.status in _VERIFIED:
                 uses[sha, signature.index] = _material(message, signature.index)
     if not isinstance(message, bytes):
-        return mail_entry(number, sha, mail, research, error=message)
+        return mail_entry(number, sha, mail, research, error=message, signals=signals)
     folder = f"{number:04d}-{mail.id}"
     eml = archive.add(f"{folder}/mail.eml", message)
     pdf = render_pdf(
@@ -154,9 +156,10 @@ def _add_mail(
         created_at=export.created_at,
         export_id=export.id,
         research=research,
+        signals=signals,
     )
     files = ManifestFiles(eml=eml, pdf=archive.add(f"{folder}/mail.pdf", pdf))
-    return mail_entry(number, sha, mail, research, folder=folder, files=files)
+    return mail_entry(number, sha, mail, research, folder=folder, files=files, signals=signals)
 
 
 def _read(settings: Settings, mail: records.ExportMail, what: str) -> bytes | _Unreadable:

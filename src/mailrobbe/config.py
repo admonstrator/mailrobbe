@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # Comma-separated domains of the archive owner for the "Nur extern <-> intern" filter (D21);
     # their subdomains count too. Empty: the filter is not offered.
     internal_domains: str = ""
+    # Signals (D131, D133): the time zone of night hours and weekends, a name PostgreSQL knows
+    # (pg_timezone_names), and domains of private mail providers beside the list in
+    # themes.toml, comma-separated.
+    timezone: str = "Europe/Berlin"
+    private_domains: str = ""
     # Time budget for exact hit counts of a filtered mail list; above it the count is a lower
     # bound (D19).
     api_count_timeout: float = 2.0

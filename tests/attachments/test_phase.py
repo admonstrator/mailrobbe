@@ -177,11 +177,14 @@ async def test_each_document_is_extracted_once_and_stored_as_the_extraction_give
     assert (step.status, step.unit, step.total, step.done) == ("done", "documents", 5, 5)
     assert progress.workers == 0
 
-    # Nothing waits any more: the next import reads nothing and stays in finalize (the
-    # topics are unchanged too).
+    # Nothing waits any more: the next import reads nothing and skips the attachments; the
+    # topics are unchanged too.
     assert await _import(database_url, mbox_dir) == 0
     assert len(recorded(calls)) == len(contents)
-    assert (await _jobs(engine))[-1]["phase"] == "finalize"
+    job = (await _jobs(engine))[-1]
+    assert job["phase"] == "signals"  # the signals phase runs every time (D135)
+    progress = ImportProgress.model_validate(job["progress"])
+    assert {step.key: step.status for step in progress.steps}["attachments"] == "skipped"
 
 
 async def test_documents_above_the_size_limit_are_read_once_the_limit_admits_them(

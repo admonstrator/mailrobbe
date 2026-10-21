@@ -1,7 +1,7 @@
-"""What an export says about a mail, from the database: metadata, DKIM, attachments and the
-research data (D62), a batch of mails in a few queries; and the keys from other sources than
-today's DNS its signatures rest on, with their evidence and the sources' answers (D105), one key
-at a time.
+"""What an export says about a mail, from the database: metadata, DKIM, attachments, the
+signals the last signals phase stored (D139) and the research data (D62), a batch of mails in a
+few queries; and the keys from other sources than today's DNS its signatures rest on, with
+their evidence and the sources' answers (D105), one key at a time.
 
 An export names its mails by content (D53); of the mails with one raw SHA-256 the original (no
 duplicate, then the lowest id) stands for all, as for permalinks (D61).
@@ -40,6 +40,7 @@ from mailrobbe.db.models import (
     DnsCache,
     Mail,
     MailMark,
+    MailSignal,
     MailTag,
     MboxFile,
     Note,
@@ -50,6 +51,7 @@ from mailrobbe.db.models import (
 from mailrobbe.dkim.keys.identity import key_identity
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin, ParticipationRole
+from mailrobbe.signals.model import SignalRules, signal_keys
 
 _Row = Row[*tuple[Any, ...]]
 
@@ -104,6 +106,12 @@ class ExportMail:
     participants: dict[ParticipationRole, list[PersonRef]] = field(default_factory=dict)
     signatures: list[Signature] = field(default_factory=list)
     attachments: list[AttachmentInfo] = field(default_factory=list)
+    # The keys of the signals stored in mail_signal (D139), in display order.
+    signals: list[str] = field(default_factory=list)
+
+    def signal_names(self, signal_rules: SignalRules) -> list[str]:
+        """The German names of its signals, as the mail list's CSV names them."""
+        return [signal_rules.label(key) for key in self.signals]
 
 
 _COLUMNS = (
@@ -243,6 +251,16 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
                 id=attachment_id, filename=filename, mime_type=mime_type, size=size, sha256=sha256
             )
         )
+    # signal_keys() is the display order of SignalRules.keys whatever the settings, so no
+    # settings are needed here; a key of a theme removed since goes last.
+    order = {key: index for index, key in enumerate(signal_keys())}
+    signals = await session.execute(
+        select(MailSignal.mail_id, MailSignal.signal).where(MailSignal.mail_id == any_(ids))
+    )
+    for mail_id, signal in signals:
+        found[mail_id].signals.append(signal)
+    for mail in mails:
+        mail.signals.sort(key=lambda key: (order.get(key, len(order)), key))
     return mails
 
 

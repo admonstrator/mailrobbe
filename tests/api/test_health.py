@@ -23,7 +23,7 @@ async def _get_health(database_url: str) -> httpx.Response:
 async def test_health_reports_schema_revision(migrated_database_url: str) -> None:
     response = await _get_health(migrated_database_url)
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": "ok", "schema_revision": "0012"}
+    assert response.json() == {"status": "ok", "database": "ok", "schema_revision": "0013"}
 
 
 @pytest.mark.db

@@ -148,7 +148,7 @@ class Archive:
                 for a in self.attachments[mail["id"]]
             ],
         )
-        return entry.model_dump(mode="json", by_alias=True, exclude={"research"})
+        return entry.model_dump(mode="json", by_alias=True, exclude={"research", "signals"})
 
 
 @pytest.fixture(scope="module")
@@ -580,14 +580,14 @@ async def test_research_data_only_on_request(
     rows = export.csv()
     assert rows[6] == ["Rechercheangaben", "ja"]
     assert tuple(rows[8]) == CSV_HEADER + CSV_RESEARCH_HEADER
-    assert rows[9][len(CSV_HEADER) :] == [
+    assert rows[9][len(CSV_HEADER) : -1] == [  # the last column: the signals
         "Relevant (Lena Vogt, 2025-07-01T12:00:00Z)",
         "ja",
         "Kartell",
         "Akte Hafen",
         "Lena Vogt, 2025-07-01T12:00:00Z: Quelle B bestätigt.",
     ]
-    assert rows[10][len(CSV_HEADER) :] == ["Ungesichtet", "nein", "", "", ""]
+    assert rows[10][len(CSV_HEADER) : -1] == ["Ungesichtet", "nein", "", "", ""]
     pdf = export.pdf_text(marked)
     assert "Rechercheangaben (intern)" in pdf
     assert "Quelle B bestätigt." in pdf
@@ -699,3 +699,59 @@ async def test_the_pdf_of_a_mail_whose_source_broke(
     copy.unlink()
     response = await copy_client.get(f"/api/mails/{mail['id']}/pdf")
     assert await _code(response) == (409, "source_missing")
+
+
+# Signals (D139) ------------------------------------------------------------------------------
+
+
+def _text(pdf: bytes) -> str:
+    reader = pypdf.PdfReader(io.BytesIO(pdf))
+    return " ".join(" ".join(page.extract_text() for page in reader.pages).split())
+
+
+async def test_signals_go_with_the_research_data(
+    mutable_client: httpx.AsyncClient, mutable_database_url: str, archive: Archive
+) -> None:
+    first, second = (archive.original(sha) for sha in archive.order(sorted(archive.mails)[:2]))
+    # Stored in another order than shown; a theme removed from themes.toml since goes last.
+    await _execute(
+        mutable_database_url,
+        "DELETE FROM mail_signal WHERE mail_id IN (:a, :b)",
+        "INSERT INTO mail_signal (signal, mail_id) VALUES ('term:alt', :a),"
+        " ('term:verschleierung', :a), ('night', :a), ('term:rassismus', :a), ('private', :a)",
+        a=first["id"],
+        b=second["id"],
+    )
+    names = [
+        "Private Adresse",
+        "Nachts",
+        "Wortfeld Rassismus",
+        "Wortfeld Verschleierung",
+        "Wortfeld alt",
+    ]
+    selection = {"ids": [first["id"], second["id"]]}
+
+    # Without research data no file names a signal: the word fields show the research themes.
+    without = await _create(mutable_client, selection)
+    export = Zip(await _download(mutable_client, without), without.id)
+    assert all("signals" not in entry for entry in export.manifest()["mails"])
+    assert "Signale" not in export.csv()[8]
+    for path in export.paths:
+        content = export.pdf_text(path) if path.endswith(".pdf") else export.read(path).decode()
+        assert "Wortfeld" not in content, path
+    pdf = await mutable_client.get(f"/api/mails/{first['id']}/pdf")
+    assert "Wortfeld" not in _text(pdf.content)
+
+    included = await _create(mutable_client, {**selection, "include_research": True})
+    export = Zip(await _download(mutable_client, included), included.id)
+    assert [entry["signals"] for entry in export.manifest()["mails"]] == [names, []]
+    rows = export.csv()
+    assert rows[8][-1] == "Signale"
+    assert [row[-1] for row in rows[9:]] == [", ".join(names), ""]
+    assert f"Signale {', '.join(names)}" in export.pdf_text(f"0001-{first['id']}/mail.pdf")
+    assert "Signale" not in export.pdf_text(f"0002-{second['id']}/mail.pdf")
+    readme = export.read("LIESMICH.txt").decode()
+    assert "sie bewerten nichts" in readme
+    assert "/auffaelligkeiten" in readme
+    pdf = await mutable_client.get(f"/api/mails/{first['id']}/pdf", params={"research": "true"})
+    assert f"Notizen keine Signale {', '.join(names)}" in _text(pdf.content)

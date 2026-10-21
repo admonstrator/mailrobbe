@@ -40,14 +40,14 @@ import { toFilters, withFilters, type ListState } from "./listState";
  *  filter column; below it they are a block above the table that can be folded away. */
 export const FACETS_COLUMN_QUERY = "(min-width: 1500px)";
 
-function subscribeWidth(onChange: () => void): () => void {
+export function subscribeWidth(onChange: () => void): () => void {
   if (typeof window.matchMedia !== "function") return () => {};
   const query = window.matchMedia(FACETS_COLUMN_QUERY);
   query.addEventListener("change", onChange);
   return () => query.removeEventListener("change", onChange);
 }
 
-function columnWide(): boolean {
+export function columnWide(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia(FACETS_COLUMN_QUERY).matches;
 }
 
@@ -70,7 +70,10 @@ function saveOpen(open: boolean): void {
 }
 
 /** "in allen Mails", "in 1.234 Treffern", "in 10.000 von 23.456 Treffern (Stichprobe)" (D87). */
-export function facetScope(facets: Facets, total: number | null): string {
+export function facetScope(
+  facets: Pick<Facets, "mails" | "sampled">,
+  total: number | null,
+): string {
   if (facets.mails === null) return "in allen Mails";
   const counted = formatNumber(facets.mails);
   if (!facets.sampled) return `in ${counted} ${facets.mails === 1 ? "Treffer" : "Treffern"}`;
@@ -212,7 +215,11 @@ function NoEntities() {
 
 /** Whether the element's content is taller than the element: chips the one-line clip hides.
  *  Measured when the content or the size changes; false where the browser cannot tell (tests). */
-function useClipped(ref: RefObject<HTMLElement | null>, active: boolean, content: string): boolean {
+export function useClipped(
+  ref: RefObject<HTMLElement | null>,
+  active: boolean,
+  content: string,
+): boolean {
   const [clipped, setClipped] = useState(false);
   useLayoutEffect(() => {
     const element = ref.current;

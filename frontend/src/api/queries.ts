@@ -77,6 +77,7 @@ import type {
   MailResearch,
   MailSummary,
   MailHits,
+  MailSignals,
   MailText,
   ManualKeyRequest,
   Mark,
@@ -91,6 +92,7 @@ import type {
   PersonMailCounts,
   PersonPage,
   PersonProfile,
+  PersonSignals,
   ResearchOverview,
   SavedSearch,
   SavedSearchCreate,
@@ -100,6 +102,8 @@ import type {
   SelectorListParams,
   SelectorPage,
   SelectorSummary,
+  SignalFacets,
+  SignalOverview,
   Stats,
   SuggestionPage,
   TagCreate,
@@ -1027,5 +1031,54 @@ export function useTopicClusters(enabled = true) {
     queryKey: topicKeys.clusters,
     queryFn: ({ signal }) => apiGet<TopicClusters>("/api/topics/clusters", undefined, signal),
     enabled,
+  });
+}
+
+// Signals (D130 to D139) ------------------------------------------------------------------------
+
+export const signalKeys = {
+  /** The overview /auffaelligkeiten; an import's signals phase changes it. */
+  overview: ["signals"] as const,
+  /** Under the mail list's prefix, as the entity facets: whatever changes the list's contents
+   *  changes them. */
+  facets: (filters: MailFilters) => ["mails", "signals", filters] as const,
+  mail: (id: number) => ["mail", id, "signals"] as const,
+  /** Under the persons prefix: a merge changes them, and they are counted on request. */
+  person: (id: number) => ["persons", "signals", id] as const,
+};
+
+/** The figures, rules and persons fallen silent of the last signals phase (D137). */
+export function useSignals(enabled = true) {
+  return useQuery({
+    queryKey: signalKeys.overview,
+    queryFn: ({ signal }) => apiGet<SignalOverview>("/api/signals", undefined, signal),
+    enabled,
+  });
+}
+
+/** Mails per signal among the mail list's (D136), in a query of its own, so the list never
+ *  waits for them; the previous ones stay while the next load. */
+export function useSignalFacets(filters: MailFilters, enabled = true) {
+  return useQuery({
+    queryKey: signalKeys.facets(filters),
+    queryFn: ({ signal }) => apiGet<SignalFacets>("/api/mails/signals", filters, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The signals of one mail and what makes each hold. */
+export function useMailSignals(id: number) {
+  return useQuery({
+    queryKey: signalKeys.mail(id),
+    queryFn: ({ signal }) => apiGet<MailSignals>(`/api/mails/${id}/signals`, undefined, signal),
+  });
+}
+
+/** The signals of a person's sent mails and whether it fell silent; of the root for an alias. */
+export function usePersonSignals(id: number) {
+  return useQuery({
+    queryKey: signalKeys.person(id),
+    queryFn: ({ signal }) => apiGet<PersonSignals>(`/api/persons/${id}/signals`, undefined, signal),
   });
 }

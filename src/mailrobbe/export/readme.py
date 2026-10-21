@@ -1,7 +1,7 @@
 # ruff: noqa: RUF001  (German typography: dashes and quotation marks are meant)
 """LIESMICH.txt of an export (D62): for the lawyer or archivist who receives it, what the files
-are, how to check them, what a DKIM result says and where its key comes from (D105). German,
-CRLF line ends for Windows editors.
+are, how to check them, what a DKIM result says and where its key comes from (D105), and with
+the research data what its signals are (D139). German, CRLF line ends for Windows editors.
 """
 
 from datetime import UTC
@@ -24,15 +24,19 @@ def readme(export: ManifestExport, folder: str, keys: int) -> bytes:
         research = (
             "ENTHALTEN. manifest.json, manifest.csv und die PDF-Dateien enthalten interne "
             "Arbeitsangaben des Rechercheteams: Bewertung, Markierung, Schlagworte, Akten und "
-            "Notizen mit Verfasser und Zeit, dazu in manifest.json die Auswahl (Suche und "
-            "Filter), mit der die Mails zusammengestellt wurden. Sie gehören nicht zu den Mails "
-            "und können Rückschlüsse auf Quellen und Vorgehen erlauben. Bitte vertraulich "
-            "behandeln."
+            "Notizen mit Verfasser und Zeit, die Signale jeder Mail, dazu in manifest.json die "
+            "Auswahl (Suche und Filter), mit der die Mails zusammengestellt wurden. Sie gehören "
+            "nicht zu den Mails und können Rückschlüsse auf Quellen und Vorgehen erlauben. Bitte "
+            "vertraulich behandeln. Signale sind Hinweise, die Mailrobbe nach einfachen Regeln "
+            "berechnet (etwa private Adressen, Blindkopien, Uhrzeiten oder Wörter der "
+            "Recherchethemen); sie bewerten nichts. Ihre Regeln stehen in Mailrobbe auf der "
+            "Seite „Signale“ (/auffaelligkeiten) und in der Datei themes.toml (Abschnitt "
+            "[signals] und die Wortfelder der Themen)."
         )
     else:
         research = (
-            "nicht enthalten. Bewertungen, Markierungen, Schlagworte, Akten, Notizen und die "
-            "Suchkriterien des Rechercheteams sind in keiner Datei dieses Exports."
+            "nicht enthalten. Bewertungen, Markierungen, Schlagworte, Akten, Notizen, Signale "
+            "und die Suchkriterien des Rechercheteams sind in keiner Datei dieses Exports."
         )
     key_row = (
         f"""\

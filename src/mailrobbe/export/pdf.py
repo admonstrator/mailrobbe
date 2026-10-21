@@ -5,8 +5,8 @@ every machine): the subject as title, the header fields as written in the mail (
 in UTC), source and SHA-256, DKIM per signature with its key and where that key comes from
 (D105), the attachments, the text body the full text index is built from (api.body.mail_text;
 for a message above records.PARSE_LIMIT the indexed text itself) and, on request, the research
-data. Every page has a footer with the mail
-id, the start of the SHA-256, the page count and the note that the EML is authoritative.
+data with the mail's signals (D139). Every page has a footer with the mail id, the start of the
+SHA-256, the page count and the note that the EML is authoritative.
 
 The output depends on the inputs only: the creation date is a parameter, never the clock, so an
 export renders the same PDF again. Characters the font has no glyph for (emoji, CJK) appear as
@@ -17,7 +17,7 @@ Lines are wrapped here and printed with cell(), ten times faster than multi_cell
 
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -103,8 +103,10 @@ def render_pdf(
     created_at: datetime,
     export_id: int | None = None,
     research: MailResearch | None = None,
+    signals: Sequence[str] = (),
 ) -> bytes:
-    """The PDF of a mail whose message (verified against raw_sha256) is given."""
+    """The PDF of a mail whose message (verified against raw_sha256) is given. signals: the
+    German names of its signals (ExportMail.signal_names), shown only with the research data."""
     pdf = _Document(mail, created_at)
     headers = _header_values(message)
     pdf.title_block(headers.get("subject") or mail.subject or "(ohne Betreff)")
@@ -163,7 +165,7 @@ def render_pdf(
             )
 
     if research is not None:
-        pdf.research(research)
+        pdf.research(research, signals)
     if pdf.replaced:
         pdf.heading("Hinweis")
         pdf.note(
@@ -320,7 +322,7 @@ class _Document(FPDF):
         self._style(SIZE, INK)
         self._lines(self.wrap(self.readable(text), self.epw), LINE)
 
-    def research(self, research: MailResearch) -> None:
+    def research(self, research: MailResearch, signals: Sequence[str]) -> None:
         self.heading("Rechercheangaben (intern)")
         mark = research.mark
         review = REVIEW_TEXTS[mark.review] if mark.review else "Ungesichtet"
@@ -336,6 +338,8 @@ class _Document(FPDF):
             if note.updated_at != note.created_at:
                 written += f", bearbeitet {_time(note.updated_at)}"
             self.field(f"Notiz {number}", f"{written}\n{note.body}")
+        if signals:
+            self.field("Signale", ", ".join(signals))
 
     def wrap(self, text: str, width: float) -> list[str]:
         """The lines of text within width in the current font: broken after spaces, a word

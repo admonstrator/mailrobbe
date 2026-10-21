@@ -172,4 +172,33 @@ describe("filterChips", () => {
     const stale = filterChips({ ...DEFAULT_LIST_STATE, q: "neu" }, terms, names);
     expect(stale.map((chip) => chip.label)).toEqual(["Suche: „neu“"]);
   });
+
+  it("names each signal of the filter, a word field by its theme, and drops it alone (D136)", () => {
+    const state: ListState = {
+      ...DEFAULT_LIST_STATE,
+      signal: ["night", "term:spenden"],
+      cursor: "abc",
+      page: 2,
+    };
+    const chips = filterChips(state, [], {
+      ...names,
+      signal: (key) =>
+        key === "term:spenden"
+          ? { name: "Wortfeld Spendenaffären", color: "green" }
+          : { name: key === "night" ? "Nachts" : key },
+    });
+    expect(chips.map((chip) => [chip.label, chip.color])).toEqual([
+      ["Signal: Nachts", undefined],
+      ["Signal: Wortfeld Spendenaffären", "green"],
+    ]);
+    const night = chips[0].next;
+    expect(night.signal).toEqual(["term:spenden"]);
+    expect(night.cursor).toBeNull();
+    expect(night.page).toBe(1);
+    // Without names (the timeline's chips) the German name, a word field by its key.
+    expect(filterChips(state, [], names).map((chip) => chip.label)).toEqual([
+      "Signal: Nachts",
+      "Signal: Wortfeld spenden",
+    ]);
+  });
 });
