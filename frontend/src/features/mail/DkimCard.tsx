@@ -36,7 +36,7 @@ export function DkimCard({ mail }: { mail: MailDetail }) {
   const { status, signatures } = mail.dkim;
 
   return (
-    <Card>
+    <Card className={styles.card}>
       <div className={styles.head}>
         <CardTitle>DKIM-Prüfung</CardTitle>
         {signatures.length > 0 && <span className={styles.sub}>{checkedLine(signatures[0])}</span>}
