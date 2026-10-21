@@ -412,7 +412,9 @@ async def test_items_show_the_mail_and_its_participants(
     mails = await rows(
         imported_database_url,
         "SELECT id, date_utc, subject, dkim_status::text AS dkim, has_attachments, thread_id,"
-        " is_duplicate_of, byte_length, mbox_file_id FROM mail WHERE id = ANY(:ids)",
+        " is_duplicate_of, byte_length, mbox_file_id,"
+        " (SELECT e.kind FROM calendar_event e WHERE e.mail_id = mail.id"
+        " ORDER BY e.position LIMIT 1) AS event FROM mail WHERE id = ANY(:ids)",
         ids=list(items),
     )
     people = await rows(
@@ -471,7 +473,7 @@ async def test_items_show_the_mail_and_its_participants(
             "notes": 0,
             "attachment_match": False,
             "near_count": 0,
-            "event": None,
+            "event": mail.event,
             "hits": None,
         }
 

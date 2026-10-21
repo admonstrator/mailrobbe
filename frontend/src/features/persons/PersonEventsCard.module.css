@@ -1,0 +1,93 @@
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.base {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 6px 12px 6px 0;
+  text-align: left;
+  vertical-align: baseline;
+}
+
+.table thead th {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.when {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.what {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  overflow-wrap: anywhere;
+}
+
+.kind {
+  border-radius: var(--radius-control);
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.reply {
+  background: var(--color-pass-soft);
+  color: var(--color-pass-text);
+}
+
+.cancel {
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+}
+
+.part {
+  color: var(--color-muted);
+}
+
+.part a {
+  color: var(--color-text);
+}
+
+.answer {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.all {
+  width: fit-content;
+  font-size: 13px;
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--color-muted);
+  font-size: 13px;
+}

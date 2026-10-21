@@ -44,6 +44,7 @@ function personApi(method: string, url: URL, id: number, endpoint: string | unde
   }
   if (endpoint === "/mail-counts") return fx.personMailCounts;
   if (endpoint === "/signals") return fx.personSignals;
+  if (endpoint === "/events") return fx.personEvents;
   if (endpoint === "/unmerge" && method === "POST") {
     const aliases = fx.annaProfile.aliases.filter((alias) => alias.person_id !== id);
     return { ...fx.annaProfile, aliases };
@@ -113,6 +114,7 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   }
   if (path === "/api/mails" && url.searchParams.has("document")) return fx.documentMailPage;
   if (path === "/api/mails" && url.searchParams.has("person")) return fx.personMailPage;
+  if (path === "/api/mails" && url.searchParams.has("event_uid")) return fx.eventMailPage;
   if (path === "/api/mails") {
     return (url.searchParams.get("q") ?? "").includes("subject:") ? fx.filteredPage : fx.mailPage;
   }

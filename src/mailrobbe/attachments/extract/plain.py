@@ -157,7 +157,7 @@ _ESCAPE = re.compile(r"\\(.)")
 _ESCAPED = {"n": "\n", "N": "\n"}
 
 
-def _unfold(text: str) -> Iterator[str]:
+def unfold(text: str) -> Iterator[str]:
     """Logical lines: continuation lines (leading space or tab) and quoted-printable soft
     breaks joined."""
     current: str | None = None
@@ -178,7 +178,9 @@ def _unfold(text: str) -> Iterator[str]:
         yield current
 
 
-def _parameters(head: str) -> tuple[str, dict[str, str]]:
+def parameters(head: str) -> tuple[str, dict[str, str]]:
+    """The name of a content line (upper case, without a vCard group) and its parameters (keys
+    upper case, values unquoted); shared with the calendar phase (ical.parse)."""
     name, *params = head.split(";")
     found: dict[str, str] = {}
     for param in params:
@@ -187,7 +189,9 @@ def _parameters(head: str) -> tuple[str, dict[str, str]]:
     return name.strip().upper().rpartition(".")[2], found  # "item1.TEL" -> "TEL"
 
 
-def _value(name: str, raw: str, params: dict[str, str]) -> str:
+def property_value(name: str, raw: str, params: dict[str, str]) -> str:
+    """A property's value as a reader sees it: quoted-printable decoded, escapes undone, names,
+    addresses and dates written out."""
     if params.get("ENCODING", "").upper() in ("QUOTED-PRINTABLE", "QP"):
         data = quopri.decodestring(raw.encode("latin-1", "replace"))
         raw = mailtext.decode_bytes(data, params.get("CHARSET") or "utf-8", "vCard", [])
@@ -210,13 +214,13 @@ def _value(name: str, raw: str, params: dict[str, str]) -> str:
 
 def extract_calendar(data: bytes, sink: Sink) -> DocumentTextStatus | None:
     """iCalendar and vCard: the readable properties of each entry, an entry per block."""
-    for line in _unfold(decode(data)):
+    for line in unfold(decode(data)):
         head, colon, raw = line.partition(":")
         if not colon:
             continue
-        name, params = _parameters(head)
+        name, params = parameters(head)
         if name == "END":
             sink.block()
         elif name in _CALENDAR or name in _VCARD:
-            sink.text(_value(name, raw, params))
+            sink.text(property_value(name, raw, params))
     return None

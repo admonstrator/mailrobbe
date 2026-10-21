@@ -124,6 +124,16 @@
   color: var(--color-muted);
 }
 
+.event {
+  margin-left: 6px;
+  vertical-align: -2px;
+  color: var(--color-accent);
+}
+
+.eventCancel {
+  color: var(--color-fail);
+}
+
 .subject > :first-child {
   margin-right: 4px;
 }
