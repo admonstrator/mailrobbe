@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Mark, MarkUpdate, NoteInfo } from "../../api/types";
@@ -119,6 +119,57 @@ describe("research card", () => {
     });
     fireEvent.keyDown(window, { key: "g", ctrlKey: true });
     expect(writes(calls)).toHaveLength(4);
+  });
+
+  it("folds to one line that the browser remembers, and the keys still work", async () => {
+    const { calls, card } = await openCard();
+    const toggle = within(card).getByRole("button", { name: "Einklappen" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(localStorage.getItem("mailrobbe.researchFolded")).toBe("1");
+    const summary = () => document.getElementById(toggle.getAttribute("aria-controls")!)!;
+    expect(summary().textContent).toBe("Relevant2 Notizen2 Schlagwörter1 Akte");
+    expect(within(card).queryByRole("group", { name: "Status" })).toBeNull();
+    expect(within(card).queryByLabelText("Neue Notiz")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "g" });
+    await waitFor(() =>
+      expect(summary().textContent).toBe("Gesichtet2 Notizen2 Schlagwörter1 Akte"),
+    );
+    fireEvent.keyDown(window, { key: "m" });
+    await waitFor(() => expect(within(summary()).getByText("Markiert")).toBeTruthy());
+    expect(writes(calls).map((call) => call.body)).toEqual([{ review: "seen" }, { flagged: true }]);
+
+    // A mail opened later starts folded; unfolding forgets it.
+    cleanup();
+    const again = await openCard();
+    const unfold = within(again.card).getByRole("button", { name: "Ausklappen" });
+    expect(unfold.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(unfold);
+    expect(localStorage.getItem("mailrobbe.researchFolded")).toBeNull();
+    expect(within(again.card).getByRole("group", { name: "Status" })).toBeTruthy();
+  });
+
+  it("starts unfolded and still folds when the browser keeps nothing", async () => {
+    const blocked = (key: string) => {
+      if (key === "mailrobbe.researchFolded") throw new DOMException("blocked", "SecurityError");
+    };
+    const { getItem, setItem } = Storage.prototype;
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
+      blocked(key);
+      return getItem.call(this, key);
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, v) {
+      blocked(key);
+      setItem.call(this, key, v);
+    });
+    try {
+      const { card } = await openCard();
+      fireEvent.click(within(card).getByRole("button", { name: "Einklappen" }));
+      expect(within(card).getByRole("button", { name: "Ausklappen" })).toBeTruthy();
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("adds a suggested tag, an exact name and a new tag, and removes one", async () => {

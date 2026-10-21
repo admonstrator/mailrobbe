@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import { ApiError, attachmentContentUrl } from "../../api/client";
@@ -6,6 +6,7 @@ import { useDocument } from "../../api/queries";
 import type { DocumentDetail, PreviewKind } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
+import { CompactBar, useScrolledPast } from "../../components/CompactBar";
 import { ErrorState } from "../../components/ErrorState";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
@@ -91,11 +92,18 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
     const search = documentMailSearch(next).toString();
     return `${documentPath(document.id)}${search ? `?${search}` : ""}`;
   };
+  // Scrolled past the header, a compact bar keeps name and download in view (D166).
+  const [header, compact] = useScrolledPast<HTMLElement>();
 
   return (
     <div className={styles.columns}>
+      {compact && (
+        <CompactBar label="Kopfzeile des Dokuments">
+          <CompactDocument document={document} />
+        </CompactBar>
+      )}
       <main className={styles.main}>
-        <DocumentHeader document={document} />
+        <DocumentHeader ref={header} document={document} />
         <DocumentTiles document={document} />
         {document.preview && document.preview !== "image" && (
           <PreviewCard document={document} kind={document.preview} />
@@ -125,42 +133,53 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
   );
 }
 
-/** Name, kind, size, hash, first mail, the text status in plain German, the download. */
-function DocumentHeader({ document }: { document: DocumentDetail }) {
-  const meta = [
+/** "PDF · 14 Seiten · 168 KB" */
+function documentMeta(document: DocumentDetail): string[] {
+  return [
     document.kind ? KIND_LABELS[document.kind] : "Art unbekannt",
     document.pages !== null && pagesText(document.pages),
     formatBytes(document.size),
-    document.mime_type,
-  ].filter(Boolean);
+  ].filter((part) => part !== false);
+}
+
+/** The download, or why there is none: the MBOX file is gone or changed. */
+function Download({ document, size }: { document: DocumentDetail; size?: "sm" }) {
+  if (document.text_status === "unreadable") {
+    return (
+      <span
+        className={buttonClass("primary", size)}
+        aria-disabled="true"
+        title="Die MBOX-Datei dieses Anhangs fehlt oder hat sich geändert."
+      >
+        Herunterladen
+      </span>
+    );
+  }
+  return (
+    <a
+      href={attachmentContentUrl(document.attachment_id)}
+      className={buttonClass("primary", size)}
+      download
+    >
+      Herunterladen
+    </a>
+  );
+}
+
+/** Name, kind, size, hash, first mail, the text status in plain German, the download. */
+function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref<HTMLElement> }) {
+  const meta = [...documentMeta(document), document.mime_type];
   const first = document.first_mail;
-  const unreadable = document.text_status === "unreadable";
 
   return (
-    <Card className={styles.header}>
+    <Card ref={ref} className={styles.header}>
       <div className={styles.identity}>
         <KindIcon kind={document.kind} size={36} />
         <div className={styles.titles}>
           <h1 className={styles.name}>{documentName(document.name)}</h1>
           <p className={styles.meta}>{meta.join(" · ")}</p>
         </div>
-        {unreadable ? (
-          <span
-            className={buttonClass("primary")}
-            aria-disabled="true"
-            title="Die MBOX-Datei dieses Anhangs fehlt oder hat sich geändert."
-          >
-            Herunterladen
-          </span>
-        ) : (
-          <a
-            href={attachmentContentUrl(document.attachment_id)}
-            className={buttonClass("primary")}
-            download
-          >
-            Herunterladen
-          </a>
-        )}
+        <Download document={document} />
       </div>
       <dl className={styles.facts}>
         <div className={styles.fact}>
@@ -234,6 +253,21 @@ function DocumentHeader({ document }: { document: DocumentDetail }) {
         </div>
       </dl>
     </Card>
+  );
+}
+
+/** The header in the compact bar (D166): icon, name on one line, kind and size, the download. */
+function CompactDocument({ document }: { document: DocumentDetail }) {
+  const name = documentName(document.name);
+  return (
+    <>
+      <KindIcon kind={document.kind} size={20} />
+      <span className={styles.compactName} title={name}>
+        {name}
+      </span>
+      <span className={styles.compactMeta}>{documentMeta(document).join(" · ")}</span>
+      <Download document={document} size="sm" />
+    </>
   );
 }
 

@@ -1,0 +1,76 @@
+/* The stage takes the whole body of the overlay. */
+.body {
+  background: var(--color-bg);
+}
+
+.tools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.level {
+  min-width: 52px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* The image sits at the stage's centre, moved by its offset; a click on the stage beside it
+   closes the view. */
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  cursor: zoom-out;
+  touch-action: none;
+  user-select: none;
+}
+
+.image {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  max-width: none;
+  cursor: default;
+}
+
+.movable,
+.movable .image {
+  cursor: grab;
+}
+
+.movable:active,
+.movable:active .image {
+  cursor: grabbing;
+}
+
+/* Until its size is known: loaded, but not shown. */
+.pending {
+  visibility: hidden;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+}
+
+.message {
+  margin: 48px auto;
+  max-width: 420px;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (max-width: 759px) {
+  .tools {
+    flex-wrap: wrap;
+  }
+}

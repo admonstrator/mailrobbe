@@ -1,28 +1,46 @@
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { DOCUMENT_NAMES_LIMIT, type DocumentDetail, type PersonCount } from "../../api/types";
+import { Button } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { personPath } from "../../components/PersonLink";
 import { formatNumber } from "../../lib/format";
 import { personLabel } from "../persons/labels";
-import { AttachmentPreview } from "../preview/AttachmentPreview";
+import { ImagePreview } from "../preview/AttachmentPreview";
+import { ImageViewer } from "../preview/ImageViewer";
 import styles from "./DocumentSide.module.css";
 import { documentName } from "./labels";
 
-/** A raster image (D76), shown as the mail detail shows it. */
+/** A raster image (D76), shown as the mail detail shows it; a click on it or on "Großansicht"
+ *  opens the large view (D165). */
 export function DocumentPreview({ document }: { document: DocumentDetail }) {
+  const [large, setLarge] = useState(false);
+  const name = documentName(document.name);
   return (
     <Card variant="side" aria-labelledby="document-preview-title">
-      <CardTitle id="document-preview-title" variant="caps">
-        Vorschau
-      </CardTitle>
+      <div className={styles.head}>
+        <CardTitle id="document-preview-title" variant="caps">
+          Vorschau
+        </CardTitle>
+        <Button variant="link" size="xs" aria-haspopup="dialog" onClick={() => setLarge(true)}>
+          Großansicht
+        </Button>
+      </div>
       <div className={styles.preview}>
-        <AttachmentPreview
+        <ImagePreview
           attachmentId={document.attachment_id}
-          kind="image"
-          name={documentName(document.name)}
+          name={name}
+          onOpen={() => setLarge(true)}
         />
       </div>
+      {large && (
+        <ImageViewer
+          attachmentId={document.attachment_id}
+          name={name}
+          onClose={() => setLarge(false)}
+        />
+      )}
     </Card>
   );
 }

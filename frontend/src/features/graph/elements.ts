@@ -24,10 +24,14 @@ export const PLAIN_COLOR = "#1D5BD6";
 const EDGE_COLOR = "#C3C9D3";
 export const CENTER_EDGE_OPACITY = 0.45;
 
+// Fixed bounds (D164): the heaviest node of any excerpt is at most NODE_MAX wide and its label no
+// larger than FONT_MAX, so neither covers its neighbours.
 const NODE_MIN = 12;
-const NODE_MAX = 64;
+const NODE_MAX = 40;
 const EDGE_MIN = 1;
-const EDGE_MAX = 9;
+const EDGE_MAX = 6;
+const FONT_MIN = 11;
+const FONT_MAX = 14;
 /** Only the strongest edges carry their weight as a label. */
 export const EDGE_LABELS = 12;
 /** Above this many edges the canvas draws cheaper edges (no curves, hidden while panning). */
@@ -66,25 +70,33 @@ export function nodeLabel(node: Pick<GraphNode, "name" | "email">): string {
   return node.name?.trim() || node.email.split("@")[0];
 }
 
-/** Diameter by area: proportional to the square root of the mails, clamped. */
+/** Where value lies between 1 and max on a logarithmic scale, from 0 to 1. An archive's figures
+ *  are skewed: one person may have a thousand times the mails of the others, and on a linear or
+ *  square-root scale that one fills the map while everyone else shrinks to the minimum. */
+function logShare(value: number, max: number): number {
+  if (max <= 1 || value <= 1) return 0;
+  return Math.min(1, Math.log(value) / Math.log(max));
+}
+
+const tenths = (value: number) => Math.round(value * 10) / 10;
+
+/** Diameter by the logarithm of the mails: one mail NODE_MIN, the heaviest node NODE_MAX. */
 export function nodeSize(mails: number, maxMails: number): number {
-  if (maxMails <= 0) return NODE_MIN;
-  const share = Math.sqrt(Math.max(mails, 0) / maxMails);
-  return Math.round((NODE_MIN + (NODE_MAX - NODE_MIN) * share) * 10) / 10;
+  return tenths(NODE_MIN + (NODE_MAX - NODE_MIN) * logShare(mails, maxMails));
 }
 
-/** Line width proportional to the square root of the weight, clamped. */
+/** Line width by the logarithm of the weight: one mail EDGE_MIN, the heaviest edge EDGE_MAX. */
 export function edgeWidth(weight: number, maxWeight: number): number {
-  if (maxWeight <= 0) return EDGE_MIN;
-  const share = Math.sqrt(Math.max(weight, 0) / maxWeight);
-  return Math.round((EDGE_MIN + (EDGE_MAX - EDGE_MIN) * share) * 10) / 10;
+  return tenths(EDGE_MIN + (EDGE_MAX - EDGE_MIN) * logShare(weight, maxWeight));
 }
 
-/** Label size grows with the node, so at a distance the big nodes keep their names while the
- *  small ones drop theirs (Cytoscape hides labels below 7 px on screen); centers at least 18. */
+/** Labels stay readable whatever the node: 11 to 14 px, a little larger for the larger nodes,
+ *  so that at a distance the heaviest keep their names a little longer (Cytoscape hides labels
+ *  below 7 px on screen); centers at 14. */
 export function labelFont(size: number, center: boolean): number {
-  const font = Math.round(11 + (size - NODE_MIN) * 0.35);
-  return center ? Math.max(font, 18) : font;
+  if (center) return FONT_MAX;
+  const share = Math.min(1, Math.max(0, (size - NODE_MIN) / (NODE_MAX - NODE_MIN)));
+  return Math.round(FONT_MIN + (FONT_MAX - FONT_MIN) * share);
 }
 
 export interface NodeVisual {

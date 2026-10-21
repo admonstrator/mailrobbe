@@ -27,6 +27,10 @@ export interface GraphCanvasHandle {
 }
 
 const PADDING = 40;
+/** Manual zoom goes up to MAX_ZOOM; fitting stops at the drawn size (D164), so a small excerpt
+ *  sits at 1:1 in the middle instead of being blown up to circles of 200 px. */
+const MAX_ZOOM = 3;
+const FIT_ZOOM = 1;
 /** Up to this many nodes another layout moves the nodes visibly instead of jumping. */
 const ANIMATE_NODES = 600;
 /** Larger PNGs are scaled down to fit (browsers refuse bigger canvases). */
@@ -76,6 +80,17 @@ function elements(visuals: GraphVisuals, positions: Positions): ElementDefinitio
 
 function layoutInput(visuals: GraphVisuals) {
   return { nodes: visuals.nodes, edges: visuals.edges, roots: visuals.roots };
+}
+
+/** Runs fit (cy.fit, or a layout that fits) with the zoom capped at FIT_ZOOM; an animated
+ *  layout takes its final zoom when it starts. */
+function capped(cy: Core, fit: () => unknown): void {
+  cy.maxZoom(FIT_ZOOM);
+  try {
+    fit();
+  } finally {
+    cy.maxZoom(MAX_ZOOM);
+  }
 }
 
 function currentPositions(cy: Core): Positions {
@@ -141,7 +156,7 @@ function Canvas({
         instance = cytoscape({
           container: container.current,
           minZoom: 0.02,
-          maxZoom: 3,
+          maxZoom: MAX_ZOOM,
           boxSelectionEnabled: false,
           autounselectify: true,
           hideEdgesOnViewport: large,
@@ -168,7 +183,7 @@ function Canvas({
     // size, too.
     const observer = new ResizeObserver(() => {
       cy.resize();
-      if (fitted.current) cy.fit(undefined, PADDING);
+      if (fitted.current) capped(cy, () => cy.fit(undefined, PADDING));
     });
     observer.observe(container.current);
     return () => observer.disconnect();
@@ -202,7 +217,7 @@ function Canvas({
       });
       // The size Cytoscape knows may be stale: the legend arrives with the graph.
       cy.resize();
-      cy.fit(undefined, PADDING);
+      capped(cy, () => cy.fit(undefined, PADDING));
       fitted.current = true;
       cy.one("render", () => {
         performance.measure("mailrobbe:map-drawn", {
@@ -215,18 +230,21 @@ function Canvas({
       const positions = computeLayout(layout, layoutInput(visuals));
       cy.resize();
       fitted.current = true;
-      cy.nodes()
-        .layout({
-          name: "preset",
-          positions: Object.fromEntries(
-            [...positions].map(([id, point]) => [String(id), { ...point }]),
-          ),
-          fit: true,
-          padding: PADDING,
-          animate: visuals.nodes.length <= ANIMATE_NODES,
-          animationDuration: 400,
-        })
-        .run();
+      capped(cy, () =>
+        cy
+          .nodes()
+          .layout({
+            name: "preset",
+            positions: Object.fromEntries(
+              [...positions].map(([id, point]) => [String(id), { ...point }]),
+            ),
+            fit: true,
+            padding: PADDING,
+            animate: visuals.nodes.length <= ANIMATE_NODES,
+            animationDuration: 400,
+          })
+          .run(),
+      );
     } else {
       // Same graph and layout: the colours changed.
       cy.batch(() => {
@@ -262,7 +280,7 @@ function Canvas({
       fit: () => {
         if (!cy) return;
         fitted.current = true;
-        cy.fit(undefined, PADDING);
+        capped(cy, () => cy.fit(undefined, PADDING));
       },
       png: () => {
         if (!cy || cy.elements().empty()) return null;

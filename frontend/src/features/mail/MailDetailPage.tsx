@@ -5,6 +5,7 @@ import { ApiError } from "../../api/client";
 import { useMailDetail, useMailHits, useMailNeighbors, useMailSummary } from "../../api/queries";
 import { buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
+import { CompactBar, useScrolledPast } from "../../components/CompactBar";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
@@ -16,7 +17,7 @@ import { AttachmentsCard } from "./AttachmentsCard";
 import { BodyCard, type BodyTab } from "./BodyCard";
 import { DkimCard } from "./DkimCard";
 import { EntitiesCard } from "./EntitiesCard";
-import { HeaderCard } from "./HeaderCard";
+import { CompactHeader, HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
 import { ParticipantsCard } from "./ParticipantsCard";
 import { ResearchCard } from "./ResearchCard";
@@ -59,6 +60,8 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
     hits.data && hits.data.words.length + hits.data.stems.length > 0 ? hits.data : undefined;
   const [tab, setTab] = useState<BodyTab>("text");
   const body = useRef<HTMLElement>(null);
+  // Scrolled past the header, a compact bar keeps subject, status and the steps in view (D166).
+  const [header, compact] = useScrolledPast<HTMLElement>();
   const prevId = neighbors.data?.prev_id ?? null;
   const nextId = neighbors.data?.next_id ?? null;
   const mailHref = (other: number) => withList(`/mails/${other}`, listQuery);
@@ -66,6 +69,8 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!isPlainKey(event) || event.shiftKey) return;
+      // Keys in an open dialog, such as a preview over the page, belong to it.
+      if (event.target instanceof Element && event.target.closest("dialog")) return;
       const target = { ArrowLeft: prevId, ArrowRight: nextId }[event.key];
       if (target === undefined || target === null) return;
       event.preventDefault();
@@ -87,9 +92,21 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
       </Link>
     );
 
+  const steps = (
+    <div className={styles.steps}>
+      {step(prevId, "‹ Vorherige", "Taste ←")}
+      {step(nextId, "Nächste ›", "Taste →")}
+    </div>
+  );
+
   return (
     <div className={styles.page}>
       <title>{`${detail.data?.subject || "Mail"} · Mailrobbe`}</title>
+      {compact && detail.data && (
+        <CompactBar label="Kopfzeile der Mail">
+          <CompactHeader mail={detail.data} steps={steps} />
+        </CompactBar>
+      )}
       <div className={styles.topBar}>
         <nav aria-label="Pfad" className={styles.breadcrumb}>
           <Link to={withList("/mails", listQuery)}>Mails</Link>
@@ -101,10 +118,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             </span>
           )}
         </nav>
-        <div className={styles.steps}>
-          {step(prevId, "‹ Vorherige", "Taste ←")}
-          {step(nextId, "Nächste ›", "Taste →")}
-        </div>
+        {steps}
       </div>
 
       {detail.isPending ? (
@@ -135,7 +149,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
       ) : (
         <div className={styles.columns}>
           <main className={styles.main}>
-            <HeaderCard mail={detail.data} mailHref={mailHref} marks={marks} />
+            <HeaderCard ref={header} mail={detail.data} mailHref={mailHref} marks={marks} />
             {marks && (
               <SearchHitsCard
                 hits={marks}
@@ -148,6 +162,9 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             )}
             <DkimCard mail={detail.data} />
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
+          </main>
+          <aside className={styles.side} aria-label="Zur Mail">
+            <ResearchCard mail={detail.data} />
             {detail.data.attachments.length > 0 && (
               <AttachmentsCard
                 attachments={detail.data.attachments}
@@ -155,9 +172,6 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
                 marks={marks}
               />
             )}
-          </main>
-          <aside className={styles.side} aria-label="Zur Mail">
-            <ResearchCard mail={detail.data} />
             <SignalsCard mailId={id} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}

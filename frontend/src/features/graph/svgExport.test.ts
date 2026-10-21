@@ -45,11 +45,29 @@ describe("SVG export", () => {
     expect(texts).toContain("388");
 
     const widest = doc.querySelector("line")!;
-    expect(widest.getAttribute("stroke-width")).toBe("9");
+    expect(widest.getAttribute("stroke-width")).toBe("6");
     expect(widest.getAttribute("stroke")).toBe("#1D5BD6");
     expect(widest.getAttribute("stroke-opacity")).toBe("0.45");
     // The list is hollow with a dashed ring.
     expect(doc.querySelectorAll("circle[stroke-dasharray]")).toHaveLength(1);
+  });
+
+  it("draws the sizes the map draws: the heaviest node 40 px, labels 11 to 14 px", () => {
+    const doc = parse(graphSvg(visuals.nodes, visuals.edges, positions, { arrows: false }));
+    const anna = visuals.nodes.find((node) => node.center)!;
+    const { x, y } = positions.get(anna.id)!;
+    const radii = [...doc.querySelectorAll(`circle[cx="${x}"][cy="${y}"]`)].map((circle) =>
+      Number(circle.getAttribute("r")),
+    );
+    expect(radii).toEqual([27, 24, 20]); // the ring of a center around the node
+    const labels = [...doc.querySelectorAll("text")].filter((text) =>
+      visuals.nodes.some((node) => node.label === text.textContent),
+    );
+    expect(labels).toHaveLength(visuals.nodes.length);
+    for (const label of labels) {
+      expect(Number(label.getAttribute("font-size"))).toBeGreaterThanOrEqual(11);
+      expect(Number(label.getAttribute("font-size"))).toBeLessThanOrEqual(14);
+    }
   });
 
   it("adds an arrowhead for each direction with mails when arrows are on", () => {
