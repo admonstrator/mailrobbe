@@ -1,4 +1,4 @@
-"""The relationship map (SPEC 5.4, decisions D36 to D39).
+"""The relationship map (SPEC 5.4, decisions D36 to D40).
 
 - edges.py: refresh_edges recomputes edge, edge_year and person.kind from the imported mails,
   for the whole archive or for some persons after a merge
