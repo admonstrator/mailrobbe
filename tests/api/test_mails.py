@@ -390,6 +390,16 @@ async def test_external_needs_and_uses_the_internal_domains(
         assert await listed(owner, [("external", "true")]) == expected
 
 
+async def test_the_calendars_last_day_is_a_usable_bound(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    dated = await ids(imported_database_url, "date_utc IS NOT NULL")
+    for params in ([("date_to", "9999-12-31")], [("q", "before:9999-12-31")]):
+        assert await listed(client, params) == dated
+        summary = await get(client, "/api/mails/summary", params)
+        assert (summary["total"], summary["exact"]) == (len(dated), True)
+
+
 # List items ---------------------------------------------------------------------------------
 
 
