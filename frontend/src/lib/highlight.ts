@@ -1,6 +1,7 @@
 // Search words marked in a text: in a document's snippet (D74), whose place the backend finds
 // with the words as typed, and in a mail and its attachments (D79), where the words beginning
-// with one of the query's German stems are marked too, the forms the full text search finds.
+// with one of the query's German stems are marked too, the forms the full text search finds. A
+// whole word search (D173) marks the words only where they stand as whole words.
 
 /** The words of q to mark: quoted phrases as a whole, the rest word by word, leaving out OR and
  *  negated words and phrases (websearch_to_tsquery syntax). Punctuation around a word is not part
@@ -41,20 +42,40 @@ function folded(word: string): string {
     .replace(/ß/g, "ss");
 }
 
+/** A term as a whole word or phrase, as the backend's fulltext.word_regex finds it (D173): not
+ *  inside a longer word, any characters other than letters and digits between a phrase's
+ *  words. */
+function wholeWord(term: string): string {
+  const body = term.split(/\s+/).filter(Boolean).map(escape).join("[^\\p{L}\\p{N}]+");
+  return `(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`;
+}
+
+export interface HighlightOptions {
+  /** Mark the terms only as whole words (D173), in any case, umlauts and accents as written,
+   *  and no stems. */
+  wholeWord?: boolean;
+}
+
 /** text cut into parts, marked where one of terms occurs in any case (the longest term wins
- *  where two start at the same place) and over each word that begins with one of stems. */
-export function highlightParts(text: string, terms: string[], stems: string[] = []): TextPart[] {
+ *  where two start at the same place) and over each word that begins with one of stems; with
+ *  wholeWord only where a term stands as a whole word, and stems are not used. */
+export function highlightParts(
+  text: string,
+  terms: string[],
+  stems: string[] = [],
+  { wholeWord: whole = false }: HighlightOptions = {},
+): TextPart[] {
   const ranges: [number, number][] = [];
   if (terms.length > 0) {
     const pattern = [...terms]
       .sort((a, b) => b.length - a.length)
-      .map(escape)
+      .map(whole ? wholeWord : escape)
       .join("|");
     for (const match of text.matchAll(new RegExp(pattern, "giu"))) {
       ranges.push([match.index, match.index + match[0].length]);
     }
   }
-  if (stems.length > 0) {
+  if (stems.length > 0 && !whole) {
     for (const match of text.matchAll(WORD)) {
       const word = folded(match[0]);
       const found = stems.some((stem) =>

@@ -3042,3 +3042,23 @@ export const hitsPage: MailPage = {
   })),
   query_terms: [{ key: "text", value: "Neger", raw: "Neger", negated: false }],
 };
+
+/** "Haftung" as a whole word in the list's places (D173, D176): the quoted "zur Haftung" of the
+ *  mail's text, not its "Haftungsklausel", and twice in the contract's text. */
+export const wholeWordHits: MailHits = {
+  words: ["Haftung"],
+  stems: [],
+  in_mail: true,
+  attachments: [
+    {
+      attachment_id: 901,
+      in_name: false,
+      snippet: "§ 6 Haftung: Die Haftung beider Seiten ist auf den Auftragswert begrenzt.",
+      in_text: true,
+    },
+  ],
+  whole_word: true,
+  in_subject: false,
+  in_body: true,
+  counts: { subject: 0, body: 1, attachment: 2, filename: 0 },
+};

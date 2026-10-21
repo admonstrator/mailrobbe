@@ -9,7 +9,13 @@ import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { isPlainKey } from "../../lib/keys";
-import { listSearch, parseListState, toFilters, toOrderParams } from "../mails/listState";
+import {
+  listSearch,
+  parseListState,
+  toFilters,
+  toHitsParams,
+  toOrderParams,
+} from "../mails/listState";
 import { formatTotal } from "../mails/SummaryTiles";
 import { ActionsCard } from "./ActionsCard";
 import { AttachmentsCard } from "./AttachmentsCard";
@@ -53,7 +59,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
   const detail = useMailDetail(id);
   const neighbors = useMailNeighbors(id, toOrderParams(list));
   const summary = useMailSummary(toFilters(list));
-  const hits = useMailHits(id, list.q);
+  const hits = useMailHits(id, toHitsParams(list));
   // the search words of the list's query (D79); none without full text words
   const marks =
     hits.data && hits.data.words.length + hits.data.stems.length > 0 ? hits.data : undefined;
