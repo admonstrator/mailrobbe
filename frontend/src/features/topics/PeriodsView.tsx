@@ -30,6 +30,9 @@ import {
   type TopicsState,
 } from "./urlState";
 
+/** Periods shown at first and added per click: two years of months. */
+const PERIODS_SHOWN = 24;
+
 /** Zeiträume (D143): every month, quarter or year with mails, newest first, with the terms that
  *  stand out most in it against the whole archive. */
 export function PeriodsView({
@@ -43,6 +46,7 @@ export function PeriodsView({
 }) {
   const periods = useTopicPeriods(state.unit === "month" ? {} : { unit: state.unit });
   const data = periods.data;
+  const [shown, setShown] = useState(PERIODS_SHOWN);
 
   return (
     <div className={styles.view}>
@@ -51,7 +55,10 @@ export function PeriodsView({
           label="Zeiteinheit"
           options={TOPIC_UNITS.map((unit) => [unit, UNIT_LABELS[unit]])}
           value={state.unit}
-          onChange={(unit) => onChange({ ...state, unit })}
+          onChange={(unit) => {
+            setShown(PERIODS_SHOWN);
+            onChange({ ...state, unit });
+          }}
         />
         {data && data.periods.length > 0 && (
           <span className={styles.summary}>
@@ -78,14 +85,28 @@ export function PeriodsView({
             Keine Mail des Archivs hat ein Datum, nach dem sie sich einem Zeitraum zuordnen ließe.
           </EmptyState>
         ) : (
-          <ol
-            className={cx(styles.periods, periods.isPlaceholderData && styles.stale)}
-            aria-label={UNIT_PLURALS[periods.data.unit]}
-          >
-            {periods.data.periods.map((period) => (
-              <Period key={period.start} period={period} unit={periods.data.unit} themes={themes} />
-            ))}
-          </ol>
+          <>
+            <ol
+              className={cx(styles.periods, periods.isPlaceholderData && styles.stale)}
+              aria-label={UNIT_PLURALS[periods.data.unit]}
+            >
+              {periods.data.periods.slice(0, shown).map((period) => (
+                <Period
+                  key={period.start}
+                  period={period}
+                  unit={periods.data.unit}
+                  themes={themes}
+                />
+              ))}
+            </ol>
+            {periods.data.periods.length > shown && (
+              <div className={styles.older}>
+                <Button onClick={() => setShown(shown + PERIODS_SHOWN)}>
+                  Ältere Zeiträume zeigen (noch {formatNumber(periods.data.periods.length - shown)})
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </Card>
     </div>

@@ -212,5 +212,7 @@ ignore = [
     "Januar", "Jänner", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September",
     "Oktober", "November", "Dezember", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
     "Saturday", "Sunday", "January", "February", "March", "June", "July", "October", "December",
+    "Jan", "Feb", "Mär", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Okt", "Oct", "Nov",
+    "Dez", "Dec", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
     "regards", "kind", "best", "thanks", "thank", "dear", "sent", "wrote", "message", "subject",
 ]

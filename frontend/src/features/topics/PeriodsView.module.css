@@ -45,6 +45,11 @@
   padding: 14px 20px;
 }
 
+.older {
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
 .period + .period {
   border-top: 1px solid var(--color-border-subtle);
 }

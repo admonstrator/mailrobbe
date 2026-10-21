@@ -1,7 +1,12 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { topicStateNever, topicTermsSampled, topicTermsTimedOut } from "../../test/fixtures";
+import {
+  topicState,
+  topicStateNever,
+  topicTermsSampled,
+  topicTermsTimedOut,
+} from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 // Intl puts a no-break space before "%".
@@ -153,6 +158,32 @@ describe("topics screen", () => {
     expect(href(screen.getByRole("link", { name: "Zum Import" }))).toBe("/import");
     expect(screen.queryByRole("tab")).toBeNull();
     expect(screen.queryByText(/Berechnet am/)).toBeNull();
+  });
+
+  it("shows two years of months at first and older ones on request", async () => {
+    // 30 months, newest first: December 2025 back to July 2023.
+    const months = Array.from({ length: 30 }, (_, back) => {
+      const first = new Date(Date.UTC(2025, 11 - back, 1));
+      const last = new Date(Date.UTC(2025, 12 - back, 0));
+      const day = (date: Date) => date.toISOString().slice(0, 10);
+      return { start: day(first), end: day(last), mails: 10, terms: [] };
+    });
+    renderApp(
+      "/themen",
+      withApi(({ url }) =>
+        url.pathname === "/api/topics/periods" && !url.searchParams.has("unit")
+          ? { state: topicState, unit: "month", periods: months }
+          : undefined,
+      ),
+    );
+    expect(await screen.findByRole("heading", { name: "Dezember 2025" })).toBeTruthy();
+    expect(screen.getByText("30 Monate mit Mails, neueste zuerst")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(24);
+    expect(screen.queryByRole("heading", { name: "Dezember 2023" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ältere Zeiträume zeigen (noch 6)" }));
+    expect(screen.getAllByRole("heading", { level: 3 })).toHaveLength(30);
+    expect(screen.getByRole("heading", { name: "Juli 2023" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Ältere Zeiträume/ })).toBeNull();
   });
 });
 
