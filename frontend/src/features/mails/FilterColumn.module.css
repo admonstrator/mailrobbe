@@ -140,6 +140,7 @@ label.legend {
 @media (max-width: 759px) {
   .column {
     position: static;
+    align-self: stretch;
     flex: none;
     height: auto;
     min-width: 0;
