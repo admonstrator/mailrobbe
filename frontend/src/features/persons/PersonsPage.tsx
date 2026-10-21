@@ -7,6 +7,7 @@ import { usePersonPage, useSuggestions } from "../../api/queries";
 import { PAGE_SIZE, type PersonPage, type PersonSort } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
+import { Checkbox } from "../../components/Checkbox";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
@@ -84,7 +85,7 @@ export function PersonsPage() {
         <h1 className={styles.title}>Personen</h1>
         {page.data && (
           <span className={styles.total} aria-live="polite">
-            {state.q
+            {state.q || state.labelled
               ? `${formatNumber(page.data.total)} ${page.data.total === 1 ? "Person" : "Personen"} gefunden`
               : `${formatNumber(page.data.total)} Personen`}
           </span>
@@ -134,6 +135,14 @@ export function PersonsPage() {
                   </option>
                 ))}
               </select>
+              <div className={styles.labelled}>
+                <Checkbox
+                  checked={state.labelled}
+                  onChange={(labelled) => setState({ ...state, labelled, cursor: null, page: 1 })}
+                >
+                  Nur benannte
+                </Checkbox>
+              </div>
             </div>
             <PersonList page={page} state={state} />
           </>
@@ -203,6 +212,20 @@ function PersonList({ page, state }: { page: UseQueryResult<PersonPage>; state: 
               }
             >
               {`Kein Name und keine Adresse enthält „${state.q}“.`}
+            </EmptyState>
+          ) : state.labelled ? (
+            <EmptyState
+              title="Noch keine Person benannt"
+              actions={
+                <Link
+                  to={listHref({ ...state, labelled: false, cursor: null, page: 1 })}
+                  className={buttonClass()}
+                >
+                  Alle Personen zeigen
+                </Link>
+              }
+            >
+              Klarname und Rolle vergibt das Team im Profil einer Person mit „Benennen“.
             </EmptyState>
           ) : (
             <EmptyState title="Noch keine Personen">

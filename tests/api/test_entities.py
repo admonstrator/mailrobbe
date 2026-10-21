@@ -333,6 +333,7 @@ async def test_archive_persons(entity_client: httpx.AsyncClient, entity_database
         "person_id": named[0].id,
         "email": named[0].canonical_email,
         "name": named[0].display_name,
+        "label": None,
     }
     assert (await detail(entity_client, 8))["archive_person"] is None  # several have the name
     root = await rows(
@@ -345,6 +346,7 @@ async def test_archive_persons(entity_client: httpx.AsyncClient, entity_database
         "person_id": root[0].id,
         "email": root[0].canonical_email,
         "name": root[0].display_name,
+        "label": None,
     }
     assert (await detail(entity_client, 6))["archive_person"] is None
 

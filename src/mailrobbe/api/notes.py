@@ -30,6 +30,7 @@ from mailrobbe.api.schemas import (
     NotePage,
 )
 from mailrobbe.db.models import Mail, Note
+from mailrobbe.persons.labels import attach_labels
 
 router = APIRouter(prefix="/api", tags=["research"])
 
@@ -114,7 +115,7 @@ async def list_notes(params: Annotated[NoteListParams, Query()], session: Sessio
     if more:
         last = rows[-1]
         next_cursor = _Cursor(scope, False, (last.created_at, last.id)).encode()
-    return NotePage(
+    notes = NotePage(
         items=[
             NoteItem(
                 id=row.id,
@@ -135,3 +136,5 @@ async def list_notes(params: Annotated[NoteListParams, Query()], session: Sessio
         next_cursor=next_cursor,
         total=total or 0,
     )
+    await attach_labels(session, notes)
+    return notes

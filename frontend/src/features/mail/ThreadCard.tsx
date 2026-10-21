@@ -6,6 +6,7 @@ import { DkimDot } from "../../components/DkimDot";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatNumber, formatShortDate } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { timelinePath } from "../timeline/buckets";
 import styles from "./ThreadCard.module.css";
 
@@ -18,7 +19,7 @@ function Entry({
   referenceDate: string | null;
   current: boolean;
 }) {
-  const sender = mail.sender ? mail.sender.name || mail.sender.email : "(unbekannt)";
+  const sender = mail.sender ? personName(mail.sender) : "(unbekannt)";
   return (
     <>
       <span className={styles.dot}>

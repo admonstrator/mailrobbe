@@ -43,6 +43,14 @@ describe("person list state in the URL", () => {
       DEFAULT_PERSON_LIST_STATE,
     );
   });
+
+  it('keeps "Nur benannte" (D157)', () => {
+    const state = parsePersonListState(params("q=kasse&labelled=true"));
+    expect(state.labelled).toBe(true);
+    expect(personListSearch(state).toString()).toBe("q=kasse&labelled=true");
+    expect(toPersonListParams(state)).toEqual({ q: "kasse", labelled: true });
+    expect(parsePersonListState(params("labelled=1")).labelled).toBe(false);
+  });
 });
 
 describe("a profile's mail list", () => {

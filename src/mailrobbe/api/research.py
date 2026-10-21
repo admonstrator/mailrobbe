@@ -78,6 +78,7 @@ from mailrobbe.db.models import (
 from mailrobbe.db.models import SavedSearch as SearchRow
 from mailrobbe.entities.terms import term_key
 from mailrobbe.enums import EntityKind
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
 from mailrobbe.themes import load_themes
 
@@ -468,7 +469,7 @@ async def collection_detail(collection_id: RowId, session: Session) -> Collectio
         .where(SearchRow.collection_id == collection_id)
         .order_by(func.lower(SearchRow.name), SearchRow.id)
     )
-    return CollectionDetail(
+    detail = CollectionDetail(
         mails=total,
         date_min=date_min,
         date_max=date_max,
@@ -482,6 +483,8 @@ async def collection_detail(collection_id: RowId, session: Session) -> Collectio
         searches=[SavedSearch(**search._mapping) for search in searches],
         **row._mapping,
     )
+    await attach_labels(session, detail)
+    return detail
 
 
 @router.patch("/collections/{collection_id}")

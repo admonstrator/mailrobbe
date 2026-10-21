@@ -2,6 +2,7 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  CalendarEventInfo,
   CertainMergePlan,
   CertainMergeResult,
   CollectionDetail,
@@ -63,6 +64,7 @@ import type {
   FirstMentions,
   Timeline,
   TimelineSeries,
+  PersonEvents,
   PersonFigures,
   PersonMailCounts,
   PersonPage,
@@ -142,6 +144,8 @@ export const stats: Stats = {
   internal_domains: ["nordlicht-gmbh.example"],
   importer: { running: true, files_total: 72, files_done: 51, progress: 0.713 },
   updated_at: "2026-10-20T01:14:00Z",
+  near: { groups: 1840, mails: 4120, hidden: 2510 },
+  events: { request: 312, reply: 148, cancel: 21 },
 };
 
 export const mboxFiles: MboxFileInfo[] = [
@@ -219,6 +223,8 @@ function item(
     tags: [],
     notes: 0,
     attachment_match: false,
+    near_count: 0,
+    event: null,
     hits: null,
     ...extra,
   };
@@ -501,6 +507,10 @@ export const mailDetail: MailDetail = {
       },
     ],
   },
+  near_group: null,
+  near: [],
+  near_size: 0,
+  events: [],
 };
 
 /** The hits of "Haftung" in mailDetail (D79): its text, its quoted part, two attachments. */
@@ -557,6 +567,11 @@ export const mailText: MailText = {
   truncated: false,
   source: "text/plain",
   has_html: true,
+  // as quotes.split_text cuts it (D151): the own words, then the quoted history
+  segments: [
+    { kind: "text", start: 0, end: 412, lines: 6, folded: false },
+    { kind: "quote", start: 412, end: 626, lines: 5, folded: true },
+  ],
 };
 
 export const mailHeaders: MailHeaders = {
@@ -597,6 +612,46 @@ export const mailRaw: MailRaw = {
   ].join("\n"),
   truncated: false,
   size: 188_416,
+};
+
+/** mailDetail in a group of near duplicates (D153): the same text went to two more recipients
+ *  one by one, one of those mails was imported twice, and one more mail is not listed. */
+export const mailDetailNear: MailDetail = {
+  ...mailDetail,
+  near_group: 184180,
+  near_size: 5,
+  near: [
+    {
+      id: 184180,
+      date: "2026-10-18T12:30:02Z",
+      subject: mailDetail.subject,
+      sender: people.anna,
+      dkim_status: "pass",
+      recipients: [people.miriam],
+      recipient_count: 1,
+      is_duplicate: false,
+    },
+    {
+      id: 184231,
+      date: "2026-10-18T12:30:02Z",
+      subject: mailDetail.subject,
+      sender: people.anna,
+      dkim_status: "no_key",
+      recipients: [people.miriam],
+      recipient_count: 1,
+      is_duplicate: true,
+    },
+    {
+      id: 184184,
+      date: "2026-10-18T12:31:40Z",
+      subject: `AW: ${mailDetail.subject}`,
+      sender: people.anna,
+      dkim_status: "pass",
+      recipients: [people.lukas, people.peter, people.thomas],
+      recipient_count: 4,
+      is_duplicate: false,
+    },
+  ],
 };
 
 // Persons (milestone 5) -----------------------------------------------------------------------
@@ -852,6 +907,7 @@ export const annaProfile: PersonProfile = {
   ],
   suggestion_counts: { certain: 1, uncertain: 1 },
   merges: [],
+  label: null,
 };
 
 /** Anna's profile after merging keller.anna@post.example (23) into her. */
@@ -3202,6 +3258,188 @@ export const wholeWordHits: MailHits = {
   in_subject: false,
   in_body: true,
   counts: { subject: 0, body: 1, attachment: 2, filename: 0 },
+};
+
+// Calendar invitations (D154, D155) -------------------------------------------------------------
+
+const EVENT_UID = "040000008200E00074C5B7101A82E00800000000B4D2A6F1@nordlicht-gmbh.example";
+
+/** Anna's Outlook invitation to a weekly meeting, as the mail detail shows it: Jonas accepted,
+ *  Miriam is optional and tentative, the room is no person. */
+export const calendarEvent: CalendarEventInfo = {
+  id: 901,
+  mail_id: 184221,
+  kind: "request",
+  method: "REQUEST",
+  uid: EVENT_UID,
+  sequence: 0,
+  status: "CONFIRMED",
+  summary: "Abstimmung Rahmenvereinbarung 2026",
+  location: "Besprechungsraum 3, Hafenstraße 12",
+  description: "Agenda:\n1. Haftung\n2. Laufzeit und Kündigung",
+  starts_local: "2026-10-27T10:00:00",
+  ends_local: "2026-10-27T11:30:00",
+  time_zone: "W. Europe Standard Time",
+  starts_at: "2026-10-27T09:00:00Z",
+  ends_at: "2026-10-27T10:30:00Z",
+  all_day: false,
+  recurrence: "FREQ=WEEKLY;BYDAY=TU;COUNT=6",
+  organizer: {
+    email: anna.email,
+    name: "Anna Keller",
+    role: "CHAIR",
+    partstat: null,
+    person: anna,
+  },
+  attendees: [
+    {
+      email: jonas.email,
+      name: "Jonas Brandt",
+      role: "REQ-PARTICIPANT",
+      partstat: "ACCEPTED",
+      person: jonas,
+    },
+    {
+      email: miriam.email,
+      name: "Dr. Miriam Steiner",
+      role: "OPT-PARTICIPANT",
+      partstat: "TENTATIVE",
+      person: miriam,
+    },
+    {
+      email: "raum.3@nordlicht-gmbh.example",
+      name: "Besprechungsraum 3",
+      role: "NON-PARTICIPANT",
+      partstat: "NEEDS-ACTION",
+      person: null,
+    },
+  ],
+  uid_mails: 3,
+};
+
+/** The mails of the event's UID, newest first: two answers and the invitation. */
+export const eventMailPage: MailPage = {
+  items: [
+    item(
+      184236,
+      "2026-10-21T08:12:00Z",
+      jonas,
+      [anna],
+      "Angenommen: Abstimmung Rahmenvereinbarung 2026",
+      "pass",
+      { event: "reply" },
+    ),
+    item(
+      184233,
+      "2026-10-20T16:40:00Z",
+      miriam,
+      [anna],
+      "Mit Vorbehalt angenommen: Abstimmung Rahmenvereinbarung 2026",
+      "no_key",
+      { event: "reply" },
+    ),
+    item(
+      184221,
+      "2026-10-18T12:32:07Z",
+      anna,
+      [jonas, miriam],
+      "Einladung: Abstimmung Rahmenvereinbarung 2026",
+      "pass",
+      { event: "request" },
+    ),
+  ],
+  next_cursor: null,
+  prev_cursor: null,
+  query_terms: [],
+};
+
+/** Anna's events: one she organised, a cancelled one she had accepted, an all-day one she has
+ *  not answered. */
+export const personEvents: PersonEvents = {
+  items: [
+    {
+      event: { ...calendarEvent, attendees: [] },
+      organizer: true,
+      partstat: null,
+      mail: {
+        id: 184221,
+        date: "2026-10-18T12:32:07Z",
+        subject: "Einladung: Abstimmung Rahmenvereinbarung 2026",
+        sender: anna,
+        dkim_status: "pass",
+      },
+    },
+    {
+      event: {
+        ...calendarEvent,
+        id: 877,
+        mail_id: 183950,
+        kind: "cancel",
+        method: "CANCEL",
+        uid: "8f1c2a90-3b7e-4d1a-a5c2-6e0f9b8d7c11@stadtwerke-beispiel.example",
+        sequence: 2,
+        status: "CANCELLED",
+        summary: "Jahresgespräch Stadtwerke",
+        location: null,
+        description: null,
+        starts_local: "2026-09-15T13:00:00",
+        ends_local: "2026-09-15T14:00:00",
+        time_zone: "UTC",
+        starts_at: "2026-09-15T13:00:00Z",
+        ends_at: "2026-09-15T14:00:00Z",
+        recurrence: null,
+        organizer: { email: jonas.email, name: null, role: null, partstat: null, person: jonas },
+        attendees: [],
+        uid_mails: 4,
+      },
+      organizer: false,
+      partstat: "ACCEPTED",
+      mail: {
+        id: 183950,
+        date: "2026-09-10T07:02:00Z",
+        subject: "Abgesagt: Jahresgespräch Stadtwerke",
+        sender: jonas,
+        dkim_status: "pass",
+      },
+    },
+    {
+      event: {
+        ...calendarEvent,
+        id: 512,
+        mail_id: 181002,
+        uid: "b7e94d02c1@verband.example",
+        summary: "Verbandstag Nord",
+        location: "Kiel",
+        description: null,
+        starts_local: "2026-06-04T00:00:00",
+        ends_local: "2026-06-06T00:00:00",
+        time_zone: null,
+        starts_at: null,
+        ends_at: null,
+        all_day: true,
+        recurrence: null,
+        organizer: {
+          email: "termine@verband.example",
+          name: "Verband Nord",
+          role: null,
+          partstat: null,
+          person: null,
+        },
+        attendees: [],
+        uid_mails: 1,
+      },
+      organizer: false,
+      partstat: null,
+      mail: {
+        id: 181002,
+        date: "2026-05-02T09:30:00Z",
+        subject: "Einladung: Verbandstag Nord",
+        sender: null,
+        dkim_status: "unsigned",
+      },
+    },
+  ],
+  total: 3,
 };
 
 // Alias tiers, merging every certain suggestion, the merge log (D160 to D163) -------------------

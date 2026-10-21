@@ -15,6 +15,7 @@ import type { FirstMention, TimelineBucket, TimelineSeries } from "../../api/typ
 import { personPath } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { formatNumber, utcDay } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { bucketEnd, formatBucket } from "./buckets";
 import { axisTicks, bucketAt, bucketOf, laneShape, MARK_SPACE, type Tick } from "./chart";
 import { bucketText, mailsText, personsText, seriesName } from "./labels";
@@ -74,7 +75,7 @@ function mentionsByBucket(
 }
 
 function namesText(mentions: readonly FirstMention[]): string {
-  const names = mentions.slice(0, MENTION_NAMES).map((m) => m.person.name || m.person.email);
+  const names = mentions.slice(0, MENTION_NAMES).map((m) => personName(m.person));
   const more = mentions.length - names.length;
   return more > 0 ? `${names.join(", ")} +${formatNumber(more)} weitere` : names.join(", ");
 }

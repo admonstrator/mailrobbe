@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { PersonLabel, PersonLabelUpdate } from "../../api/types";
 import { annaProfile, mergeLogPage } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
@@ -357,5 +358,140 @@ describe("person profile", () => {
     // The certain one stands outside.
     const certain = within(dialog).getByRole("radio", { name: /keller\.anna@post\.example/ });
     expect(folded.contains(certain)).toBe(false);
+  });
+});
+
+describe("the team's label of a person (D156)", () => {
+  const own: PersonLabel = {
+    email: annaProfile.email,
+    name: "Kassenwartin Nord",
+    role: "Schatzmeisterin",
+    note: `Führt die Kasse des Fördervereins. ${"Belege prüfen. ".repeat(20)}Ende der Notiz.`,
+    editor: "Mara",
+    updated_at: "2026-10-20T09:00:00Z",
+  };
+
+  /** The fixtures with a label that PUT /api/persons/11/label changes as the backend does. */
+  function labelApi(start: PersonLabel | null) {
+    let label = start;
+    return (call: ApiCall) => {
+      if (call.url.pathname === "/api/persons/11") return { ...annaProfile, label };
+      if (call.url.pathname === "/api/persons/11/label" && call.method === "PUT") {
+        const { name, role, note } = call.body as PersonLabelUpdate;
+        label =
+          name || role || note
+            ? {
+                email: annaProfile.email,
+                name: name || null,
+                role: role || null,
+                note: note || null,
+                editor: call.headers.get("X-Mailrobbe-Editor"),
+                updated_at: "2026-10-21T08:00:00Z",
+              }
+            : null;
+        return { ...annaProfile, label };
+      }
+      return fixtureApi(call);
+    };
+  }
+
+  const labelCalls = (calls: ApiCall[]) =>
+    calls.filter((call) => call.url.pathname === "/api/persons/11/label");
+
+  it("shows the label as the title, the mails' name below it and the note shortened", async () => {
+    const aliases = annaProfile.aliases.map((alias, index) =>
+      index === 0 ? { ...alias, label: { name: "Einkauf Nord", role: null } } : alias,
+    );
+    renderApp("/personen/11", (call) =>
+      call.url.pathname === "/api/persons/11"
+        ? { ...annaProfile, aliases, label: own }
+        : fixtureApi(call),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Kassenwartin Nord", level: 1 }),
+    ).toBeTruthy();
+    expect(document.title).toBe("Kassenwartin Nord · Mailrobbe");
+    expect(screen.getByText("Schatzmeisterin")).toBeTruthy();
+    expect(screen.getByText(/^Anna Keller ·/).parentElement!.textContent).toBe(
+      "Anna Keller · anna.keller@nordlicht-gmbh.example",
+    );
+    expect(screen.getByText("Benennung des Teams (Mara, 20.10.2026)")).toBeTruthy();
+    expect(screen.queryByText(/Ende der Notiz\.$/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "mehr" }));
+    expect(screen.getByText(/Ende der Notiz\./)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "weniger" })).toBeTruthy();
+
+    const addresses = screen.getByRole("list", { name: "Adressen" });
+    expect(within(addresses).getByText("„Einkauf Nord“")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Benennung bearbeiten" })).toBeTruthy();
+  });
+
+  it("names a person under the editor's name", async () => {
+    localStorage.setItem("mailrobbe.editor", "Mara");
+    const { calls } = renderApp("/personen/11", labelApi(null));
+    fireEvent.click(await screen.findByRole("button", { name: "Benennen" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Benennen" });
+    expect(within(dialog).getByText(/^Die Benennung gilt für die Adresse/).textContent).toMatch(
+      /anna\.keller@nordlicht-gmbh\.example und erscheint überall, wo die Person auftaucht/,
+    );
+    expect(within(dialog).getByText("Mara")).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Benennung entfernen" })).toBeNull();
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Klarname" }), {
+      target: { value: "Kassenwartin Nord" },
+    });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Rolle" }), {
+      target: { value: "Schatzmeisterin" },
+    });
+    expect(within(dialog).getByText("17 / 200")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Speichern" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Kassenwartin Nord", level: 1 }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const [put] = labelCalls(calls);
+    expect(put.method).toBe("PUT");
+    expect(put.body).toEqual({ name: "Kassenwartin Nord", role: "Schatzmeisterin", note: "" });
+    expect(put.headers.get("X-Mailrobbe-Editor")).toBe("Mara");
+    expect(screen.getByText("Schatzmeisterin")).toBeTruthy();
+    expect(screen.getByText("Benennung des Teams (Mara, 21.10.2026)")).toBeTruthy();
+  });
+
+  it("shows an alias's label until the person's own address is named", async () => {
+    const alias = annaProfile.aliases[0].email;
+    renderApp("/personen/11", labelApi({ ...own, email: alias, note: null }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Kassenwartin Nord", level: 1 }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(`Benennung des Teams (Mara, 20.10.2026), von der Adresse ${alias}`),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Benennen" }));
+    const dialog = screen.getByRole("dialog", { name: "Benennen" });
+    expect(
+      within(dialog).getByText(/^Bisher zeigt die Person die Benennung ihrer Adresse/).textContent,
+    ).toBe(`Bisher zeigt die Person die Benennung ihrer Adresse ${alias}.`);
+    expect(within(dialog).queryByRole("button", { name: "Benennung entfernen" })).toBeNull();
+  });
+
+  it("removes the label, and the mails' name is the title again", async () => {
+    const { calls } = renderApp("/personen/11", labelApi(own));
+    fireEvent.click(await screen.findByRole("button", { name: "Benennung bearbeiten" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Benennung bearbeiten" });
+    expect(within(dialog).getByRole("textbox", { name: "Klarname" })).toHaveProperty(
+      "value",
+      "Kassenwartin Nord",
+    );
+    expect(within(dialog).getByText("Wird ohne Namen gespeichert.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Benennung entfernen" }));
+
+    expect(await screen.findByRole("heading", { name: "Anna Keller", level: 1 })).toBeTruthy();
+    expect(labelCalls(calls).map((call) => call.body)).toEqual([{ name: "", role: "", note: "" }]);
+    expect(screen.queryByText("Schatzmeisterin")).toBeNull();
+    expect(screen.getByRole("button", { name: "Benennen" })).toBeTruthy();
   });
 });

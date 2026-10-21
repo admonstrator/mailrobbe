@@ -4,18 +4,24 @@ import { Link, useNavigate } from "react-router";
 import { useResearch } from "../../api/queries";
 import type { MailHitCounts, MailListItem, PersonRef, TagRef } from "../../api/types";
 import { DkimDot } from "../../components/DkimDot";
-import { CopyIcon, FlagIcon, NoteIcon, PaperclipIcon } from "../../components/icons";
+import { CalendarIcon, CopyIcon, FlagIcon, NoteIcon, PaperclipIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatBytes, formatDateTime, formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
+import { EVENT_LABELS } from "./chips";
 import type { ColumnChoice } from "./columns";
 import styles from "./MailTable.module.css";
 import { ReviewMark } from "./ReviewMark";
 
-const personLabel = (person: PersonRef) => person.name || person.email;
+const personLabel = (person: PersonRef) => personName(person);
 const notesLabel = (count: number) => (count === 1 ? "1 Notiz" : `${formatNumber(count)} Notizen`);
+const nearLabel = (count: number) =>
+  count === 1
+    ? "1 weitere nahezu gleiche Mail"
+    : `${formatNumber(count)} weitere nahezu gleiche Mails`;
 
 /** Tag dots shown per row; the rest is "+n", all names are in the tooltip. */
 const TAG_DOTS = 3;
@@ -212,6 +218,23 @@ export function MailTable({
                   {mail.flagged && <FlagIcon size={13} label="Markiert" className={styles.flag} />}
                   {mail.is_duplicate && (
                     <CopyIcon size={13} label="Duplikat" className={styles.duplicate} />
+                  )}
+                  {mail.near_count > 0 && (
+                    <span
+                      className={styles.near}
+                      role="img"
+                      aria-label={nearLabel(mail.near_count)}
+                      title={nearLabel(mail.near_count)}
+                    >
+                      +{formatNumber(mail.near_count)}
+                    </span>
+                  )}
+                  {mail.event && (
+                    <CalendarIcon
+                      size={13}
+                      label={`Termin: ${EVENT_LABELS[mail.event]}`}
+                      className={cx(styles.event, mail.event === "cancel" && styles.eventCancel)}
+                    />
                   )}
                   {(mail.tags.length > 0 || mail.notes > 0) && (
                     <span className={styles.research}>

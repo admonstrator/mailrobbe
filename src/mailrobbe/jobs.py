@@ -50,7 +50,16 @@ LOCK_KEYS: dict[JobKind, int] = {
 
 # The phases a run goes through, in order (job.phase).
 ImportPhase = Literal[
-    "scan", "headers", "import", "finalize", "attachments", "entities", "signals", "topics"
+    "scan",
+    "headers",
+    "import",
+    "finalize",
+    "attachments",
+    "calendar",
+    "near",
+    "entities",
+    "signals",
+    "topics",
 ]
 DkimPhase = Literal["check", "aggregates"]
 

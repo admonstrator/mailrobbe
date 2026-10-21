@@ -96,6 +96,7 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     assert "persons:       2" in out
     assert "documents:     0 (0 with text, 0 waiting; 0 stored in this run)" in out
     assert "signals:       0 mails with a signal, 0 persons silent" in out
+    assert "near:          0 groups of near duplicates, 0 mails in them" in out
     assert "computed the topics in " in caplog.text
     assert re.search(r"topics: +\d+ terms, 3 periods, 0 clusters \(\d+\.\d s\)", out)
 
@@ -113,6 +114,8 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
         "topic_periods": "skipped",
         "topic_clusters": "skipped",
     }
+    near = {step.key: step.status for step in second.steps if step.key.startswith("near_")}
+    assert near == {"near_texts": "skipped", "near_groups": "done"}  # fingerprints kept (D158)
 
 
 @pytest.mark.db
@@ -153,6 +156,7 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
         steps[key].status == "done"
         for key in ("scan", "import", "edges", "global_stats", "signals")
     )
+    assert (steps["near_texts"].done, steps["near_groups"].status) == (50, "done")
     assert all(
         step.seconds >= 0 and step.started_at for step in steps.values() if step.status == "done"
     )
@@ -251,10 +255,10 @@ def test_an_outdated_schema_is_refused(
     empty_database_url: str, mbox_dir: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     assert _import(empty_database_url, mbox_dir) == 1
-    assert "schema is at revision none, not at 0014: run `mailrobbe migrate` first" in caplog.text
+    assert "schema is at revision none, not at 0015: run `mailrobbe migrate` first" in caplog.text
     migrate.upgrade("0001", empty_database_url)
     assert _import(empty_database_url, mbox_dir) == 1
-    assert "schema is at revision 0001, not at 0014" in caplog.text
+    assert "schema is at revision 0001, not at 0015" in caplog.text
 
 
 def test_a_missing_directory_is_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

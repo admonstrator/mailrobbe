@@ -13,6 +13,7 @@ import { MiniTimeline } from "../timeline/MiniTimeline";
 import { PersonTermsCard } from "../topics/PersonTermsCard";
 import { personLabel } from "./labels";
 import { MergeDialog } from "./MergeDialog";
+import { PersonEventsCard } from "./PersonEventsCard";
 import { PersonMails } from "./PersonMails";
 import styles from "./PersonProfilePage.module.css";
 import { PersonSignalsCard } from "./PersonSignalsCard";
@@ -132,6 +133,7 @@ function Profile({ profile }: { profile: PersonProfile }) {
         silenceLine
       />
       <PersonSignalsCard personId={profile.id} />
+      <PersonEventsCard personId={profile.id} />
       <PersonMails profile={profile} state={state} onChange={setState} href={href} />
       {merging && <MergeDialog profile={profile} onClose={() => setMerging(false)} />}
     </div>

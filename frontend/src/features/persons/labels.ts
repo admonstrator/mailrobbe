@@ -4,6 +4,7 @@
 import { ApiError } from "../../api/client";
 import type { AliasCandidate, SuggestionReason } from "../../api/types";
 import { formatNumber } from "../../lib/format";
+import { personName, type Named } from "../../lib/person";
 
 type Reasons = Pick<AliasCandidate, "same_name" | "same_local_part">;
 
@@ -25,9 +26,9 @@ export const REASON_TEXTS: Record<SuggestionReason, string> = {
   local_part: "Unsicher: nur der gleiche Adressteil",
 };
 
-/** A person's name, or the address when it has none. */
-export function personLabel(person: { name: string | null; email: string }): string {
-  return person.name || person.email;
+/** A person's name: the team's label (D157), else the name of the mails, else the address. */
+export function personLabel(person: Named): string {
+  return personName(person);
 }
 
 /** "+2 Aliase": addresses merged into the person. */

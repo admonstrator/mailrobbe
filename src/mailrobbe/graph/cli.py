@@ -1,8 +1,9 @@
 """`mailrobbe graph`: recompute the edges, or export the whole edge table as GraphML (D36, D38).
 
 refresh is the full refresh_edges that every import and DKIM recheck also runs. export writes one
-node per root person with an edge and one edge per row of edge, streamed from the database in
-pieces, so the 400,000-mail archive never sits in memory as a whole document.
+node per root person with an edge, labelled as in the web UI (D157), and one edge per row of
+edge, streamed from the database in pieces, so the 400,000-mail archive never sits in memory as a
+whole document.
 
 Exit status: 0 on success, 1 when the database fails, 2 when the export file exists already
 (--force overwrites it).
@@ -12,17 +13,20 @@ import argparse
 import asyncio
 import logging
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import TextIO
 
 from sqlalchemy import Connection, text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
+from mailrobbe.api.schemas import AccountLabel
 from mailrobbe.config import get_settings
 from mailrobbe.db.session import create_engine
 from mailrobbe.graph.edges import EdgeRefresh, refresh_edges
 from mailrobbe.graph.graphml import GraphmlEdge, GraphmlNode, graphml_chunks
+from mailrobbe.persons.labels import root_labels
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +139,8 @@ async def _stream(database_url: str, out: TextIO, min_mails: int, name: str) -> 
     engine = create_engine(database_url)
     try:
         async with engine.connect() as connection:
-            nodes, edges = await connection.run_sync(_write, out, min_mails)
+            labels = await root_labels(connection)
+            nodes, edges = await connection.run_sync(_write, out, min_mails, labels)
     finally:
         await engine.dispose()
     out.flush()
@@ -143,7 +148,9 @@ async def _stream(database_url: str, out: TextIO, min_mails: int, name: str) -> 
     return EXIT_OK
 
 
-def _write(connection: Connection, out: TextIO, min_mails: int) -> tuple[int, int]:
+def _write(
+    connection: Connection, out: TextIO, min_mails: int, labels: Mapping[int, AccountLabel]
+) -> tuple[int, int]:
     """Stream the document into out; returns the numbers of nodes and edges written."""
     counts = [0, 0]
     params = {"min_mails": min_mails}
@@ -151,7 +158,12 @@ def _write(connection: Connection, out: TextIO, min_mails: int) -> tuple[int, in
     def nodes() -> Iterator[GraphmlNode]:
         for row in connection.execute(_NODES, params):
             counts[0] += 1
-            yield GraphmlNode(*row)
+            node = GraphmlNode(*row)
+            label = labels.get(node.id)
+            if label is not None:
+                name, role = label.name, label.role
+                node = replace(node, label=name or node.label, label_name=name, label_role=role)
+            yield node
 
     def edges() -> Iterator[GraphmlEdge]:
         for row in connection.execute(_EDGES, params):

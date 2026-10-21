@@ -1,8 +1,8 @@
 """What an export says about a mail, from the database: metadata, DKIM, attachments with what
-their files say about themselves (D167), the signals the last signals phase stored (D139) and
-the research data (D62), a batch of mails in a few queries; and the keys from other sources
-than today's DNS its signatures rest on, with their evidence and the sources' answers (D105),
-one key at a time.
+their files say about themselves (D167), the signals the last signals phase stored (D139), the
+labels of its participants (D157) and the research data (D62), a batch of mails in a few
+queries; and the keys from other sources than today's DNS its signatures rest on, with their
+evidence and the sources' answers (D105), one key at a time.
 
 An export names its mails by content (D53); of the mails with one raw SHA-256 the original (no
 duplicate, then the lowest id) stands for all, as for permalinks (D61).
@@ -26,6 +26,7 @@ from mailrobbe.api.schemas import (
     MailSource,
     Mark,
     NoteInfo,
+    PersonLabel,
     PersonRef,
     TagColor,
     TagRef,
@@ -60,6 +61,7 @@ from mailrobbe.enums import (
     KeyOrigin,
     ParticipationRole,
 )
+from mailrobbe.persons.labels import label_text, shown_labels
 from mailrobbe.signals.model import SignalRules, signal_keys
 
 _Row = Row[*tuple[Any, ...]]
@@ -127,12 +129,24 @@ class ExportMail:
     attachments: list[AttachmentInfo] = field(default_factory=list)
     # The keys of the signals stored in mail_signal (D139), in display order.
     signals: list[str] = field(default_factory=list)
+    # The labels its participants show (D156), by person id; written only with research data.
+    labels: dict[int, PersonLabel] = field(default_factory=dict)
     # Attachment id -> its metadata; attachments without a document yet are left out.
     attachment_metadata: dict[int, AttachmentMetadata] = field(default_factory=dict)
 
     def signal_names(self, signal_rules: SignalRules) -> list[str]:
         """The German names of its signals, as the mail list's CSV names them."""
         return [signal_rules.label(key) for key in self.signals]
+
+    def label_texts(self) -> list[str]:
+        """Its participants named by a label, From to Bcc, each once (labels.label_text)."""
+        texts = (
+            label_text(self.labels[person.person_id], person.email)
+            for role in ParticipationRole
+            for person in self.participants.get(role, [])
+            if person.person_id in self.labels
+        )
+        return list(dict.fromkeys(text for text in texts if text))
 
 
 _COLUMNS = (
@@ -210,6 +224,13 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
     for mail_id, role, person_id, email, display in participants:
         ref = PersonRef(person_id=person_id, email=email, name=display)
         found[mail_id].participants.setdefault(role, []).append(ref)
+    persons = {ref.person_id for m in mails for refs in m.participants.values() for ref in refs}
+    labels = await shown_labels(session, persons)
+    for mail in mails:
+        for refs in mail.participants.values():
+            mail.labels.update(
+                (r.person_id, labels[r.person_id]) for r in refs if r.person_id in labels
+            )
     results = list(
         await session.scalars(
             select(DkimResult)

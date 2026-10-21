@@ -95,6 +95,8 @@ import type {
   NoteInfo,
   NotePage,
   PermalinkTarget,
+  PersonEvents,
+  PersonLabelUpdate,
   PersonListParams,
   PersonMailCountParams,
   PersonMailCounts,
@@ -168,6 +170,7 @@ export const queryKeys = {
   contacts: (id: number) => ["persons", "contacts", id] as const,
   personMailCounts: (id: number, params: PersonMailCountParams) =>
     ["persons", "mail-counts", id, params] as const,
+  personEvents: (id: number) => ["persons", "events", id] as const,
   certainMergePlan: ["persons", "merge-certain"] as const,
   mergeLog: ["persons", "merges"] as const,
   graph: (params: GraphParams) => ["graph", params] as const,
@@ -394,6 +397,28 @@ export function useUnmergePerson() {
   return useMutation({
     mutationFn: (aliasId: number) => apiPost<PersonProfile>(`/api/persons/${aliasId}/unmerge`),
     onSuccess: (profile) => refreshPersons(queryClient, profile),
+  });
+}
+
+/** The calendar events a person organised or was invited to (D155). */
+export function usePersonEvents(id: number) {
+  return useQuery({
+    queryKey: queryKeys.personEvents(id),
+    queryFn: ({ signal }) => apiGet<PersonEvents>(`/api/persons/${id}/events`, undefined, signal),
+  });
+}
+
+/** Names a person's address (D156); blank fields remove the label. Names show everywhere, so
+ *  lists, mails and the map load again. */
+export function useSaveLabel(id: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (update: PersonLabelUpdate) =>
+      apiPut<PersonProfile>(`/api/persons/${id}/label`, update),
+    onSuccess: (profile) => {
+      refreshPersons(queryClient, profile);
+      void queryClient.invalidateQueries({ queryKey: ["graph"] });
+    },
   });
 }
 

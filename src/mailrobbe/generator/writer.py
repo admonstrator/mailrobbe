@@ -167,6 +167,7 @@ def manifest_record(
         faults={fault.value: variant for fault, variant in sorted(mail.faults.items())},
         duplicate_of=mail.duplicate_of,
         documents=[truth.as_json() for truth in mail.documents],
+        calendar=None if mail.calendar is None else [truth.as_json() for truth in mail.calendar],
     )
 
 

@@ -384,6 +384,10 @@ def _invalid_base64(mail: RenderedMail, rng: random.Random) -> bool:
             mail.raw = _replace(raw, last, end, stripped if stripped != line else line[:-1])
         if mail.documents:  # the part may be an attachment: its bytes are no longer known
             mail.documents = damaged(mail.documents, mail.raw)
+            if any(
+                t.sha256 is None and t.filename.lower().endswith(".ics") for t in mail.documents
+            ):
+                mail.calendar = None  # an .ics document's event is no longer known either
         return True
     return False
 
@@ -476,6 +480,7 @@ def _duplicate(source: RenderedMail, source_position: int, rng: random.Random) -
         escape_from_lines=source.escape_from_lines,
         duplicate_of=source_position,
         documents=source.documents,
+        calendar=source.calendar,
     )
 
 

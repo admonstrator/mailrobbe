@@ -62,6 +62,15 @@ async def test_stats_are_the_figures_of_the_archive(
         {"domain": row.domain, "mails": row.mails} for row in await rows(url, SENDER_DOMAINS)
     ]
     assert len(senders) > TOP_SENDER_DOMAINS
+    events = dict(
+        (row.kind, row.mails)
+        for row in await rows(
+            url,
+            "SELECT e.kind, count(DISTINCT e.mail_id) AS mails FROM calendar_event e"
+            " JOIN mail m ON m.id = e.mail_id WHERE m.is_duplicate_of IS NULL GROUP BY 1",
+        )
+    )
+    assert events.get("request")  # invitations of the generator and .ics documents
 
     assert stats["updated_at"] is not None
     assert {key: value for key, value in stats.items() if key != "updated_at"} == {
@@ -81,6 +90,8 @@ async def test_stats_are_the_figures_of_the_archive(
             "files_done": figures.done,
             "progress": min(1.0, figures.progress),
         },
+        "near": {"groups": 0, "mails": 0, "hidden": 0},  # none among the generated mails
+        "events": {kind: events.get(kind, 0) for kind in ("request", "reply", "cancel")},
     }
     assert len(stats["dkim"]) == 7
 

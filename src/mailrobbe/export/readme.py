@@ -24,10 +24,13 @@ def readme(export: ManifestExport, folder: str, keys: int) -> bytes:
         research = (
             "ENTHALTEN. manifest.json, manifest.csv und die PDF-Dateien enthalten interne "
             "Arbeitsangaben des Rechercheteams: Bewertung, Markierung, Schlagworte, Akten und "
-            "Notizen mit Verfasser und Zeit, die Signale jeder Mail, dazu in manifest.json die "
-            "Auswahl (Suche und Filter), mit der die Mails zusammengestellt wurden. Sie gehören "
-            "nicht zu den Mails und können Rückschlüsse auf Quellen und Vorgehen erlauben. Bitte "
-            "vertraulich behandeln. Signale sind Hinweise, die Mailrobbe nach einfachen Regeln "
+            "Notizen mit Verfasser und Zeit, die Signale jeder Mail, Benennungen von "
+            "Beteiligten, dazu in manifest.json die Auswahl (Suche und Filter), mit der die Mails "
+            "zusammengestellt wurden. Sie gehören nicht zu den Mails und können Rückschlüsse auf "
+            "Quellen und Vorgehen erlauben. Bitte vertraulich behandeln. Benennungen (Klarname, "
+            "Rolle und Notiz zu einer Adresse, in manifest.json unter „label“ und in den "
+            "PDF-Dateien) hat das Rechercheteam selbst vergeben; sie stehen nicht in den Mails. "
+            "Signale sind Hinweise, die Mailrobbe nach einfachen Regeln "
             "berechnet (etwa private Adressen, Blindkopien, Uhrzeiten oder Wörter der "
             "Recherchethemen); sie bewerten nichts. Ihre Regeln stehen in Mailrobbe auf der "
             "Seite „Signale“ (/auffaelligkeiten) und in der Datei themes.toml (Abschnitt "
@@ -35,8 +38,9 @@ def readme(export: ManifestExport, folder: str, keys: int) -> bytes:
         )
     else:
         research = (
-            "nicht enthalten. Bewertungen, Markierungen, Schlagworte, Akten, Notizen, Signale "
-            "und die Suchkriterien des Rechercheteams sind in keiner Datei dieses Exports."
+            "nicht enthalten. Bewertungen, Markierungen, Schlagworte, Akten, Notizen, Signale, "
+            "Benennungen von Beteiligten und die Suchkriterien des Rechercheteams sind in keiner "
+            "Datei dieses Exports."
         )
     key_row = (
         f"""\

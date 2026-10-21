@@ -16,6 +16,7 @@ import {
   formatNumber,
   formatRelative,
 } from "../../lib/format";
+import { personName } from "../../lib/person";
 import styles from "./HeaderCard.module.css";
 
 function Meta({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
@@ -33,7 +34,7 @@ function People({ people, strong }: { people: Participant[]; strong?: boolean })
   return people.map((person, index) => (
     <Fragment key={person.person_id}>
       {index > 0 && ", "}
-      {person.name ? (
+      {person.label?.name || person.name ? (
         <>
           <PersonLink person={person} className={cx(styles.person, strong && styles.strong)} />{" "}
           <span className={styles.address}>&lt;{person.email}&gt;</span>
@@ -160,7 +161,7 @@ export function CompactHeader({ mail, steps }: { mail: MailDetail; steps: ReactN
       </span>
       {sender && (
         <span className={styles.compactSender} title={sender.email}>
-          {sender.name || sender.email}
+          {personName(sender)}
         </span>
       )}
       {mail.date && <span className={styles.compactDate}>{formatDateTime(mail.date)}</span>}

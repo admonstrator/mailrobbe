@@ -7,6 +7,7 @@ import { Card, CardTitle } from "../../components/Card";
 import { GraphIcon } from "../../components/icons";
 import { personPath } from "../../components/PersonLink";
 import { formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import styles from "./ParticipantsCard.module.css";
 
 const ROLE_LABELS: Record<ParticipationRole, string> = {
@@ -31,7 +32,7 @@ function figures(person: Participant, senderName: string | null): string | null 
 
 export function ParticipantsCard({ participants }: { participants: Participant[] }) {
   const sender = participants.find((person) => person.role === "from");
-  const senderName = sender ? sender.name || sender.email : null;
+  const senderName = sender ? personName(sender) : null;
   const ids = [...new Set(participants.map((person) => person.person_id))];
 
   return (
@@ -47,10 +48,17 @@ export function ParticipantsCard({ participants }: { participants: Participant[]
                 className={styles.person}
                 title={person.email}
               >
-                <Avatar personId={person.person_id} name={person.name} email={person.email} />
+                <Avatar
+                  personId={person.person_id}
+                  name={person.label?.name || person.name}
+                  email={person.email}
+                />
                 <span className={styles.text}>
                   <span className={styles.name}>
-                    {person.name || person.email}{" "}
+                    {personName(person)}{" "}
+                    {person.label?.role && (
+                      <span className={styles.role}>· {person.label.role} </span>
+                    )}
                     <span className={styles.role}>· {ROLE_LABELS[person.role]}</span>
                   </span>
                   {line && <span className={styles.figures}>{line}</span>}

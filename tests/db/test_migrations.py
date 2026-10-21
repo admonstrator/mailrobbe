@@ -80,6 +80,11 @@ TABLES = {
     "merge_batch",
     "person_merge",
     "person_merge_member",
+    "mail_near",
+    "calendar_scan",
+    "calendar_event",
+    "calendar_attendee",
+    "person_label",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -240,7 +245,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0014"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0015"
 
 
 @pytest.mark.db
@@ -411,6 +416,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0014' WHERE alembic_version.version_num = '0013'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0015' WHERE alembic_version.version_num = '0014'"
         in sql
     )
 

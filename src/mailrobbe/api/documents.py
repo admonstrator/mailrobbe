@@ -140,6 +140,7 @@ from mailrobbe.db.models import (
     Person,
 )
 from mailrobbe.enums import DocumentKind, DocumentTextStatus, ParticipationRole
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
 from mailrobbe.preview.kinds import preview_kind
 
@@ -328,7 +329,7 @@ async def list_documents(
     else:
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
-    return DocumentPage(
+    page = DocumentPage(
         items=[
             DocumentListItem(
                 id=row.id,
@@ -351,6 +352,8 @@ async def list_documents(
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
     )
+    await attach_labels(session, page)
+    return page
 
 
 def _on_mails(filters: DocumentFilters) -> bool:
@@ -719,7 +722,7 @@ async def document_detail(
     if document is None or source is None:
         raise _not_found(document_id)
     senders, sender_count, recipients, recipient_count = await _persons(session, document_id)
-    return DocumentDetail(
+    detail = DocumentDetail(
         id=document.id,
         name=document.name,
         mime_type=document.mime_type,
@@ -752,6 +755,8 @@ async def document_detail(
         ),
         metadata=_metadata(document),
     )
+    await attach_labels(session, detail)
+    return detail
 
 
 def _metadata(document: Any) -> DocumentMetadata:

@@ -1,6 +1,6 @@
-// The persons screens keep their state in the URL: search, sort, page and tab of the person
-// list (/personen) with the switch for uncertain suggestions, and the mail card of a profile
-// (/personen/:id: role, year, contact, page).
+// The persons screens keep their state in the URL: search, sort, page, tab and "Nur benannte"
+// of the person list (/personen) with the switch for uncertain suggestions, and the mail card
+// of a profile (/personen/:id: role, year, contact, page).
 
 import { buildQuery } from "../../api/client";
 import type { PersonListParams, PersonRole, PersonSort } from "../../api/types";
@@ -17,6 +17,8 @@ export interface PersonListState {
   /** 1-based number of the page the cursor points to, for the "51–100" range. */
   page: number;
   tab: PersonsTab;
+  /** Only persons the team named (D157). */
+  labelled: boolean;
   /** The suggestions tab shows the uncertain suggestions instead of the certain ones (D160). */
   uncertain: boolean;
 }
@@ -27,6 +29,7 @@ export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
   cursor: null,
   page: 1,
   tab: "personen",
+  labelled: false,
   uncertain: false,
 };
 
@@ -40,6 +43,7 @@ export function parsePersonListState(search: URLSearchParams): PersonListState {
     cursor,
     page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
     tab: TABS.find((tab) => tab === search.get("tab")) ?? "personen",
+    labelled: search.get("labelled") === "true",
     uncertain: search.get("unsicher") === "1",
   };
 }
@@ -51,6 +55,7 @@ export function personListSearch(state: PersonListState): URLSearchParams {
     unsicher: state.uncertain ? 1 : null,
     q: state.q,
     sort: state.sort === "mails" ? null : state.sort,
+    labelled: state.labelled,
     cursor: state.cursor,
     page: state.cursor && state.page > 1 ? state.page : null,
   });
@@ -60,6 +65,7 @@ export function toPersonListParams(state: PersonListState): PersonListParams {
   const params: PersonListParams = {};
   if (state.q) params.q = state.q;
   if (state.sort !== "mails") params.sort = state.sort;
+  if (state.labelled) params.labelled = true;
   if (state.cursor) params.cursor = state.cursor;
   return params;
 }

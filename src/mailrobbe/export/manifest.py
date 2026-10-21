@@ -5,22 +5,22 @@ The models below are the format of manifest.json, version 1; times are ISO 8601 
 attachment carries every metadata field its file states about itself (D167), as found. The CSV
 holds the same per mail, in German, semicolon-separated UTF-8 with a byte order mark as the mail
 list's CSV (D25), below a few lines about the export. Research data (review status, bookmark,
-tags, Akten, notes), the signals of each mail (D139) and the selection the mails were chosen by
-appear only when the export includes the research data: they are internal assessments or,
-as the selection and the word field signals do, show what the team looks for (source
-protection).
+tags, Akten, notes), the signals of each mail (D139), the labels of its participants (D157, in
+manifest.json) and the selection the mails were chosen by appear only when the export includes
+the research data: they are internal assessments or, as the selection and the word field
+signals do, show what the team looks for (source protection).
 """
 
 import csv
 import io
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from mailrobbe.api.mails import CSV_BOM, csv_cell
-from mailrobbe.api.schemas import MailResearch, MetadataValue, PersonRef
+from mailrobbe.api.schemas import MailResearch, MetadataValue, PersonLabel, PersonRef
 from mailrobbe.enums import (
     DkimReason,
     DkimStatus,
@@ -56,9 +56,18 @@ class ManifestFiles(BaseModel):
     pdf: ManifestFile  # the reading copy
 
 
+class ManifestLabel(BaseModel):
+    """The team's label the participant shows (D156); not part of the mail."""
+
+    name: str | None  # Klarname
+    role: str | None
+    note: str | None
+
+
 class ManifestAddress(BaseModel):
     email: str
     name: str | None  # the display name used in this mail, else the person's
+    label: ManifestLabel | None = None  # D157: only with research data, else always None
 
 
 class ManifestSource(BaseModel):
@@ -208,10 +217,11 @@ def mail_entry(
     entry.in_reply_to = mail.in_reply_to
     entry.date = mail.date
     entry.subject = mail.subject
-    entry.from_ = _addresses(mail.participants.get(ParticipationRole.FROM, []))
-    entry.to = _addresses(mail.participants.get(ParticipationRole.TO, []))
-    entry.cc = _addresses(mail.participants.get(ParticipationRole.CC, []))
-    entry.bcc = _addresses(mail.participants.get(ParticipationRole.BCC, []))
+    labels = mail.labels if research is not None else {}
+    entry.from_ = _addresses(mail.participants.get(ParticipationRole.FROM, []), labels)
+    entry.to = _addresses(mail.participants.get(ParticipationRole.TO, []), labels)
+    entry.cc = _addresses(mail.participants.get(ParticipationRole.CC, []), labels)
+    entry.bcc = _addresses(mail.participants.get(ParticipationRole.BCC, []), labels)
     entry.source = ManifestSource(
         file=mail.source.path,
         byte_offset=mail.source.byte_offset,
@@ -262,8 +272,20 @@ def _metadata(found: AttachmentMetadata | None) -> ManifestMetadata | None:
     return ManifestMetadata(status=found.status, error=found.error, fields=found.fields)
 
 
-def _addresses(people: Iterable[PersonRef]) -> list[ManifestAddress]:
-    return [ManifestAddress(email=person.email, name=person.name) for person in people]
+def _addresses(
+    people: Iterable[PersonRef], labels: Mapping[int, PersonLabel]
+) -> list[ManifestAddress]:
+    return [
+        ManifestAddress(email=person.email, name=person.name, label=_label(labels, person))
+        for person in people
+    ]
+
+
+def _label(labels: Mapping[int, PersonLabel], person: PersonRef) -> ManifestLabel | None:
+    label = labels.get(person.person_id)
+    if label is None:
+        return None
+    return ManifestLabel(name=label.name, role=label.role, note=label.note)
 
 
 def _research(research: MailResearch) -> ManifestResearch:

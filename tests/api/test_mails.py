@@ -412,7 +412,9 @@ async def test_items_show_the_mail_and_its_participants(
     mails = await rows(
         imported_database_url,
         "SELECT id, date_utc, subject, dkim_status::text AS dkim, has_attachments, thread_id,"
-        " is_duplicate_of, byte_length, mbox_file_id FROM mail WHERE id = ANY(:ids)",
+        " is_duplicate_of, byte_length, mbox_file_id,"
+        " (SELECT e.kind FROM calendar_event e WHERE e.mail_id = mail.id"
+        " ORDER BY e.position LIMIT 1) AS event FROM mail WHERE id = ANY(:ids)",
         ids=list(items),
     )
     people = await rows(
@@ -437,7 +439,12 @@ async def test_items_show_the_mail_and_its_participants(
     assert any(len(order.get(mail_id, [])) > RECIPIENT_PREVIEW + 1 for mail_id in items)
 
     def ref(person: Any) -> dict[str, Any]:
-        return {"person_id": person.id, "email": person.canonical_email, "name": person.name}
+        return {
+            "person_id": person.id,
+            "email": person.canonical_email,
+            "name": person.name,
+            "label": None,
+        }
 
     for mail in mails:
         item = items[mail.id]
@@ -465,6 +472,8 @@ async def test_items_show_the_mail_and_its_participants(
             "tags": [],
             "notes": 0,
             "attachment_match": False,
+            "near_count": 0,
+            "event": mail.event,
             "hits": None,
         }
 
@@ -753,8 +762,9 @@ async def test_csv_names_the_signals_of_each_mail(
     generated_archive: GeneratedArchive,
     tmp_path: Path,
 ) -> None:
-    # D139: the last column names the stored signals in display order, empty without any.
-    assert CSV_HEADER[-1] == "Signale"
+    # D139: the column before the labels names the stored signals in display order, empty
+    # without any.
+    assert CSV_HEADER[-2:] == ("Signale", "Benennungen")
     signal_rules = rules(api_settings(signal_database_url, generated_archive, tmp_path))
     stored = await rows(
         signal_database_url,
@@ -765,7 +775,7 @@ async def test_csv_names_the_signals_of_each_mail(
         row.id: ", ".join(signal_rules.label(key) for key in signal_rules.keys if key in row.keys)
         for row in stored
     }
-    exported = {int(row[0]): row[-1] for row in await export(signal_client)}
+    exported = {int(row[0]): row[-2] for row in await export(signal_client)}
     assert exported == expected
     assert any(", " in cell for cell in exported.values())
     assert "" in exported.values()

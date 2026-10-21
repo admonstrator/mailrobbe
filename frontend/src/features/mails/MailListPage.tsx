@@ -26,6 +26,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { personName as shownName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
 import { MiniTimeline } from "../timeline/MiniTimeline";
@@ -69,7 +70,7 @@ function hitText(summary: MailSummary | undefined, state: ListState): string {
 function personName(page: MailPage | undefined, id: number): string {
   for (const mail of page?.items ?? []) {
     for (const person of [mail.sender, ...mail.recipients]) {
-      if (person?.person_id === id) return person.name || person.email;
+      if (person?.person_id === id) return shownName(person);
     }
   }
   return `#${id}`;
@@ -104,6 +105,9 @@ export function MailListPage() {
   const filtered = useDocument(state.document ?? 0, state.document !== null);
   // The thread filter's chip is named by the subject of the thread's first mail (D95).
   const threadMail = useMailDetail(state.thread ?? 0, state.thread !== null);
+  // The event filter's chip is named by the event's summary in the first listed mail (D155).
+  const eventMailId = state.event_uid !== null ? (page.data?.items[0]?.id ?? 0) : 0;
+  const eventMail = useMailDetail(eventMailId, eventMailId > 0);
   const entityNames = useEntityChipNames(state.entity);
   const signalNames = useSignalChipNames();
   const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
@@ -130,6 +134,7 @@ export function MailListPage() {
       threadMail.data?.id === id ? threadMail.data.subject || "(kein Betreff)" : undefined,
     entity: entityNames,
     signal: signalNames,
+    event: (uid) => eventMail.data?.events.find((event) => event.uid === uid)?.summary ?? undefined,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);

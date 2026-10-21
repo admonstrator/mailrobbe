@@ -22,8 +22,10 @@ from sqlalchemy import (
     Executable,
     Row,
     ScalarSelect,
+    Select,
     Text,
     any_,
+    bindparam,
     distinct,
     func,
     literal,
@@ -36,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
 from mailrobbe import aggregates
+from mailrobbe.api import events, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.filters import (
     Cursor,
@@ -79,6 +82,7 @@ from mailrobbe.db.models import (
     Tag,
 )
 from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.persons.labels import attach_labels, label_text, labelled_persons
 from mailrobbe.persons.roots import member_ids
 from mailrobbe.signals.model import rules
 
@@ -104,6 +108,7 @@ CSV_HEADER = (
     "MBOX-Datei",
     "Offset",
     "Signale",
+    "Benennungen",
 )
 CSV_BOM = "\ufeff"  # spreadsheet programs then read the file as UTF-8
 # Cells a spreadsheet would read as a formula get a leading apostrophe.
@@ -215,12 +220,19 @@ async def list_mails(
         for item in items:
             item.hits = hits.get(item.id)
             item.attachment_match = item.id in through_attachments
-    return MailPage(
+    near_counts = await near.near_counts(session, ids)
+    event_kinds = await events.event_kinds(session, ids)
+    for item in items:
+        item.near_count = near_counts.get(item.id, 0)
+        item.event = event_kinds.get(item.id)
+    page = MailPage(
         items=items,
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         query_terms=terms,
     )
+    await attach_labels(session, page)
+    return page
 
 
 async def _found_through_attachments(
@@ -476,6 +488,18 @@ async def export_csv(
         select(MailSignal.signal).where(MailSignal.mail_id == Mail.id).scalar_subquery(),
         type_=ARRAY(Text),
     )
+    # Its participants that show a label (D157): the persons labelled_persons finds when the
+    # CSV starts, named in Python.
+    named = func.array(
+        select(Participation.person_id)
+        .where(
+            Participation.mail_id == Mail.id,
+            Participation.person_id == any_(bindparam("named", type_=ARRAY(BigInteger))),
+        )
+        .order_by(Participation.role, Participation.person_id)
+        .scalar_subquery(),
+        type_=ARRAY(BigInteger),
+    )
     statement = (
         select(
             Mail.id,
@@ -490,6 +514,7 @@ async def export_csv(
             MboxFile.path,
             Mail.byte_offset,
             signals,
+            named,
         )
         .join(MboxFile, MboxFile.id == Mail.mbox_file_id)
         .outerjoin(first_sender, true())
@@ -506,7 +531,7 @@ async def export_csv(
 
 
 async def _csv_chunks(
-    sessionmaker: async_sessionmaker[AsyncSession], statement: Executable, labels: dict[str, str]
+    sessionmaker: async_sessionmaker[AsyncSession], statement: Select[Any], labels: dict[str, str]
 ) -> AsyncIterator[bytes]:
     """The CSV in chunks, read through a server-side cursor; its own session, as the request's
     session may be gone while the response streams. labels: the German name of each signal, in
@@ -516,17 +541,24 @@ async def _csv_chunks(
     buffer.write(CSV_BOM)
     writer.writerow(CSV_HEADER)
     async with sessionmaker() as session:
+        named = {
+            person_id: text
+            for person_id, (email, label) in (await labelled_persons(session)).items()
+            if (text := label_text(label, email))
+        }
+        statement = statement.params(named=list(named))
         result = await session.stream(statement.execution_options(yield_per=CSV_BATCH))
         async for rows in result.partitions():
             for row in rows:
-                writer.writerow(_csv_row(row, labels))
+                writer.writerow(_csv_row(row, labels, named))
             yield _take(buffer).encode()
     yield _take(buffer).encode()
 
 
-def _csv_row(row: _Row, labels: dict[str, str]) -> list[str]:
+def _csv_row(row: _Row, labels: dict[str, str], named: dict[int, str]) -> list[str]:
+    """named: the label_text of each person whose label has a name or role."""
     mail_id, date_utc, status, name, email, recipients, subject, attached, *rest = row
-    message_id, path, offset, signals = rest
+    message_id, path, offset, signals, participants = rest
     return [
         str(mail_id),
         "" if date_utc is None else date_utc.isoformat(),
@@ -540,6 +572,7 @@ def _csv_row(row: _Row, labels: dict[str, str]) -> list[str]:
         csv_cell(path),
         str(offset),
         csv_cell(", ".join(label for key, label in labels.items() if key in signals)),
+        csv_cell("; ".join(dict.fromkeys(named[person] for person in participants))),
     ]
 
 

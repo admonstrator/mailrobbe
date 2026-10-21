@@ -23,8 +23,10 @@ import { AttachmentsCard } from "./AttachmentsCard";
 import { BodyCard, type BodyTab } from "./BodyCard";
 import { DkimCard } from "./DkimCard";
 import { EntitiesCard } from "./EntitiesCard";
+import { EventCard } from "./EventCard";
 import { CompactHeader, HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
+import { NearCard } from "./NearCard";
 import { ParticipantsCard } from "./ParticipantsCard";
 import { ResearchCard } from "./ResearchCard";
 import { SearchHitsCard } from "./SearchHitsCard";
@@ -167,6 +169,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
               />
             )}
             <DkimCard mail={detail.data} />
+            <EventCard events={detail.data.events} mailId={id} mailHref={mailHref} />
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
           </main>
           <aside className={styles.side} aria-label="Zur Mail">
@@ -181,6 +184,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             <SignalsCard mailId={id} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
+            {detail.data.near_group !== null && <NearCard mail={detail.data} mailHref={mailHref} />}
             <EntitiesCard mailId={id} />
             <ActionsCard
               mail={detail.data}

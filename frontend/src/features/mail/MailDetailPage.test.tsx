@@ -68,9 +68,7 @@ describe("mail detail", () => {
 
     expect(await screen.findByText(/Hallo Herr Brandt, hallo Herr Hofmann/)).toBeTruthy();
     expect(screen.queryByText(/danke für den Entwurf/)).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Zitierten Verlauf einblenden (7 Zeilen)" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Zitat einblenden (5 Zeilen)" }));
     expect(screen.getByText(/danke für den Entwurf/)).toBeTruthy();
 
     await waitFor(() => expect(screen.getByText("Treffer 1 von 1.207")).toBeTruthy());
@@ -181,12 +179,12 @@ describe("mail detail", () => {
     expect(calls.find((call) => call.url.pathname.endsWith("/hits"))!.url.search).toBe(
       "?q=Haftung",
     );
-    // The stem marks the longer word in the text; the quoted part has one more place.
+    // The stem marks the longer word in the text; the quoted part has one more place and opens.
     expect(await screen.findByText("2 Fundstellen markiert")).toBeTruthy();
     expect(screen.getByText("Haftungsklausel").tagName).toBe("MARK");
-    fireEvent.click(
-      screen.getByRole("button", { name: "Zitierten Verlauf einblenden (7 Zeilen, 1 Fundstelle)" }),
-    );
+    expect(
+      screen.getByRole("button", { name: "Zitat ausblenden (5 Zeilen, 1 Fundstelle)" }),
+    ).toBeTruthy();
     const quoted = screen.getByText(/danke für den Entwurf/);
     expect(within(quoted).getByText("Haftung").tagName).toBe("MARK");
 
@@ -299,6 +297,25 @@ describe("mail detail", () => {
     expect(screen.getByText("DKIM ungültig")).toBeTruthy();
     expect(screen.getByText("abweichend")).toBeTruthy();
     expect(calls.some((call) => call.method === "POST")).toBe(true);
+  });
+
+  it("names labelled participants by the team's label, with the role (D157)", async () => {
+    const label = { name: "Kassenwartin Nord", role: "Schatzmeisterin" };
+    const participants = mailDetail.participants.map((person) =>
+      person.person_id === 11 ? { ...person, label } : person,
+    );
+    renderApp("/mails/184221", (call) =>
+      call.url.pathname === "/api/mails/184221"
+        ? { ...mailDetail, participants }
+        : fixtureApi(call),
+    );
+    await screen.findByRole("heading", { name: "Beteiligte" });
+    const people = card("Beteiligte");
+    const anna = within(people).getByRole("link", { name: /Kassenwartin Nord/ });
+    expect(anna.textContent).toBe("KNKassenwartin Nord · Schatzmeisterin · Absender");
+    expect(anna.getAttribute("title")).toBe("anna.keller@nordlicht-gmbh.example");
+    // The header keeps the address beside the name.
+    expect(screen.getAllByRole("link", { name: "Kassenwartin Nord" }).length).toBeGreaterThan(0);
   });
 
   it("says when a mail does not exist", async () => {

@@ -9,6 +9,7 @@ import type {
   TimelineSplit,
 } from "../../api/types";
 import { formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { formatBucket } from "./buckets";
 
 export const BUCKET_LABELS: Record<TimelineBucket, string> = {
@@ -55,7 +56,7 @@ export function personsText(count: number): string {
 
 /** The name of a series' lane: the person, the thread's subject or the search string. */
 export function seriesName(series: TimelineSeries): string {
-  if (series.person) return series.person.name || series.person.email;
+  if (series.person) return personName(series.person);
   if (series.thread_id !== null) return series.label || NO_SUBJECT;
   return series.term ?? series.label ?? "";
 }

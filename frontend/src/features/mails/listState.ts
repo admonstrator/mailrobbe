@@ -3,12 +3,14 @@
 
 import { buildQuery } from "../../api/client";
 import {
+  EVENT_KEYS,
   MAIL_SIGNAL_KINDS,
   MIN_HITS_LIMIT,
   PAGE_SIZE,
   SEARCH_FIELDS,
   type DkimKey,
   type EntityContextKey,
+  type EventKey,
   type MailFilters,
   type MailHitsParams,
   type MailListParams,
@@ -56,6 +58,12 @@ export interface ListState {
   amount_context: EntityContextKey[];
   /** Signals (D136): each of these holds for the mail. */
   signal: SignalKey[];
+  /** Near duplicates (D153): one mail per group; the mails of one group. */
+  collapse_near: boolean;
+  near_group: number | null;
+  /** Calendar invitations (D155): any of these kinds; the mails of one event (its UID). */
+  event: EventKey[];
+  event_uid: string | null;
   /** Options of q's full text words (D171 to D174): the places its free words are looked for,
    *  in the order of SEARCH_FIELDS (empty: everywhere, so all four are stored as none), whole
    *  words only, and the occurrences a mail needs at least. */
@@ -97,6 +105,10 @@ export const DEFAULT_LIST_STATE: ListState = {
   amount_min: null,
   amount_context: [],
   signal: [],
+  collapse_near: false,
+  near_group: null,
+  event: [],
+  event_uid: null,
   scope: [],
   whole_word: false,
   min_hits: null,
@@ -112,6 +124,7 @@ const BOOLEAN_KEYS = [
   "hide_duplicates",
   "external",
   "flagged",
+  "collapse_near",
 ] as const;
 const MAX_LIMIT = 200;
 export const PERSON_ROLES: readonly PersonRole[] = ["sent", "received", "cc"];
@@ -183,6 +196,9 @@ export function parseListState(search: URLSearchParams): ListState {
     search.getAll("amount_context").includes(key),
   );
   state.signal = unique(search.getAll("signal").filter(isSignalKey));
+  state.near_group = positiveInt(search.get("near_group"));
+  state.event = EVENT_KEYS.filter((key) => search.getAll("event").includes(key));
+  state.event_uid = search.get("event_uid")?.trim() || null;
   state.scope = canonicalScope(search.getAll("scope"));
   state.whole_word = search.get("whole_word") === "true";
   state.min_hits = positiveInt(search.get("min_hits"), MIN_HITS_LIMIT);
@@ -218,6 +234,9 @@ export function toFilters(state: ListState): MailFilters {
   if (state.amount_min !== null) filters.amount_min = state.amount_min;
   if (state.amount_context.length) filters.amount_context = state.amount_context;
   if (state.signal.length) filters.signal = state.signal;
+  if (state.near_group !== null) filters.near_group = state.near_group;
+  if (state.event.length) filters.event = state.event;
+  if (state.event_uid) filters.event_uid = state.event_uid;
   if (state.scope.length) filters.scope = state.scope;
   if (state.whole_word) filters.whole_word = true;
   if (state.min_hits !== null) filters.min_hits = state.min_hits;

@@ -56,6 +56,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   the suggestions into certain and uncertain ones (D160); merge_batch, person_merge and
   person_merge_member log every merge with the persons it moved and where each pointed before,
   so it can be undone (D163).
+- Milestone 14 (migration 0015, D150 to D158): mail_near holds each mail's fingerprint and its
+  group of near duplicates (near phase); calendar_scan records which mails the calendar phase
+  looked at, calendar_event and calendar_attendee the events of their iCalendar parts; and
+  person_label the labels the team gives to addresses (user data, keyed by address like the
+  research file by content, D156).
 """
 
 from datetime import date, datetime
@@ -1082,3 +1087,123 @@ class PersonSignal(Base):
     )
     mails: Mapped[int] = mapped_column(Integer)
     since: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)  # silent: first silent month
+
+
+# Milestone 14 (migration 0014, D150 to D157).
+
+# mail_near.version of a fingerprint by the current rules (near.model); raising it computes
+# every fingerprint again at the next import (D153).
+NEAR_VERSION = 1
+# calendar_scan.version of a look by the current rules (calendar.model); raising it looks at
+# every mail again at the next import (D154).
+CALENDAR_VERSION = 1
+
+
+class MailNear(Base):
+    """A mail's fingerprint and group of near duplicates (D152, D153)."""
+
+    __tablename__ = "mail_near"
+    __table_args__ = (
+        Index(
+            "ix_mail_near_fingerprint",
+            "fingerprint",
+            postgresql_where=text("fingerprint IS NOT NULL"),
+        ),
+        Index(
+            "ix_mail_near_group_id",
+            "group_id",
+            "mail_id",
+            postgresql_where=text("group_id IS NOT NULL"),
+        ),
+    )
+
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(SmallInteger)
+    # SHA-256 of near.model.fingerprint_text; NULL: too few words to compare
+    fingerprint: Mapped[bytes | None] = mapped_column(LargeBinary)
+    # the smallest id of the mails sharing the fingerprint (duplicates: their original's group);
+    # NULL: no other mail shares it
+    group_id: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class CalendarScan(Base):
+    """A mail the calendar phase looked at (D154); read: it was a candidate and was read."""
+
+    __tablename__ = "calendar_scan"
+
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(SmallInteger)
+    read: Mapped[bool] = mapped_column(Boolean)
+    events: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+
+
+class CalendarEvent(Base):
+    """One VEVENT of an iCalendar part of a mail (D154)."""
+
+    __tablename__ = "calendar_event"
+    __table_args__ = (
+        UniqueConstraint("mail_id", "position"),
+        CheckConstraint("kind IN ('request', 'reply', 'cancel')", name="kind"),
+        Index("ix_calendar_event_uid", "uid"),
+        Index("ix_calendar_event_organizer_email", "organizer_email"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    mail_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("mail.id", ondelete="CASCADE"))
+    position: Mapped[int] = mapped_column(SmallInteger)  # 0-based among the mail's events
+    kind: Mapped[str] = mapped_column(Text)  # calendar.model.EventKind
+    method: Mapped[str | None] = mapped_column(Text)  # METHOD, upper case
+    uid: Mapped[str | None] = mapped_column(Text)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str | None] = mapped_column(Text)  # STATUS, upper case
+    summary: Mapped[str | None] = mapped_column(Text)
+    location: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)  # cut at calendar.model limit
+    starts_local: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))  # as written
+    ends_local: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    time_zone: Mapped[str | None] = mapped_column(Text)  # TZID as written; "UTC" for Z
+    starts_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)  # NULL: zone unknown
+    ends_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    all_day: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    recurrence: Mapped[str | None] = mapped_column(Text)  # RRULE as written
+    organizer_email: Mapped[str | None] = mapped_column(Text)  # lower case
+    organizer_name: Mapped[str | None] = mapped_column(Text)
+
+
+class CalendarAttendee(Base):
+    """An ATTENDEE of an event (D154), in the order of the iCalendar part."""
+
+    __tablename__ = "calendar_attendee"
+    __table_args__ = (Index("ix_calendar_attendee_email", "email"),)
+
+    event_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("calendar_event.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    email: Mapped[str | None] = mapped_column(Text)  # lower case; NULL: no mailto address
+    name: Mapped[str | None] = mapped_column(Text)  # CN
+    role: Mapped[str | None] = mapped_column(Text)  # ROLE, upper case
+    partstat: Mapped[str | None] = mapped_column(Text)  # PARTSTAT, upper case
+
+
+class PersonLabel(Base):
+    """The team's label of an address (D156): a name, a role and a note."""
+
+    __tablename__ = "person_label"
+    __table_args__ = (
+        CheckConstraint(
+            "name IS NOT NULL OR role IS NOT NULL OR note IS NOT NULL", name="something"
+        ),
+    )
+
+    email: Mapped[str] = mapped_column(Text, primary_key=True)  # lower case, as person_email
+    name: Mapped[str | None] = mapped_column(Text)
+    role: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    editor: Mapped[str | None] = mapped_column(Text)  # D54
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())

@@ -12,6 +12,7 @@ from mailrobbe.api import (
     detail,
     documents,
     entities,
+    events,
     exports,
     frontend,
     graph,
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(signals.router)  # before detail: /api/mails/signals is no mail id
     app.include_router(detail.router)
     app.include_router(persons.router)
+    app.include_router(events.router)
     app.include_router(graph.router)
     app.include_router(imports.router)
     app.include_router(keys.router)  # /api/dkim/selectors/summary before {name}, as for mails

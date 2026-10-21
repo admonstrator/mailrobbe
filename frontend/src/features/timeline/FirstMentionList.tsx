@@ -18,6 +18,7 @@ import { personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { listSearch, withFilters } from "../mails/listState";
 import styles from "./FirstMentionList.module.css";
 import { KIND_LABELS, NO_SUBJECT, personsText, ROLE_LABELS } from "./labels";
@@ -137,7 +138,7 @@ export function FirstMentionList({
                     </td>
                     <td className={styles.person}>
                       <Link to={personPath(mention.person.person_id)} title={mention.person.email}>
-                        {mention.person.name || mention.person.email}
+                        {personName(mention.person)}
                       </Link>
                       {mention.kind && (
                         <span className={styles.kind}>{KIND_LABELS[mention.kind]}</span>
@@ -154,7 +155,7 @@ export function FirstMentionList({
                     <td className={styles.num}>
                       <Link
                         to={personMailsHref(state, mention)}
-                        aria-label={`${formatNumber(mention.mails)} Mails von ${mention.person.name || mention.person.email} in der Mailliste`}
+                        aria-label={`${formatNumber(mention.mails)} Mails von ${personName(mention.person)} in der Mailliste`}
                       >
                         {formatNumber(mention.mails)}
                       </Link>

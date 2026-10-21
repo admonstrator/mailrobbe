@@ -319,6 +319,7 @@ async def test_person_split_takes_the_busiest_persons_without_lists(
             "person_id": row.person_id,
             "email": row.canonical_email,
             "name": row.display_name,
+            "label": None,
         }
         assert series["label"] == (row.display_name or row.canonical_email)
         expected = await bucketed(url, "month", takes_part(MEMBER), p=row.person_id)
@@ -376,6 +377,7 @@ async def test_person_split_by_id_keeps_the_order_and_counts_aliases_for_their_r
         "person_id": root,
         "email": person.canonical_email,
         "name": person.display_name,
+        "label": None,
     }
     for series, each in zip(timeline["series"], (other, root), strict=True):
         assert counted(timeline, series) == await bucketed(url, "month", takes_part(MEMBER), p=each)
@@ -514,6 +516,7 @@ async def test_first_mentions_are_what_distinct_on_finds(
                     "person_id": row.root,
                     "email": row.canonical_email,
                     "name": row.display_name,
+                    "label": None,
                 },
                 "kind": row.kind,
                 "role": ROLES[row.rank],

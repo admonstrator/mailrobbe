@@ -74,6 +74,7 @@ from mailrobbe.enums import (
     DkimStatus,
     JobKind,
 )
+from mailrobbe.persons.labels import attach_labels
 
 router = APIRouter(prefix="/api", tags=["keys"])
 log = logging.getLogger(__name__)
@@ -223,7 +224,7 @@ async def _selector(session: AsyncSession, name: str) -> SelectorDetail:
     cached = await session.get(DnsCache, name)
     key_ids = await session.scalars(select(DkimKey.id).where(DkimKey.name == name))
     keys = await key_infos(session, set(key_ids))
-    return SelectorDetail(
+    detail = SelectorDetail(
         **_figures(figures),
         dns_status=cached.status if cached else None,
         dns_record=cached.record if cached else None,
@@ -232,6 +233,8 @@ async def _selector(session: AsyncSession, name: str) -> SelectorDetail:
         lookups=await _lookups(session, name, domain),
         recent_mails=await _recent_mails(session, domain, selector),
     )
+    await attach_labels(session, detail)
+    return detail
 
 
 async def _name_figures(session: AsyncSession, name: str) -> RowMapping | None:

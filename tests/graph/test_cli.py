@@ -130,6 +130,34 @@ def test_export_with_a_threshold_to_standard_output(
 
 
 @pytest.mark.db
+def test_export_names_labelled_persons(database: str, capsys: pytest.CaptureFixture[str]) -> None:
+    # D157: a root shows the label of an alias's address too; a role alone keeps the name.
+    named, other = _rows(database, "SELECT person_a, person_b FROM edge ORDER BY 1, 2 LIMIT 1")[0]
+    _rows(
+        database,
+        "INSERT INTO person (canonical_email, domain, merged_into)"
+        " VALUES ('alias@labels.example', 'labels.example', :root)",
+        root=named,
+    )
+    _rows(
+        database,
+        "INSERT INTO person_label (email, name, role) VALUES"
+        " ('alias@labels.example', 'Kassenwart', 'Vorstand'),"
+        " ((SELECT canonical_email FROM person WHERE id = :other), NULL, 'Fahrer')",
+        other=other,
+    )
+    assert main(["graph", "export", "-"]) == 0
+    graph = _graph(capsys.readouterr().out)
+    nodes = {int(n.attrib["id"]): _data(n) for n in graph.findall("g:node", NS)}
+    assert (nodes[named]["label"], nodes[named]["label_name"]) == ("Kassenwart", "Kassenwart")
+    assert nodes[named]["label_role"] == "Vorstand"
+    persons = {row[0]: row for row in _rows(database, _PERSONS)}
+    assert nodes[other]["label"] == persons[other][1]
+    assert (nodes[other].get("label_name"), nodes[other]["label_role"]) == (None, "Fahrer")
+    assert sum("label_role" in data for data in nodes.values()) == 2
+
+
+@pytest.mark.db
 def test_an_existing_file_is_kept_unless_forced(
     database: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

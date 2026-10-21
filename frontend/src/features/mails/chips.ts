@@ -3,6 +3,7 @@
 
 import type {
   EntityRef,
+  EventKey,
   PersonRole,
   QueryKey,
   QueryTerm,
@@ -40,7 +41,16 @@ export interface ChipNames {
   /** A signal's name (D136) and, for a theme's word field, the theme's colour; without it the
    *  name of a term signal is its theme key. */
   signal?: (key: SignalKey) => { name: string; color?: TagColor };
+  /** The summary of a calendar event (D155), by its UID. */
+  event?: (uid: string) => string | undefined;
 }
+
+/** The kinds of calendar mails (D155), also in the filter column and the detail card. */
+export const EVENT_LABELS: Record<EventKey, string> = {
+  request: "Einladung",
+  reply: "Antwort",
+  cancel: "Absage",
+};
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
 
@@ -96,6 +106,7 @@ const BOOLEAN_LABELS = [
   ["hide_duplicates", "Ohne Doppelte"],
   ["flagged", "Nur markierte"],
   ["has_note", "Mit Notiz"],
+  ["collapse_near", "Dubletten zusammengefasst"],
 ] as const;
 
 function shortList(values: string[]): string {
@@ -261,6 +272,28 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       label: `Signal: ${signal?.name ?? signalName(key)}`,
       color: signal?.color,
       next: withFilters(state, { signal: state.signal.filter((other) => other !== key) }),
+    });
+  }
+  if (state.near_group !== null) {
+    chips.push({
+      id: "near_group",
+      label: "Nahezu gleiche Mails",
+      next: withFilters(state, { near_group: null }),
+    });
+  }
+  if (state.event.length) {
+    chips.push({
+      id: "event",
+      label: `Termine: ${state.event.map((key) => EVENT_LABELS[key]).join(", ")}`,
+      next: withFilters(state, { event: [] }),
+    });
+  }
+  if (state.event_uid) {
+    const summary = names.event?.(state.event_uid);
+    chips.push({
+      id: "event_uid",
+      label: summary ? `Termin: ${summary}` : "Ein Termin",
+      next: withFilters(state, { event_uid: null }),
     });
   }
   return chips;

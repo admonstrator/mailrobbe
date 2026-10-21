@@ -9,7 +9,8 @@ attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL O
 (full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
 mail's own text alone. The entity and amount filters (D86) take the same two forms over the
 mentions of the mail and of its attachments' documents (_mentioned), the signal filter (D136)
-over the rows the last signals phase stored in mail_signal (_signal).
+over the rows the last signals phase stored in mail_signal (_signal). Near duplicates (D153)
+and calendar events (D155) are EXISTS subqueries on mail_near and calendar_event.
 
 The search options narrow the full text words without an index of their own (D171 to D175).
 Places are the weights of the two tsvectors: the query's lexemes carry the weights of the chosen
@@ -91,6 +92,7 @@ from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TIMESTAMPTZ,
     Attachment,
+    CalendarEvent,
     CollectionMail,
     Document,
     DocumentEntity,
@@ -98,6 +100,7 @@ from mailrobbe.db.models import (
     Mail,
     MailEntity,
     MailMark,
+    MailNear,
     MailSignal,
     MailTag,
     Note,
@@ -105,6 +108,7 @@ from mailrobbe.db.models import (
     Person,
 )
 from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
+from mailrobbe.persons.labels import label_matches
 from mailrobbe.signals.model import signal_keys
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
@@ -215,6 +219,15 @@ def mail_conditions(
         where.append(_mentions_amount(filters.amount_min, filters.amount_context))
     # Signals (D136): each listed signal.
     where += [_signal(key) for key in sorted(set(filters.signal))]
+    # Near duplicates (D153) and calendar events (D155).
+    if filters.near_group is not None:
+        where.append(_near(MailNear.group_id == filters.near_group))
+    if filters.event:
+        where.append(_event(CalendarEvent.kind.in_(sorted(set(filters.event)))))
+    if filters.event_uid is not None:
+        where.append(_event(CalendarEvent.uid == filters.event_uid))
+    if filters.collapse_near:  # last: it looks at every other condition
+        where.append(_near_first(where))
     return where
 
 
@@ -368,7 +381,11 @@ def _operator(term: QueryTerm) -> list[ColumnElement[bool]]:
     match term.key:
         case "from" | "to" | "cc":
             pattern = _contains(value)
-            person = or_(Person.canonical_email.ilike(pattern), Person.display_name.ilike(pattern))
+            person = or_(
+                Person.canonical_email.ilike(pattern),
+                Person.display_name.ilike(pattern),
+                label_matches(Person, pattern),  # D157
+            )
             return [_takes_part((ParticipationRole(term.key),), person)]
         case "domain":
             domain = value.lower().lstrip("@")
@@ -620,6 +637,39 @@ def _signal(key: str) -> ColumnElement[bool]:
     )
     _WALK_FORMS[found] = func.coalesce(held, false())
     return found
+
+
+# Near duplicates (D153) and calendar events (D155) -------------------------------------------
+
+
+def _near_first(others: Sequence[ColumnElement[bool]]) -> ColumnElement[bool]:
+    """collapse_near (D153): the mail is in no group, or no earlier mail of its group (in the
+    list's ascending order: sort key, then id) meets the other conditions, which are evaluated
+    on that mail: an alias of mail that the conditions are moved onto, as the walk moves them
+    onto its window. MAIL_SORT_KEY is unqualified SQL, so a date bound moved onto the alias
+    names its date_utc as the nearest one in scope."""
+    earlier = Mail.__table__.alias("near_earlier")
+    mine, theirs = aliased(MailNear), aliased(MailNear)
+    on_earlier = ClauseAdapter(earlier).traverse
+    before = tuple_(func.coalesce(earlier.c.date_utc, _NO_DATE), earlier.c.id) < tuple_(
+        func.coalesce(Mail.date_utc, _NO_DATE), Mail.id
+    )
+    return ~exists().where(
+        mine.mail_id == Mail.id,
+        theirs.group_id == mine.group_id,
+        earlier.c.id == theirs.mail_id,
+        before,
+        *(on_earlier(condition) for condition in others),
+    )
+
+
+def _near(condition: ColumnElement[bool]) -> ColumnElement[bool]:
+    return exists().where(MailNear.mail_id == Mail.id, condition)
+
+
+def _event(condition: ColumnElement[bool]) -> ColumnElement[bool]:
+    """One of the mail's calendar events meets the condition."""
+    return exists().where(CalendarEvent.mail_id == Mail.id, condition)
 
 
 # Order and keyset ----------------------------------------------------------------------------

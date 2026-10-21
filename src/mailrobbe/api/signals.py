@@ -72,6 +72,7 @@ from mailrobbe.db.models import (
 )
 from mailrobbe.entities.mentions import mentions
 from mailrobbe.enums import EntityKind, ParticipationRole, SignalKind
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT, member_ids, resolve_root
 from mailrobbe.signals.model import (
     FORWARD_MIME_TYPE,
@@ -120,7 +121,7 @@ async def signal_overview(session: Session, settings: AppSettings) -> SignalOver
             for domain, count in await aggregates.read_sender_domains(session)
             if not in_domains(domain, signal_rules.private_domains)
         ][:SIGNAL_DOMAINS]
-    return SignalOverview(
+    overview = SignalOverview(
         signals=[
             SignalInfo(
                 key=key,
@@ -150,6 +151,8 @@ async def signal_overview(session: Session, settings: AppSettings) -> SignalOver
         silent_count=person_counts.get(SignalKind.SILENT, 0),
         sender_domains=sender_domains,
     )
+    await attach_labels(session, overview)
+    return overview
 
 
 async def _senders(session: AsyncSession, keys: Sequence[str]) -> dict[str, list[PersonCount]]:
@@ -286,11 +289,13 @@ async def mail_signals(mail_id: MailId, session: Session, settings: AppSettings)
         )
         reasons = [_reason(key, signal_rules, facts) for key in keys]
     figures = await read_figures(session)
-    return MailSignals(
+    signals = MailSignals(
         signals=reasons,
         timezone=signal_rules.timezone,
         computed_at=None if figures is None else figures.computed_at,
     )
+    await attach_labels(session, signals)
+    return signals
 
 
 def _reason(key: str, signal_rules: SignalRules, facts: _Facts) -> SignalReason:

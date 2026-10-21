@@ -199,7 +199,11 @@ def _depth(message: Message) -> int:
 
 
 def test_replies_quote_the_parent(gen_rendered: list[RenderedMail]) -> None:
-    replies = [mail for mail in gen_rendered if mail.planned.kind is MailKind.REPLY]
+    replies = [
+        mail
+        for mail in gen_rendered
+        if mail.planned.kind is MailKind.REPLY and mail.planned.calendar is None
+    ]  # an answer to an invitation quotes nothing
     assert replies
     for mail in replies:
         parent = mail.planned.quoted
