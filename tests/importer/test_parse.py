@@ -438,3 +438,58 @@ def test_an_unexpected_failure_keeps_what_was_read(monkeypatch: pytest.MonkeyPat
     assert (mail.subject, mail.message_id) == ("kept", "<1@nordwind.example>")
     assert _kinds(mail) == [ImportErrorKind.PARSE]
     assert mail.issues[0].message.endswith("RuntimeError: boom second line")
+
+
+# List and automation headers (D39)
+
+
+def test_list_and_automation_headers_match_the_manifest(
+    parsed_archive: list[tuple[ParsedMail, dict[str, Any]]],
+) -> None:
+    kinds = {(bool(e["list_id"]), e["automated"]) for _, e in parsed_archive}
+    assert kinds == {(False, False), (False, True), (True, False), (True, True)}
+    for mail, entry in parsed_archive:
+        assert (mail.list_id, mail.automated) == (entry["list_id"], entry["automated"]), entry
+
+
+@pytest.mark.parametrize(
+    ("header", "list_id"),
+    [
+        (b"List-Id: Team IT <Team-IT.Elbtal.Example>\n", "team-it.elbtal.example"),
+        (b'List-ID: "Lange Liste"\n\t<lang.lists.example>\n', "lang.lists.example"),
+        (b"list-id: =?utf-8?q?Gr=C3=BCne_Liste?= <gruene.lists.example>\n", "gruene.lists.example"),
+        (b'List-Id: "a <b>" <c.lists.example>\n', "c.lists.example"),
+        (b"List-Id: <split.lists.\n example>\n", "split.lists.example"),
+        (b"List-Id:  Plain.Lists.Example \n", "plain.lists.example"),
+        (b"List-Id: =?utf-8?q?enc.lists.example?=\n", "enc.lists.example"),
+        (b"List-Id: <>\n", None),
+        (b"List-Id:\n", None),
+        (b"", None),
+    ],
+)
+def test_list_id(header: bytes, list_id: str | None) -> None:
+    mail = _mail(headers=header)
+    assert mail.list_id == list_id and not mail.issues
+
+
+@pytest.mark.parametrize(
+    ("headers", "automated"),
+    [
+        (b"", False),
+        (b"Auto-Submitted: auto-generated\n", True),
+        (b'Auto-Submitted: auto-replied; owner-email="anna@a.example"\n', True),
+        (b"AUTO-SUBMITTED: (vacation) Auto-Replied\n", True),
+        (b"Auto-Submitted:\n auto-generated\n", True),
+        (b"Auto-Submitted: No\n", False),
+        (b"auto-submitted: no (sent by a person)\n", False),
+        (b"Auto-Submitted:\n", False),
+        (b"Precedence: bulk\n", True),
+        (b"Precedence: Junk\n", True),
+        (b"Precedence: auto_reply\n", True),
+        (b"Precedence: list\n", False),
+        (b"Precedence: list\nAuto-Submitted: auto-generated\n", True),
+        (b"List-Id: <x.lists.example>\nPrecedence: list\n", False),
+    ],
+)
+def test_automated(headers: bytes, automated: bool) -> None:
+    assert _mail(headers=headers).automated is automated

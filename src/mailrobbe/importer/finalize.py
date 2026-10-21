@@ -1,5 +1,6 @@
 """After importing: duplicates (D16), threads (D17) and display names, recomputed as a whole,
-then the global figures of the web UI (global_stats, D19).
+then the aggregation tables: the edges of the relationship map (D36) and the global figures of
+the web UI (global_stats, D19).
 
 Every step is set-based SQL apart from threading, a union-find in the main process over the
 Message-IDs of all mails that are not duplicates. Each step writes only rows whose value
@@ -17,7 +18,8 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, Executable, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe.aggregates import refresh_global_stats
+from mailrobbe.aggregates import refresh_aggregates
+from mailrobbe.graph.edges import EdgeRefresh
 from mailrobbe.importer.store import copy_rows
 
 # The earliest mail by file path and offset is the original; paths compare bytewise, as the
@@ -90,10 +92,11 @@ class FinalizeResult:
     threads: int  # mails whose thread_id changed
     display_names: int  # person and person_email rows whose display names changed
     seconds: float
+    edges: EdgeRefresh
 
 
 async def finalize(session: AsyncSession) -> FinalizeResult:
-    """Recompute duplicates, then threads (which skip duplicates), display names, global_stats."""
+    """Recompute duplicates, then threads (which skip duplicates), display names, aggregates."""
     started = time.monotonic()
     async with session.begin():
         duplicates = await _changed(session, _DUPLICATES)
@@ -105,8 +108,8 @@ async def finalize(session: AsyncSession) -> FinalizeResult:
         names = await _changed(session, _SET_NAME_COUNTS)
         names += await _changed(session, _SET_PERSON_NAMES)
     async with session.begin():
-        await refresh_global_stats(session)
-    return FinalizeResult(duplicates, threads, names, time.monotonic() - started)
+        edges = await refresh_aggregates(session)
+    return FinalizeResult(duplicates, threads, names, time.monotonic() - started, edges)
 
 
 class ThreadForest:
