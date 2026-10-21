@@ -30,7 +30,7 @@ const GAP = 16;
 /** The width until the container is measured (and in tests, which have no layout). */
 const DEFAULT_WIDTH = 960;
 const MIN_PLOT = 240;
-const TOTAL_HEIGHT = 112;
+const TOTAL_HEIGHT = 160;
 const SERIES_HEIGHT = 32;
 const MENTION_HEIGHT = 28;
 const AXIS_HEIGHT = 22;

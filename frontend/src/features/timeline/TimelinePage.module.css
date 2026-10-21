@@ -39,23 +39,34 @@
   font-size: 13px;
 }
 
-.toolbar {
+/* The bar and the chart card; the bar sticks only while this block is in view. */
+.chartArea {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bar {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 10;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 10px 16px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .search {
   display: flex;
-  flex: 0 1 480px;
+  flex: 0 1 380px;
   align-items: center;
   gap: 8px;
   min-width: 220px;
-  height: 36px;
+  height: 32px;
   box-sizing: border-box;
-  margin-right: 4px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid var(--color-border-strong);
   border-radius: 8px;
   background: var(--color-surface);
@@ -91,8 +102,6 @@
 
 .summary {
   margin: 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border-subtle);
   color: var(--color-muted);
   font-size: 13px;
 }
@@ -108,8 +117,9 @@
 
 .explanation {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 24px;
   padding-top: 12px;
   border-top: 1px solid var(--color-border-subtle);
   color: var(--color-muted);
@@ -119,6 +129,7 @@
 
 .legend {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 4px 20px;
   margin: 0;
@@ -155,6 +166,30 @@
   );
 }
 
+/* "Wie lese ich das?": the rules of the marks, folded away until asked for. */
+.help {
+  margin-left: auto;
+}
+
+.help[open] {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 0;
+}
+
+.help summary {
+  width: fit-content;
+  color: var(--color-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.help summary:hover {
+  color: var(--color-accent-hover);
+}
+
 .rules {
   margin: 0;
   max-width: 110ch;
@@ -169,5 +204,10 @@
 
   .search {
     flex: 1 1 100%;
+  }
+
+  /* Wrapped onto several rows the bar would cover too much of a small screen. */
+  .bar {
+    position: static;
   }
 }

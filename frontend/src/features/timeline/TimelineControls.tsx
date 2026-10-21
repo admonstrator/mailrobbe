@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent, type ReactNode } from "react";
 
 import {
   MAX_TIMELINE_BUCKETS,
@@ -63,14 +63,16 @@ function bucketHint(state: TimelineState, timeline: Timeline | undefined): strin
   return state.bucket === null ? `Automatisch gewählt: nach ${shown}.` : null;
 }
 
-/** Zeiteinheit and Aufschlüsseln, and below them what the split shows: the chosen persons or
- *  threads (else the six with the most matches), or the search strings. */
+/** One row of the page's own controls (children: the search and its filter chips), Zeiteinheit
+ *  and Aufschlüsseln, and below it what the split shows: the chosen persons or threads (else the
+ *  six with the most matches), or the search strings. */
 export function TimelineControls({
   state,
   onChange,
   timeline,
   seriesName,
   onPickPerson,
+  children,
 }: {
   state: TimelineState;
   onChange: (next: TimelineState) => void;
@@ -78,6 +80,7 @@ export function TimelineControls({
   /** The name of a chosen person or thread. */
   seriesName: (id: number) => string;
   onPickPerson: (person: PersonSummary) => void;
+  children?: ReactNode;
 }) {
   const hint = bucketHint(state, timeline);
   const ids = state.split_id;
@@ -85,6 +88,7 @@ export function TimelineControls({
   return (
     <div className={styles.controls}>
       <div className={styles.row}>
+        {children}
         <Segments<TimelineBucket | "auto">
           label="Zeiteinheit"
           options={[
@@ -103,12 +107,12 @@ export function TimelineControls({
             if (split !== state.split) onChange({ ...state, split, split_id: [], term: [] });
           }}
         />
+        {hint && (
+          <p className={cx(styles.hint, timeline?.coarsened && styles.coarsened)} role="status">
+            {hint}
+          </p>
+        )}
       </div>
-      {hint && (
-        <p className={cx(styles.hint, timeline?.coarsened && styles.coarsened)} role="status">
-          {hint}
-        </p>
-      )}
 
       {state.split === "person" && (
         <div className={styles.detail}>
