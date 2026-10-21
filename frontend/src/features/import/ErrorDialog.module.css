@@ -1,0 +1,60 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.field {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.field select {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 5px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.scroll {
+  min-height: 120px;
+  overflow-y: auto;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.note {
+  margin: 4px 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.count {
+  margin-right: auto;
+  color: var(--color-muted);
+  font-size: 13px;
+}

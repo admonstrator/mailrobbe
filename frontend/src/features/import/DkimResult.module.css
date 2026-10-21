@@ -1,0 +1,75 @@
+.card {
+  gap: 10px;
+}
+
+.stand {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.bar {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-border-subtle);
+}
+
+.pass {
+  background: var(--color-pass);
+}
+
+.fail {
+  background: var(--color-fail);
+}
+
+.no_key {
+  background: var(--color-no-key);
+}
+
+.unsigned {
+  background: var(--color-unsigned);
+}
+
+.temp_error {
+  background: var(--color-no-key-soft);
+}
+
+.unchecked {
+  background: var(--color-border-strong);
+}
+
+.legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.reasons {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
