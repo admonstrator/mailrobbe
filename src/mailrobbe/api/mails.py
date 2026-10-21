@@ -11,7 +11,7 @@ usable; the unfiltered figures come from global_stats.
 import csv
 import io
 from collections import defaultdict
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Collection, Sequence
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
@@ -64,6 +64,7 @@ from mailrobbe.api.schemas import (
 from mailrobbe.config import Settings
 from mailrobbe.db.models import Mail, MailNote, MboxFile, Participation, Person
 from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.persons.roots import member_ids
 
 router = APIRouter(prefix="/api", tags=["mails"])
 
@@ -149,6 +150,8 @@ async def list_mails(
     found = {row.id: row for row in await session.execute(statement)}
     rows = [found[mail_id] for mail_id in ids]
     people = await _participants(session, [row.id for row in rows])
+    # The addresses of the one person filtered for, as the person filter reads them.
+    members = set(await member_ids(session, params.person[0])) if len(params.person) == 1 else None
 
     def at(row: _Row, before: bool) -> str:
         return Cursor(params.sort, before, row.date_utc, row.id).encode()
@@ -164,7 +167,7 @@ async def list_mails(
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
     return MailPage(
-        items=[_item(row, people.get(row.id, [])) for row in rows],
+        items=[_item(row, people.get(row.id, []), members) for row in rows],
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         query_terms=terms,
@@ -200,9 +203,15 @@ def _participant_order(participant: tuple[ParticipationRole, PersonRef]) -> tupl
     return (_ROLE_ORDER[role], person.name is None, (person.name or "").casefold(), person.email)
 
 
-def _item(row: _Row, participants: list[tuple[ParticipationRole, PersonRef]]) -> MailListItem:
+def _item(
+    row: _Row,
+    participants: list[tuple[ParticipationRole, PersonRef]],
+    members: Collection[int] | None = None,
+) -> MailListItem:
+    """members: the addresses of the one person filtered for, whose first role the item names."""
     senders = [person for role, person in participants if role is ParticipationRole.FROM]
     recipients = [person for role, person in participants if role is not ParticipationRole.FROM]
+    roles = [role for role, person in participants if members and person.person_id in members]
     return MailListItem(
         id=row.id,
         date=row.date_utc,
@@ -217,6 +226,7 @@ def _item(row: _Row, participants: list[tuple[ParticipationRole, PersonRef]]) ->
         flagged=row.flagged,
         size=row.byte_length,
         mbox_file_id=row.mbox_file_id,
+        person_role=min(roles, key=_ROLE_ORDER.__getitem__, default=None),
     )
 
 
