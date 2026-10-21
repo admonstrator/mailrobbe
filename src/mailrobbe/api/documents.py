@@ -117,6 +117,7 @@ from mailrobbe.db.models import (
 )
 from mailrobbe.enums import DocumentKind, DocumentTextStatus, ParticipationRole
 from mailrobbe.persons.roots import ROOT
+from mailrobbe.preview.kinds import preview_kind
 
 router = APIRouter(prefix="/api", tags=["documents"])
 log = logging.getLogger(__name__)
@@ -141,8 +142,6 @@ _RASTER_SIGNATURES = (
     (b"GIF87a", "image/gif"),
     (b"GIF89a", "image/gif"),
 )
-_RASTER_TYPES = frozenset({"image/png", "image/jpeg", "image/pjpeg", "image/gif", "image/webp"})
-_RASTER_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "jpe", "gif", "webp"})
 
 _FIRST_DATE: ColumnElement[datetime] = literal_column(FIRST_DATE_SORT_KEY, TIMESTAMPTZ)
 _NO_DATE = literal_column("'-infinity'::timestamp with time zone", TIMESTAMPTZ)
@@ -595,7 +594,9 @@ _DETAIL_COLUMNS = (
 
 
 @router.get("/documents/{document_id}")
-async def document_detail(document_id: DocumentId, session: Session) -> DocumentDetail:
+async def document_detail(
+    document_id: DocumentId, session: Session, settings: AppSettings
+) -> DocumentDetail:
     found = await session.execute(select(*_DETAIL_COLUMNS).where(Document.id == document_id))
     document = found.one_or_none()
     source = None
@@ -627,7 +628,14 @@ async def document_detail(document_id: DocumentId, session: Session) -> Document
         recipients=recipients,
         recipient_count=recipient_count,
         attachment_id=source.attachment_id,
-        preview=_preview(document.kind, document.mime_type, document.name),
+        preview=preview_kind(
+            document.kind,
+            document.name,
+            document.mime_type,
+            document.size_bytes,
+            hashed=document.sha256 is not None,
+            max_size=settings.preview_max_size,
+        ),
     )
 
 
@@ -737,16 +745,6 @@ async def mail_persons(
         return [PersonCount(person=people[row.root], mails=row.mails) for row in selected[:limit]]
 
     return counts(senders), len(senders), counts(recipients), len(recipients)
-
-
-def _preview(kind: DocumentKind | None, mime_type: str, name: str | None) -> bool:
-    """A raster image the browser shows (D76), by its declared type or its name; the download
-    keeps an image type only when the first bytes prove it."""
-    if kind is not DocumentKind.IMAGE:
-        return False
-    declared = mime_type.partition(";")[0].strip().lower()
-    extension = name.rpartition(".")[2].lower() if name and "." in name else ""
-    return declared in _RASTER_TYPES or extension in _RASTER_EXTENSIONS
 
 
 # Downloads -----------------------------------------------------------------------------------

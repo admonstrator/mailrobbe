@@ -28,8 +28,13 @@ NAMES = {
     "pdf": "a.pdf", "pdf_scan": "Scan.pdf", "pdf_encrypted": "a.pdf", "pdf_damaged": "a.pdf",
     "docx": "a.docx", "odt": "a.odt", "xlsx": "a.xlsx", "pptx": "a.pptx", "csv": "a.csv",
     "txt": "a.txt", "txt_empty": "a.txt", "ics": "a.ics", "vcf": "a.vcf", "zip": "a.zip",
+    "png": "Foto.png", "png_damaged": "Foto.png", "jpeg": "IMG_1.jpg", "jpeg_damaged": "IMG_1.jpg",
+    **{form: f"a.{form}" for form in documents.RECORDING_FORMS},
 }  # fmt: skip
-EXTRA_FORMS = (("pdf_encrypted", "invoice"), ("pdf_damaged", "offer"), ("txt_empty", "notes"))
+EXTRA_FORMS = (
+    ("pdf_encrypted", "invoice"), ("pdf_damaged", "offer"), ("txt_empty", "notes"),
+    ("png_damaged", "photo"), ("jpeg_damaged", "photo"),
+)  # fmt: skip
 
 
 def _forms() -> list[tuple[str, str]]:
@@ -52,7 +57,7 @@ def test_each_form_extracts_as_its_truth(form: str, theme: str) -> None:
         spec = _spec(form, theme, size, seed=number)
         built = documents.build(spec)
         data = _bytes(built)
-        truth = built.truth(spec.filename)
+        truth = built.truth(spec.filename, spec.mime_type)
         assert (len(data), truth.size, truth.filename) == (built.size, built.size, spec.filename)
         result = extract_document(data, spec.filename, spec.mime_type, ExtractionLimits())
         assert (result.status.value, result.kind) == (truth.status, truth.kind), size
@@ -70,11 +75,13 @@ def test_documents_are_pure_functions_of_spec_and_size() -> None:
         spec = DocumentSpec(11, form, theme, WHEN)
         first, pages = documents.document_bytes(spec, 50_000)
         assert documents.document_bytes(spec, 50_000) == (first, pages)
-        assert documents.document_bytes(replace(spec, seed=12), 50_000)[0] != first
+        if form not in documents.RECORDING_FORMS:  # recordings: one of a few files
+            assert documents.document_bytes(replace(spec, seed=12), 50_000)[0] != first
 
 
 def test_padded_documents_come_close_to_the_planned_size() -> None:
-    padded = ("pdf", "pdf_scan", "pdf_encrypted", "docx", "odt", "xlsx", "pptx", "zip")
+    padded = ("pdf", "pdf_scan", "pdf_encrypted", "docx", "odt", "xlsx", "pptx", "zip", "png",
+              "jpeg")  # fmt: skip
     for form, theme in _forms():
         if form not in padded:
             continue
@@ -145,8 +152,8 @@ def test_the_pool_reuses_renames_and_keeps_invoices_out() -> None:
         for size in (100_000, 2_000_000, 5_000)
     }  # fmt: skip
     assert len(shared) == 1  # one file, whatever size each mail planned
-    image = AttachmentSpec("IMG_1.jpg", "image/jpeg", 5_000)
-    assert pool.attach(image, "IMG_{n}.jpg", WHEN) is image
+    large = AttachmentSpec("Aufzeichnung_Workshop.mp4", "video/mp4", 60 * 1024**2)
+    assert pool.attach(large, "Aufzeichnung_Workshop.mp4", WHEN) is large  # filler, no template
 
 
 def test_documents_circulate_in_the_plan(gen_plan: list[PlannedMail]) -> None:

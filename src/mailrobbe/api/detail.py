@@ -77,6 +77,7 @@ from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
 from mailrobbe.mbox import read_verified
 from mailrobbe.persons.roots import ROOT
+from mailrobbe.preview.kinds import preview_kind
 
 router = APIRouter(prefix="/api", tags=["mail"])
 log = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ _DETAIL = (
 
 
 @router.get("/mails/{mail_id}")
-async def mail_detail(mail_id: MailId, session: Session) -> MailDetail:
+async def mail_detail(mail_id: MailId, session: Session, settings: AppSettings) -> MailDetail:
     mail = (await session.execute(_DETAIL.where(Mail.id == mail_id))).one_or_none()
     if mail is None:
         raise _not_found(mail_id)
@@ -169,7 +170,7 @@ async def mail_detail(mail_id: MailId, session: Session) -> MailDetail:
         has_attachments=mail.has_attachments,
         dkim=await _dkim(session, mail_id, mail.dkim_status),
         participants=await _participants(session, mail_id),
-        attachments=await _attachments(session, mail_id),
+        attachments=await _attachments(session, mail_id, settings.preview_max_size),
         thread_id=mail.thread_id,
         thread=thread,
         thread_size=thread_size,
@@ -515,8 +516,11 @@ async def _originals(session: AsyncSession, hashes: set[str]) -> dict[str, int]:
     return {sha: mail_id for sha, mail_id in rows}
 
 
-async def _attachments(session: AsyncSession, mail_id: int) -> list[AttachmentInfo]:
-    """The mail's attachments, each with its document (D75) once finalize assigned it."""
+async def _attachments(
+    session: AsyncSession, mail_id: int, preview_max_size: int
+) -> list[AttachmentInfo]:
+    """The mail's attachments, each with its document (D75) once finalize assigned it, and the
+    preview the browser can show (D120)."""
     rows = await session.execute(
         select(
             Attachment.id,
@@ -546,6 +550,14 @@ async def _attachments(session: AsyncSession, mail_id: int) -> list[AttachmentIn
             text_status=row.text_status,
             pages=row.pages,
             document_mails=row.mails,
+            preview=preview_kind(
+                row.kind,
+                row.filename,
+                row.mime_type,
+                row.size_bytes,
+                hashed=row.sha256 is not None,
+                max_size=preview_max_size,
+            ),
         )
         for row in rows
     ]

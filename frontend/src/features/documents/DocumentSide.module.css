@@ -6,20 +6,9 @@
   background: var(--color-hover);
 }
 
-.image {
-  display: block;
-  max-width: 100%;
+/* The side column is narrow: a portrait photo stays short. */
+.preview img {
   max-height: 320px;
-  object-fit: contain;
-}
-
-.noPreview {
-  align-self: center;
-  margin: 0;
-  padding: 16px;
-  color: var(--color-muted);
-  font-size: 13px;
-  text-align: center;
 }
 
 .list {

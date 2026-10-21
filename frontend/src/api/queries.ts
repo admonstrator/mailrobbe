@@ -12,7 +12,16 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./client";
+import {
+  ApiError,
+  apiDelete,
+  apiFetch,
+  apiGet,
+  apiPatch,
+  apiPost,
+  apiPut,
+  attachmentHtmlUrl,
+} from "./client";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
   BulkRequest,
@@ -163,6 +172,7 @@ export const queryKeys = {
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
   hits: (id: number, q: string) => ["documents", "hits", id, q] as const,
+  attachmentHtml: (id: number) => ["attachments", "html", id] as const,
   /** Prefix of everything about keys of deleted selectors (D100 to D104). */
   keys: ["keys"] as const,
   selectorSummary: ["keys", "summary"] as const,
@@ -776,6 +786,18 @@ export function useMailHits(id: number, q: string) {
     queryKey: queryKeys.hits(id, q),
     queryFn: ({ signal }) => apiGet<MailHits>(`/api/mails/${id}/hits`, { q }, signal),
     enabled: q.trim() !== "",
+  });
+}
+
+/** A DOCX or ODT as sanitized HTML (D122), converted on the first request. Dropped once its
+ *  preview closes: it may hold large images, and the server keeps the conversion. */
+export function useAttachmentHtml(id: number) {
+  return useQuery({
+    queryKey: queryKeys.attachmentHtml(id),
+    queryFn: ({ signal }) =>
+      apiFetch(attachmentHtmlUrl(id), signal).then((answer) => answer.text()),
+    staleTime: Infinity,
+    gcTime: 0,
   });
 }
 

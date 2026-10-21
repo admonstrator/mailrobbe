@@ -42,8 +42,10 @@ from mailrobbe.api.schemas import (
 )
 from mailrobbe.config import Settings
 from mailrobbe.dkim.override import key_name
+from mailrobbe.enums import DocumentKind
 from mailrobbe.importer.model import BODY_TEXT_LIMIT
 from mailrobbe.mbox import read_message
+from mailrobbe.preview.kinds import preview_kind
 from tests.api.conftest import _client
 from tests.conftest import GeneratedArchive
 
@@ -262,6 +264,14 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
                 "text_status": row["text_status"],
                 "pages": row["pages"],
                 "document_mails": row["document_mails"],
+                "preview": preview_kind(
+                    None if row["kind"] is None else DocumentKind(row["kind"]),
+                    row["filename"],
+                    row["mime_type"],
+                    row["size_bytes"],
+                    hashed=row["sha256"] is not None,
+                    max_size=Settings().preview_max_size,
+                ),
             }
             for row in archive.attachments[mail_id]
         ]

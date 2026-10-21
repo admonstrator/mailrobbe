@@ -1,0 +1,212 @@
+/* The PDF viewer's page (D121): light and calm like the app, in the system's font (the app's Inter
+   would have to be inlined). Injected by main.ts: the page's policy allows inline styles only. */
+
+:root {
+  --bg: #eceef2;
+  --surface: #ffffff;
+  --border: #e3e6eb;
+  --border-strong: #d5d9e0;
+  --text: #16181d;
+  --muted: #5b6270;
+  --accent: #1d5bd6;
+  --accent-soft: #e8effc;
+  --hover: #f6f8fc;
+  --fail: #b91c1c;
+
+  color-scheme: light;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+
+input,
+button {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+input {
+  width: 4em;
+  padding: 3px 6px;
+  text-align: right;
+}
+
+button {
+  min-width: 28px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+output {
+  min-width: 4.5em;
+  color: var(--text);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The pages scroll here; the gutter stays, so fitting the width does not make a scroll bar
+   come and go. */
+.scroller {
+  position: relative;
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  scrollbar-gutter: stable;
+}
+
+.scroller:focus-visible {
+  outline-offset: -2px;
+}
+
+.status {
+  max-width: 40em;
+  margin: 48px auto;
+  color: var(--muted);
+  text-align: center;
+}
+
+.status.failed {
+  color: var(--fail);
+}
+
+.page {
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+
+  position: relative;
+  margin: 0 auto 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(22 24 29 / 14%);
+}
+
+.page canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The text layer, after pdf.js's web/pdf_viewer.css: transparent text over the canvas. */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer .markedContent {
+  display: contents;
+}
+
+.textLayer ::selection {
+  background: rgb(29 91 214 / 25%);
+  color: transparent;
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+[data-main-rotation="90"] {
+  transform: rotate(90deg) translateY(-100%);
+}
+
+[data-main-rotation="180"] {
+  transform: rotate(180deg) translate(-100%, -100%);
+}
+
+[data-main-rotation="270"] {
+  transform: rotate(270deg) translateX(-100%);
+}
