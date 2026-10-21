@@ -1,0 +1,74 @@
+.scroll {
+  min-height: 120px;
+  overflow-y: auto;
+}
+
+.note {
+  margin: 4px 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.table th.num,
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.name,
+.name:hover {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.address {
+  display: block;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.date {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.count {
+  margin-right: auto;
+  color: var(--color-muted);
+  font-size: 13px;
+}

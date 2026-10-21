@@ -1,0 +1,132 @@
+.card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.bar {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.filters select {
+  max-width: 220px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-hover);
+}
+
+.dkimCol {
+  width: 36px;
+}
+
+.roleCol {
+  width: 90px;
+}
+
+.dateCol {
+  width: 150px;
+}
+
+.role {
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: var(--color-field);
+  color: var(--color-nav);
+  font-size: 12px;
+}
+
+.from {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+
+.counterpart {
+  overflow-wrap: anywhere;
+}
+
+.person,
+.person:hover {
+  color: var(--color-text);
+}
+
+.subject {
+  overflow-wrap: anywhere;
+}
+
+.subjectLink,
+.subjectLink:hover {
+  color: var(--color-text);
+}
+
+.date {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.paging {
+  padding: 12px 16px;
+}
