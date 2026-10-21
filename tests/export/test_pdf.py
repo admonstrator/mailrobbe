@@ -182,3 +182,15 @@ def test_a_message_above_the_parse_limit_shows_the_indexed_text() -> None:
     assert "Der indexierte Text über den Hafen" in text
     assert "Anhang folgt" not in text
     assert "Von Jürgen Weiß <juergen@firma.example>" in text
+
+
+def test_signals_appear_with_the_research_data() -> None:
+    raw = _message("Text")
+    names = ["Private Adresse", "Nachts"]
+    empty = MailResearch(mark=NO_MARK, tags=[], collections=[], notes=[])
+    [text] = _pages(render_pdf(_mail(raw), raw, created_at=CREATED, research=empty, signals=names))
+    assert "Notizen keine Signale Private Adresse, Nachts" in text
+    [text] = _pages(render_pdf(_mail(raw), raw, created_at=CREATED, signals=names))
+    assert "Signale" not in text
+    [text] = _pages(render_pdf(_mail(raw), raw, created_at=CREATED, research=empty))
+    assert "Signale" not in text
