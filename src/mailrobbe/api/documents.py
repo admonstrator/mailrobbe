@@ -10,6 +10,10 @@ one EXISTS over attachment and mail with the mail list's own conditions (filters
 D21, D32). It pages by keyset as the person list does (D19, D31): a cursor names the sort key of
 its boundary row and is bound to the sort order; ties go by id in the direction of the sort, so
 each sort walks its index (ix_document_first_date, ix_document_mails, ix_document_size_bytes).
+With conditions on mails and no search words the walk is bounded as the mail list's
+(filters.first_ids): the next WALK_ROWS documents in order, then, when they hold too few matches,
+every match sorted; matches cluster (one year's documents, one person's), and PostgreSQL's
+estimate assumes they do not.
 
 A snippet is found in PostgreSQL, so that only its surroundings leave the database: the search
 words as typed become one regular expression, any case written out as character classes (the
@@ -37,19 +41,30 @@ from sqlalchemy import (
     Executable,
     Integer,
     SQLColumnExpression,
+    any_,
     exists,
+    false,
     func,
     literal,
     literal_column,
     select,
     text,
+    true,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.util import ClauseAdapter
 
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import _senders
-from mailrobbe.api.filters import FilterError, _contains, internal_domains, mail_conditions
+from mailrobbe.api.filters import (
+    WALK_ROWS,
+    FilterError,
+    _contains,
+    internal_domains,
+    mail_conditions,
+)
 from mailrobbe.api.mails import _QUERY_CANCELED, _count_budget, _unless_canceled
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
 from mailrobbe.api.schemas import (
@@ -142,9 +157,14 @@ _ITEM_COLUMNS = (
 
 
 def document_conditions(
-    filters: DocumentFilters, internal: Sequence[str]
+    filters: DocumentFilters, internal: Sequence[str], *, walk: bool = False
 ) -> list[ColumnElement[bool]]:
-    """Every condition of the filters (D74) on document; FilterError for an unusable one."""
+    """Every condition of the filters (D74) on document; FilterError for an unusable one.
+
+    The conditions on mails become one EXISTS, which PostgreSQL may turn into a join over every
+    carrying mail; with walk, a subquery it runs for one document at a time instead, for the
+    bounded walk of _first_ids.
+    """
     where: list[ColumnElement[bool]] = []
     if filters.q.strip():
         query = func.websearch_to_tsquery(_TEXT_SEARCH, filters.q)
@@ -165,21 +185,27 @@ def document_conditions(
         external=filters.external,
     )
     on_mail = mail_conditions(mail_filters, (), internal)
-    if on_mail:  # one carrying mail that is no duplicate meets them all
-        where.append(
-            exists().where(
-                Attachment.document_id == Document.id,
-                Mail.id == Attachment.mail_id,
-                Mail.is_duplicate_of.is_(None),
-                *on_mail,
-            )
-        )
+    if not on_mail:
+        return where
+    carrying = (  # one carrying mail that is no duplicate meets them all
+        Attachment.document_id == Document.id,
+        Mail.id == Attachment.mail_id,
+        Mail.is_duplicate_of.is_(None),
+        *on_mail,
+    )
+    if not walk:
+        where.append(exists().where(*carrying))
+        return where
+    one = select(true()).select_from(Attachment, Mail).where(*carrying).limit(1)
+    where.append(func.coalesce(one.scalar_subquery(), false()))  # scalar: never hashed in full
     return where
 
 
-def _where(filters: DocumentFilters, internal_setting: str) -> list[ColumnElement[bool]]:
+def _where(
+    filters: DocumentFilters, internal_setting: str, *, walk: bool = False
+) -> list[ColumnElement[bool]]:
     try:
-        return document_conditions(filters, internal_domains(internal_setting))
+        return document_conditions(filters, internal_domains(internal_setting), walk=walk)
     except FilterError as error:
         raise api_error(400, "invalid_filter", str(error)) from error
 
@@ -226,14 +252,20 @@ async def list_documents(
     if cursor is not None:
         boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
         start.append(_beyond(columns, boundary, descending != reverse))
-    rows: list[Any] = list(
-        await session.execute(
-            select(*_ITEM_COLUMNS, kept.label("key"))
-            .where(*where, *start)
-            .order_by(*_by(columns, descending != reverse))
-            .limit(params.limit + 1)
+    item = select(*_ITEM_COLUMNS, kept.label("key"))
+    if _on_mails(params):
+        # With search words the GIN index narrows first: no walk, which would test every text.
+        walk = None if params.q.strip() else _where(params, settings.internal_domains, walk=True)
+        down = descending != reverse
+        ids = await _first_ids(session, where, walk, start, key, down, params.limit + 1)
+        found = await session.execute(
+            item.where(Document.id == any_(literal(ids, ARRAY(BigInteger))))
         )
-    )
+        by_id = {row.id: row for row in found}
+        rows: list[Any] = [by_id[document_id] for document_id in ids]
+    else:
+        statement = item.where(*where, *start).order_by(*_by(columns, descending != reverse))
+        rows = list(await session.execute(statement.limit(params.limit + 1)))
     more = len(rows) > params.limit
     del rows[params.limit :]
     if reverse:
@@ -277,6 +309,53 @@ async def list_documents(
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
     )
+
+
+def _on_mails(filters: DocumentFilters) -> bool:
+    """Conditions on the carrying mails apply (the EXISTS of document_conditions)."""
+    on_mails = (filters.date_from, filters.date_to, filters.person)
+    return filters.external or any(value is not None for value in on_mails)
+
+
+async def _first_ids(
+    session: AsyncSession,
+    where: Sequence[ColumnElement[bool]],
+    walk: Sequence[ColumnElement[bool]] | None,
+    start: Sequence[ColumnElement[bool]],
+    key: SQLColumnExpression[Any],
+    descending: bool,
+    limit: int,
+) -> list[int]:
+    """Ids of the first `limit` documents matching where in list order: among the next
+    WALK_ROWS documents (tested with walk, the same conditions one document at a time), else
+    among every match (filters.first_ids does the same for mails). walk None: every match."""
+    if walk is not None:
+        window = (
+            select(*Document.__table__.c, key.label("key"))
+            .where(*start)
+            .order_by(*_by([key, Document.id], descending))
+            .limit(WALK_ROWS)
+            .subquery("walk")
+        )
+        on_window = ClauseAdapter(window).traverse
+        walked = (
+            select(window.c.id)
+            .where(*(on_window(condition) for condition in walk))
+            .order_by(*_by([window.c.key, window.c.id], descending))
+            .limit(limit)
+        )
+        found = list(await session.scalars(walked))
+        if len(found) == limit:
+            return found
+    # MATERIALIZED keeps PostgreSQL from turning this back into an unbounded walk.
+    matched = (
+        select(Document.id, key.label("key"))
+        .where(*start, *where)
+        .cte("matched")
+        .prefix_with("MATERIALIZED")
+    )
+    ordered = select(matched.c.id).order_by(*_by([matched.c.key, matched.c.id], descending))
+    return list(await session.scalars(ordered.limit(limit)))
 
 
 # Snippets ------------------------------------------------------------------------------------
