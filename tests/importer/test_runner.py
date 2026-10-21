@@ -5,6 +5,7 @@ generator archive is copied first and asserted against its manifest.
 """
 
 import asyncio
+import functools
 import multiprocessing
 import os
 import signal
@@ -21,9 +22,12 @@ from mailrobbe import migrate
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import ImportErrorKind, MboxStatus
+from mailrobbe.importer import runner
 from mailrobbe.importer.model import Issue
-from mailrobbe.importer.runner import FileOutcome, Pipeline, _Worker, run_files
+from mailrobbe.importer.runner import FileOutcome, ImportFigures, Pipeline, _Worker, run_files
 from mailrobbe.importer.scan import ScanReport, scan
+from mailrobbe.jobrun import RateWindow
+from mailrobbe.jobs import ImportProgress
 from tests.conftest import GeneratedArchive
 from tests.importer.doubles import (
     PARSE_ERROR_HEADER,
@@ -267,8 +271,8 @@ class _RaisingChecker:
 
 
 def test_a_failing_dkim_check_becomes_an_issue(tmp_path: Path) -> None:
-    stop = multiprocessing.get_context("spawn").Event()
-    worker = _Worker(Settings(), (), tmp_path, PIPELINE, 1, stop)
+    context = multiprocessing.get_context("spawn")
+    worker = _Worker(Settings(), (), tmp_path, PIPELINE, 1, context.Event(), context.Value("q", 0))
     worker.checker = _RaisingChecker()
     mail, verdict, issues = worker.examine(make_record(0, message(1)))
     assert mail.message_id == "<1@a.example>"
@@ -276,3 +280,59 @@ def test_a_failing_dkim_check_becomes_an_issue(tmp_path: Path) -> None:
     assert issues == [Issue(ImportErrorKind.DKIM, "DKIM check failed: RuntimeError: no luck")]
     _, verdict, issues = worker.examine(make_record(0, message(1), truncated=True))
     assert (verdict, issues) == (None, [])  # truncated records are not checked
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 50.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_figures_count_from_the_start_of_the_import(
+    engine: AsyncEngine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = _Clock()
+    monkeypatch.setattr(runner, "RateWindow", functools.partial(RateWindow, clock=clock))
+    async with engine.begin() as connection:
+        rows = await connection.execute(
+            text(
+                "INSERT INTO mbox_file (path, size_bytes, bytes_done, mails_parsed, status) "
+                "VALUES ('done.mbox', 1000, 1000, 10, 'done'), ('a.mbox', 5000, 1000, 4, "
+                "'pending'), ('b.mbox', 3000, 0, 0, 'pending'), ('other.mbox', 9, 0, 0, 'pending') "
+                "RETURNING id"
+            )
+        )
+        ids = [file_id for (file_id,) in rows][:3]  # other.mbox is no file of this run
+    figures = ImportFigures()
+    figures.files_queued = 2
+    async with engine.connect() as connection:
+        assert await figures.report(connection) == ImportProgress(files_queued=2)  # scan phase
+        await figures.start(connection, ids)
+        await connection.commit()
+
+    async with engine.begin() as connection:  # 2 s later: a.mbox ran on, b.mbox ended in error
+        await connection.execute(
+            text(
+                "UPDATE mbox_file SET bytes_done = bytes_done + 2000, mails_parsed = "
+                "mails_parsed + 20, status = CASE path WHEN 'a.mbox' THEN 'running' "
+                "ELSE 'error' END::mbox_status WHERE path IN ('a.mbox', 'b.mbox')"
+            )
+        )
+    figures.dkim_checked.value = 30
+    figures.workers, figures.files_finished = 1, 1
+    clock.now += 2
+    async with engine.connect() as connection:
+        progress = await figures.report(connection)
+    assert progress == ImportProgress(
+        workers=1,
+        files_queued=2,
+        files_finished=1,
+        mails_imported=40,
+        bytes_imported=4000,
+        mails_per_second=20.0,
+        dkim_per_second=15.0,
+        bytes_per_second=2000.0,
+        eta_seconds=1.0,  # 2000 bytes left in a.mbox; b.mbox ended
+    )

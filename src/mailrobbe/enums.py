@@ -94,3 +94,24 @@ class ImportErrorKind(StrEnum):
     DKIM = "dkim"  # the DKIM check failed unexpectedly; dkim_status stays NULL
     IO = "io"  # the file could not be read; the file's status becomes error
     INTERNAL = "internal"  # unexpected failure (database, bug) while importing the file; as io
+
+
+class JobKind(StrEnum):
+    """job.kind: the long runs the import dashboard shows and can stop (D46, D47)."""
+
+    IMPORT = "import"  # mailrobbe import
+    DKIM = "dkim"  # mailrobbe dkim
+
+
+class JobStatus(StrEnum):
+    RUNNING = "running"
+    DONE = "done"
+    STOPPED = "stopped"  # stopped on request (dashboard, Ctrl-C, SIGTERM); an import resumes
+    FAILED = "failed"  # ended by an error, or its process ended without recording its end
+
+
+class JobOrigin(StrEnum):
+    """Who started a run: a command line, or the dashboard through the API (D46)."""
+
+    CLI = "cli"
+    UI = "ui"

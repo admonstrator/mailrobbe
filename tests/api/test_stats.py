@@ -1,5 +1,6 @@
 """GET /api/stats, /api/stats/sender-domains and /api/mbox-files, and keeping global_stats
-current (D19): finalize writes them, `mailrobbe dkim` and the API's lazy refresh renew them."""
+current (D19): finalize writes them, `mailrobbe dkim` and the API's lazy refresh renew them.
+The import counts as running while a run holds the import lock (D47)."""
 
 import asyncio
 from datetime import datetime
@@ -11,7 +12,7 @@ import pytest
 from sqlalchemy import func, pool, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from mailrobbe import aggregates
+from mailrobbe import aggregates, jobs
 from mailrobbe.api.schemas import TOP_SENDER_DOMAINS
 from mailrobbe.config import Settings
 from mailrobbe.dkim.recheck import recheck
@@ -117,11 +118,35 @@ async def test_mbox_files_by_path(client: httpx.AsyncClient, imported_database_u
     files = await get(client, "/api/mbox-files")
     expected = await rows(
         imported_database_url,
-        "SELECT id, path, size_bytes, status::text AS status, mails_parsed, bytes_done"
+        "SELECT id, path, size_bytes, status::text AS status, mails_parsed, bytes_done,"
+        " error_count, worker_id, started_at, finished_at"
         ' FROM mbox_file ORDER BY path COLLATE "C"',
     )
+    for file in files:
+        for key in ("started_at", "finished_at"):
+            file[key] = None if file[key] is None else datetime.fromisoformat(file[key])
     assert files == [dict(row._mapping) for row in expected]
     assert len(files) > 1
+
+
+async def test_the_importer_runs_while_an_import_holds_its_lock(
+    mutable_client: httpx.AsyncClient, mutable_database_url: str
+) -> None:
+    url = mutable_database_url
+    # A file an import left running when it crashed does not count (D47).
+    await rows(
+        url, "UPDATE mbox_file SET status = 'running' WHERE id = (SELECT min(id) FROM mbox_file)"
+    )
+    assert (await get(mutable_client, "/api/stats"))["importer"]["running"] is False
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    try:
+        async with engine.connect() as run:
+            await run.execute(select(func.pg_advisory_lock(jobs.IMPORT_LOCK_KEY)))
+            await run.commit()
+            assert (await get(mutable_client, "/api/stats"))["importer"]["running"] is True
+    finally:
+        await engine.dispose()
+    assert (await get(mutable_client, "/api/stats"))["importer"]["running"] is False
 
 
 async def _change_archive(url: str) -> int:

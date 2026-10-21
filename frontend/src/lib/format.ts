@@ -45,6 +45,16 @@ export function formatDuration(seconds: number): string {
   return days === 1 ? "1 Tag" : `${days} Tage`;
 }
 
+/** A remaining time to the minute: "unter 1 min", "40 min", "1 h 40 min", "26 h". */
+export function formatRemaining(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 1) return "unter 1 min";
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  const hours = `${Math.floor(minutes / 60)} h`;
+  return rest ? `${hours} ${rest} min` : hours;
+}
+
 type Parts = Record<Intl.DateTimeFormatPartTypes, string>;
 
 function partsOf(format: Intl.DateTimeFormat, date: Date): Parts {

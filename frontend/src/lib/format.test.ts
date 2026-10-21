@@ -11,6 +11,7 @@ import {
   formatNumber,
   formatPercent,
   formatRelative,
+  formatRemaining,
   formatShortDate,
   utcDay,
 } from "./format";
@@ -52,6 +53,13 @@ describe("durations", () => {
     expect(formatDuration(43200)).toBe("12 h");
     expect(formatDuration(86400)).toBe("1 Tag");
     expect(formatDuration(7 * 86400)).toBe("7 Tage");
+  });
+
+  it("are exact to the minute as a remaining time", () => {
+    expect(formatRemaining(20)).toBe("unter 1 min");
+    expect(formatRemaining(168)).toBe("3 min");
+    expect(formatRemaining(6012)).toBe("1 h 40 min");
+    expect(formatRemaining(26 * 3600 + 10)).toBe("26 h");
   });
 });
 

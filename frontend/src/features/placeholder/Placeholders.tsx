@@ -1,4 +1,4 @@
-// Screens of later milestones (SPEC 8) and the 404 page.
+// The 404 page.
 
 import type { ReactNode } from "react";
 import { Link } from "react-router";
@@ -31,15 +31,6 @@ function Placeholder({
         </div>
       </Card>
     </main>
-  );
-}
-
-export function ImportPlaceholder() {
-  return (
-    <Placeholder title="Import">
-      Das Import-Dashboard mit Fortschritt je MBOX-Datei, Durchsatz und Fehlerprotokoll folgt mit
-      Meilenstein 7.
-    </Placeholder>
   );
 }
 

@@ -74,7 +74,7 @@ jobs:
         run: |
           health=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/health)
           echo "$health"
-          test "$(echo "$health" | jq -r .schema_revision)" = 0005
+          test "$(echo "$health" | jq -r .schema_revision)" = 0006
       - name: MBOX mount is read-only
         run: |
           if output=$(docker compose exec -T backend sh -c 'touch /data/mbox/x' 2>&1); then
@@ -91,6 +91,26 @@ jobs:
           sql() { docker compose exec -T db psql -U mailrobbe -d mailrobbe -tAc "$1"; }
           test "$(sql 'SELECT count(*) FROM mail')" = "$(wc -l < data/mbox/_generator/manifest.jsonl)"
           test "$(sql "SELECT count(*) FROM mail WHERE dkim_status = 'pass'")" -gt 0
+      - name: Import dashboard shows the finished command line import
+        run: |
+          get() { curl --fail --silent --show-error "http://127.0.0.1:8000$1"; }
+          status=$(get /api/import/status)
+          echo "$status" | jq '{totals, import_job}'
+          echo "$status" | jq -e '.totals.files > 0 and .totals.done == .totals.files'
+          echo "$status" | jq -e '.import_job.status == "done" and .import_job.origin == "cli"'
+          get /api/import/summary | jq -e '.db_size_bytes > 0 and .fulltext_index_bytes > 0'
+      - name: Import started from the dashboard finds nothing new and ends
+        run: |
+          get() { curl --fail --silent --show-error "http://127.0.0.1:8000$1"; }
+          curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' -d '{}' \
+            http://127.0.0.1:8000/api/import/start | jq -e '.origin == "ui"'
+          for _ in $(seq 60); do
+            job=$(get /api/import/status | jq .import_job)
+            test "$(echo "$job" | jq -r .status)" = running || break
+            sleep 1
+          done
+          echo "$job"
+          echo "$job" | jq -e '.status == "done" and .origin == "ui"'
       - name: Web UI and mail API serve the imported mails
         run: |
           get() { curl --fail --silent --show-error "http://127.0.0.1:8000$1"; }
@@ -113,6 +133,8 @@ jobs:
           edges=$(docker compose run --rm -T backend mailrobbe graph export - | grep -c '<edge ')
           test "$edges" = "$(sql 'SELECT count(*) FROM edge')"
           test "$edges" -gt 0
+      - name: Load test command measures every view
+        run: docker compose exec -T backend mailrobbe bench --rounds 1
       - name: Logs
         if: failure()
         run: docker compose logs

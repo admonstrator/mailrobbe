@@ -1,0 +1,93 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 24px 24px;
+}
+
+.loading {
+  align-items: center;
+  padding: 48px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.info {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+
+.error {
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+}
+
+.noticeText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.noticeText p {
+  margin: 0;
+}
+
+.noticeClose {
+  color: inherit;
+}
+
+.paths {
+  margin: 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.summaryLoading {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+.summaryError {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.main {
+  flex: 999 1 560px;
+  min-width: 0;
+}
+
+.side {
+  display: flex;
+  flex: 1 1 340px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  max-width: 420px;
+}

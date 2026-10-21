@@ -32,8 +32,18 @@ services:
       timeout: 5s
       retries: 20
 
+  # Serves the API and the web UI. The import dashboard starts `mailrobbe import` and
+  # `mailrobbe dkim` as child processes of the server, in this container with the same settings
+  # and MBOX mount (D46); their output shows in `docker compose logs backend`. A run on the
+  # command line, docker compose run --rm backend mailrobbe import, gets a container of its own
+  # with the same mount, and the dashboard shows and pauses it as well.
   backend:
     build: .
+    # On `docker compose stop` or a rebuild the server sends its runs SIGTERM and waits up to
+    # 50 s for them to commit and pause (D15); the grace period covers that. The init process
+    # as PID 1 forwards the signal to the server and reaps the processes of ended runs.
+    init: true
+    stop_grace_period: 60s
     environment:
       MAILROBBE_DATABASE_URL: postgresql+asyncpg://mailrobbe:${MAILROBBE_DB_PASSWORD:-mailrobbe}@db:5432/mailrobbe
       MAILROBBE_MBOX_DIR: /data/mbox
@@ -42,6 +52,10 @@ services:
       # Empty means the defaults, 50MiB (no hash above) and 128MiB (headers only above).
       MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT: ${MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT:-}
       MAILROBBE_IMPORT_MAX_MAIL_SIZE: ${MAILROBBE_IMPORT_MAX_MAIL_SIZE:-}
+      # DKIM key lookups: comma-separated IP addresses; empty means the system resolver.
+      # Workers, attachment limit and resolvers are the defaults: the dashboard's settings
+      # override them for the imports it starts (D49).
+      MAILROBBE_DKIM_NAMESERVERS: ${MAILROBBE_DKIM_NAMESERVERS:-}
       # Web UI: Basic Auth when both are set (D4); the owner's domains for "Nur extern <-> intern".
       MAILROBBE_BASIC_AUTH_USER: ${MAILROBBE_BASIC_AUTH_USER:-}
       MAILROBBE_BASIC_AUTH_PASSWORD: ${MAILROBBE_BASIC_AUTH_PASSWORD:-}

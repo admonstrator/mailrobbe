@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import event, text
 from sqlalchemy.exc import SQLAlchemyError
 
-from mailrobbe.api import auth, detail, frontend, graph, mails, persons, stats
+from mailrobbe.api import auth, detail, frontend, graph, imports, mails, persons, processes, stats
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 
@@ -17,15 +17,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = create_engine(settings.database_url)
     event.listen(engine.sync_engine, "connect", _plan_each_query)
 
+    runs = processes.Runs()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
+        await runs.stop()  # the dashboard's runs end with the server (D46)
         await engine.dispose()
 
     app = FastAPI(title="Mailrobbe", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
+    app.state.runs = runs
 
     @app.get("/api/health")
     async def health() -> JSONResponse:
@@ -48,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(detail.router)
     app.include_router(persons.router)
     app.include_router(graph.router)
+    app.include_router(imports.router)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

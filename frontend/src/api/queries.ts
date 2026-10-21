@@ -15,10 +15,17 @@ import {
 import { ApiError, apiGet, apiPost, apiPut } from "./client";
 import type {
   ContactPage,
+  DkimJob,
   DomainCount,
   Graph,
   GraphParams,
   GraphSize,
+  ImportErrorPage,
+  ImportErrorParams,
+  ImportJob,
+  ImportStartRequest,
+  ImportStatus,
+  ImportSummary,
   MailDetail,
   MailDkim,
   MailFilters,
@@ -39,6 +46,7 @@ import type {
   PersonMailCounts,
   PersonPage,
   PersonProfile,
+  ScanResult,
   Stats,
   SuggestionPage,
 } from "./types";
@@ -85,6 +93,10 @@ export const queryKeys = {
     ["persons", "mail-counts", id, params] as const,
   graph: (params: GraphParams) => ["graph", params] as const,
   graphSize: (params: GraphParams) => ["graph-size", params] as const,
+  importStatus: ["import", "status"] as const,
+  importSummary: ["import", "summary"] as const,
+  importErrors: (params: ImportErrorParams) => ["import", "errors", params] as const,
+  importErrorPages: (filters: ImportErrorFilters) => ["import", "error-pages", filters] as const,
 };
 
 export function useStats() {
@@ -325,5 +337,116 @@ export function useGraphSize(params: GraphParams | null) {
     queryFn: ({ signal }) => apiGet<GraphSize>("/api/graph/size", params ?? {}, signal),
     enabled: params !== null,
     placeholderData: keepPreviousData,
+  });
+}
+
+// Import dashboard (D46 to D50) -----------------------------------------------------------------
+
+/** The filters of the import errors; pages come with their cursor. */
+export type ImportErrorFilters = Pick<ImportErrorParams, "kind" | "mbox_file">;
+
+/** An import or a DKIM run is alive: its process holds the lock of its kind. */
+export function runAlive(status: ImportStatus | undefined): boolean {
+  return Boolean(status?.import_job?.alive || status?.dkim_job?.alive);
+}
+
+/** How often the dashboard asks for the status (D48): every 2 s while a run is alive, else
+ *  every 15 s, which also notices a run started on a command line. */
+export function importStatusInterval(status: ImportStatus | undefined): number {
+  return runAlive(status) ? 2_000 : 15_000;
+}
+
+export function useImportStatus() {
+  return useQuery({
+    queryKey: queryKeys.importStatus,
+    queryFn: ({ signal }) => apiGet<ImportStatus>("/api/import/status", undefined, signal),
+    refetchInterval: (query) => importStatusInterval(query.state.data),
+  });
+}
+
+/** The archive figures; most come from global_stats, which change at most every few minutes. */
+export function useImportSummary() {
+  return useQuery({
+    queryKey: queryKeys.importSummary,
+    queryFn: ({ signal }) => apiGet<ImportSummary>("/api/import/summary", undefined, signal),
+    refetchInterval: 30_000,
+  });
+}
+
+/** The newest import errors, asked for every 10 s while a run is alive. */
+export function useImportErrors(params: ImportErrorParams, alive: boolean) {
+  return useQuery({
+    queryKey: queryKeys.importErrors(params),
+    queryFn: ({ signal }) => apiGet<ImportErrorPage>("/api/import/errors", params, signal),
+    refetchInterval: alive ? 10_000 : false,
+  });
+}
+
+/** Every import error matching the filters, newest first, a page at a time. */
+export function useImportErrorPages(filters: ImportErrorFilters) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.importErrorPages(filters),
+    queryFn: ({ pageParam, signal }) =>
+      apiGet<ImportErrorPage>("/api/import/errors", { ...filters, cursor: pageParam }, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Puts the run an action returned into the cached status at once, so the buttons follow
+ *  before the status is loaded again, which happens right away; so do the header's figures. */
+function showRun(
+  queryClient: QueryClient,
+  run: Partial<Pick<ImportStatus, "import_job" | "dkim_job">>,
+) {
+  queryClient.setQueryData<ImportStatus>(
+    queryKeys.importStatus,
+    (status) => status && { ...status, ...run },
+  );
+  void queryClient.invalidateQueries({ queryKey: queryKeys.importStatus });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.stats });
+}
+
+export function useStartImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: ImportStartRequest) => apiPost<ImportJob>("/api/import/start", request),
+    onSuccess: (job) => showRun(queryClient, { import_job: job }),
+  });
+}
+
+export function usePauseImport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<ImportJob>("/api/import/pause", {}),
+    onSuccess: (job) => showRun(queryClient, { import_job: job }),
+  });
+}
+
+/** Rescans the MBOX directory (D50). A changed file loses its mails at once, so every list and
+ *  figure is loaded again. */
+export function useRescan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<ScanResult>("/api/import/rescan", {}),
+    onSuccess: () => void queryClient.invalidateQueries(),
+  });
+}
+
+/** Starts the DKIM run of D13: mails not checked yet, no_key and temp_error. */
+export function useStartDkimRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<DkimJob>("/api/dkim/recheck", {}),
+    onSuccess: (job) => showRun(queryClient, { dkim_job: job }),
+  });
+}
+
+export function useStopDkimRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<DkimJob>("/api/dkim/recheck/stop", {}),
+    onSuccess: (job) => showRun(queryClient, { dkim_job: job }),
   });
 }

@@ -7,25 +7,35 @@ row per manifest record (offset, length, sha256, Message-ID, subject), dkim_stat
 import asyncio
 import hashlib
 import json
+import logging
+import os
 import shutil
+import signal
+import subprocess
+import sys
+import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import insert, pool, select, update
+from sqlalchemy import insert, pool, select, text, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from mailrobbe import migrate
-from mailrobbe.cli import main
+from mailrobbe import jobrun, jobs, migrate
+from mailrobbe.cli import build_parser, main
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DkimResult, DnsCache, Mail, MboxFile
+from mailrobbe.dkim import recheck as recheck_module
 from mailrobbe.dkim.override import key_name
-from mailrobbe.dkim.recheck import DEFAULT_STATUSES, recheck
-from mailrobbe.enums import DkimStatus, DnsStatus
+from mailrobbe.dkim.recheck import DEFAULT_STATUSES, _Mail, _Worker, recheck, run_recheck
+from mailrobbe.enums import DkimStatus, DnsStatus, JobKind, JobOrigin
+from mailrobbe.jobrun import RunRefused
+from mailrobbe.jobs import DkimOptions, DkimProgress
 from mailrobbe.mbox import read_message
 from tests.dkim.conftest import Corpus
+from tests.dkim.doubles import SLOW_CHUNK
 
 # read_message ---------------------------------------------------------------------------------
 
@@ -70,6 +80,18 @@ class Archive:
     def dns_cache(self) -> dict[str, DnsStatus]:
         """dns_cache: name -> status."""
         return asyncio.run(_dns_cache(self.url))
+
+    async def query(self, sql: str) -> list[tuple[Any, ...]]:
+        engine = create_async_engine(self.url, poolclass=pool.NullPool)
+        try:
+            async with engine.connect() as connection:
+                return [tuple(row) for row in await connection.execute(text(sql))]
+        finally:
+            await engine.dispose()
+
+    def jobs(self) -> list[dict[str, Any]]:
+        """The job rows, oldest first."""
+        return asyncio.run(_jobs(self.url))
 
 
 async def _load(url: str, corpus: Corpus) -> dict[int, int]:
@@ -139,6 +161,16 @@ async def _dns_cache(url: str) -> dict[str, DnsStatus]:
         async with engine.connect() as connection:
             rows = await connection.execute(select(DnsCache.name, DnsCache.status))
             return {name: status for name, status in rows}
+    finally:
+        await engine.dispose()
+
+
+async def _jobs(url: str) -> list[dict[str, Any]]:
+    engine = create_async_engine(url, poolclass=pool.NullPool)
+    try:
+        async with engine.connect() as connection:
+            rows = await connection.execute(text("SELECT * FROM job ORDER BY id"))
+            return [dict(row._mapping) for row in rows]
     finally:
         await engine.dispose()
 
@@ -315,7 +347,7 @@ def test_cli_reports_an_unreachable_database(
 ) -> None:
     monkeypatch.setenv("MAILROBBE_DATABASE_URL", "postgresql+asyncpg://m:m@127.0.0.1:1/m")
     assert main(["dkim", "--quiet"]) == 1
-    assert "database error" in caplog.text
+    assert "cannot connect to the database" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -330,3 +362,169 @@ def test_cli_rejects_bad_arguments(argv: list[str]) -> None:
 
 def test_cli_rejects_a_missing_override_table(tmp_path: Path) -> None:
     assert main(["dkim", "--dns-override", str(tmp_path / "missing.json")]) == 2
+
+
+# Runs (D46, D47) ------------------------------------------------------------------------------
+
+
+def test_the_origin_option(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser()
+    assert parser.parse_args(["dkim"]).origin is JobOrigin.CLI
+    assert parser.parse_args(["dkim", "--origin", "ui"]).origin is JobOrigin.UI
+    with pytest.raises(SystemExit):
+        parser.parse_args(["dkim", "--origin", "cron"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["dkim", "--help"])
+    assert "--origin" not in capsys.readouterr().out
+
+
+@pytest.mark.db
+def test_a_run_records_itself(archive: Archive, corpus: Corpus) -> None:
+    summary = recheck(archive.settings, jobs=2)
+    [job] = archive.jobs()
+    assert (job["kind"], job["origin"], job["status"]) == (JobKind.DKIM, "cli", "done")
+    assert job["phase"] == "aggregates"
+    assert DkimOptions.model_validate(job["options"]) == DkimOptions(
+        statuses=["no_key", "temp_error", "unchecked"], mail_ids=[], workers=2, offline=False
+    )
+    progress = DkimProgress.model_validate(job["progress"])
+    total = len(corpus.records)
+    assert (progress.workers, progress.selected, progress.checked, progress.skipped) == (
+        0,
+        total,
+        total,
+        0,
+    )
+    assert progress.mails_per_second > 0
+    assert progress.eta_seconds == 0
+    statuses = ", ".join(f"{status} {count}" for status, count in summary.statuses.items())
+    assert job["message"] == f"{total} of {total} mails checked, 0 skipped ({statuses})"
+
+    recheck(archive.settings, statuses=None, mail_ids=[5, 3, 5])
+    options = DkimOptions.model_validate(archive.jobs()[-1]["options"])
+    assert (options.statuses, options.mail_ids, options.workers) == (None, [3, 5], 1)
+
+
+@pytest.mark.db
+async def test_a_second_run_is_refused(
+    archive: Archive, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("MAILROBBE_DATABASE_URL", archive.url)
+    monkeypatch.setenv("MAILROBBE_MBOX_DIR", str(archive.mbox_dir))
+    engine = create_async_engine(archive.url, poolclass=pool.NullPool)
+    async with engine.connect() as other:
+        await other.execute(text("SELECT pg_advisory_lock(:key)"), {"key": jobs.DKIM_LOCK_KEY})
+        await other.commit()
+        with pytest.raises(RunRefused, match="another DKIM check is running"):
+            await run_recheck(archive.settings)
+        assert await asyncio.to_thread(main, ["dkim", "--all"]) == 1
+    await engine.dispose()
+    assert "another DKIM check is running" in caplog.text
+    assert await archive.query("SELECT count(*) FROM job") == [(0,)]
+    assert await archive.query("SELECT count(dkim_status) FROM mail") == [(0,)]
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("how", ["dashboard", "sigterm"])
+async def test_a_stopped_run_keeps_the_chunks_it_checked(
+    archive: Archive,
+    corpus: Corpus,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    how: str,
+) -> None:
+    caplog.set_level(logging.INFO, logger="mailrobbe")
+    monkeypatch.setattr(recheck_module, "CHUNK", SLOW_CHUNK)
+    monkeypatch.setattr(jobrun, "REPORT_SECONDS", 0.05)
+    check = _Worker.check
+
+    def slow(worker: _Worker, chunk: list[_Mail]) -> Any:
+        time.sleep(0.05)
+        return check(worker, chunk)
+
+    monkeypatch.setattr(_Worker, "check", slow)
+    run = asyncio.create_task(
+        run_recheck(archive.settings, statuses=None, jobs=1, origin=JobOrigin.UI)
+    )
+    engine = create_async_engine(archive.url, poolclass=pool.NullPool)
+    try:
+        async with asyncio.timeout(30):
+            while not await archive.query(
+                "SELECT 1 FROM job WHERE (progress->>'checked')::int >= 30"
+            ):
+                await asyncio.sleep(0.02)
+        if how == "dashboard":
+            async with engine.begin() as connection:
+                assert await jobs.request_stop(connection, JobKind.DKIM) is not None
+        else:  # what the API server sends when it stops; in this process: the run's handler
+            os.kill(os.getpid(), signal.SIGTERM)
+        result = await asyncio.wait_for(run, 30)
+    finally:
+        run.cancel()
+        await engine.dispose()
+
+    assert result.stopped
+    checked = result.summary.checked
+    assert 30 <= checked < len(corpus.records)
+    assert checked % SLOW_CHUNK == 0  # whole chunks, each committed
+    assert await archive.query("SELECT count(dkim_status) FROM mail") == [(checked,)]
+    unchecked = await archive.query(
+        "SELECT value->>'unchecked' FROM global_stats WHERE key = 'dkim'"
+    )
+    assert unchecked == [(str(len(corpus.records) - checked),)]  # aggregates recomputed
+    [job] = await _jobs(archive.url)
+    assert (job["status"], job["phase"], job["origin"]) == ("stopped", "aggregates", "ui")
+    assert DkimProgress.model_validate(job["progress"]).checked == checked
+    assert job["message"].startswith(f"{checked} of {len(corpus.records)} mails checked")
+    stopped_by = "stop requested from the dashboard" if how == "dashboard" else "stopping after"
+    assert stopped_by in caplog.text
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.db
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("signum", "group"),
+    [(signal.SIGTERM, False), (signal.SIGINT, True)],  # the API server; a terminal's Ctrl-C
+)
+async def test_a_signal_stops_the_command_after_the_chunks_in_flight(
+    archive: Archive, corpus: Corpus, signum: signal.Signals, group: bool
+) -> None:
+    code = "import sys; from tests.dkim.doubles import run; sys.exit(run(sys.argv[1:]))"
+    environment = {
+        **os.environ,
+        "PYTHONPATH": str(PROJECT_ROOT),
+        "MAILROBBE_DATABASE_URL": archive.url,
+        "MAILROBBE_MBOX_DIR": str(archive.mbox_dir),
+    }
+    process = subprocess.Popen(
+        [sys.executable, "-c", code, "dkim", "--all", "--jobs", "2", "--origin", "ui"],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        async with asyncio.timeout(60):
+            while not await archive.query("SELECT 1 FROM mail HAVING count(dkim_status) >= 20"):
+                assert process.poll() is None, process.communicate()
+                await asyncio.sleep(0.05)
+        if group:
+            os.killpg(process.pid, signum)
+        else:
+            os.kill(process.pid, signum)
+        out, err = process.communicate(timeout=60)
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+    assert process.returncode == 130, err
+    assert "Traceback" not in err
+    summary = json.loads(out)
+    assert 20 <= summary["checked"] < len(corpus.records)
+    assert await archive.query("SELECT count(dkim_status) FROM mail") == [(summary["checked"],)]
+    [job] = await _jobs(archive.url)
+    assert (job["status"], job["origin"], job["stop_requested"]) == ("stopped", "ui", False)

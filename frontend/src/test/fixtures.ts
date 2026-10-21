@@ -4,11 +4,20 @@
 import type {
   Contact,
   ContactPage,
+  DkimJob,
   DkimStatus,
   Graph,
   GraphEdge,
   GraphNode,
   GraphSize,
+  ImportErrorItem,
+  ImportErrorKind,
+  ImportErrorPage,
+  ImportJob,
+  ImportOptions,
+  ImportStatus,
+  ImportSummary,
+  ImportTotals,
   MailDetail,
   MailHeaders,
   MailListItem,
@@ -25,6 +34,7 @@ import type {
   PersonProfile,
   PersonRef,
   PersonSummary,
+  ScanResult,
   Stats,
   SuggestionPage,
 } from "../api/types";
@@ -85,6 +95,10 @@ export const mboxFiles: MboxFileInfo[] = [
   status: "done",
   mails_parsed: 5800,
   bytes_done: 4_294_967_296,
+  error_count: 0,
+  worker_id: null,
+  started_at: "2026-10-19T22:00:00Z",
+  finished_at: "2026-10-19T23:10:00Z",
 }));
 
 /** The archive without filters: the figures of global_stats. */
@@ -772,3 +786,338 @@ export const personSearch: PersonPage = {
   prev_cursor: null,
   total: 2,
 };
+
+// Import dashboard: 72 quarterly exports of about 4 GB as in the mockup, 48 done, 8 running,
+// 1 failed and 15 waiting. Times are UTC; the tests show them in Europe/Berlin (UTC+2).
+
+const GIB = 1024 ** 3;
+const MIB = 1024 ** 2;
+/** How far the running files (W1 to W8) and the failed one got. */
+const RUNNING_DONE = [0.82, 0.64, 0.41, 0.18, 0.93, 0.55, 0.27, 0.07];
+const FAILED_DONE = 0.53;
+const FAILED_INDEX = 56; // export-2022-Q1.mbox
+
+const exportPaths = Array.from(
+  { length: 72 },
+  (_, index) => `export-${2008 + Math.floor(index / 4)}-Q${(index % 4) + 1}.mbox`,
+);
+const fileId = (index: number) => 101 + index;
+
+function exportFile(index: number, error_count: number): MboxFileInfo {
+  const size = Math.round((3.75 + ((index * 37) % 50) / 100) * GIB);
+  const mails = Math.round(size / (700 * 1024));
+  const minutes = (n: number) => new Date(Date.UTC(2026, 9, 19, 23, 2) + n * 60_000).toISOString();
+  const file: MboxFileInfo = {
+    id: fileId(index),
+    path: exportPaths[index],
+    size_bytes: size,
+    status: "pending",
+    mails_parsed: 0,
+    bytes_done: 0,
+    error_count,
+    worker_id: null,
+    started_at: null,
+    finished_at: null,
+  };
+  if (index < 48) {
+    return {
+      ...file,
+      status: "done",
+      mails_parsed: mails,
+      bytes_done: size,
+      started_at: minutes(index * 2),
+      finished_at: minutes(index * 2 + 16),
+    };
+  }
+  const running = index < 56;
+  if (!running && index !== FAILED_INDEX) return file;
+  const fraction = running ? RUNNING_DONE[index - 48] : FAILED_DONE;
+  return {
+    ...file,
+    status: running ? "running" : "error",
+    worker_id: running ? index - 47 : null,
+    mails_parsed: Math.round(mails * fraction),
+    bytes_done: Math.floor(size * fraction),
+    started_at: minutes(80 + index - 48),
+    finished_at: running ? null : "2026-10-20T01:11:42Z",
+  };
+}
+
+function importError(
+  id: number,
+  created_at: string,
+  index: number,
+  byte_offset: number,
+  kind: ImportErrorKind,
+  message: string,
+): ImportErrorItem {
+  const path = exportPaths[index];
+  return { id, mbox_file_id: fileId(index), path, byte_offset, kind, message, created_at };
+}
+
+const ERROR_MESSAGES: [ImportErrorKind, string][] = [
+  ["separator", "From_ line without an empty line before it"],
+  ["encoding", "undecodable bytes in charset windows-1252; decoded heuristically"],
+  ["date", "Date header not RFC 5322: 'Montag, 32. Mai 2022'; date of the From_ line used"],
+  ["message_id", "Message-ID missing"],
+  ["address", "unparseable address in Cc: 'Einkauf <einkauf@>'"],
+  ["encoding", "unknown charset x-mac-roman in Subject; decoded heuristically"],
+  ["separator", "data before the first From_ line"],
+  ["parse", "multipart boundary never closed; stored what was read"],
+];
+
+/** Every import error, newest first: 53 in the file that failed, a few in others. */
+export const importErrors: ImportErrorItem[] = [
+  importError(
+    958,
+    "2026-10-20T01:11:42Z",
+    FAILED_INDEX,
+    2_104_881_900,
+    "io",
+    "[Errno 5] Input/output error while reading at byte 2104881900",
+  ),
+  importError(
+    957,
+    "2026-10-20T01:09:10Z",
+    49,
+    1_204_117_002,
+    "encoding",
+    "header declares iso-8859-1 but holds UTF-8; decoded heuristically",
+  ),
+  importError(
+    956,
+    "2026-10-20T00:58:33Z",
+    52,
+    381_220_114,
+    "dkim",
+    "dkim.verify raised KeyError('b') for signature 1",
+  ),
+  importError(
+    955,
+    "2026-10-20T00:41:07Z",
+    FAILED_INDEX,
+    1_998_004_311,
+    "too_large",
+    "mail of 212.0 MiB above the limit of 128.0 MiB; headers only",
+  ),
+  ...Array.from({ length: 54 }, (_, n) => {
+    const [kind, message] = ERROR_MESSAGES[n % ERROR_MESSAGES.length];
+    const at = new Date(Date.UTC(2026, 9, 20, 0, 40, 51) - n * 9_000).toISOString();
+    const index = n === 20 ? 9 : n === 31 || n === 32 ? 24 : FAILED_INDEX;
+    return importError(954 - n, at, index, 1_900_000_000 - n * 35_431_337, kind, message);
+  }),
+];
+
+export const importFiles: MboxFileInfo[] = exportPaths.map((_, index) =>
+  exportFile(index, importErrors.filter((error) => error.mbox_file_id === fileId(index)).length),
+);
+
+/** The sums of ImportStatus.totals over these files. */
+export function importTotals(files: MboxFileInfo[]): ImportTotals {
+  const sum = (pick: (file: MboxFileInfo) => number) =>
+    files.reduce((total, file) => total + pick(file), 0);
+  const count = (status: MboxFileInfo["status"]) => sum((file) => Number(file.status === status));
+  const size = sum((file) => file.size_bytes);
+  const done = sum((file) => file.bytes_done);
+  const mails = sum((file) => file.mails_parsed);
+  return {
+    files: files.length,
+    done: count("done"),
+    running: count("running"),
+    pending: count("pending"),
+    paused: count("paused"),
+    error: count("error"),
+    size_bytes: size,
+    bytes_done: done,
+    mails_parsed: mails,
+    mails_estimated: done === 0 ? null : Math.round((mails * size) / done),
+    error_count: sum((file) => file.error_count),
+  };
+}
+
+export const importDefaults: ImportOptions = {
+  workers: 8,
+  attachment_hash_limit: 50 * MIB,
+  max_mail_size: 128 * MIB,
+  dkim_nameservers: "1.1.1.1, 9.9.9.9",
+  dkim_offline: false,
+  mbox_dir: "/data/mbox",
+};
+
+export const importJob: ImportJob = {
+  id: 7,
+  kind: "import",
+  origin: "ui",
+  status: "running",
+  alive: true,
+  stop_requested: false,
+  started_at: "2026-10-19T23:02:00Z",
+  updated_at: "2026-10-20T01:14:02Z",
+  finished_at: null,
+  message: null,
+  phase: "import",
+  options: importDefaults,
+  progress: {
+    workers: 8,
+    files_queued: 25,
+    files_finished: 1,
+    mails_imported: 41_318,
+    bytes_imported: 28 * GIB,
+    mails_per_second: 1_420.4,
+    dkim_per_second: 1_396.8,
+    bytes_per_second: 13.4 * MIB,
+    eta_seconds: 6_012,
+    headers_total: 0,
+    headers_done: 0,
+  },
+};
+
+/** The latest DKIM run, which ended before the import started. */
+export const dkimJobDone: DkimJob = {
+  id: 6,
+  kind: "dkim",
+  origin: "cli",
+  status: "done",
+  alive: false,
+  stop_requested: false,
+  started_at: "2026-10-19T21:40:00Z",
+  updated_at: "2026-10-19T21:52:10Z",
+  finished_at: "2026-10-19T21:52:10Z",
+  message: "checked 18204 mails",
+  phase: "aggregates",
+  options: {
+    statuses: ["unchecked", "no_key", "temp_error"],
+    mail_ids: [],
+    workers: 8,
+    offline: false,
+  },
+  progress: {
+    workers: 0,
+    selected: 18_204,
+    checked: 18_201,
+    skipped: 3,
+    mails_per_second: 0,
+    eta_seconds: null,
+  },
+};
+
+/** A DKIM run of D13 from the dashboard, a fifth through. */
+export const dkimJobRunning: DkimJob = {
+  ...dkimJobDone,
+  id: 8,
+  origin: "ui",
+  status: "running",
+  alive: true,
+  started_at: "2026-10-20T01:20:00Z",
+  updated_at: "2026-10-20T01:20:40Z",
+  finished_at: null,
+  message: null,
+  phase: "check",
+  progress: {
+    workers: 8,
+    selected: 64_790,
+    checked: 12_408,
+    skipped: 0,
+    mails_per_second: 311.6,
+    eta_seconds: 168,
+  },
+};
+
+/** An import with 8 workers, as in the mockup. */
+export const importStatus: ImportStatus = {
+  mbox_dir: "/data/mbox",
+  mbox_dir_ok: true,
+  totals: importTotals(importFiles),
+  files: importFiles,
+  import_job: importJob,
+  dkim_job: dkimJobDone,
+  defaults: importDefaults,
+};
+
+const pausedFiles = importFiles.map((file) =>
+  file.status === "running" ? { ...file, status: "paused" as const, worker_id: null } : file,
+);
+
+/** The same import after "Pausieren". */
+export const importStatusPaused: ImportStatus = {
+  ...importStatus,
+  totals: importTotals(pausedFiles),
+  files: pausedFiles,
+  import_job: {
+    ...importJob,
+    status: "stopped",
+    alive: false,
+    stop_requested: true,
+    updated_at: "2026-10-20T01:15:12Z",
+    finished_at: "2026-10-20T01:15:12Z",
+    message: "stopped on request; 8 files paused",
+    progress: { ...importJob.progress, workers: 0, eta_seconds: null },
+  },
+};
+
+/** A new installation: nothing scanned, no run yet. */
+export const importStatusEmpty: ImportStatus = {
+  ...importStatus,
+  totals: importTotals([]),
+  files: [],
+  import_job: null,
+  dkim_job: null,
+};
+
+export const importSummary: ImportSummary = {
+  db_size_bytes: Math.round(9.8 * GIB),
+  raw_size_bytes: importStatus.totals.size_bytes,
+  fulltext_index_bytes: Math.round(4.1 * GIB),
+  dns_cache: { found: 6_218, not_found: 412, temp_error: 3 },
+  dns_hit_ratio: 0.994,
+  persons: 8_942,
+  open_suggestions: 312,
+  edge_table: { pairs: 61_207, refreshed_at: "2026-10-20T01:10:05Z" },
+  duplicates: 1_912,
+  dkim: {
+    pass: 190_412,
+    fail: 2_203,
+    no_key: 64_790,
+    unsigned: 35_341,
+    temp_error: 0,
+    unchecked: 0,
+  },
+  fail_reasons: [
+    { reason: "body_hash_mismatch", mails: 1_640 },
+    { reason: "signature_mismatch", mails: 380 },
+    { reason: "key_revoked", mails: 183 },
+    { reason: "key_too_short", mails: 12 },
+  ],
+  updated_at: "2026-10-20T01:12:30Z",
+};
+
+/** A rescan that found two new files, a changed one and one it cannot read. */
+export const scanResult: ScanResult = {
+  files: 74,
+  pending: 19,
+  new: ["export-2026-Q1.mbox", "export-2026-Q2.mbox"],
+  replaced: [{ path: "export-2019-Q4.mbox", reason: "first MiB changed" }],
+  missing: [],
+  unreadable: [{ path: "export-2026-Q3.mbox", reason: "[Errno 13] Permission denied" }],
+};
+
+/** /api/import/errors over importErrors: filtered, newest first; the cursor is an offset. */
+export function importErrorPage(search: URLSearchParams): ImportErrorPage {
+  const kind = search.get("kind");
+  const file = search.get("mbox_file");
+  const matches = importErrors.filter(
+    (error) =>
+      (kind === null || error.kind === kind) &&
+      (file === null || error.mbox_file_id === Number(file)),
+  );
+  const start = Number(search.get("cursor") ?? 0);
+  const end = start + Number(search.get("limit") ?? 50);
+  const kinds: ImportErrorPage["kinds"] = {};
+  for (const error of importErrors) kinds[error.kind] = (kinds[error.kind] ?? 0) + 1;
+  return {
+    items: matches.slice(start, end),
+    next_cursor: end < matches.length ? String(end) : null,
+    total: matches.length,
+    kinds,
+  };
+}
