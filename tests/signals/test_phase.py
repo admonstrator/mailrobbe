@@ -306,6 +306,11 @@ async def everything(url: str) -> tuple[list[tuple[Any, ...]], ...]:
     )
 
 
+def holding(found: dict[int, set[str]], key: str) -> set[int]:
+    """The mails of found with signal key."""
+    return {mail_id for mail_id, signals in found.items() if key in signals}
+
+
 def expected_mails(rules: SignalRules = RULES) -> dict[int, set[str]]:
     keys = set(rules.keys)
     found = {one.id: set(one.signals) & keys for one in MAILS}
@@ -394,14 +399,8 @@ async def test_without_internal_domains_the_internal_signals_go(
     assert not {signal for signals in found.values() for signal in signals} & NEEDS_INTERNAL
     assert "signal private_alias: not computed without MAILROBBE_INTERNAL_DOMAINS" in caplog.text
     # nordwind.example is external now, and mail.nordwind.example private.
-    private = {mail_id for mail_id, signals in found.items() if "private" in signals}
-    assert private == {*(one.id for one in MAILS if "private" in one.signals), 8, 11, 12, 14, 16}
-    # A forward goes outside only to a private recipient.
-    assert {mail_id for mail_id, signals in found.items() if "forward_out" in signals} == {
-        14,
-        15,
-        16,
-    }
+    assert holding(found, "private") == holding(expected_mails(), "private") | {8, 11, 12, 14, 16}
+    assert holding(found, "forward_out") == {14, 15, 16}  # to a private recipient only
     assert result.figures is not None
     assert all(result.figures.signals[key] == 0 for key in NEEDS_INTERNAL)
     assert all(result.figures.persons[key] == 0 for key in NEEDS_INTERNAL)
@@ -434,12 +433,9 @@ async def test_a_stop_keeps_the_signals_replaced_so_far(archive_url: str) -> Non
     assert result.stopped and result.figures is None
     assert step.done == 1 and step.total == len(RULES.keys) + 1
     found = await mail_signals(archive_url)
-    assert {mail_id for mail_id, signals in found.items() if "private" in signals} == {
-        mail_id for mail_id, signals in expected_mails().items() if "private" in signals
-    }
-    assert {mail_id: signals for mail_id, signals in found.items() if signals - {"private"}} == {
-        1: {"night"}
-    }
+    assert holding(found, "private") == holding(expected_mails(), "private")
+    assert {key for signals in found.values() for key in signals} == {"private", "night"}
+    assert holding(found, "night") == {1}
     assert await person_signals(archive_url) == {"bcc": {9: 7}}
     async with connected(archive_url) as engine, engine.connect() as connection:
         assert await read_figures(connection) is None
@@ -462,10 +458,8 @@ async def test_an_unknown_time_zone_fails_before_writing(archive_url: str) -> No
 async def test_another_time_zone_moves_the_hours(archive_url: str) -> None:
     await run(archive_url, replace(RULES, timezone="UTC"))
     found = await mail_signals(archive_url)
-    night = {mail_id for mail_id, signals in found.items() if "night" in signals}
-    weekend = {mail_id for mail_id, signals in found.items() if "weekend" in signals}
-    assert night == {22, 24, 25, 26}  # 23:30, 03:59 and 04:00 UTC
-    assert weekend == {22, 23, 24}  # Sunday 23:30 and Saturday 23:30 UTC
+    assert holding(found, "night") == {22, 24, 25, 26}  # 23:30, 03:59 and 04:00 UTC
+    assert holding(found, "weekend") == {22, 23, 24}  # mail 22 too: a Sunday in UTC
 
 
 def test_every_mail_signal_has_a_rule() -> None:
