@@ -1,13 +1,26 @@
+/* Beside the list it stays below the shell header, as high as the window, and scrolls on its
+   own; the list scrolls with the window. */
 .column {
+  position: sticky;
+  top: var(--sticky-top);
   flex: 0 1 264px;
-  align-self: stretch;
+  align-self: flex-start;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 16px;
+  box-sizing: border-box;
+  height: var(--content-height);
   min-width: 240px;
-  padding: 20px;
+  padding: 16px 18px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
+  scrollbar-width: thin;
+}
+
+.column > * {
+  flex-shrink: 0;
 }
 
 .head {
@@ -32,10 +45,6 @@
   margin: 0;
   padding: 0;
   border: 0;
-}
-
-.tight {
-  gap: 6px;
 }
 
 .legend {
@@ -76,7 +85,17 @@ label.legend {
 
 .dates {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* In the narrow column "von" and "bis" stand one below the other, each beside its field, so the
+   fields keep their width. */
+.dates .dateField {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
 }
 
 .dateField {
@@ -120,9 +139,12 @@ label.legend {
 /* Narrow screens: the column sits above the list (MailListPage.module.css). */
 @media (max-width: 759px) {
   .column {
+    position: static;
     flex: none;
+    height: auto;
     min-width: 0;
     padding: 16px;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
   }

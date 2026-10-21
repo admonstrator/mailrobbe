@@ -1,3 +1,10 @@
+/* Where the table fits its container, it scrolls with the window and its head sticks below the
+   shell header and the list's sticky bar (--list-bar, useBarHeight). Narrower, it keeps its
+   readable width and scrolls sideways in its own frame, and the head scrolls with it. */
+.frame {
+  container-type: inline-size;
+}
+
 .scroll {
   overflow-x: auto;
 }
@@ -6,16 +13,35 @@
   width: 100%;
   min-width: 900px;
   border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
   transition: opacity 0.15s;
+}
+
+@container (min-width: 680px) {
+  .scroll {
+    overflow-x: visible;
+  }
+
+  .table {
+    min-width: 0;
+  }
+
+  .table th {
+    position: sticky;
+    top: calc(var(--sticky-top) + var(--list-bar, 0px));
+    z-index: 2;
+  }
 }
 
 .stale {
   opacity: 0.55;
 }
 
+/* The line under the head as a shadow: a collapsed border stays behind when the head sticks. */
 .table th {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 9px 12px;
+  background: var(--color-surface);
+  box-shadow: inset 0 -1px 0 var(--color-border);
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 600;
@@ -26,14 +52,17 @@
 }
 
 .table td {
-  padding: 11px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--color-border-subtle);
   font-size: 14px;
   vertical-align: middle;
+  transition: background-color var(--transition-fast);
 }
 
+/* A row brought into view (keyboard, find in page) stops below the sticky bar and the head. */
 .table tbody tr {
   cursor: pointer;
+  scroll-margin-top: calc(var(--list-bar, 0px) + 40px);
 }
 
 .table tbody tr:last-child td {
@@ -48,6 +77,11 @@
   background: var(--color-accent-soft);
 }
 
+/* The selected row's mark at its left edge. */
+.table tbody tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
 /* The checkbox's label fills its cell, so a click near the box selects instead of opening. */
 .table .selectCol,
 .table .select {
@@ -58,8 +92,12 @@
 .selectLabel {
   display: flex;
   align-items: center;
-  padding: 11px 0 11px 12px;
+  padding: 8px 0 8px 12px;
   cursor: pointer;
+}
+
+.table th .selectLabel {
+  padding-block: 0;
 }
 
 .selectLabel input {
@@ -67,25 +105,39 @@
   cursor: pointer;
 }
 
-.dkimCol {
-  width: 36px;
+/* Von and An take fixed shares, the subject the rest; the narrow columns their content. */
+.dkimCol,
+.iconCol,
+.dateCol {
+  width: 1%;
 }
 
-.iconCol {
-  width: 24px;
+.fromCol {
+  width: 22%;
+}
+
+.toCol {
+  width: 15%;
 }
 
 .table th.sizeCol {
-  width: 72px;
+  width: 1%;
   text-align: right;
-}
-
-.dateCol {
-  width: 150px;
 }
 
 .from {
   overflow-wrap: anywhere;
+}
+
+/* Address and recipients on one line, cut to the column (contain: their width does not widen
+   it); the whole text in their titles. */
+.address,
+.to > span {
+  display: block;
+  overflow: hidden;
+  contain: inline-size;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .name,
@@ -95,7 +147,6 @@
 }
 
 .address {
-  display: block;
   color: var(--color-muted);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -225,14 +276,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A mail found through the text of one of its attachments (D73), beside the paperclip. */
-.icon:has(.inAttachment) {
-  white-space: nowrap;
-}
-
+/* A mail found through the text of one of its attachments (D73), beside the paperclip or below
+   it where the column is narrow. */
 .inAttachment {
   display: inline-block;
-  margin-left: 4px;
+  margin: 2px 0 0 4px;
+  white-space: nowrap;
   border-radius: 4px;
   padding: 2px 5px;
   background: var(--color-accent-soft);
@@ -242,4 +291,11 @@
   line-height: 1.3;
   vertical-align: 2px;
   cursor: help;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table,
+  .table td {
+    transition: none;
+  }
 }

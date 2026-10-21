@@ -30,7 +30,9 @@ describe("mail list and calendar invitations", () => {
 
   it("filters by kind in the group Termine with the archive's counts", async () => {
     const { router, calls } = renderApp("/mails");
-    const group = (await screen.findByText("Termine", { selector: "legend" })).closest("fieldset")!;
+    const group = (await screen.findByText("Termine", { selector: "legend button" })).closest(
+      "fieldset",
+    )!;
     expect(
       within(group)
         .getAllByRole("checkbox")

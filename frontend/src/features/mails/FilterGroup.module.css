@@ -1,0 +1,64 @@
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+/* The heading is the button, the chevron at its end points down while open. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: calc(100% + 4px);
+  margin: -2px;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  color: var(--color-accent-hover);
+}
+
+.chevron {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 4px 0 auto;
+  border-right: 1.5px solid var(--color-muted);
+  border-bottom: 1.5px solid var(--color-muted);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--transition-fast);
+}
+
+.toggle[aria-expanded="false"] .chevron {
+  transform: rotate(-45deg);
+}
+
+.active {
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

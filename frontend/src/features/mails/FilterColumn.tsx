@@ -18,6 +18,7 @@ import { CONTEXT_LABELS, ENTITY_CONTEXTS } from "../entities/labels";
 import { EVENT_LABELS } from "./chips";
 import { DomainDialog } from "./DomainDialog";
 import styles from "./FilterColumn.module.css";
+import { FilterGroup } from "./FilterGroup";
 import { withFilters, withoutSidebarFilters, type FilterPatch, type ListState } from "./listState";
 import { ResearchFilters } from "./ResearchFilters";
 import { SearchOptions } from "./SearchOptions";
@@ -84,8 +85,11 @@ export function FilterColumn({
 
       <SearchOptions state={state} terms={terms} change={change} />
 
-      <fieldset className={styles.group}>
-        <legend className={styles.legend}>Zeitraum</legend>
+      <FilterGroup
+        id="mails.date"
+        title="Zeitraum"
+        active={state.date_from !== null || state.date_to !== null}
+      >
         <div className={styles.dates}>
           <DateField
             id="filter-date-from"
@@ -104,10 +108,9 @@ export function FilterColumn({
             onCommit={(date_to) => change({ date_to })}
           />
         </div>
-      </fieldset>
+      </FilterGroup>
 
-      <fieldset className={styles.group}>
-        <legend className={styles.legend}>DKIM-Status</legend>
+      <FilterGroup id="mails.dkim" title="DKIM-Status" active={state.dkim.length > 0}>
         {dkimShown.map((key) => (
           <Checkbox
             key={key}
@@ -119,10 +122,13 @@ export function FilterColumn({
             {DKIM_FILTER_LABELS[key]}
           </Checkbox>
         ))}
-      </fieldset>
+      </FilterGroup>
 
-      <fieldset className={`${styles.group} ${styles.tight}`}>
-        <legend className={styles.legend}>Absender-Domain</legend>
+      <FilterGroup
+        id="mails.domain"
+        title="Absender-Domain"
+        active={state.sender_domain.length > 0}
+      >
         {topDomains.map(({ domain, mails }) => (
           <Checkbox
             key={domain}
@@ -143,14 +149,23 @@ export function FilterColumn({
             Alle {formatNumber(stats.sender_domain_count)} Domains …
           </button>
         )}
-      </fieldset>
+      </FilterGroup>
 
       <AmountFilters state={state} change={change} />
 
       <ResearchFilters state={state} change={change} research={research} />
 
-      <fieldset className={styles.group}>
-        <legend className={styles.legend}>Weitere</legend>
+      <FilterGroup
+        id="mails.more"
+        title="Weitere"
+        active={
+          state.has_attachment ||
+          state.in_thread ||
+          state.external ||
+          state.hide_duplicates ||
+          state.collapse_near
+        }
+      >
         <Checkbox
           checked={state.has_attachment}
           onChange={(has_attachment) => change({ has_attachment })}
@@ -179,7 +194,7 @@ export function FilterColumn({
             Dubletten zusammenfassen
           </Checkbox>
         )}
-      </fieldset>
+      </FilterGroup>
 
       <EventFilters state={state} change={change} stats={stats} />
 
@@ -311,8 +326,11 @@ function AmountFilters({
   }
 
   return (
-    <fieldset className={styles.group}>
-      <legend className={styles.legend}>Beträge</legend>
+    <FilterGroup
+      id="mails.amount"
+      title="Beträge"
+      active={state.amount_min !== null || state.amount_context.length > 0}
+    >
       <p className={styles.scope}>In Text oder Anhang erwähnt, jede Währung</p>
       <div className={styles.amount}>
         <label htmlFor="filter-amount-min" className={styles.dateLabel}>
@@ -353,7 +371,7 @@ function AmountFilters({
           </Checkbox>
         ))}
       </div>
-    </fieldset>
+    </FilterGroup>
   );
 }
 
@@ -376,8 +394,7 @@ function EventFilters({
     change({ event: EVENT_KEYS.filter((other) => next.includes(other)) });
   }
   return (
-    <fieldset className={styles.group}>
-      <legend className={styles.legend}>Termine</legend>
+    <FilterGroup id="mails.events" title="Termine" active={state.event.length > 0}>
       {shown.map((key) => (
         <Checkbox
           key={key}
@@ -388,6 +405,6 @@ function EventFilters({
           {EVENT_LABELS[key]}
         </Checkbox>
       ))}
-    </fieldset>
+    </FilterGroup>
   );
 }

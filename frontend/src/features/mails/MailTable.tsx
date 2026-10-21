@@ -131,147 +131,153 @@ export function MailTable({
   }
 
   return (
-    <div className={styles.scroll}>
-      <table className={cx(styles.table, stale && styles.stale)}>
-        <thead>
-          <tr>
-            {selection && (
-              <th className={styles.selectCol}>
-                <label className={styles.selectLabel}>
-                  <input
-                    type="checkbox"
-                    aria-label="Alle Mails dieser Seite auswählen"
-                    checked={selectedOnPage > 0 && selectedOnPage === items.length}
-                    ref={(box) => {
-                      if (box)
-                        box.indeterminate = selectedOnPage > 0 && selectedOnPage < items.length;
-                    }}
-                    onChange={(event) => selection.onTogglePage(event.target.checked)}
-                  />
-                </label>
-              </th>
-            )}
-            <th className={styles.dkimCol}>DKIM</th>
-            <th>Von</th>
-            {columns.to && <th>An</th>}
-            <th>Betreff</th>
-            {columns.attachment && (
-              <th className={styles.iconCol}>
-                <span className="sr-only">Anhang</span>
-              </th>
-            )}
-            {columns.size && <th className={styles.sizeCol}>Größe</th>}
-            {columns.mbox && <th>MBOX-Datei</th>}
-            <th className={styles.dateCol}>Datum</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((mail) => {
-            const selected = selection?.ids.has(mail.id) ?? false;
-            const inAttachment = attachmentMatch(mail);
-            return (
-              <tr
-                key={mail.id}
-                className={cx(selected && styles.selected)}
-                onClick={(event) => openRow(event, mail.id)}
-              >
-                {selection && (
-                  <td className={styles.select}>
-                    <label className={styles.selectLabel}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Auswählen: ${mail.subject || "(kein Betreff)"}`}
-                        checked={selected}
-                        onChange={(event) => selection.onToggle(mail.id, event.target.checked)}
-                      />
-                    </label>
-                  </td>
-                )}
-                <td>
-                  <DkimDot status={dkimKey(mail.dkim_status)} />
-                </td>
-                <td className={styles.from}>
-                  {mail.sender ? (
-                    <>
-                      <PersonLink person={mail.sender} className={styles.name} />
-                      {mail.sender.name && (
-                        <span className={styles.address}>{mail.sender.email}</span>
-                      )}
-                    </>
-                  ) : (
-                    <span className={styles.muted}>(unbekannt)</span>
-                  )}
-                </td>
-                {columns.to && (
-                  <td className={styles.to}>
-                    <Recipients mail={mail} />
-                  </td>
-                )}
-                <td className={styles.subject}>
-                  <ReviewMark status={mail.review ?? "unreviewed"} />
-                  <Link
-                    to={href(mail.id)}
-                    className={cx(styles.subjectLink, !mail.subject && styles.muted)}
-                  >
-                    {mail.subject || "(kein Betreff)"}
-                  </Link>
-                  {mail.flagged && <FlagIcon size={13} label="Markiert" className={styles.flag} />}
-                  {mail.is_duplicate && (
-                    <CopyIcon size={13} label="Duplikat" className={styles.duplicate} />
-                  )}
-                  {mail.near_count > 0 && (
-                    <span
-                      className={styles.near}
-                      role="img"
-                      aria-label={nearLabel(mail.near_count)}
-                      title={nearLabel(mail.near_count)}
-                    >
-                      +{formatNumber(mail.near_count)}
-                    </span>
-                  )}
-                  {mail.event && (
-                    <CalendarIcon
-                      size={13}
-                      label={`Termin: ${EVENT_LABELS[mail.event]}`}
-                      className={cx(styles.event, mail.event === "cancel" && styles.eventCancel)}
+    <div className={styles.frame}>
+      <div className={styles.scroll}>
+        <table className={cx(styles.table, stale && styles.stale)}>
+          <thead>
+            <tr>
+              {selection && (
+                <th className={styles.selectCol}>
+                  <label className={styles.selectLabel}>
+                    <input
+                      type="checkbox"
+                      aria-label="Alle Mails dieser Seite auswählen"
+                      checked={selectedOnPage > 0 && selectedOnPage === items.length}
+                      ref={(box) => {
+                        if (box)
+                          box.indeterminate = selectedOnPage > 0 && selectedOnPage < items.length;
+                      }}
+                      onChange={(event) => selection.onTogglePage(event.target.checked)}
                     />
+                  </label>
+                </th>
+              )}
+              <th className={styles.dkimCol}>DKIM</th>
+              <th className={styles.fromCol}>Von</th>
+              {columns.to && <th className={styles.toCol}>An</th>}
+              <th>Betreff</th>
+              {columns.attachment && (
+                <th className={styles.iconCol}>
+                  <span className="sr-only">Anhang</span>
+                </th>
+              )}
+              {columns.size && <th className={styles.sizeCol}>Größe</th>}
+              {columns.mbox && <th>MBOX-Datei</th>}
+              <th className={styles.dateCol}>Datum</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((mail) => {
+              const selected = selection?.ids.has(mail.id) ?? false;
+              const inAttachment = attachmentMatch(mail);
+              return (
+                <tr
+                  key={mail.id}
+                  className={cx(selected && styles.selected)}
+                  onClick={(event) => openRow(event, mail.id)}
+                >
+                  {selection && (
+                    <td className={styles.select}>
+                      <label className={styles.selectLabel}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Auswählen: ${mail.subject || "(kein Betreff)"}`}
+                          checked={selected}
+                          onChange={(event) => selection.onToggle(mail.id, event.target.checked)}
+                        />
+                      </label>
+                    </td>
                   )}
-                  {(mail.tags.length > 0 || mail.notes > 0) && (
-                    <span className={styles.research}>
-                      {mail.tags.length > 0 && <TagDots ids={mail.tags} tags={tags} />}
-                      {mail.notes > 0 && (
-                        <span
-                          className={styles.notes}
-                          role="img"
-                          aria-label={notesLabel(mail.notes)}
-                          title={notesLabel(mail.notes)}
-                        >
-                          <NoteIcon size={13} />
-                          {formatNumber(mail.notes)}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  {mail.hits && <HitPlaces hits={mail.hits} />}
-                </td>
-                {columns.attachment && (
-                  <td className={styles.icon}>
-                    {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
-                    {inAttachment && (
-                      <span className={styles.inAttachment} title={inAttachment}>
-                        im Anhang
-                      </span>
+                  <td>
+                    <DkimDot status={dkimKey(mail.dkim_status)} />
+                  </td>
+                  <td className={styles.from}>
+                    {mail.sender ? (
+                      <>
+                        <PersonLink person={mail.sender} className={styles.name} />
+                        {mail.sender.name && (
+                          <span className={styles.address} title={mail.sender.email}>
+                            {mail.sender.email}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className={styles.muted}>(unbekannt)</span>
                     )}
                   </td>
-                )}
-                {columns.size && <td className={styles.size}>{formatBytes(mail.size)}</td>}
-                {columns.mbox && <td className={styles.mbox}>{mboxPath(mail.mbox_file_id)}</td>}
-                <td className={styles.date}>{mail.date ? formatDateTime(mail.date) : "–"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  {columns.to && (
+                    <td className={styles.to}>
+                      <Recipients mail={mail} />
+                    </td>
+                  )}
+                  <td className={styles.subject}>
+                    <ReviewMark status={mail.review ?? "unreviewed"} />
+                    <Link
+                      to={href(mail.id)}
+                      className={cx(styles.subjectLink, !mail.subject && styles.muted)}
+                    >
+                      {mail.subject || "(kein Betreff)"}
+                    </Link>
+                    {mail.flagged && (
+                      <FlagIcon size={13} label="Markiert" className={styles.flag} />
+                    )}
+                    {mail.is_duplicate && (
+                      <CopyIcon size={13} label="Duplikat" className={styles.duplicate} />
+                    )}
+                    {mail.near_count > 0 && (
+                      <span
+                        className={styles.near}
+                        role="img"
+                        aria-label={nearLabel(mail.near_count)}
+                        title={nearLabel(mail.near_count)}
+                      >
+                        +{formatNumber(mail.near_count)}
+                      </span>
+                    )}
+                    {mail.event && (
+                      <CalendarIcon
+                        size={13}
+                        label={`Termin: ${EVENT_LABELS[mail.event]}`}
+                        className={cx(styles.event, mail.event === "cancel" && styles.eventCancel)}
+                      />
+                    )}
+                    {(mail.tags.length > 0 || mail.notes > 0) && (
+                      <span className={styles.research}>
+                        {mail.tags.length > 0 && <TagDots ids={mail.tags} tags={tags} />}
+                        {mail.notes > 0 && (
+                          <span
+                            className={styles.notes}
+                            role="img"
+                            aria-label={notesLabel(mail.notes)}
+                            title={notesLabel(mail.notes)}
+                          >
+                            <NoteIcon size={13} />
+                            {formatNumber(mail.notes)}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {mail.hits && <HitPlaces hits={mail.hits} />}
+                  </td>
+                  {columns.attachment && (
+                    <td className={styles.icon}>
+                      {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
+                      {inAttachment && (
+                        <span className={styles.inAttachment} title={inAttachment}>
+                          im Anhang
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  {columns.size && <td className={styles.size}>{formatBytes(mail.size)}</td>}
+                  {columns.mbox && <td className={styles.mbox}>{mboxPath(mail.mbox_file_id)}</td>}
+                  <td className={styles.date}>{mail.date ? formatDateTime(mail.date) : "–"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

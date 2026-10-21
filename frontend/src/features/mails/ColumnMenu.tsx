@@ -35,7 +35,7 @@ export function ColumnMenu({
 
   return (
     <div ref={root} className={styles.root}>
-      <Button aria-expanded={open} aria-controls={menuId} onClick={() => setOpen(!open)}>
+      <Button size="sm" aria-expanded={open} aria-controls={menuId} onClick={() => setOpen(!open)}>
         Spalten
       </Button>
       {open && (
