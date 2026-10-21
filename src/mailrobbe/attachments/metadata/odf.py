@@ -10,7 +10,7 @@ odf_custom. A file without meta.xml has no metadata.
 
 from mailrobbe.attachments.extract.packages import Package, attribute
 from mailrobbe.attachments.metadata.model import Collector
-from mailrobbe.attachments.metadata.office import Children, store
+from mailrobbe.attachments.metadata.office import Children, count, store
 
 _META = {
     "initial-creator": "initial_creator",
@@ -40,8 +40,8 @@ def read_odf(data: bytes, out: Collector) -> None:
     for name, attrs, value in meta.found:
         if name in _META:
             key = _META[name]
-            if key == "editing_cycles" and value.strip().isdigit():
-                out.number("odf", key, int(value.strip()))
+            if key == "editing_cycles" and (number := count(value)) is not None:
+                out.number("odf", key, number)
             else:
                 store(out, "odf", key, value, _DATES)
         elif name == "keyword":

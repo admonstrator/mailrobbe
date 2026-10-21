@@ -25,6 +25,7 @@ from mailrobbe.attachments.metadata.model import (
     may_carry,
     summarize,
 )
+from mailrobbe.attachments.metadata.office import store
 from mailrobbe.attachments.metadata.pdf import PDF_DATE
 from mailrobbe.enums import DocumentKind, DocumentMetadataStatus
 from tests.attachments.extract.samples import OLE, package
@@ -482,6 +483,50 @@ def test_the_summary_takes_the_first_field_in_order() -> None:
     assert summarize({}) == type(summary)()
     long = summarize({"pdf": {"author": "x" * VALUE_LIMIT}}).author  # an indexed column
     assert long == "x" * (SUMMARY_LIMIT - 1) + "…"
+
+
+@pytest.mark.parametrize(
+    ("found", "created"),
+    [
+        ("2020-04-23T13:37:00+02:00", datetime(2020, 4, 23, 11, 37, tzinfo=UTC)),
+        ("1900-01-01T00:00:00Z", datetime(1900, 1, 1, tzinfo=UTC)),
+        ("2199-12-31T23:59:59Z", datetime(2199, 12, 31, 23, 59, 59, tzinfo=UTC)),
+        ("0001-01-01T00:00:00+01:00", None),  # before year 1 in UTC: no datetime holds it
+        ("9999-12-31T23:30:00-01:00", None),  # after year 9999 in UTC
+        ("0001-01-01T00:00:00Z", None),  # placeholders
+        ("1601-01-01T00:00:00Z", None),
+        ("1899-12-30T00:00:00Z", None),
+        ("2200-01-01T00:00:00Z", None),
+        ("2020-04-23T13:37:60+02:00", None),  # unreadable
+    ],
+)
+def test_the_summary_takes_a_creation_date_in_utc_within_the_years(
+    found: str, created: datetime | None
+) -> None:
+    summary = summarize({"pdf": {"creation_date": found}})
+
+    assert summary.created == created
+    if created is not None:
+        assert summary.created is not None and summary.created.utcoffset() == timedelta(0)
+
+
+def test_a_creation_date_outside_the_years_gives_way_to_the_next() -> None:
+    fields: Fields = {
+        "exif": {"datetime_original": "0001-01-01T00:00:00+01:00"},
+        "pdf": {"creation_date": "2020-04-23T13:37:00+02:00"},
+    }
+
+    assert summarize(fields).created == datetime(2020, 4, 23, 11, 37, tzinfo=UTC)
+
+
+def test_counts_are_ascii_digits_and_numbers_finite() -> None:
+    out = Collector()
+    for key, value in (("pages", "12"), ("words", "\u00b2"), ("slides", "9" * 19)):
+        store(out, "office", key, value, frozenset())
+    out.number("gps", "altitude", float("nan"))
+    out.number("gps", "speed", float("inf"))
+
+    assert out.fields == {"office": {"pages": 12, "words": "\u00b2", "slides": "9" * 19}}
 
 
 def test_which_documents_may_carry_metadata() -> None:
