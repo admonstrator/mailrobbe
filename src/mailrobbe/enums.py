@@ -60,6 +60,13 @@ class ParticipationRole(StrEnum):
     BCC = "bcc"
 
 
+class PersonKind(StrEnum):
+    """person.kind of a root person that is no human (D39); NULL for humans and unknowns."""
+
+    LIST = "list"  # distribution list or mailing list address
+    AUTOMATED = "automated"  # newsletters, notifications, noreply senders
+
+
 class MboxStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"

@@ -20,6 +20,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   paging in the mail list (D19), ix_mail_dkim_sort the same within one DKIM status (it replaced
   ix_mail_dkim_status); ix_mail_subject_trgm serves the subject: search (D20).
 - mail_note holds the flag and note a user sets on a mail (D23), the only user-written data.
+- edge and edge_year carry the same counters (migration 0004, D36): mails_a_to_b/mails_b_to_a
+  (To and Bcc), mails_cc (either direction) and their pass_* counterparts over the mails whose
+  DKIM check passed; edge_year has no single count. Both join root persons only.
+- mail.list_id and mail.automated record List-Id and automation headers, person.kind marks
+  lists and automated senders among the root persons (D39).
 """
 
 from datetime import datetime
@@ -47,7 +52,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
-from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole
+from mailrobbe.enums import DkimStatus, DnsStatus, MboxStatus, ParticipationRole, PersonKind
 
 
 def _pg_enum(enum_cls: type[StrEnum], name: str) -> ENUM:
@@ -63,6 +68,7 @@ dkim_status_enum = _pg_enum(DkimStatus, "dkim_status")
 participation_role_enum = _pg_enum(ParticipationRole, "participation_role")
 mbox_status_enum = _pg_enum(MboxStatus, "mbox_status")
 dns_status_enum = _pg_enum(DnsStatus, "dns_status")
+person_kind_enum = _pg_enum(PersonKind, "person_kind")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -140,6 +146,8 @@ class Mail(Base):
         BigInteger, ForeignKey("mail.id", ondelete="SET NULL")
     )
     reference_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    list_id: Mapped[str | None] = mapped_column(Text)
+    automated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class MailNote(Base):
@@ -190,6 +198,7 @@ class Person(Base):
     merged_into: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("person.id", ondelete="SET NULL")
     )
+    kind: Mapped[PersonKind | None] = mapped_column(person_kind_enum)
 
 
 class PersonEmail(Base):
@@ -311,6 +320,9 @@ class Edge(Base):
     )
     first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    pass_a_to_b: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_b_to_a: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_cc: Mapped[int] = mapped_column(Integer, server_default="0")
 
 
 class EdgeYear(Base):
@@ -324,7 +336,12 @@ class EdgeYear(Base):
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
     )
     year: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
-    count: Mapped[int] = mapped_column(Integer, server_default="0")
+    mails_a_to_b: Mapped[int] = mapped_column(Integer, server_default="0")
+    mails_b_to_a: Mapped[int] = mapped_column(Integer, server_default="0")
+    mails_cc: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_a_to_b: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_b_to_a: Mapped[int] = mapped_column(Integer, server_default="0")
+    pass_cc: Mapped[int] = mapped_column(Integer, server_default="0")
 
 
 class PersonStats(Base):

@@ -49,7 +49,8 @@ export type ErrorCode =
   | "invalid_filter"
   | "no_html"
   | "source_missing"
-  | "source_changed";
+  | "source_changed"
+  | "graph_too_large";
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -287,4 +288,70 @@ export interface MailRaw {
   raw: string;
   truncated: boolean;
   size: number;
+}
+
+// Relationship map (milestone 6, D36 to D38) --------------------------------------------------
+
+export const MAX_GRAPH_NODES = 2_000;
+export const GRAPH_TOP = 50;
+
+export type GraphMode = "ego" | "top" | "domains";
+/** person.kind: no human (D39). null: a human, or not recognised. */
+export type PersonKind = "list" | "automated";
+
+/** One excerpt of the map; the counted graph and the modes are described in schemas.py. */
+export interface GraphParams {
+  mode?: GraphMode;
+  center?: number[]; // ego: at least one person
+  depth?: number; // ego: 1 to 3
+  limit?: number; // top: number of persons, up to MAX_GRAPH_NODES
+  domain?: string[]; // domains: exactly two
+  min_edge?: number; // lighter edges are neither shown nor followed
+  year_from?: number; // UTC year, inclusive
+  year_to?: number; // UTC year, inclusive
+  dkim_only?: boolean;
+  cc?: boolean; // Cc counts towards the weight
+  hide_lists?: boolean; // leave out lists and automated senders, apart from centers
+  expand?: number[]; // add these persons and their neighbours
+  hide?: number[]; // leave out these persons; ignored for centers
+}
+
+export interface GraphNode {
+  id: number;
+  name: string | null;
+  email: string;
+  domain: string;
+  kind: PersonKind | null;
+  mails: number; // weight of all the person's counted edges, shown or not
+  contacts: number;
+  center: boolean;
+}
+
+export interface GraphEdge {
+  source: number; // the smaller person id
+  target: number;
+  a_to_b: number; // source to target, To or Bcc
+  b_to_a: number;
+  cc: number; // either direction
+  weight: number; // a_to_b + b_to_a, plus cc when counted
+}
+
+export interface EdgeTable {
+  pairs: number;
+  refreshed_at: string | null;
+}
+
+export interface Graph {
+  nodes: GraphNode[]; // most mails first
+  edges: GraphEdge[]; // heaviest first
+  mails: number; // "Mails im Ausschnitt"
+  centers: number[];
+  edge_table: EdgeTable;
+}
+
+export interface GraphSize {
+  nodes: number;
+  edges: number;
+  mails: number;
+  too_large: boolean; // /api/graph would answer graph_too_large
 }
