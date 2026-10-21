@@ -2,6 +2,7 @@ import argparse
 import sys
 from collections.abc import Sequence
 
+from mailrobbe import bench
 from mailrobbe.dkim import cli as dkim_cli
 from mailrobbe.generator import cli as generator_cli
 from mailrobbe.graph import cli as graph_cli
@@ -58,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
     graph = commands.add_parser("graph", help="recompute or export the relationship map's edges")
     graph_cli.add_arguments(graph)
     graph.set_defaults(handler=graph_cli.run)
+
+    measure = commands.add_parser(
+        "bench", help="measure the API's response times against a running server"
+    )
+    bench.add_arguments(measure)
+    measure.set_defaults(handler=bench.run)
 
     return parser
 

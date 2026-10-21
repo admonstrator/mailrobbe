@@ -218,7 +218,7 @@ class DomainCount(BaseModel):
 
 
 class ImportState(BaseModel):
-    running: bool  # some MBOX file has status running
+    running: bool  # an import run is alive (D47)
     files_total: int
     files_done: int
     progress: float  # bytes done / bytes of all files, 0 to 1; 1 without files
