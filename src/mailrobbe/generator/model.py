@@ -73,6 +73,7 @@ class AttachmentSpec:
     size: int  # decoded payload size in bytes (a document's own size once it is built)
     inline: bool = False
     document: DocumentSpec | None = None  # None: filler bytes behind a magic number
+    content: bytes | None = None  # the bytes the plan wrote itself (an invite.ics), else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +96,57 @@ class DocumentTruth:
 
     def as_json(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__slots__}
+
+
+@dataclass(frozen=True, slots=True)
+class EventTruth:
+    """One calendar event of a mail as manifest.jsonl lists it (D154): what the calendar phase
+    must store for it, in the order the mail carries its calendar parts."""
+
+    method: str | None  # METHOD of its calendar
+    uid: str
+    sequence: int | None  # None: the part has no SEQUENCE
+    kind: str  # ical.model.EventKind
+    summary: str
+    # The start: ISO 8601 with its UTC offset for a time in a known zone, a date for an all-day
+    # event, without offset for a floating time (no zone).
+    start: str
+    attendees: int
+
+    def as_json(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in self.__slots__}
+
+
+@dataclass(frozen=True, slots=True)
+class Meeting:
+    """A meeting one mail invites to (generator.invitations), as of its latest change."""
+
+    uid: str
+    title: str
+    location: str
+    description: str
+    zone: str  # population.ZONES name of the organiser's zone
+    start: datetime  # wall time in `zone`, naive; all-day: midnight of the first day
+    end: datetime  # all-day: midnight after the last day
+    all_day: bool
+    rule: str | None  # RRULE as written
+    organizer: Address
+    organizer_person: int  # population index, to know the organiser behind another mailbox
+    attendees: tuple[Address, ...]  # the recipients of the invitation
+    rooms: tuple[Address, ...] = ()  # booked rooms: attendees that no mail reaches
+    sequence: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class Invitation:
+    """The calendar part of one mail: an invitation or update (REQUEST), an answer (REPLY) or a
+    cancellation (CANCEL), written in the style of a mail program (outlook, web, apple)."""
+
+    method: str
+    meeting: Meeting
+    style: str
+    answer: Address | None = None  # REPLY: the attendee who answers
+    partstat: str | None = None  # REPLY: ACCEPTED, DECLINED or TENTATIVE
 
 
 class MailKind(StrEnum):
@@ -136,6 +188,7 @@ class PlannedMail:
     # can quote its text. Bounded: never more than one level deep.
     quoted: "PlannedMail | None" = None
     large_attachment: bool = False  # the last attachment is the configured very large one
+    calendar: Invitation | None = None  # the mail's calendar part (generator.invitations)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +233,9 @@ class RenderedMail:
     escape_from_lines: bool = True  # False: the writer leaves body lines starting "From " as is
     duplicate_of: int | None = None  # stream index of the mail this one repeats
     documents: list[DocumentTruth] = field(default_factory=list)  # attachments, mime_parts order
+    # Its calendar events: the calendar part, then those of its .ics documents; None when a
+    # byte fault (invalid_base64) hit an .ics document, so they are no longer known.
+    calendar: list[EventTruth] | None = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +263,7 @@ class ManifestRecord:
     faults: dict[str, str]
     duplicate_of: int | None
     documents: list[dict[str, Any]] = field(default_factory=list)  # DocumentTruth.as_json()
+    calendar: list[dict[str, Any]] | None = field(default_factory=list)  # EventTruth.as_json()
 
     def to_json_line(self) -> str:
         data = {name: getattr(self, name) for name in self.__slots__}

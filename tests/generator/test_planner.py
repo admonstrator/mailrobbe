@@ -4,6 +4,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from mailrobbe.generator import invitations
 from mailrobbe.generator.config import GeneratorConfig
 from mailrobbe.generator.model import MailKind, PlannedMail, derive_seed, stage_rng
 from mailrobbe.generator.planner import (
@@ -18,6 +19,16 @@ from mailrobbe.generator.population import Population, build_population
 from tests.generator.conftest import small_config
 
 _PREFIX = re.compile(r"^(?:(?:Re|RE|AW|Aw|WG|FW|Fwd|Fw|\[[^\]]+\]):\s*)+")
+_CALENDAR_PREFIX = re.compile(
+    "^(?:"
+    + "|".join(map(re.escape, itertools.chain(*invitations.SUBJECT_PREFIXES.values())))
+    + "): "
+)
+
+
+def _topic(subject: str) -> str:
+    """The subject without reply prefixes and without the prefix of a calendar mail."""
+    return _CALENDAR_PREFIX.sub("", subject_core(subject), count=1)
 
 
 def test_stream_positions_and_seeds(
@@ -68,7 +79,7 @@ def test_replies_reference_earlier_mails(gen_plan: list[PlannedMail]) -> None:
             assert all(ref in by_id for ref in mail.references)
             assert mail.thread_index == parent.thread_index
             assert mail.date > parent.date
-            assert subject_core(mail.subject) == subject_core(parent.subject)
+            assert _topic(mail.subject) == _topic(parent.subject)
             assert mail.kind is MailKind.REPLY
             assert mail.quoted is not None and mail.quoted.message_id == parent.message_id
             assert mail.quoted.quoted is None  # quotes are one level deep
@@ -89,7 +100,7 @@ def test_thread_index_is_the_first_mail(gen_plan: list[PlannedMail]) -> None:
 
 
 def test_subject_prefixes(gen_plan: list[PlannedMail]) -> None:
-    replies = [mail.subject for mail in gen_plan if mail.kind is MailKind.REPLY]
+    replies = [m.subject for m in gen_plan if m.kind is MailKind.REPLY and m.calendar is None]
     forwards = [mail.subject for mail in gen_plan if mail.kind is MailKind.FORWARD]
     assert all(re.match(r"(?:Re|RE|AW|Aw): ", subject) for subject in replies)
     assert all(re.match(r"(?:WG|Fwd|FW|Fw): ", subject) for subject in forwards)

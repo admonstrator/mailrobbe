@@ -10,7 +10,9 @@ Documents (PDF, office files, CSV, text, calendar, vCard, ZIP, pictures, recordi
 files built by generator.documents; the very large attachments are periodic blocks of seeded
 random bytes behind a plausible magic number, base64-encoded block by block, so they cost
 almost nothing. RenderedMail.documents is the ground truth of every attachment, in the order
-importer.parse.mime_parts finds them.
+importer.parse.mime_parts finds them. Calendar mails (generator.invitations) get their text and
+calendar parts from there; RenderedMail.calendar is the ground truth of their events and of
+those of the .ics documents.
 """
 
 import base64
@@ -24,7 +26,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from functools import lru_cache
 
-from mailrobbe.generator import documents
+from mailrobbe.generator import documents, invitations
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.model import (
     Address,
@@ -62,10 +64,20 @@ def render(planned: PlannedMail) -> RenderedMail:
     # directly or inside a forwarded message/rfc822
     ordered = sorted(planned.attachments, key=lambda spec: not spec.inline)
     rendered.documents = [_truth(spec) for spec in ordered]
+    # the calendar part first (an invite.ics repeats it), then the .ics documents (D154)
+    events = [invitations.truth(planned)] if planned.calendar is not None else []
+    events += [
+        documents.ics_event(spec)
+        for spec in ordered
+        if spec.document is not None and spec.document.form == "ics"
+    ]
+    rendered.calendar = events
     return rendered
 
 
 def _truth(spec: AttachmentSpec) -> DocumentTruth:
+    if spec.content is not None:
+        return documents.content_truth(spec)
     if spec.document is not None:
         return documents.build(spec).truth(spec.filename, spec.mime_type)
     return documents.filler_truth(spec, _payload_sha256(spec))
@@ -204,6 +216,8 @@ def person_names(address: Address | None) -> tuple[str, str] | None:
 def compose(mail: PlannedMail) -> Text:
     """Own text of a mail. A pure function of the plan, so a reply can quote it exactly."""
     rng = stage_rng(mail.seed, "render-text")
+    if mail.calendar is not None:  # the text of an invitation, answer or cancellation
+        return Text(None, [], invitations.body_lines(mail, rng))
     german = mail.language == "de"
     slots = _slots(mail, rng, german)
     if mail.kind in _AUTOMATED:
@@ -616,9 +630,12 @@ def _param(name: str, value: str, style: _Style) -> str:
 
 
 def _attachment_leaf(spec: AttachmentSpec, style: _Style, cid: str | None = None) -> _Leaf:
+    encoding, body = "base64", b""
+    if spec.content is not None:  # a calendar the plan wrote: never base64 (invitations)
+        encoding, body = invitations.encoded(spec.content.decode())
     lines = [
         f"Content-Type: {spec.mime_type};{style.fold}{_param('name', spec.filename, style)}",
-        "Content-Transfer-Encoding: base64",
+        f"Content-Transfer-Encoding: {encoding}",
     ]
     if cid:
         lines.append(f"Content-ID: <{cid}>")
@@ -626,6 +643,8 @@ def _attachment_leaf(spec: AttachmentSpec, style: _Style, cid: str | None = None
     lines.append(
         f"Content-Disposition: {disposition};{style.fold}{_param('filename', spec.filename, style)}"
     )
+    if spec.content is not None:  # the line break before the boundary is not the file's
+        return _Leaf("\n".join(lines) + "\n", (body, b"\n"))
     if spec.document is not None:
         return _Leaf("\n".join(lines) + "\n", documents.build(spec).encoded)
     return _Leaf("\n".join(lines) + "\n", _encoded_payload(spec))
@@ -718,7 +737,7 @@ def _body_texts(
     delimiter = mail.client in ("thunderbird", "webmail")
     text = compose(mail)
     own = text.lines(delimiter)
-    parent = mail.quoted
+    parent = mail.quoted if mail.calendar is None else None  # calendar mails quote nothing
     quote: list[str] = []
     if parent is not None and not _forwards_as_message(mail):
         quoted = compose(parent).lines(delimiter)
@@ -793,6 +812,17 @@ def _structure(planned: PlannedMail, style: _Style, charset: str, rng: random.Ra
             body = html_leaf  # HTML only, as some bulk senders do
         else:
             body = _Multi("alternative", _boundary(planned.client, rng), [body, html_leaf])
+    if planned.calendar is not None and invitations.has_inline_part(planned.calendar):
+        method, encoding, data = invitations.calendar_part(planned)
+        headers = (
+            f'Content-Type: text/calendar; charset="{_label("utf-8", style)}"; method={method}\n'
+            f"Content-Transfer-Encoding: {encoding}\n"
+        )
+        part = _Leaf(headers, (data, b"\n"))  # as the invite.ics: ending in a line break
+        if isinstance(body, _Multi):
+            body.parts.append(part)
+        else:
+            body = _Multi("alternative", _boundary(planned.client, rng), [body, part])
     if inline:
         images: list[_Node] = [
             _attachment_leaf(a, style, cid) for a, cid in zip(inline, cids, strict=True)

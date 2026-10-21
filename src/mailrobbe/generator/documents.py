@@ -49,7 +49,13 @@ from mailrobbe.enums import DocumentKind, DocumentTextStatus
 from mailrobbe.generator import fileformats as ff
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.fileformats import Block, Para, Table
-from mailrobbe.generator.model import AttachmentSpec, DocumentSpec, DocumentTruth, stage_rng
+from mailrobbe.generator.model import (
+    AttachmentSpec,
+    DocumentSpec,
+    DocumentTruth,
+    EventTruth,
+    stage_rng,
+)
 from mailrobbe.generator.population import transliterate
 from mailrobbe.preview.kinds import preview_kind
 
@@ -483,6 +489,33 @@ def filler_truth(spec: AttachmentSpec, sha256: str) -> DocumentTruth:
     preview, media_type = _preview(kind, spec.filename, mime, spec.size, mime)
     return DocumentTruth(
         sha256, spec.filename, kind.value, status.value, None, None, spec.size, preview, media_type
+    )
+
+
+def ics_event(spec: AttachmentSpec) -> EventTruth:
+    """The event of an attachment carrying an iCalendar document (form ics), as the calendar
+    phase must read it (D154)."""
+    document = spec.document
+    assert document is not None and document.form == "ics"
+    content = _Content(document, random.Random(f"document:{document.seed}"), spec.size)
+    return content.calendar_event()[1]  # the same draws as document_bytes
+
+
+def content_truth(spec: AttachmentSpec) -> DocumentTruth:
+    """The truth of an attachment whose bytes the plan wrote itself: an invite.ics, a text."""
+    assert spec.content is not None
+    size = len(spec.content)
+    preview, media_type = _preview(DocumentKind.TEXT, spec.filename, spec.mime_type, size, None)
+    return DocumentTruth(
+        hashlib.sha256(spec.content).hexdigest(),
+        spec.filename,
+        DocumentKind.TEXT.value,
+        DocumentTextStatus.TEXT.value,
+        None,
+        None,
+        size,
+        preview,
+        media_type,
     )
 
 
@@ -1001,23 +1034,30 @@ class _Content:
         return text.encode("cp1252" if self.rng.random() < 0.3 else "utf-8", "replace")
 
     def calendar(self) -> bytes:
+        return self.calendar_event()[0]
+
+    def calendar_event(self) -> tuple[bytes, EventTruth]:
+        """The iCalendar file and the truth of its one event (a floating time, no SEQUENCE)."""
         rng = self.rng
         start = self.when + timedelta(days=rng.randint(1, 30))
         start = start.replace(hour=rng.randint(9, 19), minute=rng.choice((0, 15, 30)), second=0)
         end = start + timedelta(hours=rng.randint(1, 3))
         description = _ical(self.fill(rng.choice(_MINUTES)))
+        uid = f"{self.spec.seed:016x}@kalender.example"
+        summary = f"{rng.choice(_MEETINGS)} {self.org}"
         lines = [
             "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Kalender//DE", "METHOD:REQUEST",
-            "BEGIN:VEVENT", f"UID:{self.spec.seed:016x}@kalender.example",
+            "BEGIN:VEVENT", f"UID:{uid}",
             f"DTSTAMP:{self.when:%Y%m%dT%H%M%S}Z",
             f"DTSTART:{start:%Y%m%dT%H%M%S}", f"DTEND:{end:%Y%m%dT%H%M%S}",
-            f"SUMMARY:{_ical(f'{rng.choice(_MEETINGS)} {self.org}')}",
+            f"SUMMARY:{_ical(summary)}",
             f"DESCRIPTION:{description}\\nReferenz: {self.marker}",
             f"LOCATION:{_ical(f'{self._street()}, {self.city}')}",
             f"ORGANIZER;CN={self.author}:mailto:vorstand@verein.example",
             "END:VEVENT", "END:VCALENDAR",
         ]  # fmt: skip
-        return ("\r\n".join(_fold(line) for line in lines) + "\r\n").encode()
+        data = ("\r\n".join(_fold(line) for line in lines) + "\r\n").encode()
+        return data, EventTruth("REQUEST", uid, None, "request", summary, start.isoformat(), 0)
 
     def vcard(self) -> bytes:
         rng = self.rng

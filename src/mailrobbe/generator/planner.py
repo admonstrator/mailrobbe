@@ -15,13 +15,16 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 
+from mailrobbe.generator import invitations
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.config import GeneratorConfig
 from mailrobbe.generator.documents import DocumentPool
 from mailrobbe.generator.model import (
     Address,
     AttachmentSpec,
+    Invitation,
     MailKind,
+    Meeting,
     PlannedMail,
     derive_seed,
     stage_rng,
@@ -167,6 +170,8 @@ class _Thread:
     references: tuple[str, ...]  # References header of `last`
     remaining: int  # replies still to come
     entry: int = -1  # sequence number of the live heap entry
+    meeting: Meeting | None = None  # the meeting the thread's first mail invited to, as of now
+    cancelled: bool = False  # the organiser cancelled it: the thread goes on in plain mails
 
 
 _REPLY_COUNTS = ((1, 0.45), (2, 0.25), (3, 0.12), (4, 0.05), (5, 0.04), (6, 0.03), (8, 0.03),
@@ -232,6 +237,7 @@ class Planner:
         self._rng = stage_rng(config.seed, "plan")
         self._clock = _Clock(config, stage_rng(config.seed, "plan-clock"))
         self._large_rng = stage_rng(config.seed, "plan-large")
+        self._calendar_rng = stage_rng(config.seed, "plan-calendar")
         persons = population.persons
         people = [p for p in persons if p.kind is not PersonKind.SERVICE]
         self._staff = _Pool([p for p in people if p.internal])
@@ -442,7 +448,21 @@ class Planner:
             client=client,
             large_attachment=self._large_now,
         )
-        self._open_thread(mail, remaining, _PERSONAL_THREAD_SHARE)
+        if self._large_now or self._calendar_rng.random() >= invitations.INVITATION_SHARE:
+            self._open_thread(mail, remaining, _PERSONAL_THREAD_SHARE)
+            return mail
+        room = (
+            sender.domain.name
+            if sender.internal and from_address.domain == sender.domain.name
+            else None
+        )
+        meeting = invitations.meeting(self._calendar_rng, mail, sender.index, sender.zone, room)
+        mail.bcc = ()
+        self._carry(mail, Invitation("REQUEST", meeting, invitations.style(client)))
+        self._open_thread(mail, remaining, invitations.THREAD_SHARE)
+        thread = self._threads.get(index)
+        if thread is not None:
+            thread.meeting = meeting
         return mail
 
     def _list_post(self, index: int, when: datetime, remaining: int) -> PlannedMail:
@@ -519,7 +539,7 @@ class Planner:
         client = self._client(forwarder, when)
         sender = forwarder.address(mailbox, rng, sender=True)
         carried = source.attachments[:-1] if source.large_attachment else source.attachments
-        carried = tuple(a for a in carried if not a.inline)
+        carried = tuple(a for a in carried if not a.inline and a.content is None)
         if self._large_now or not carried:
             carried = self._attachments(MailKind.FORWARD, when, client)
         mail = PlannedMail(
@@ -580,6 +600,8 @@ class Planner:
             quoted=parent,
             large_attachment=self._large_now,
         )
+        if thread.meeting is not None and not thread.cancelled and not self._large_now:
+            self._follow_up(mail, thread, replier)
         thread.last = _strip(mail)
         thread.references = references
         thread.remaining -= 1
@@ -589,6 +611,41 @@ class Planner:
         else:
             del self._threads[thread.root]
         return mail
+
+    def _follow_up(self, mail: PlannedMail, thread: _Thread, replier: Person) -> None:
+        """A mail in the thread of an invitation (D154): the organiser moves or cancels the
+        meeting, an attendee answers, or it stays a plain reply."""
+        meeting = thread.meeting
+        assert meeting is not None
+        rng = self._calendar_rng
+        written_by = invitations.style(mail.client)
+        if replier.index == meeting.organizer_person:
+            draw = rng.random()
+            if draw < invitations.UPDATE_SHARE:
+                meeting = invitations.moved(rng, meeting)
+                invitation = Invitation("REQUEST", meeting, written_by)
+            elif draw < invitations.UPDATE_SHARE + invitations.CANCEL_SHARE:
+                meeting = replace(meeting, sequence=meeting.sequence + 1)
+                invitation = Invitation("CANCEL", meeting, written_by)
+                thread.cancelled = True
+            else:
+                return
+            thread.meeting = meeting
+            mail.to = meeting.attendees
+        else:
+            if rng.random() >= invitations.ANSWER_SHARE:
+                return
+            partstat = _weighted(rng, invitations.PARTSTATS)
+            invitation = Invitation("REPLY", meeting, written_by, mail.sender, partstat)
+            mail.to = (meeting.organizer,)
+        mail.cc = mail.bcc = ()
+        self._carry(mail, invitation)
+
+    def _carry(self, mail: PlannedMail, invitation: Invitation) -> None:
+        """The mail carries the invitation: its subject and, by the program, an invite.ics."""
+        mail.calendar = invitation
+        mail.subject = invitations.subject(invitation, mail.language)
+        mail.attachments = invitations.files(mail)
 
     def _replier(
         self, parent: PlannedMail, mailing_list: MailingList | None, when: datetime
