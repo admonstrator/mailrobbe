@@ -80,6 +80,7 @@ describe("list state in the URL", () => {
       "collection",
       "has_note",
       "document",
+      "thread",
       "sort",
       "cursor",
       "limit",

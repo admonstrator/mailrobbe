@@ -42,6 +42,9 @@ import type {
   SavedSearch,
   TagInfo,
   ThemeInfo,
+  FirstMentions,
+  Timeline,
+  TimelineSeries,
   PersonFigures,
   PersonMailCounts,
   PersonPage,
@@ -1645,4 +1648,152 @@ export const documentMailPage: MailPage = {
   next_cursor: null,
   prev_cursor: null,
   query_terms: [],
+};
+
+// Timeline (D90 to D94) -----------------------------------------------------------------------
+
+/** First days of the 36 months from January 2023 to December 2025. */
+const MONTH_STARTS = Array.from({ length: 36 }, (_, index) => {
+  const month = String((index % 12) + 1).padStart(2, "0");
+  return `${2023 + Math.floor(index / 12)}-${month}-01`;
+});
+
+/** Monthly counts around base, with some months set and nothing from `until` on. */
+function monthly(base: number, set: Record<number, number> = {}, until = 36): number[] {
+  return MONTH_STARTS.map((_, index) =>
+    index >= until ? 0 : (set[index] ?? base + ((index * 7) % 5) * Math.ceil(base / 10)),
+  );
+}
+
+function timelineSeries(
+  key: string,
+  label: string | null,
+  counts: number[],
+  extra: Partial<TimelineSeries> = {},
+): TimelineSeries {
+  return {
+    key,
+    label,
+    person: null,
+    thread_id: null,
+    term: null,
+    counts,
+    total: counts.reduce((sum, count) => sum + count, 0),
+    outliers: [],
+    silent_from: null,
+    ...extra,
+  };
+}
+
+const allMonths = timelineSeries("all", null, monthly(1100, { 14: 4300, 26: 240 }), {
+  outliers: [
+    { index: 14, kind: "high", expected: 1215.5 },
+    { index: 26, kind: "low", expected: 1180 },
+  ],
+});
+
+/** The whole archive by month: one month far above, one far below the moving mean. */
+export const timelineAll: Timeline = {
+  bucket: "month",
+  coarsened: false,
+  starts: MONTH_STARTS,
+  total: allMonths,
+  series: [],
+  undated: 214,
+  archive_end: "2025-12-30",
+  timed_out: false,
+};
+
+/** Split by person: Anna, Jonas, and Lukas, who falls silent in July 2025. */
+export const timelineByPerson: Timeline = {
+  ...timelineAll,
+  series: [
+    timelineSeries("person:11", people.anna.name, monthly(90, { 14: 380 }), {
+      person: people.anna,
+      outliers: [{ index: 14, kind: "high", expected: 99 }],
+    }),
+    timelineSeries("person:12", people.jonas.name, monthly(40), { person: people.jonas }),
+    timelineSeries("person:14", people.lukas.name, monthly(25, {}, 30), {
+      person: people.lukas,
+      silent_from: "2025-07-01",
+    }),
+  ],
+};
+
+export const timelineByThread: Timeline = {
+  ...timelineAll,
+  series: [
+    timelineSeries(
+      "thread:184001",
+      "Rahmenvertrag Stadtwerke 2024",
+      monthly(0, { 12: 8, 13: 21, 14: 34, 15: 6 }),
+      {
+        thread_id: 184001,
+      },
+    ),
+    timelineSeries("thread:183977", null, monthly(0, { 20: 4, 21: 9 }), { thread_id: 183977 }),
+  ],
+};
+
+export const timelineByTerm: Timeline = {
+  ...timelineAll,
+  series: [
+    timelineSeries("term:0", "Spende", monthly(3, { 14: 41 }), {
+      term: "Spende",
+      outliers: [{ index: 14, kind: "high", expected: 4.5 }],
+    }),
+    timelineSeries("term:1", '"schwarze Kasse"', monthly(0, { 13: 2, 14: 9, 15: 3 }), {
+      term: '"schwarze Kasse"',
+    }),
+  ],
+};
+
+/** Anna's mails by month (person=11): silent since October 2025. */
+export const timelineAnna: Timeline = {
+  ...timelineAll,
+  total: timelineSeries("all", null, monthly(95, {}, 33), { silent_from: "2025-10-01" }),
+  undated: 3,
+};
+
+export const firstMentions: FirstMentions = {
+  items: [
+    {
+      person: people.lukas,
+      kind: null,
+      role: "from",
+      date: "2023-02-14T09:12:00Z",
+      mail_id: 183001,
+      subject: "Spende des Fördervereins",
+      mails: 12,
+    },
+    {
+      person: people.anna,
+      kind: null,
+      role: "to",
+      date: "2023-02-14T09:12:00Z",
+      mail_id: 183001,
+      subject: "Spende des Fördervereins",
+      mails: 31,
+    },
+    {
+      person: people.miriam,
+      kind: null,
+      role: "cc",
+      date: "2023-05-02T16:40:00Z",
+      mail_id: 183410,
+      subject: "AW: Quittung ohne Betrag",
+      mails: 4,
+    },
+    {
+      person: people.jonas,
+      kind: null,
+      role: "from",
+      date: "2024-03-11T07:55:00Z",
+      mail_id: 184001,
+      subject: "Rahmenvertrag Stadtwerke 2024",
+      mails: 9,
+    },
+  ],
+  persons: 4,
+  timed_out: false,
 };
