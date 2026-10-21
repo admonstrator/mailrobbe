@@ -19,6 +19,7 @@ from mailrobbe.api import (
     marks,
     notes,
     persons,
+    previews,
     processes,
     research,
     stats,
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
     app.state.runs = runs
+    app.state.previews = previews.Previews(settings)
 
     @app.get("/api/health")
     async def health() -> JSONResponse:
@@ -74,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(graph.router)
     app.include_router(imports.router)
     app.include_router(documents.router)  # /api/documents/summary before {id}, as for mails
+    app.include_router(previews.router)
     app.include_router(timeline.router)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
