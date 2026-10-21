@@ -1,0 +1,55 @@
+# Towns and countries of cities.txt and countries.txt whose names are common words or frequent
+# surnames too (entities/names.py): they count as places only after a five-digit postcode or
+# after in, aus, nach, bei ("in Essen", "10115 Berlin"). Names that are first names or common
+# words of the other lists count as ambiguous anyway (Hagen, Heide, Achim, Sofia).
+
+Aue
+Baden
+Bünde
+Burg
+Cham
+Essen
+Forst
+Geldern
+Georgia
+Gronau
+Halle
+Hamm
+Herzberg
+Hof
+Homberg
+Horn
+Island
+Jordan
+Kamen
+Langen
+Leer
+Löhne
+Moldau
+Norden
+Regen
+Roth
+Senden
+Siegen
+Sitten
+Stolberg
+Thun
+Traun
+Waren
+Warburg
+Wedel
+Weiden
+Wels
+Werder
+Werne
+Wetter
+Zug
+Chad
+Lahr
+Marl
+Brake
+Melk
+Verl
+Wil
+Baar
+Emmen

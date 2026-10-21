@@ -12,8 +12,9 @@ from decimal import Decimal
 from functools import cache
 
 from mailrobbe.db.models import ENTITY_VERSION
+from mailrobbe.entities.gazetteer import data_files
 from mailrobbe.enums import EntityContext, EntityKind
-from mailrobbe.themes import load_themes
+from mailrobbe.themes import load_entity_context, load_themes
 
 KEY_LIMIT = 200  # characters of entity.key and entity.label; longer values are not entities
 ENTITIES_PER_TEXT = 2_000  # entities kept per text, the first ones by position
@@ -42,10 +43,15 @@ def scan_version() -> int:
     everything the extraction reads besides the text (the word lists of themes.toml and the
     gazetteers in data/), as a positive 31-bit number. A text scanned by another version is
     scanned again at the next import."""
-    digest = hashlib.sha256(str(ENTITY_VERSION).encode())
+    digest = hashlib.sha256(f"entities {ENTITY_VERSION}\n".encode())
     for theme in load_themes():
-        digest.update("\n".join((theme.key, *theme.terms)).encode())
-    return int.from_bytes(digest.digest()[:4], "big") & 0x7FFFFFFF
+        digest.update("\n".join(("theme", theme.key, *theme.terms, "")).encode())
+    for context, words in load_entity_context().items():
+        digest.update("\n".join(("context", str(context.name), *words, "")).encode())
+    for path in data_files():
+        digest.update(f"file {path.name} {path.stat().st_size}\n".encode())
+        digest.update(path.read_bytes())
+    return int.from_bytes(digest.digest()[:4], "big") % 0x7FFFFFFF + 1
 
 
 def scanned_text(subject: str | None, body_text: str | None) -> str:
