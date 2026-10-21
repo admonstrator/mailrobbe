@@ -1,10 +1,10 @@
 import { Navigate, type RouteObject } from "react-router";
 
 import { AppShell } from "./components/AppShell";
+import { GraphPage } from "./features/graph/GraphPage";
 import { MailDetailPage } from "./features/mail/MailDetailPage";
 import { MailListPage } from "./features/mails/MailListPage";
 import {
-  GraphPlaceholder,
   ImportPlaceholder,
   NotFoundPage,
   PersonPlaceholder,
@@ -21,7 +21,7 @@ export const routes: RouteObject[] = [
       { path: "/mails/:id", element: <MailDetailPage /> },
       { path: "/personen", element: <PersonsPlaceholder /> },
       { path: "/personen/:id", element: <PersonPlaceholder /> },
-      { path: "/karte", element: <GraphPlaceholder /> },
+      { path: "/karte", element: <GraphPage /> },
       { path: "/import", element: <ImportPlaceholder /> },
       { path: "*", element: <NotFoundPage /> },
     ],

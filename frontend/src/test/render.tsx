@@ -36,6 +36,9 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
     return { text: fx.mailText, headers: fx.mailHeaders, raw: fx.mailRaw }[format];
   }
   if (method === "GET" && /^\/api\/mails\/\d+$/.test(path)) return fx.mailDetail;
+  if (path === "/api/graph") return fx.graph;
+  if (path === "/api/graph/size") return fx.graphSize;
+  if (path === "/api/persons") return fx.personSearch;
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 
