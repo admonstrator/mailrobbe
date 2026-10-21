@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { MergeRequest, SuggestionDismiss } from "../../api/types";
-import { personPage, suggestionPage } from "../../test/fixtures";
+import { personPage, personSummaries, suggestionPage } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const personCalls = (calls: ApiCall[]) =>
@@ -37,6 +37,48 @@ function suggestionsBackend() {
 }
 
 describe("person list", () => {
+  it("shows only named persons, with label and role, and keeps the filter in the URL", async () => {
+    const named = {
+      ...personSummaries.jonas,
+      label: { name: "Kassenwart Nord", role: "Schatzmeister" },
+    };
+    const { router, calls } = renderApp("/personen", (call) =>
+      call.url.pathname === "/api/persons" && call.url.searchParams.get("labelled") === "true"
+        ? { items: [named], next_cursor: null, prev_cursor: null, total: 1 }
+        : fixtureApi(call),
+    );
+    await screen.findByRole("link", { name: "Anna Keller" });
+    const only = screen.getByRole("checkbox", { name: "Nur benannte" });
+    expect(only).toHaveProperty("checked", false);
+
+    fireEvent.click(only);
+    expect(router.state.location.search).toBe("?labelled=true");
+    const link = await screen.findByRole("link", { name: "Kassenwart Nord" });
+    expect(link.getAttribute("href")).toBe("/personen/12");
+    expect(personCalls(calls).at(-1)!.url.search).toBe("?labelled=true");
+    expect(within(row("Kassenwart Nord")).getAllByRole("cell")[0].textContent).toBe(
+      "KNKassenwart NordSchatzmeisterj.brandt@stadtwerke-beispiel.example",
+    );
+    expect(screen.getByText("1 Person gefunden")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Nur benannte" })).toHaveProperty("checked", true);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Nur benannte" }));
+    expect(router.state.location.search).toBe("");
+    expect(await screen.findByRole("link", { name: "Anna Keller" })).toBeTruthy();
+  });
+
+  it("says so when no person is named yet", async () => {
+    renderApp("/personen?labelled=true", (call) =>
+      call.url.pathname === "/api/persons"
+        ? { items: [], next_cursor: null, prev_cursor: null, total: 0 }
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Noch keine Person benannt")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Alle Personen zeigen" }).getAttribute("href")).toBe(
+      "/personen",
+    );
+  });
+
   it("renders persons, figures, aliases and the range from the API", async () => {
     const { calls } = renderApp("/personen");
 

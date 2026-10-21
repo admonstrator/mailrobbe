@@ -25,6 +25,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
 import { filterChips } from "../mails/chips";
 import { DEFAULT_LIST_STATE, hasFilters, withFilters } from "../mails/listState";
@@ -57,10 +58,10 @@ function knownPersons(
 ): Map<number, string> {
   const names = new Map(picked);
   for (const one of timeline?.series ?? []) {
-    if (one.person) names.set(one.person.person_id, one.person.name || one.person.email);
+    if (one.person) names.set(one.person.person_id, personName(one.person));
   }
   for (const mention of mentions?.items ?? []) {
-    names.set(mention.person.person_id, mention.person.name || mention.person.email);
+    names.set(mention.person.person_id, personName(mention.person));
   }
   return names;
 }
@@ -177,9 +178,7 @@ export function TimelinePage() {
           onChange={setState}
           timeline={data}
           seriesName={seriesName}
-          onPickPerson={(person) =>
-            setPicked(new Map(picked).set(person.id, person.name || person.email))
-          }
+          onPickPerson={(person) => setPicked(new Map(picked).set(person.id, personName(person)))}
         />
         {timeline.isPending ? (
           <div className={styles.loading}>

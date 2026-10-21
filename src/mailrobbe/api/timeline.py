@@ -64,6 +64,7 @@ from mailrobbe.api.schemas import (
 from mailrobbe.config import Settings
 from mailrobbe.db.models import Mail, Participation, Person, PersonStats
 from mailrobbe.enums import ParticipationRole
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
 from mailrobbe.timeline import buckets, marks
 
@@ -145,7 +146,7 @@ async def timeline(
             silent_from=None if silent is None else starts[silent],
         )
 
-    return Timeline(
+    response = Timeline(
         bucket=bucket,
         coarsened=coarsened,
         starts=starts,
@@ -155,6 +156,11 @@ async def timeline(
         archive_end=archive_end,
         timed_out=latest is None or total is None or series is None,
     )
+    await attach_labels(session, response)
+    for each in response.series:  # a person's legend shows the name the team gave it (D157)
+        if each.person is not None and each.person.label is not None and each.person.label.name:
+            each.label = each.person.label.name
+    return response
 
 
 def _searches(
@@ -362,7 +368,9 @@ async def first_mentions(
         )
         for row in rows
     ]
-    return FirstMentions(items=items, persons=rows[0].persons if rows else 0, timed_out=False)
+    found = FirstMentions(items=items, persons=rows[0].persons if rows else 0, timed_out=False)
+    await attach_labels(session, found)
+    return found
 
 
 def _first_mentions(params: FirstMentionParams, where: Conditions) -> Executable:

@@ -60,6 +60,22 @@ def test_markup_and_control_characters_in_names() -> None:
     assert _data(node)["label"] == 'Müller & <Söhne> "AG"'
 
 
+def test_labels_only_where_set() -> None:
+    domain = "nordlicht.example"
+    nodes = [
+        GraphmlNode(1, "Kassenwart", "a@" + domain, domain, None, 2, "Kassenwart", "Vorstand"),
+        GraphmlNode(2, "Bert", "b@" + domain, domain, None, 2, label_role="Fahrer"),
+        GraphmlNode(3, "Carl", "c@" + domain, domain, None, 2),
+    ]
+    root = _parse(nodes, [])
+    keys = {(k.attrib["id"], k.attrib["for"]) for k in root.findall("g:key", NS)}
+    assert {("label_name", "node"), ("label_role", "node")} <= keys
+    parsed = {n.attrib["id"]: _data(n) for n in root.findall("g:graph/g:node", NS)}
+    assert (parsed["1"]["label_name"], parsed["1"]["label_role"]) == ("Kassenwart", "Vorstand")
+    assert "label_name" not in parsed["2"] and parsed["2"]["label_role"] == "Fahrer"
+    assert not {"label_name", "label_role"} & parsed["3"].keys()
+
+
 def test_empty_graph() -> None:
     graph = _parse([], []).find("g:graph", NS)
     assert graph is not None

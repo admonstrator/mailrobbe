@@ -86,6 +86,7 @@ from mailrobbe.db.models import (
     Person,
 )
 from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
+from mailrobbe.persons.labels import label_matches
 from mailrobbe.signals.model import signal_keys
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
@@ -249,7 +250,11 @@ def _term(term: QueryTerm) -> list[ColumnElement[bool]]:
     match term.key:
         case "from" | "to" | "cc":
             pattern = _contains(value)
-            person = or_(Person.canonical_email.ilike(pattern), Person.display_name.ilike(pattern))
+            person = or_(
+                Person.canonical_email.ilike(pattern),
+                Person.display_name.ilike(pattern),
+                label_matches(Person, pattern),  # D157
+            )
             return [_takes_part((ParticipationRole(term.key),), person)]
         case "domain":
             domain = value.lower().lstrip("@")

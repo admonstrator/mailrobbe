@@ -9,12 +9,13 @@ import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatBytes, formatDateTime, formatNumber } from "../../lib/format";
+import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
 import type { ColumnChoice } from "./columns";
 import styles from "./MailTable.module.css";
 import { ReviewMark } from "./ReviewMark";
 
-const personLabel = (person: PersonRef) => person.name || person.email;
+const personLabel = (person: PersonRef) => personName(person);
 const notesLabel = (count: number) => (count === 1 ? "1 Notiz" : `${formatNumber(count)} Notizen`);
 
 /** Tag dots shown per row; the rest is "+n", all names are in the tooltip. */

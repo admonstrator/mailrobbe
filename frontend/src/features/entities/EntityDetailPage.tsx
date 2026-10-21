@@ -10,6 +10,7 @@ import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
 import { highlightParts } from "../../lib/highlight";
+import { personName } from "../../lib/person";
 import { documentName } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
 import styles from "./EntityDetailPage.module.css";
@@ -192,7 +193,9 @@ function EntityHeader({
         <p className={styles.person}>
           {"Im Archiv: "}
           <Link to={personPath(person.person_id)}>
-            {person.name ? `${person.name} (${person.email})` : person.email}
+            {person.label?.name || person.name
+              ? `${personName(person)} (${person.email})`
+              : person.email}
           </Link>
         </p>
       )}

@@ -102,6 +102,7 @@ from mailrobbe.db.models import (
 from mailrobbe.entities.mentions import mentions
 from mailrobbe.entities.model import scan_version
 from mailrobbe.enums import DocumentTextStatus, EntityContext, EntityKind
+from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
 
 router = APIRouter(prefix="/api", tags=["entities"])
@@ -331,7 +332,7 @@ async def entity_detail(entity_id: EntityId, session: Session) -> EntityDetail:
     senders, sender_count, recipients, recipient_count = await mail_persons(
         session, mail_ids, ENTITY_PERSONS_LIMIT
     )
-    return EntityDetail(
+    detail = EntityDetail(
         **_figures(entity),
         key=entity.key,
         contexts=contexts,
@@ -345,6 +346,8 @@ async def entity_detail(entity_id: EntityId, session: Session) -> EntityDetail:
         samples=await _samples(session, entity_id),
         archive_person=await _archive_person(session, entity.kind, entity.key, entity.label),
     )
+    await attach_labels(session, detail)
+    return detail
 
 
 async def _years(

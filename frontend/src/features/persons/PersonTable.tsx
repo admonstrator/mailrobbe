@@ -41,17 +41,26 @@ export function PersonTable({ items, stale }: { items: PersonSummary[]; stale: b
               <tr key={person.id} onClick={(event) => openRow(event, person.id)}>
                 <td>
                   <div className={styles.person}>
-                    <Avatar personId={person.id} name={person.name} email={person.email} />
+                    <Avatar
+                      personId={person.id}
+                      name={person.label?.name || person.name}
+                      email={person.email}
+                    />
                     <div className={styles.identity}>
                       <span>
                         <Link to={personPath(person.id)} className={styles.name}>
                           {personLabel(person)}
                         </Link>
+                        {person.label?.role && (
+                          <span className={styles.role}>{person.label.role}</span>
+                        )}
                         {person.aliases > 0 && (
                           <span className={styles.aliases}>{aliasHint(person.aliases)}</span>
                         )}
                       </span>
-                      {person.name && <span className={styles.address}>{person.email}</span>}
+                      {(person.label?.name || person.name) && (
+                        <span className={styles.address}>{person.email}</span>
+                      )}
                     </div>
                   </div>
                 </td>

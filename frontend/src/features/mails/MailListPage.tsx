@@ -26,6 +26,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { personName as shownName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
 import { MiniTimeline } from "../timeline/MiniTimeline";
@@ -69,7 +70,7 @@ function hitText(summary: MailSummary | undefined, state: ListState): string {
 function personName(page: MailPage | undefined, id: number): string {
   for (const mail of page?.items ?? []) {
     for (const person of [mail.sender, ...mail.recipients]) {
-      if (person?.person_id === id) return person.name || person.email;
+      if (person?.person_id === id) return shownName(person);
     }
   }
   return `#${id}`;

@@ -165,7 +165,7 @@ def render_pdf(
             )
 
     if research is not None:
-        pdf.research(research, signals)
+        pdf.research(research, signals, mail.label_texts())
     if pdf.replaced:
         pdf.heading("Hinweis")
         pdf.note(
@@ -322,7 +322,9 @@ class _Document(FPDF):
         self._style(SIZE, INK)
         self._lines(self.wrap(self.readable(text), self.epw), LINE)
 
-    def research(self, research: MailResearch, signals: Sequence[str]) -> None:
+    def research(
+        self, research: MailResearch, signals: Sequence[str], labels: Sequence[str]
+    ) -> None:
         self.heading("Rechercheangaben (intern)")
         mark = research.mark
         review = REVIEW_TEXTS[mark.review] if mark.review else "Ungesichtet"
@@ -340,6 +342,8 @@ class _Document(FPDF):
             self.field(f"Notiz {number}", f"{written}\n{note.body}")
         if signals:
             self.field("Signale", ", ".join(signals))
+        for label in labels:  # D157: the team's names, not the mail's
+            self.field("Benennung", label)
 
     def wrap(self, text: str, width: float) -> list[str]:
         """The lines of text within width in the current font: broken after spaces, a word

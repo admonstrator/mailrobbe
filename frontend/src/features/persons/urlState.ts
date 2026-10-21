@@ -1,5 +1,6 @@
-// The persons screens keep their state in the URL: search, sort, page and tab of the person
-// list (/personen), and the mail card of a profile (/personen/:id: role, year, contact, page).
+// The persons screens keep their state in the URL: search, sort, page, tab and "Nur benannte"
+// of the person list (/personen), and the mail card of a profile (/personen/:id: role, year,
+// contact, page).
 
 import { buildQuery } from "../../api/client";
 import type { PersonListParams, PersonRole, PersonSort } from "../../api/types";
@@ -14,6 +15,8 @@ export interface PersonListState {
   /** 1-based number of the page the cursor points to, for the "51–100" range. */
   page: number;
   tab: PersonsTab;
+  /** Only persons the team named (D157). */
+  labelled: boolean;
 }
 
 export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
@@ -22,6 +25,7 @@ export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
   cursor: null,
   page: 1,
   tab: "personen",
+  labelled: false,
 };
 
 const SORTS: readonly PersonSort[] = ["mails", "name", "recent"];
@@ -34,6 +38,7 @@ export function parsePersonListState(search: URLSearchParams): PersonListState {
     cursor,
     page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
     tab: search.get("tab") === "vorschlaege" ? "vorschlaege" : "personen",
+    labelled: search.get("labelled") === "true",
   };
 }
 
@@ -43,6 +48,7 @@ export function personListSearch(state: PersonListState): URLSearchParams {
     tab: state.tab === "personen" ? null : state.tab,
     q: state.q,
     sort: state.sort === "mails" ? null : state.sort,
+    labelled: state.labelled,
     cursor: state.cursor,
     page: state.cursor && state.page > 1 ? state.page : null,
   });
@@ -52,6 +58,7 @@ export function toPersonListParams(state: PersonListState): PersonListParams {
   const params: PersonListParams = {};
   if (state.q) params.q = state.q;
   if (state.sort !== "mails") params.sort = state.sort;
+  if (state.labelled) params.labelled = true;
   if (state.cursor) params.cursor = state.cursor;
   return params;
 }

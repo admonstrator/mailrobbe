@@ -61,9 +61,9 @@ export function domainColors(nodes: readonly Pick<GraphNode, "domain">[]): Domai
   return { color: (domain) => colors.get(domain) ?? OTHER_COLOR, legend, others };
 }
 
-/** The display name, or the local part of the address. */
-export function nodeLabel(node: Pick<GraphNode, "name" | "email">): string {
-  return node.name?.trim() || node.email.split("@")[0];
+/** The team's label (D157), else the display name, else the local part of the address. */
+export function nodeLabel(node: Pick<GraphNode, "name" | "email" | "label">): string {
+  return node.label?.name?.trim() || node.name?.trim() || node.email.split("@")[0];
 }
 
 /** Diameter by area: proportional to the square root of the mails, clamped. */

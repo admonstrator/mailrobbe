@@ -2,7 +2,8 @@
 
 The graph is undirected; Gephi takes the node attribute "label" as the label and the edge
 attribute "weight" as the weight. Node ids are person ids. Edge dates are only written when
-known, which is the case for the full export from the edge table.
+known, which is the case for the full export from the edge table; the team's label of a person
+(D157) only when it has one, and its name is then the label.
 """
 
 import re
@@ -20,6 +21,8 @@ _NODE_KEYS = (
     ("domain", "string"),
     ("kind", "string"),
     ("mails", "int"),
+    ("label_name", "string"),
+    ("label_role", "string"),
 )
 _EDGE_KEYS = (
     ("weight", "int"),
@@ -36,11 +39,13 @@ _INVALID_XML = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
 @dataclass(frozen=True, slots=True)
 class GraphmlNode:
     id: int  # person id
-    label: str  # display name, else the address
+    label: str  # the label's name, else the display name, else the address
     email: str
     domain: str
     kind: str | None  # person.kind
     mails: int
+    label_name: str | None = None  # the team's label (D157)
+    label_role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +72,15 @@ def graphml_chunks(
             yield f'  <key id="{key}" for="{target}" attr.name="{key}" attr.type="{kind}"/>\n'
     yield f'  <graph id={_attr(graph_id)} edgedefault="undirected">\n'
     for node in nodes:
-        attributes = (node.label, node.email, node.domain, node.kind, node.mails)
+        attributes = (
+            node.label,
+            node.email,
+            node.domain,
+            node.kind,
+            node.mails,
+            node.label_name,
+            node.label_role,
+        )
         yield f'    <node id="{node.id}">{_data(_NODE_KEYS, attributes)}</node>\n'
     for edge in edges:
         values = (

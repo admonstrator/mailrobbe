@@ -178,6 +178,25 @@ describe("mail detail", () => {
     expect(calls.some((call) => call.method === "POST")).toBe(true);
   });
 
+  it("names labelled participants by the team's label, with the role (D157)", async () => {
+    const label = { name: "Kassenwartin Nord", role: "Schatzmeisterin" };
+    const participants = mailDetail.participants.map((person) =>
+      person.person_id === 11 ? { ...person, label } : person,
+    );
+    renderApp("/mails/184221", (call) =>
+      call.url.pathname === "/api/mails/184221"
+        ? { ...mailDetail, participants }
+        : fixtureApi(call),
+    );
+    await screen.findByRole("heading", { name: "Beteiligte" });
+    const people = card("Beteiligte");
+    const anna = within(people).getByRole("link", { name: /Kassenwartin Nord/ });
+    expect(anna.textContent).toBe("KNKassenwartin Nord · Schatzmeisterin · Absender");
+    expect(anna.getAttribute("title")).toBe("anna.keller@nordlicht-gmbh.example");
+    // The header keeps the address beside the name.
+    expect(screen.getAllByRole("link", { name: "Kassenwartin Nord" }).length).toBeGreaterThan(0);
+  });
+
   it("says when a mail does not exist", async () => {
     renderApp("/mails/999", (call) =>
       call.url.pathname === "/api/mails/999"
