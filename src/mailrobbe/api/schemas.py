@@ -717,7 +717,9 @@ class GraphSize(BaseModel):
 # Import dashboard (milestone 7, D46 to D50) ------------------------------------------------
 
 ERROR_PAGE_SIZE = 50  # default page of /api/import/errors
-ImportPhase = Literal["scan", "headers", "import", "finalize", "attachments"]  # jobs.ImportPhase
+ImportPhase = Literal[
+    "scan", "headers", "import", "finalize", "attachments", "entities"
+]  # jobs.ImportPhase
 DkimPhase = Literal["check", "aggregates"]  # jobs.DkimPhase
 
 

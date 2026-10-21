@@ -110,7 +110,7 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
     assert await run_import(settings, mbox_dir, 3, pipeline=PIPELINE, origin=JobOrigin.UI) == 0
     [job] = await _jobs(database_url)
     assert (job["kind"], job["origin"], job["status"]) == (JobKind.IMPORT, "ui", "done")
-    assert job["phase"] == "finalize"
+    assert job["phase"] == "entities"  # the last phase: the texts of the mails (D84)
     assert job["message"].startswith("50 mails imported in ")
     assert job["message"].endswith(
         "s; 50 mails, 0 import errors; 0 of 0 documents with text, 0 waiting; "
