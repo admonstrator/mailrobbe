@@ -327,6 +327,33 @@ def test_reconstruct_rebuilds_the_keys_of_retired_selectors(
     )
 
 
+def test_a_key_another_source_holds_under_another_name_lends_its_evidence(
+    checked: Archive, corpus: Corpus
+) -> None:
+    signed = _signed(corpus, checked)
+    [rebuilt, *_] = _clean(corpus, signed, 1024, mails=2)
+    other = "elsewhere._domainkey." + _domain(rebuilt)
+    asyncio.run(_store_key(checked.url, other, _record(corpus, 1024), KeyOrigin.DOCUMENTED))
+
+    result = _run(checked, "reconstruct", names=[rebuilt])
+
+    assert result.summary.keys_found == 1
+    [key] = asyncio.run(
+        _rows(checked.url, "SELECT id, origin FROM dkim_key WHERE name = :name", name=rebuilt)
+    )
+    evidence = asyncio.run(
+        _rows(
+            checked.url,
+            "SELECT origin, details ->> 'name' AS name FROM dkim_key_evidence"
+            " WHERE key_id = :key ORDER BY id",
+            key=key["id"],
+        )
+    )
+    assert {"origin": "documented", "name": other} in evidence
+    assert key["origin"] in {KeyOrigin.DOCUMENTED, KeyOrigin.OBSERVED}  # observed: today's DNS
+    assert _outcomes(checked, rebuilt) == _expected(signed, rebuilt, key["origin"])
+
+
 def test_a_name_is_tried_again_only_with_other_signatures(checked: Archive, corpus: Corpus) -> None:
     [name, *_] = [n for n in _retired(corpus, 1024) if n not in _retired(corpus, 1024, mails=2)]
     selector, _, domain = name.partition("._domainkey.")
@@ -356,6 +383,52 @@ def test_a_name_is_tried_again_only_with_other_signatures(checked: Archive, corp
     given = _run(checked, "reconstruct", names=[name.upper()])  # a name given is always tried
     assert given.summary.names == 1
     assert _count(checked, "SELECT count(*) FROM dkim_key_lookup") == 2
+
+
+def test_only_failures_from_before_today_s_key_are_read(checked: Archive) -> None:
+    """A signature that fails with today's key is one of a replaced key only when signed
+    before the first one today's key verifies; a later one is a mail changed on the way."""
+    signatures = asyncio.run(
+        _rows(
+            checked.url,
+            "WITH name AS (SELECT r.domain, r.selector FROM dkim_result r"
+            " JOIN mail m ON m.id = r.mail_id"
+            " WHERE r.status = 'pass' AND r.key_id IS NULL AND r.signed_at IS NOT NULL"
+            " AND m.is_duplicate_of IS NULL GROUP BY r.domain, r.selector"
+            " HAVING count(DISTINCT r.signed_at) >= 3"
+            ' ORDER BY r.domain COLLATE "C", r.selector COLLATE "C" LIMIT 1)'
+            " SELECT r.domain, r.selector, r.mail_id, r.signature_index FROM dkim_result r"
+            " JOIN name USING (domain, selector) JOIN mail m ON m.id = r.mail_id"
+            " WHERE r.status = 'pass' AND m.is_duplicate_of IS NULL"
+            " ORDER BY r.signed_at, r.mail_id, r.signature_index",
+        )
+    )
+    first, last = signatures[0], signatures[-1]
+    name = key_name(first["selector"], first["domain"])
+    asyncio.run(  # no other signature is concerned
+        _write(
+            checked.url,
+            "UPDATE dkim_result SET status = 'pass', reason = NULL WHERE status IN"
+            " ('no_key', 'fail')",
+        )
+    )
+    for signature in (first, last):
+        asyncio.run(
+            _write(
+                checked.url,
+                "UPDATE dkim_result SET status = 'fail', reason = 'signature_mismatch',"
+                " body_hash_ok = true WHERE mail_id = :mail AND signature_index = :index",
+                mail=signature["mail_id"],
+                index=signature["signature_index"],
+            )
+        )
+
+    result = _run(checked, "reconstruct")
+
+    assert result.summary.names == 1
+    [lookup] = asyncio.run(_rows(checked.url, "SELECT query, raw FROM dkim_key_lookup"))
+    assert lookup["query"] == name
+    assert json.loads(lookup["raw"])["read"] == [[first["mail_id"], first["signature_index"]]]
 
 
 # search ---------------------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 """The runs of `mailrobbe dkim-keys` (D101): one task each, recorded as a job of kind dkim_keys.
 
     reconstruct  select the concerned key names, most mails first, and up to READ_LIMIT RSA
-                 signatures of each from mails that are no duplicates, oldest t= first; then
+                 signatures of each from mails that are no duplicates, oldest t= first (a
+                 signature that fails with today's key counts only when signed before the
+                 first one that key verifies: a key replaced, not a mail changed); then
                  one name per task in worker processes, which read the mails, keep up to
                  MAX_SIGNATURES with distinct b= and rebuild their keys (reconstruct.py). Every
                  attempt is a lookup, its JSON the signatures read and the keys found, and
@@ -46,7 +48,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Row, and_, func, or_, select, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -84,6 +86,7 @@ from mailrobbe.dkim.override import key_name, normalise_name
 from mailrobbe.dkim.recheck import CheckTally, _Checked, _Mail, by_key_names, check_mails
 from mailrobbe.dkim.verify import signature_material
 from mailrobbe.enums import (
+    DkimStatus,
     DnsStatus,
     JobKind,
     JobOrigin,
@@ -321,8 +324,29 @@ class _Run:
 
     async def _reconstruction_plan(self) -> list["_NameTask"]:
         """The names to rebuild, most mails first, each with the signatures to read."""
+        # A key replaced under the same name leaves signatures that fail with an intact body
+        # from before the first one today's key verifies; those after it are mails changed on
+        # the way (a list's subject tag), whose pairs cost a GCD each and never give a key.
+        first_pass = (
+            select(
+                DkimResult.domain,
+                DkimResult.selector,
+                func.min(DkimResult.signed_at).label("signed_at"),
+            )
+            .where(DkimResult.status == DkimStatus.PASS, DkimResult.key_id.is_(None))
+            .group_by(DkimResult.domain, DkimResult.selector)
+            .subquery()
+        )
+        today = and_(
+            first_pass.c.domain == DkimResult.domain, first_pass.c.selector == DkimResult.selector
+        )
         where = [
             CONCERNED,
+            or_(
+                DkimResult.status == DkimStatus.NO_KEY,
+                first_pass.c.signed_at.is_(None),
+                DkimResult.signed_at < first_pass.c.signed_at,
+            ),
             Mail.is_duplicate_of.is_(None),
             DkimResult.algorithm.like("rsa-%"),
             DkimResult.domain.is_not(None),
@@ -351,6 +375,7 @@ class _Run:
                 rank,
             )
             .join(Mail, Mail.id == DkimResult.mail_id)
+            .outerjoin(first_pass, today)
             .where(*where)
             .subquery()
         )
@@ -380,6 +405,7 @@ class _Run:
                 DkimResult.domain, DkimResult.selector, func.count(DkimResult.mail_id.distinct())
             )
             .join(Mail, Mail.id == DkimResult.mail_id)
+            .outerjoin(first_pass, today)
             .where(*where)
             .group_by(DkimResult.domain, DkimResult.selector)
         )
@@ -567,9 +593,19 @@ class _Run:
             identity = key_identity(record)
             if identity is not None:
                 published[parts[1], identity.key_sha256].append((name, record, fetched_at))
-        held: defaultdict[tuple[str, str], list[tuple[str, DkimKeyEvidence]]] = defaultdict(list)
-        for other, domain, key_sha256, evidence in await self.db.execute(
-            select(DkimKey.name, DkimKey.domain, DkimKey.key_sha256, DkimKeyEvidence)
+        held: defaultdict[tuple[str, str], list[Row[Any]]] = defaultdict(list)
+        for evidence in await self.db.execute(
+            select(
+                DkimKey.name,
+                DkimKey.domain,
+                DkimKey.key_sha256,
+                DkimKeyEvidence.lookup_id,
+                DkimKeyEvidence.origin,
+                DkimKeyEvidence.observed_from,
+                DkimKeyEvidence.observed_to,
+                DkimKeyEvidence.reference,
+                DkimKeyEvidence.details,
+            )
             .join(DkimKeyEvidence, DkimKeyEvidence.key_id == DkimKey.id)
             .where(
                 DkimKey.domain.in_(domains),
@@ -578,7 +614,7 @@ class _Run:
             )
             .order_by(DkimKeyEvidence.id)
         ):
-            held[domain, key_sha256].append((other, evidence))
+            held[evidence.domain, evidence.key_sha256].append(evidence)
         for number, key in enumerate(keys):
             if number and key.name != keys[number - 1].name:
                 step.advance()
@@ -593,14 +629,14 @@ class _Run:
                     )
                     lookup_id = await self._dns_lookup(name, record, fetched_at)
                     await save_evidence(self.db, lookup_id, key.name, key.record, seen)
-            for other, evidence in held.get((key.domain, key.key_sha256), ()):
-                if other != key.name:
+            for evidence in held.get((key.domain, key.key_sha256), ()):
+                if evidence.name != key.name:
                     copy = Evidence(
                         evidence.origin,
                         observed_from=evidence.observed_from,
                         observed_to=evidence.observed_to,
                         reference=evidence.reference,
-                        details={**evidence.details, "name": other},
+                        details={**evidence.details, "name": evidence.name},
                     )
                     await save_evidence(self.db, evidence.lookup_id, key.name, key.record, copy)
         step.advance()  # the last name
