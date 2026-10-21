@@ -166,3 +166,28 @@ terms = [
 [[theme.search]]
 name = "Verschleierung: Kanalwechsel und Löschbitten"
 q = '"lieber telefonieren" or "telefonisch besprechen" or "persönlich besprechen" or "unter vier Augen" or "bitte löschen" or "nach dem Lesen löschen" or "streng vertraulich" or Signal or Telegram or Threema or Schredder'
+
+# Contexts of amounts, IBANs and account numbers (D82). An amount, IBAN or account number is
+# marked cash, donation or receipt when a word of the matching list stands in the same sentence
+# (in a table: the same line). Words match like the terms of the word fields (D83): as a whole
+# word or phrase, any case, single words also with a German inflection ending; compounds do not
+# match, so they are listed one by one, and a word may stand in two lists (Barspende).
+# Mitgliedsbeitrag is left out on purpose: membership fees are routine in every association and
+# would drown the donations the filter is for; they are reported apart from donations in party
+# accounts too, and stay findable by the search.
+[entity_context]
+cash = [
+    "bar", "in bar", "Bargeld", "Barzahlung", "Barspende", "Bareinzahlung", "Barauszahlung",
+    "Barbetrag", "Barkasse", "Handkasse", "Kasse", "cash",
+]
+donation = [
+    "Spende", "Spender", "Spenderin", "gespendet", "Großspende", "Kleinspende", "Sachspende",
+    "Barspende", "Parteispende", "Einzelspende", "Auslandsspende", "Spendengeld", "Spendenkonto",
+    "Spendeneingang", "Spendeneinnahme", "Spendenbetrag", "Zuwendung", "Schenkung", "donation",
+    "donor", "donated",
+]
+receipt = [
+    "Quittung", "quittiert", "Spendenquittung", "Spendenbescheinigung", "Spendenbestätigung",
+    "Zuwendungsbestätigung", "Zuwendungsbescheinigung", "Beleg", "Kassenbeleg", "Einzahlungsbeleg",
+    "receipt",
+]
