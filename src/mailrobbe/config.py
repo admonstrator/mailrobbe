@@ -28,12 +28,26 @@ class Settings(BaseSettings):
     attachment_text_max_size: ByteSize = ByteSize(50 * 1024**2)
     attachment_text_timeout: float = 60.0
     attachment_text_memory: ByteSize = ByteSize(1024**3)
+    # Previews in the browser (D120 to D124): converted documents and decoded audio and video are
+    # cached here by SHA-256 (deleting the directory is always safe); attachments above
+    # preview_max_size are download only. A conversion runs in a process of its own that is
+    # stopped after preview_timeout seconds and may use preview_memory bytes (Linux); at most
+    # preview_workers run at once.
+    preview_dir: Path = Path("data/previews")
+    preview_max_size: ByteSize = ByteSize(50 * 1024**2)
+    preview_timeout: float = 60.0
+    preview_memory: ByteSize = ByteSize(1024**3)
+    preview_workers: int = 2
     # DKIM key lookups (SPEC 3.4, mailrobbe/dkim/checker.py). The override table answers the
     # names it lists; unset means mbox_dir/_generator/dns_override.json when that file exists.
     dkim_dns_override: Path | None = None
     dkim_offline: bool = False  # no DNS lookups: keys not in the cache become temp_error
     dkim_dns_timeout: float = 5.0  # seconds per key name, retries included
     dkim_nameservers: str = ""  # comma-separated IP addresses; empty: the system resolver
+    # Keys of deleted selectors (D102): the ZK Email DKIM archive, asked only on request, one
+    # request per domain; "off" switches it off (an empty variable counts as unset).
+    dkim_key_archive_url: str = "https://archive.zk.email"
+    dkim_key_archive_timeout: float = 30.0  # seconds per request
     # Web UI and API (milestone 4). Basic Auth (D4) is on when both are set, an error when only
     # one is; /api/health stays open for container health checks.
     basic_auth_user: str = ""

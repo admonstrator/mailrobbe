@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from mailrobbe.api import exports
 from mailrobbe.api.schemas import LABEL_LIMIT, ExportInfo
 from mailrobbe.db.models import MailExport
+from mailrobbe.dkim.keys.identity import key_identity
 from mailrobbe.dkim.override import key_name
 from mailrobbe.export.bundle import stream_export
 from mailrobbe.export.manifest import (
@@ -103,6 +104,8 @@ class Archive:
                     key_status=key["status"] if key else None,
                     key_record=key["record"] if key else None,
                     key_fetched_at=key["fetched_at"] if key else None,
+                    key_origin=result["key_origin"],
+                    key_sha256=_dns_key_sha256(result, key),
                 )
             )
         roles = self.participants[mail["id"]]
@@ -186,6 +189,16 @@ async def _load(url: str, mbox_dir: Path) -> Archive:
     finally:
         await engine.dispose()
     return Archive(mbox_dir, mails, participants, dkim, dns, attachments)
+
+
+def _dns_key_sha256(result: Row, key: Row | None) -> str | None:
+    """The SHA-256 of today's DNS key a result rests on; the imported archive has no keys from
+    other sources (tests/api/test_keys.py exports those)."""
+    assert result["key_id"] is None
+    if result["key_origin"] != "dns" or key is None or key["record"] is None:
+        return None
+    identity = key_identity(key["record"])
+    return identity.key_sha256 if identity else None
 
 
 def _sort_key(mail: Row) -> tuple[bool, datetime, int]:

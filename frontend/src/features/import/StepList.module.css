@@ -10,7 +10,7 @@
 
 .step {
   display: grid;
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 16px minmax(0, 1fr);
   column-gap: 8px;
   align-items: start;
 }
@@ -45,7 +45,7 @@
 }
 
 .label {
-  min-width: 21em;
+  min-width: min(21em, 100%); /* aligns the details in wide cards, wraps in narrow ones */
   color: var(--color-text);
 }
 

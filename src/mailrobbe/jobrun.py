@@ -1,4 +1,5 @@
-"""The run side of `mailrobbe import` and `mailrobbe dkim` (D46, D47); jobs.py is the table side.
+"""The run side of `mailrobbe import`, `mailrobbe dkim` and `mailrobbe dkim-keys` (D46, D47);
+jobs.py is the table side.
 
     job_run      connect; take the kind's advisory lock on a connection of the run's own; check
                  the schema; end what dead runs of the kind left in the database; record the
@@ -58,6 +59,7 @@ from mailrobbe.jobs import (
     db_activity,
     end_job,
     end_leftovers,
+    lock_sharers,
     report_job,
 )
 
@@ -72,10 +74,12 @@ _UNLOCK = text("SELECT pg_advisory_unlock(:key)")
 _BUSY = {
     JobKind.IMPORT: "another import is running",
     JobKind.DKIM: "another DKIM check is running",
+    JobKind.DKIM_KEYS: "another DKIM check or key search is running",
 }
 _ABORTED = {
     JobKind.IMPORT: "aborted: run `mailrobbe import` again to continue",
     JobKind.DKIM: "aborted: the mails checked so far are stored",
+    JobKind.DKIM_KEYS: "aborted: the keys and mails stored so far stay",
 }
 _ERRORS = (OSError, SQLAlchemyError)
 
@@ -206,7 +210,9 @@ async def job_run(
         problem = await _schema_problem(connection, engine)
         if problem is not None:
             raise RunRefused(problem)
-        ended = await end_leftovers(connection, kind)
+        ended = 0
+        for other in lock_sharers(kind):  # dkim and dkim_keys share a lock (D101)
+            ended += await end_leftovers(connection, other)
         if ended:
             plural = "" if ended == 1 else "s"
             log.warning(

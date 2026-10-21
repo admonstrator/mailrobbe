@@ -1,0 +1,40 @@
+.run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 12px;
+  border-radius: var(--radius-tile);
+  padding: 10px 12px;
+  background: var(--color-hover);
+  color: var(--color-nav);
+  font-size: 13px;
+}
+
+.text {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.figures {
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--color-muted);
+  font-weight: 400;
+}
+
+.message {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}

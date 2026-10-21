@@ -1,0 +1,33 @@
+.name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+.date {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-nav);
+  font-size: 13px;
+}
+
+.date input {
+  width: auto;
+}
+
+.file {
+  font-size: 13px;
+}

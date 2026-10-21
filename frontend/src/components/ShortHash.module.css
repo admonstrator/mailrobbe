@@ -1,0 +1,19 @@
+.hash {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  max-width: 100%;
+}
+
+.value {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  color: var(--color-pass-text);
+  font-size: 12px;
+}

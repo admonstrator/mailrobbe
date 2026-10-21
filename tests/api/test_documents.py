@@ -49,6 +49,7 @@ from mailrobbe.config import Settings
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT
 from mailrobbe.enums import DocumentKind, DocumentTextStatus
 from mailrobbe.importer.cli import run_import
+from mailrobbe.preview.kinds import preview_kind
 from tests.api.conftest import _client
 from tests.api.test_mails import Params, at, get, rows
 from tests.attachments.doubles import FIRST_DAY, Attached, attachment_mail, digest
@@ -66,8 +67,6 @@ ORDER = {
     "size": "size_bytes DESC, id DESC",
 }
 PAGE = 37  # not a divisor of the number of documents, so the last page is short
-RASTER_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
-RASTER_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 SIGNATURES = {
     "image/png": b"\x89PNG\r\n\x1a\n",
     "image/jpeg": b"\xff\xd8\xff",
@@ -629,7 +628,7 @@ async def test_the_page_of_a_document_sent_under_two_names(
         mail=crafted.mails[0],
         document=detail.id,
     )
-    assert (detail.attachment_id, detail.preview) == (first.id, False)
+    assert (detail.attachment_id, detail.preview) == (first.id, None)
 
 
 async def test_duplicates_count_as_attachments_but_not_as_mails(
@@ -657,7 +656,7 @@ async def test_pages_of_undated_unnamed_and_image_documents(
         None,
     )
     blob = await detail_of(crafted_client, crafted.documents["blob"])
-    assert (blob.name, blob.names, blob.preview) == (None, [], False)
+    assert (blob.name, blob.names, blob.preview) == (None, [], None)
     html = await detail_of(crafted_client, crafted.documents["html"])
     assert {count.person.email for count in html.recipients} == {
         "anna@a.example",
@@ -668,7 +667,13 @@ async def test_pages_of_undated_unnamed_and_image_documents(
         for key in ("png", "jpeg", "html", "pdf", "uebersicht")
     }
     # scan.jpg was declared application/octet-stream: its name makes it a preview
-    assert previews == {"png": True, "jpeg": True, "html": False, "pdf": False, "uebersicht": False}
+    assert previews == {
+        "png": "image",
+        "jpeg": "image",
+        "html": None,
+        "pdf": "pdf",
+        "uebersicht": None,
+    }
     umlaut = await detail_of(crafted_client, crafted.documents["uebersicht"])
     assert umlaut.name == UMLAUT_NAME
 
@@ -1131,9 +1136,11 @@ async def test_every_document_page_against_sql(
             assert [(c.person, c.mails) for c in listed] == [
                 (people[r.root], r.mails) for r in expected
             ]
-        extension = (row.name or "").rpartition(".")[2].lower()
-        raster = row.mime_type in RASTER_TYPES or extension in RASTER_EXTENSIONS
-        assert detail.preview == (row.kind == "image" and raster)
+        kind = None if row.kind is None else DocumentKind(row.kind)
+        hashed = row.sha256 is not None
+        size, limit = row.size_bytes, Settings().preview_max_size
+        preview = preview_kind(kind, row.name, row.mime_type, size, hashed=hashed, max_size=limit)
+        assert detail.preview == preview
 
 
 async def test_the_mails_carrying_each_generated_document(

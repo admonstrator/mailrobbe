@@ -11,7 +11,7 @@ import hashlib
 import logging
 import random
 import re
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -27,10 +27,17 @@ from dkim.util import parse_tag_value
 
 from mailrobbe.dkim import verify
 from mailrobbe.dkim.canonical import canonical_blocks
-from mailrobbe.dkim.model import DnsAnswer, MailVerdict, SignatureResult
+from mailrobbe.dkim.model import (
+    NO_CANDIDATES,
+    CandidateKey,
+    DnsAnswer,
+    KeyCandidates,
+    MailVerdict,
+    SignatureResult,
+)
 from mailrobbe.dkim.override import DnsOverrideTable, key_name
 from mailrobbe.dkim.verify import verify_mail
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus
+from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin
 from mailrobbe.generator.dkim import generate_test_key
 from tests import dkim_check
 from tests.dkim.conftest import Corpus
@@ -192,8 +199,8 @@ def published(kind: str = "rsa2048", *, drop: Iterable[str] = (), **tags: str) -
     return {NAME: record(kind, drop=drop, **tags)}
 
 
-def only(raw: bytes, keys: Keys) -> SignatureResult:
-    verdict = verify_mail(raw, keys)
+def only(raw: bytes, keys: Keys, candidates: KeyCandidates = NO_CANDIDATES) -> SignatureResult:
+    verdict = verify_mail(raw, keys, candidates)
     assert len(verdict.signatures) == 1
     return verdict.signatures[0]
 
@@ -231,6 +238,9 @@ class Case:
     timeouts: frozenset[str] = frozenset()
     offline: bool = False
     dkimpy: bool = True  # tests/dkim_check reaches the same status
+    # keys of deleted selectors (D100); the cases with candidates that decide are in
+    # test_keys_verify.py
+    candidates: Mapping[str, Sequence[CandidateKey]] = field(default_factory=dict)
 
     def keys(self) -> Keys:
         return Keys(self.records, self.timeouts, R.DNS_OFFLINE if self.offline else None)
@@ -288,6 +298,12 @@ CASES: dict[str, Callable[[], Case]] = {
         sign(MESSAGE), TEMP_ERROR, R.DNS_OFFLINE, timeouts=frozenset([NAME]), offline=True
     ),
     "key not found": lambda: Case(sign(MESSAGE), NO_KEY, R.KEY_NOT_FOUND),
+    "no candidate key fits": lambda: Case(
+        sign(MESSAGE),
+        NO_KEY,
+        R.KEY_MISMATCH,
+        candidates={NAME: [CandidateKey(1, KeyOrigin.RECONSTRUCTED, record("rsa1024"))]},
+    ),
     # dkimpy treats a revoked key like a broken one: fail
     "key revoked": lambda: Case(
         sign(MESSAGE), NO_KEY, R.KEY_REVOKED, {NAME: "v=DKIM1; k=rsa; p="}, dkimpy=False
@@ -377,7 +393,7 @@ def built(name: str) -> Case:
 def test_order_of_checks(name: str) -> None:
     case = built(name)
     keys = case.keys()
-    result = only(case.raw, keys)
+    result = only(case.raw, keys, case.candidates)
     assert (result.status, result.reason) == (case.status, case.reason)
     assert keys.calls == ([] if case.reason in _NO_LOOKUP else [NAME])
     if case.dkimpy:
@@ -410,6 +426,7 @@ def test_details_of_a_pass() -> None:
         signed_at=datetime(2009, 2, 13, 23, 31, 30, tzinfo=UTC),
         aligned=True,
         dns_cached=False,
+        key_origin=KeyOrigin.DNS,
     )
 
 

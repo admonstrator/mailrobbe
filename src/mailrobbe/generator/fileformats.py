@@ -1,4 +1,5 @@
-"""Byte writers for generated documents (D77): PDF, DOCX, XLSX, PPTX, ODT, ZIP.
+"""Byte writers for generated documents (D77): PDF, DOCX, XLSX, PPTX, ODT, ZIP, and pictures
+(PNG, JPEG) and recordings (D125).
 
 Written by hand, small and deterministic: the same arguments give the same bytes (ZIP entries
 carry the document's own date, never the clock; deflate output is that of the local zlib).
@@ -12,17 +13,25 @@ PDF: Helvetica with WinAnsiEncoding, so German text (umlauts, euro sign, quotes)
 as written; content streams are deflated. Encrypted PDFs use the standard security handler,
 revision 4 with AES-128 (AESV2), with a user password, as Acrobat writes them. Scanned PDFs
 have pages that show only an image.
+
+Pictures: PNGs drawn here, JPEGs from the photos in media/; noise where every decoder skips it
+(a private PNG chunk, JPEG comment segments) brings them to the planned size and makes each one
+a file of its own. Recordings are the files in media/ as they are, made once with ffmpeg from
+synthetic sources (media/README.md).
 """
 
 import base64
+import functools
 import hashlib
 import io
 import random
+import struct
 import zipfile
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
 from cryptography.hazmat.primitives import padding
@@ -804,3 +813,73 @@ def odt(
         ("META-INF/manifest.xml", manifest.encode(), True),
     ]
     return zip_bytes(members, when, Picture("Pictures/image1.png", size, rng, 64))
+
+
+# Pictures and recordings --------------------------------------------------------------------
+
+MEDIA_DIR = Path(__file__).with_name("media")  # recordings and photos, see media/README.md
+_PHOTOS = 3  # media/jpeg-1.jpeg to jpeg-3.jpeg
+_PICTURE_SIZES = ((320, 240), (400, 300), (480, 320), (240, 320), (160, 60))
+_PNG_PADDING = b"paDd"  # a private ancillary chunk: decoders skip it
+_COMMENT = 65533  # the largest JPEG comment segment
+
+
+@functools.cache
+def fixture(name: str) -> bytes:
+    """A file of media/ by its name."""
+    return (MEDIA_DIR / name).read_bytes()
+
+
+def png(rng: random.Random, size: int, *, damaged: bool = False) -> bytes:
+    """A PNG of coloured blocks on a gradient, about `size` bytes: noise in a chunk of its own
+    between header and image data makes up the rest. A damaged one stops inside that chunk, so
+    it has a size but no image."""
+    width, height = rng.choice(_PICTURE_SIZES)
+    top, bottom = rng.randbytes(3), rng.randbytes(3)
+    rows = [
+        bytearray(bytes(a + (b - a) * y // height for a, b in zip(top, bottom, strict=True)))
+        * width
+        for y in range(height)
+    ]
+    for _ in range(rng.randint(3, 8)):
+        x0, y0 = rng.randrange(width), rng.randrange(height)
+        x1, y1 = rng.randint(x0 + 1, width), rng.randint(y0 + 1, height)
+        colour = rng.randbytes(3)
+        for row in rows[y0:y1]:
+            row[3 * x0 : 3 * x1] = colour * (x1 - x0)
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)  # 8-bit RGB
+    image = zlib.compress(b"".join(b"\x00" + row for row in rows), 9)
+    used = 8 + 3 * 12 + len(header) + len(image) + 12
+    noise = filler(rng, max(size - used, 64), b"")
+    data = b"".join(
+        (
+            b"\x89PNG\r\n\x1a\n",
+            _png_chunk(b"IHDR", header),
+            _png_chunk(_PNG_PADDING, noise),
+            _png_chunk(b"IDAT", image),
+            _png_chunk(b"IEND", b""),
+        )
+    )
+    return data[: rng.randint(41, 41 + len(noise))] if damaged else data
+
+
+def _png_chunk(kind: bytes, data: bytes) -> bytes:
+    crc = zlib.crc32(data, zlib.crc32(kind))
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+
+
+def jpeg(rng: random.Random, size: int, *, damaged: bool = False) -> bytes:
+    """A photo of media/ (made with ffmpeg) of about `size` bytes: comment segments of noise
+    after its JFIF header make up the rest, so every photo has bytes of its own. A damaged one
+    stops inside them, before the frame header."""
+    photo = fixture(f"jpeg-{rng.randint(1, _PHOTOS)}.jpeg")
+    start = 4 + int.from_bytes(photo[4:6], "big")  # behind SOI and APP0
+    pad = max(size - len(photo), 64)
+    noise = filler(rng, pad - 4 * -(-pad // (_COMMENT + 4)), b"")
+    comments = b"".join(
+        b"\xff\xfe" + struct.pack(">H", len(piece) + 2) + piece
+        for piece in (noise[i : i + _COMMENT] for i in range(0, len(noise), _COMMENT))
+    )
+    if damaged:
+        return photo[:start] + comments[: rng.randint(5, len(comments) - 1)]
+    return photo[:start] + comments + photo[start:]

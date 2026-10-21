@@ -1,5 +1,7 @@
 """What an export says about a mail, from the database: metadata, DKIM, attachments and the
-research data (D62), a batch of mails in a few queries.
+research data (D62), a batch of mails in a few queries; and the keys from other sources than
+today's DNS its signatures rest on, with their evidence and the sources' answers (D105), one key
+at a time.
 
 An export names its mails by content (D53); of the mails with one raw SHA-256 the original (no
 duplicate, then the lowest id) stands for all, as for permalinks (D61).
@@ -13,7 +15,7 @@ from typing import Any, cast
 
 from sqlalchemy import BigInteger, ColumnElement, Row, Text, any_, case, func, literal, select
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, aggregate_order_by
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.api.schemas import (
@@ -31,6 +33,9 @@ from mailrobbe.db.models import (
     Attachment,
     Collection,
     CollectionMail,
+    DkimKey,
+    DkimKeyEvidence,
+    DkimKeyLookup,
     DkimResult,
     DnsCache,
     Mail,
@@ -42,8 +47,9 @@ from mailrobbe.db.models import (
     Person,
     Tag,
 )
+from mailrobbe.dkim.keys.identity import key_identity
 from mailrobbe.dkim.override import key_name
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, ParticipationRole
+from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin, ParticipationRole
 
 _Row = Row[*tuple[Any, ...]]
 
@@ -74,6 +80,12 @@ class Signature:
     key_status: DnsStatus | None  # None: no answer for the key's name is cached
     key_record: str | None
     key_fetched_at: datetime | None
+    # The key the result rests on (D100): its origin, the dkim_key row (None for today's DNS),
+    # its SHA-256 (keys.identity; for today's DNS of the cached record) and its evidence ids.
+    key_origin: KeyOrigin | None = None
+    key_id: int | None = None
+    key_sha256: str | None = None
+    evidence: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,10 +193,17 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
     if names:
         cached = await session.scalars(select(DnsCache).where(DnsCache.name.in_(names)))
         keys = {key.name: key for key in cached}
+    stored = await _stored_keys(session, {r.key_id for r in results if r.key_id is not None})
     for result in results:
         key = None
         if result.selector and result.domain:
             key = keys.get(key_name(result.selector, result.domain))
+        key_sha256, evidence = (
+            stored.get(result.key_id, (None, ())) if result.key_id else (None, ())
+        )
+        if result.key_origin is KeyOrigin.DNS and key and key.record:
+            identity = key_identity(key.record)
+            key_sha256 = identity.key_sha256 if identity else None
         found[result.mail_id].signatures.append(
             Signature(
                 index=result.signature_index,
@@ -200,6 +219,10 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
                 key_status=key.status if key else None,
                 key_record=key.record if key else None,
                 key_fetched_at=key.fetched_at if key else None,
+                key_origin=result.key_origin,
+                key_id=result.key_id,
+                key_sha256=key_sha256,
+                evidence=evidence,
             )
         )
     attachments = await session.execute(
@@ -277,3 +300,124 @@ async def research(session: AsyncSession, hashes: Sequence[str]) -> dict[str, Ma
         )
         for sha in hashes
     }
+
+
+async def _stored_keys(
+    session: AsyncSession, key_ids: set[int]
+) -> dict[int, tuple[str, tuple[int, ...]]]:
+    """The SHA-256 and the evidence ids of each dkim_key."""
+    if not key_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            DkimKey.id,
+            DkimKey.key_sha256,
+            func.array_remove(
+                func.array_agg(aggregate_order_by(DkimKeyEvidence.id, DkimKeyEvidence.id)), None
+            ),
+        )
+        .outerjoin(DkimKeyEvidence, DkimKeyEvidence.key_id == DkimKey.id)
+        .where(DkimKey.id == any_(literal(sorted(key_ids), ARRAY(BigInteger))))
+        .group_by(DkimKey.id)
+    )
+    return {key_id: (sha256, tuple(evidence)) for key_id, sha256, evidence in rows}
+
+
+# Keys (D105) ---------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class KeyEvidence:
+    """One piece of evidence with the lookup it comes from, its answer included."""
+
+    id: int
+    origin: KeyOrigin
+    observed_from: datetime | None
+    observed_to: datetime | None
+    reference: str | None
+    note: str | None
+    editor: str | None
+    details: dict[str, Any]
+    lookup_id: int
+    source: str
+    query: str
+    asked_at: datetime
+    outcome: str
+    http_status: int | None
+    raw: bytes | None
+    raw_sha256: str | None
+    raw_type: str | None
+    raw_name: str | None
+    tool_version: str
+
+    @property
+    def used(self) -> list[tuple[str, int]]:
+        """The signatures a reconstruction used: (mail SHA-256, signature index)."""
+        return [
+            (entry["mail_sha256"], entry["signature_index"])
+            for entry in self.details.get("signatures", [])
+            if isinstance(entry, dict) and {"mail_sha256", "signature_index"} <= entry.keys()
+        ]
+
+
+@dataclass(frozen=True, slots=True)
+class ExportKey:
+    """A dkim_key row with its evidence, strongest origin first, then oldest."""
+
+    id: int
+    name: str
+    key_type: str
+    bits: int
+    key_sha256: str
+    record: str
+    origin: KeyOrigin
+    factorable: bool
+    evidence: list[KeyEvidence]
+
+
+async def export_key(session: AsyncSession, key_id: int) -> ExportKey | None:
+    """The key with its evidence and the lookups' answers; None when it is gone."""
+    key = await session.get(DkimKey, key_id)
+    if key is None:
+        return None
+    rows = await session.execute(
+        select(DkimKeyEvidence, DkimKeyLookup)
+        .join(DkimKeyLookup, DkimKeyLookup.id == DkimKeyEvidence.lookup_id)
+        .where(DkimKeyEvidence.key_id == key_id)
+        .order_by(DkimKeyEvidence.origin, DkimKeyEvidence.created_at, DkimKeyEvidence.id)
+    )
+    evidence = [
+        KeyEvidence(
+            id=item.id,
+            origin=item.origin,
+            observed_from=item.observed_from,
+            observed_to=item.observed_to,
+            reference=item.reference,
+            note=item.note,
+            editor=item.editor,
+            details=item.details,
+            lookup_id=lookup.id,
+            source=lookup.source,
+            query=lookup.query,
+            asked_at=lookup.asked_at,
+            outcome=lookup.outcome,
+            http_status=lookup.http_status,
+            raw=lookup.raw,
+            raw_sha256=lookup.raw_sha256,
+            raw_type=lookup.raw_type,
+            raw_name=lookup.raw_name,
+            tool_version=lookup.tool_version,
+        )
+        for item, lookup in rows
+    ]
+    return ExportKey(
+        id=key.id,
+        name=key.name,
+        key_type=key.key_type,
+        bits=key.bits,
+        key_sha256=key.key_sha256,
+        record=key.record,
+        origin=key.origin,
+        factorable=key.factorable,
+        evidence=evidence,
+    )

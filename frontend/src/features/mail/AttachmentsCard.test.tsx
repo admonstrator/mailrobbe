@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AttachmentInfo } from "../../api/types";
@@ -76,5 +76,51 @@ describe("attachments of a mail", () => {
     expect(within(photo).getByRole("img", { name: "Bild" })).toBeTruthy();
     expect(within(photo).getByRole("link", { name: "Foto.jpg herunterladen" })).toBeTruthy();
     expect(within(photo).queryByRole("link", { name: /Dokument|weiteren/ })).toBeNull();
+  });
+
+  it("open one preview at a time below the attachment, and close it", async () => {
+    const [pdf, sheet] = mailDetail.attachments;
+    renderApp(
+      "/mails/184221",
+      withAttachments([
+        pdf,
+        sheet,
+        { ...pdf, id: 904, filename: "Anruf.m4a", mime_type: "audio/mp4", preview: "audio" },
+      ]),
+    );
+    const card = await attachmentsCard();
+    const contract = item(card, "Rahmenvereinbarung_2026_final.pdf");
+    const call = item(card, "Anruf.m4a");
+    // The links keep their order; the preview comes after the download.
+    expect(
+      Array.from(contract.querySelectorAll("a, button"), (element) => element.textContent),
+    ).toEqual(["Herunterladen", "Vorschau", "auch in 5 weiteren Mails"]);
+    // The spreadsheet has none.
+    const spreadsheet = item(card, "Aenderungsprotokoll.xlsx");
+    expect(within(spreadsheet).getByText("nur Download")).toBeTruthy();
+    expect(within(spreadsheet).queryByRole("button")).toBeNull();
+
+    const open = within(contract).getByRole("button", { name: "Vorschau" });
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(open);
+    const panel = within(contract).getByRole("region", {
+      name: "Vorschau von Rahmenvereinbarung_2026_final.pdf",
+    });
+    expect(open.getAttribute("aria-controls")).toBe(panel.id);
+    expect(open.getAttribute("aria-expanded")).toBe("true");
+    expect(open.textContent).toBe("Vorschau schließen");
+    // The previews come in a chunk of their own, loaded when the first one opens.
+    expect(
+      await within(panel).findByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf"),
+    ).toBeTruthy();
+
+    // Another one replaces it.
+    fireEvent.click(within(call).getByRole("button", { name: "Vorschau" }));
+    expect(screen.queryByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf")).toBeNull();
+    expect(open.getAttribute("aria-expanded")).toBe("false");
+    expect((await within(call).findByTitle("Anruf.m4a")).tagName).toBe("AUDIO");
+
+    fireEvent.click(within(call).getByRole("button", { name: "Vorschau schließen" }));
+    expect(screen.queryByRole("region", { name: /^Vorschau von/ })).toBeNull();
   });
 });

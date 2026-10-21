@@ -82,7 +82,7 @@ async def test_stats_are_the_figures_of_the_archive(
             "progress": min(1.0, figures.progress),
         },
     }
-    assert len(stats["dkim"]) == 6
+    assert len(stats["dkim"]) == 7
 
 
 async def test_sender_domains_search_and_limit(

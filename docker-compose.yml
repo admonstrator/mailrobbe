@@ -60,8 +60,11 @@ services:
       MAILROBBE_BASIC_AUTH_USER: ${MAILROBBE_BASIC_AUTH_USER:-}
       MAILROBBE_BASIC_AUTH_PASSWORD: ${MAILROBBE_BASIC_AUTH_PASSWORD:-}
       MAILROBBE_INTERNAL_DOMAINS: ${MAILROBBE_INTERNAL_DOMAINS:-}
+      # Converted documents and decoded audio and video for the previews (D124); safe to delete.
+      MAILROBBE_PREVIEW_DIR: /data/previews
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
+      - previews:/data/previews
     ports:
       - "127.0.0.1:${MAILROBBE_PORT:-8000}:8000"
     depends_on:
@@ -88,3 +91,4 @@ services:
 
 volumes:
   pgdata:
+  previews:

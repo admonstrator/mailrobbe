@@ -1,10 +1,12 @@
-"""Serving the built frontend: static files, index.html for client-side routes (D24)."""
+"""Serving the built frontend: static files, index.html for client-side routes (D24), and the
+PDF viewer below viewer/ with a policy of its own (D121)."""
 
 import logging
+import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 log = logging.getLogger(__name__)
 
@@ -20,6 +22,28 @@ INDEX_HEADERS = {
         "form-action 'self'; frame-ancestors 'none'"
     ),
 }
+# The PDF viewer (D121) runs pdf.js on an opaque origin: the sandbox lacks allow-same-origin
+# also when its page is opened directly, so it can neither read the app's data nor call its API
+# as the app. It fetches nothing (the app hands it the PDF by postMessage) and opens no frames,
+# forms or windows. Its scripts run by a nonce given per response, which the page carries as
+# NONCE_PLACEHOLDER: from an opaque origin, 'self' does not name this server in every browser.
+VIEWER_DIR = "viewer"
+NONCE_PLACEHOLDER = "__CSP_NONCE__"
+VIEWER_FILE_HEADERS = {"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"}
+
+
+def viewer_headers(nonce: str) -> dict[str, str]:
+    """Headers of a viewer page whose scripts carry this nonce."""
+    return {
+        "Content-Security-Policy": (
+            f"sandbox allow-scripts; default-src 'none'; script-src 'nonce-{nonce}'; "
+            "style-src 'unsafe-inline'; img-src blob: data:; font-src data:; base-uri 'none'; "
+            "form-action 'none'; frame-ancestors 'self'"
+        ),
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "no-store",
+    }
 
 
 def mount(app: FastAPI, frontend_dir: Path) -> None:
@@ -33,14 +57,22 @@ def mount(app: FastAPI, frontend_dir: Path) -> None:
     index = root / "index.html"
 
     @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
-    async def frontend(path: str) -> FileResponse:
+    async def frontend(path: str) -> Response:
         if path == "api" or path.startswith("api/"):
             raise HTTPException(404)  # an unknown API path stays a JSON 404
         file = _file(root, path)
+        if file is None and path.startswith(f"{VIEWER_DIR}/"):
+            raise HTTPException(404)  # not the app: the viewer's paths are open (auth.py)
         if file is None or file == index:
             return FileResponse(index, headers=INDEX_HEADERS)
-        assets = file.relative_to(root).parts[0] == "assets"
-        return FileResponse(file, headers=ASSET_HEADERS if assets else None)
+        top = file.relative_to(root).parts[0]
+        if top == VIEWER_DIR:
+            if file.suffix == ".html":
+                nonce = secrets.token_urlsafe(18)
+                page = file.read_text("utf-8").replace(NONCE_PLACEHOLDER, nonce)
+                return HTMLResponse(page, headers=viewer_headers(nonce))
+            return FileResponse(file, headers=VIEWER_FILE_HEADERS)
+        return FileResponse(file, headers=ASSET_HEADERS if top == "assets" else None)
 
 
 def _file(root: Path, path: str) -> Path | None:

@@ -6,11 +6,11 @@ Every message has LF line endings, ASCII-only headers, exactly one Message-ID an
 in its header block, and parses without defects with email.policy.default.
 
 Attachments are the parts that carry a file name; a forwarded message/rfc822 part has none.
-Documents (PDF, office files, CSV, text, calendar, vCard, ZIP) are real files built by
-generator.documents; the other payloads (pictures, media, the very large attachments) are
-periodic blocks of seeded random bytes behind a plausible magic number, base64-encoded block by
-block, so even very large ones cost almost nothing. RenderedMail.documents is the ground truth
-of every attachment, in the order importer.parse.mime_parts finds them.
+Documents (PDF, office files, CSV, text, calendar, vCard, ZIP, pictures, recordings) are real
+files built by generator.documents; the very large attachments are periodic blocks of seeded
+random bytes behind a plausible magic number, base64-encoded block by block, so they cost
+almost nothing. RenderedMail.documents is the ground truth of every attachment, in the order
+importer.parse.mime_parts finds them.
 """
 
 import base64
@@ -67,7 +67,7 @@ def render(planned: PlannedMail) -> RenderedMail:
 
 def _truth(spec: AttachmentSpec) -> DocumentTruth:
     if spec.document is not None:
-        return documents.build(spec).truth(spec.filename)
+        return documents.build(spec).truth(spec.filename, spec.mime_type)
     return documents.filler_truth(spec, _payload_sha256(spec))
 
 

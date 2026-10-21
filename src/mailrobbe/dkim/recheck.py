@@ -4,9 +4,11 @@ The main process selects the mails in file order, with keyset pagination on (mbo
 byte_offset), so a run over 400,000 mails never holds more than one page and every file is read
 front to back. Pages go as chunks to a pool of worker processes; each worker reads the messages
 with mbox.read_message, makes sure they are still the bytes that were imported (raw_sha256) and
-checks them with its own DkimChecker, built once from the dns_cache rows the main process
-loaded. The main process writes every finished chunk (save_verdicts, upsert_dns_cache) and
-commits it, so an interrupted run keeps what it finished. A run that checked mails ends by
+checks them with its own DkimChecker, built once from the dns_cache rows and the candidate keys
+of deleted selectors (D100) the main process loaded. The main process writes every finished
+chunk (save_verdicts, upsert_dns_cache) and commits it, so an interrupted run keeps what it
+finished. check_mails is that part on its own; `mailrobbe dkim-keys` checks the mails of the key
+names it touched with it (by_key_names, keys/run.py). A run that checked mails ends by
 recomputing the aggregates (D33): the pass_* counters of the edges (D36), the person figures
 with their DKIM share and global_stats, whose DKIM counts the mail list shows (D19).
 
@@ -41,16 +43,18 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from mailrobbe import aggregates
 from mailrobbe.config import Settings
-from mailrobbe.db.models import Mail, MboxFile
+from mailrobbe.db.models import DkimResult, Mail, MboxFile
 from mailrobbe.db.session import create_engine
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
-from mailrobbe.dkim.model import DnsAnswer, MailVerdict
+from mailrobbe.dkim.keys.store import load_candidates, of_key_names
+from mailrobbe.dkim.model import DnsAnswer, KeyCandidates, MailVerdict
 from mailrobbe.enums import DkimStatus, JobKind, JobOrigin, JobStatus
 from mailrobbe.jobrun import (
     JobRun,
     RateWindow,
     Step,
+    Steps,
     ignore_interrupts,
     job_run,
     spawning_workers,
@@ -137,7 +141,7 @@ async def run_recheck(
         workers=jobs,
         offline=settings.dkim_offline,
     )
-    tally = _Tally()
+    tally = CheckTally()
     engine = create_engine(settings.database_url, application_name(JobKind.DKIM))
     try:
         async with job_run(
@@ -167,57 +171,85 @@ def _selection(
     return or_(false(), *conditions)
 
 
+def by_key_names(names: Collection[str]) -> ColumnElement[bool]:
+    """The mails with a signature of one of these key names ('<selector>._domainkey.<domain>')."""
+    return Mail.id.in_(select(DkimResult.mail_id).where(of_key_names(names)))
+
+
 async def _run(
     engine: AsyncEngine,
     settings: Settings,
     where: ColumnElement[bool],
     jobs: int,
-    tally: "_Tally",
+    tally: "CheckTally",
     job: JobRun,
 ) -> None:
     async with engine.connect() as connection:
-        count = select(func.count()).select_from(Mail).where(where)
-        selected = await connection.scalar(count) or 0
-        files = await connection.execute(select(MboxFile.id, MboxFile.path))
-        paths = {file_id: path for file_id, path in files}
-        answers = await store.load_dns_cache(connection)
-        await connection.commit()
-        jobs = max(1, min(jobs, math.ceil(selected / CHUNK)))
-        log.info(
-            "%d mails selected, %d cached DNS answers, %d worker(s)",
-            selected,
-            len(answers),
-            jobs,
-        )
-        tally.start(selected, jobs)
-        # _Tally logs the progress itself, with the mails skipped.
-        with (
-            job.steps.step("check", unit="mails", total=selected, log_progress=False) as step,
-            _checkers(settings, answers, jobs) as submit,
-        ):
-            tally.step = step
-            pending: deque[tuple[list[_Mail], Awaitable[_Checked]]] = deque()
-            try:
-                async with aclosing(_chunks(connection, where, paths)) as chunks:
-                    async for chunk in chunks:
-                        if job.stop.is_set():
-                            break
-                        pending.append((chunk, submit(chunk)))
-                        if len(pending) >= jobs * WINDOW_PER_JOB:
-                            await _write(connection, *pending.popleft(), tally)
-                while pending:
-                    await _write(connection, *pending.popleft(), tally)
-            except Exception:
-                # The pool waits for the chunks in flight anyway; their errors are this one's.
-                await asyncio.gather(*(result for _, result in pending), return_exceptions=True)
-                raise
-        tally.workers = 0
+        await check_mails(connection, settings, where, jobs, tally, job.steps, job.stop)
         if tally.checked:
             job.set_phase("aggregates")
             await aggregates.refresh_aggregates(connection, steps=job.steps)
             await connection.commit()
         else:
             job.steps.skip(*aggregates.STEPS)
+
+
+async def check_mails(
+    connection: AsyncConnection,
+    settings: Settings,
+    where: ColumnElement[bool],
+    jobs: int,
+    tally: "CheckTally",
+    steps: Steps,
+    stop: asyncio.Event,
+    *,
+    refresh_negative: bool = True,
+) -> None:
+    """Check the selected mails with every candidate key and store them, chunk by chunk, as the
+    step check of `steps`.
+
+    Commits each chunk; once `stop` is set no chunk is started, and those in flight are written.
+    refresh_negative: ask DNS again for the keys the cache has as missing or timed out (D11).
+    """
+    count = select(func.count()).select_from(Mail).where(where)
+    selected = await connection.scalar(count) or 0
+    files = await connection.execute(select(MboxFile.id, MboxFile.path))
+    paths = {file_id: path for file_id, path in files}
+    answers = await store.load_dns_cache(connection)
+    candidates = await load_candidates(connection)
+    await connection.commit()
+    jobs = max(1, min(jobs, math.ceil(selected / CHUNK)))
+    log.info(
+        "%d mails selected, %d cached DNS answers, keys for %d names, %d worker(s)",
+        selected,
+        len(answers),
+        len(candidates),
+        jobs,
+    )
+    tally.start(selected, jobs)
+    keys = _Keys(answers, candidates, refresh_negative)
+    # The tally logs the progress itself, with the mails skipped.
+    with (
+        steps.step("check", unit="mails", total=selected, log_progress=False) as step,
+        _checkers(settings, keys, jobs) as submit,
+    ):
+        tally.step = step
+        pending: deque[tuple[list[_Mail], Awaitable[_Checked]]] = deque()
+        try:
+            async with aclosing(_chunks(connection, where, paths)) as chunks:
+                async for chunk in chunks:
+                    if stop.is_set():
+                        break
+                    pending.append((chunk, submit(chunk)))
+                    if len(pending) >= jobs * WINDOW_PER_JOB:
+                        await _write(connection, *pending.popleft(), tally)
+            while pending:
+                await _write(connection, *pending.popleft(), tally)
+        except Exception:
+            # The pool waits for the chunks in flight anyway; their errors are this one's.
+            await asyncio.gather(*(result for _, result in pending), return_exceptions=True)
+            raise
+    tally.workers = 0
 
 
 def _one_line(summary: RecheckSummary) -> str:
@@ -284,7 +316,10 @@ async def _chunks(
 
 
 async def _write(
-    connection: AsyncConnection, chunk: list[_Mail], result: Awaitable[_Checked], tally: "_Tally"
+    connection: AsyncConnection,
+    chunk: list[_Mail],
+    result: Awaitable[_Checked],
+    tally: "CheckTally",
 ) -> None:
     checked = await result
     await store.save_verdicts(connection, tally.count(chunk, checked))
@@ -295,12 +330,26 @@ async def _write(
 # Workers -----------------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class _Keys:
+    """What every checker of a run starts from, read once by the main process."""
+
+    answers: list[DnsAnswer]  # dns_cache
+    candidates: KeyCandidates  # keys of deleted selectors (keys.store.load_candidates)
+    refresh_negative: bool
+
+
 class _Worker:
     """What a checking process keeps between chunks: the MBOX directory and its checker."""
 
-    def __init__(self, settings: Settings, answers: list[DnsAnswer]) -> None:
+    def __init__(self, settings: Settings, keys: _Keys) -> None:
         self._mbox_dir = settings.mbox_dir
-        self._checker = DkimChecker.from_settings(settings, preload=answers, refresh_negative=True)
+        self._checker = DkimChecker.from_settings(
+            settings,
+            preload=keys.answers,
+            refresh_negative=keys.refresh_negative,
+            candidates=keys.candidates,
+        )
 
     def check(self, chunk: list[_Mail]) -> _Checked:
         lookups, hits = self._checker.lookups, self._checker.hits
@@ -326,18 +375,18 @@ class _Worker:
 
 @contextmanager
 def _checkers(
-    settings: Settings, answers: list[DnsAnswer], jobs: int
+    settings: Settings, keys: _Keys, jobs: int
 ) -> Iterator[Callable[[list[_Mail]], Awaitable[_Checked]]]:
     """submit(chunk) starts checking a chunk and returns its result to await."""
     loop = asyncio.get_running_loop()
     if jobs == 1:
-        worker = _Worker(settings, answers)
+        worker = _Worker(settings, keys)
         with ThreadPoolExecutor(1) as thread:  # one checker: one chunk after the other
             yield lambda chunk: loop.run_in_executor(thread, worker.check, chunk)
         return
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(
-        jobs, mp_context=context, initializer=_init_worker, initargs=(settings, answers)
+        jobs, mp_context=context, initializer=_init_worker, initargs=(settings, keys)
     ) as pool:
 
         def submit(chunk: list[_Mail]) -> Awaitable[_Checked]:
@@ -350,13 +399,14 @@ def _checkers(
 _worker: _Worker | Exception | None = None
 
 
-def _init_worker(settings: Settings, answers: list[DnsAnswer]) -> None:
-    """Pool initializer: the cached answers reach each worker once, not with every chunk."""
+def _init_worker(settings: Settings, keys: _Keys) -> None:
+    """Pool initializer: the cached answers and keys reach each worker once, not with every
+    chunk."""
     global _worker
     # Ctrl-C reaches the whole process group; the main process decides and stops submitting.
     ignore_interrupts()
     try:
-        _worker = _Worker(settings, answers)
+        _worker = _Worker(settings, keys)
     except Exception as error:
         # Raised from every task instead, so the run fails with the error itself rather than
         # with a broken pool.
@@ -373,7 +423,7 @@ def _work(chunk: list[_Mail]) -> _Checked:
 # Counting and progress ---------------------------------------------------------------------
 
 
-class _Tally:
+class CheckTally:
     """The summary's counters, and the run's live figures with a log line every few seconds."""
 
     def __init__(self) -> None:
@@ -417,6 +467,11 @@ class _Tally:
     @property
     def checked(self) -> int:
         return self._statuses.total()
+
+    @property
+    def changed(self) -> int:
+        """Checked mails whose status changed."""
+        return self._transitions.total()
 
     def count(self, chunk: list[_Mail], checked: _Checked) -> list[tuple[int, MailVerdict]]:
         """Count a finished chunk; returns the verdicts to save."""

@@ -39,7 +39,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   its figures; mail_entity and document_entity record where each is mentioned (the mail's own
   subject and text, or a document's extracted text); mail_entity_scan and document_entity_scan
   record which mails and document texts were scanned, by which scan version.
-- Topics (migration 0013, D140 to D146): the topics phase replaces all of them at once.
+- Keys of deleted selectors (migration 0011, D100 to D103): dkim_key holds every key known from
+  a source other than today's DNS, dkim_key_lookup every question to a source with its answer
+  unchanged, dkim_key_evidence what a lookup says about a key; dkim_result.key_id and key_origin
+  name the key a result rests on (key_id NULL for today's DNS).
+- Topics (migration 0012, D140 to D146): the topics phase replaces all of them at once.
   topic_term is the vocabulary (a lexeme of mail.tsv with its label and mails), topic_period and
   topic_period_term the terms that stand out per month, quarter and year, topic_cluster with
   topic_cluster_term and topic_cluster_month the clusters, topic_state the single row saying for
@@ -64,6 +68,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     Text,
@@ -83,6 +88,7 @@ from mailrobbe.enums import (
     EntityKind,
     JobKind,
     JobStatus,
+    KeyOrigin,
     MboxStatus,
     ParticipationRole,
     PersonKind,
@@ -110,6 +116,7 @@ review_status_enum = _pg_enum(ReviewStatus, "review_status")
 document_kind_enum = _pg_enum(DocumentKind, "document_kind")
 document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
 entity_kind_enum = _pg_enum(EntityKind, "entity_kind")
+key_origin_enum = _pg_enum(KeyOrigin, "key_origin")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -369,7 +376,10 @@ class Document(Base):
 
 class DkimResult(Base):
     __tablename__ = "dkim_result"
-    __table_args__ = (Index("ix_dkim_result_domain_selector", "domain", "selector"),)
+    __table_args__ = (
+        Index("ix_dkim_result_domain_selector", "domain", "selector"),
+        Index("ix_dkim_result_key_id", "key_id", postgresql_where=text("key_id IS NOT NULL")),
+    )
 
     mail_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
@@ -387,6 +397,13 @@ class DkimResult(Base):
     reason: Mapped[str | None] = mapped_column(Text)
     checked_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     dns_cached: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # The dkim_key that verified the signature; NULL for a key from today's DNS and without key.
+    key_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("dkim_key.id", ondelete="SET NULL")
+    )
+    # Origin of the key the result rests on (D100); NULL when it rests on none (no_key,
+    # temp_error, a signature that failed before its key was asked for).
+    key_origin: Mapped[KeyOrigin | None] = mapped_column(key_origin_enum)
 
 
 class DnsCache(Base):
@@ -769,7 +786,86 @@ class DocumentEntityScan(Base):
     extracted_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
 
 
-# Topics (migration 0013, D140 to D146): computed by the topics phase and replaced as a whole.
+# Keys of deleted selectors (migration 0011, D100 to D103).
+
+
+class DkimKey(Base):
+    """A key for one key name from a source other than today's DNS; one row per content."""
+
+    __tablename__ = "dkim_key"
+    __table_args__ = (
+        UniqueConstraint("name", "key_sha256"),
+        Index("ix_dkim_key_domain", "domain"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str] = mapped_column(Text)  # '<selector>._domainkey.<domain>', normalised
+    domain: Mapped[str] = mapped_column(Text)
+    selector: Mapped[str] = mapped_column(Text)
+    key_type: Mapped[str] = mapped_column(Text)  # rsa or ed25519
+    bits: Mapped[int] = mapped_column(Integer)
+    # SHA-256 of the public key (keys.identity): the key's identity across sources
+    key_sha256: Mapped[str] = mapped_column(Text)
+    record: Mapped[str] = mapped_column(Text)  # the TXT record as found, or one made for it
+    origin: Mapped[KeyOrigin] = mapped_column(key_origin_enum)  # strongest of its evidence
+    # Shares a prime factor with another known RSA modulus (Batch-GCD): never used to verify.
+    factorable: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class DkimKeyLookup(Base):
+    """One question to a key source and its answer unchanged, found or not (D101)."""
+
+    __tablename__ = "dkim_key_lookup"
+    __table_args__ = (
+        Index("ix_dkim_key_lookup_domain", "domain"),
+        Index("ix_dkim_key_lookup_name", "name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    source: Mapped[str] = mapped_column(Text)  # enums.KeyLookupSource
+    query: Mapped[str] = mapped_column(Text)  # URL, key name or what was searched; no secrets
+    domain: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)  # the key name, when it was about one
+    asked_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    outcome: Mapped[str] = mapped_column(Text)  # enums.LookupOutcome
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    raw: Mapped[bytes | None] = mapped_column(LargeBinary)  # the answer, or the evidence file
+    raw_sha256: Mapped[str | None] = mapped_column(Text)
+    raw_type: Mapped[str | None] = mapped_column(Text)  # media type of raw
+    raw_name: Mapped[str | None] = mapped_column(Text)  # file name of an uploaded evidence file
+    message: Mapped[str | None] = mapped_column(Text)  # English: the error, or what was done
+    tool_version: Mapped[str] = mapped_column(Text)  # Mailrobbe's version
+    editor: Mapped[str | None] = mapped_column(Text)  # D54
+
+
+class DkimKeyEvidence(Base):
+    """What one lookup says about one key: its origin and the source's own times (D100)."""
+
+    __tablename__ = "dkim_key_evidence"
+    __table_args__ = (
+        UniqueConstraint("key_id", "lookup_id"),
+        Index("ix_dkim_key_evidence_lookup_id", "lookup_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    key_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("dkim_key.id", ondelete="CASCADE"))
+    lookup_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("dkim_key_lookup.id", ondelete="CASCADE")
+    )
+    origin: Mapped[KeyOrigin] = mapped_column(key_origin_enum)
+    # The source's times: first and last seen in DNS, or the date of the document
+    observed_from: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    observed_to: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    reference: Mapped[str | None] = mapped_column(Text)  # URL, /m/<hash>, /anhaenge/<id>, file
+    note: Mapped[str | None] = mapped_column(Text)
+    # Per source (keys.store): the signatures of a reconstruction, the archive's entry, ...
+    details: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    editor: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+# Topics (migration 0012, D140 to D146): computed by the topics phase and replaced as a whole.
 
 TOPIC_UNIT_CHECK = "unit IN ('month', 'quarter', 'year')"  # topics.model.Unit
 

@@ -71,7 +71,8 @@ def test_every_signature_matches_the_manifest(corpus: Corpus) -> None:
                 assert result.aligned is True, context
             reasons[outcome["reason"]] += 1
         seen[verdict.status.value] += 1
-    assert set(seen) == {status.value for status in DkimStatus}
+    # consistent needs a reconstructed key, which the corpus never has (D100)
+    assert set(seen) == {status.value for status in DkimStatus} - {"consistent"}
     assert set(reasons) == set(REASONS)
 
 

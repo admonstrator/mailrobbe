@@ -12,6 +12,8 @@ dependencies = [
     "dnspython>=2.9.0",
     "fastapi>=0.156.1",
     "fpdf2>=2.8.9",
+    "gmpy2>=2.2",
+    "mammoth>=1.13.0",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "pypdf>=6.19.0",
@@ -55,7 +57,11 @@ files = ["src", "tests"]
 exclude = ["^\\.claude/"]
 
 [[tool.mypy.overrides]]
-module = ["dkim", "dkim.*"]
+module = ["dkim", "dkim.*", "gmpy2"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["mammoth", "mammoth.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

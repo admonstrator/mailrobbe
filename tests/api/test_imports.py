@@ -374,7 +374,7 @@ async def test_summary_has_the_sizes_and_the_aggregated_figures(
     assert summary["edge_table"]["pairs"] == sizes.pairs > 0
     assert summary["duplicates"] == sizes.duplicates > 0
     assert summary["dkim"] == {key: dkim.get(key, 0) for key in summary["dkim"]}
-    assert len(summary["dkim"]) == 6
+    assert len(summary["dkim"]) == 7
     assert summary["fail_reasons"] == [{"reason": r.reason, "mails": r.mails} for r in reasons]
     assert reasons
     assert summary["updated_at"] is not None

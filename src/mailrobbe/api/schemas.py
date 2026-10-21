@@ -43,9 +43,25 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
+    GET  /api/attachments/{id}/html              text/html of a DOCX or ODT for a sandboxed
+                                                 iframe, converted and cached (D122)
+    GET  /api/attachments/{id}/media             audio or video, with Range requests (D123)
     GET  /api/mails/{id}/hits?q=                 MailHits: where q's words occur in the mail (D79)
     GET  /api/timeline?TimelineParams            Timeline: the matching mails over time (D90)
     GET  /api/timeline/first-mentions?FirstMentionParams  FirstMentions, earliest first (D94)
+
+Keys of deleted selectors (D100 to D104); a key name is '<selector>._domainkey.<domain>':
+
+    GET  /api/dkim/selectors/summary             SelectorSummary: figures of the dashboard card
+    GET  /api/dkim/selectors?SelectorListParams  SelectorPage: key names whose signatures do
+                                                 not pass, most mails first
+    GET  /api/dkim/selectors/{name}              SelectorDetail: keys with evidence, lookups,
+                                                 mails
+    POST /api/dkim/selectors/{name}/keys         ManualKeyRequest -> 201 SelectorDetail (D103)
+    GET  /api/dkim/lookups/{id}/raw              a source's answer unchanged, as a download
+    GET  /api/dkim/archive/preview               KeyArchivePreview: what a fetch would send
+    POST /api/dkim/keys/run                      DkimKeysRunRequest -> 202 DkimKeysJob (D101)
+    POST /api/dkim/keys/run/stop                 DkimKeysJob, its stop requested
 
 Research file (milestone 8, D53 to D63); writes take the editor from X-Mailrobbe-Editor (D54):
 
@@ -104,6 +120,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from mailrobbe.dkim.keys.model import (
+    DkimKeysOptions,
+    DkimKeysPhase,
+    DkimKeysProgress,
+    DkimKeysTask,
+)
 from mailrobbe.enums import (
     DkimReason,
     DkimStatus,
@@ -115,12 +137,16 @@ from mailrobbe.enums import (
     JobKind,
     JobOrigin,
     JobStatus,
+    KeyLookupSource,
+    KeyOrigin,
+    LookupOutcome,
     MboxStatus,
     ParticipationRole,
     PersonKind,
     ReviewStatus,
 )
 from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
+from mailrobbe.preview.kinds import PreviewKind
 
 # Tag colours (D57): the UI maps each to a fixed pair of background and text colours.
 TagColor = Literal["blue", "teal", "green", "amber", "red", "pink", "violet", "gray"]
@@ -144,7 +170,7 @@ EntityContextKey = Literal["cash", "donation", "receipt"]
 # Review statuses as filter and count keys (D55); unreviewed stands for no status.
 ReviewKey = Literal["unreviewed", "seen", "relevant", "irrelevant"]
 # mail.dkim_status values as filter and count keys; unchecked stands for NULL (not checked yet).
-DkimKey = Literal["pass", "fail", "no_key", "unsigned", "temp_error", "unchecked"]
+DkimKey = Literal["pass", "consistent", "fail", "no_key", "unsigned", "temp_error", "unchecked"]
 SortOrder = Literal["date_desc", "date_asc"]
 QueryKey = Literal[
     "text", "from", "to", "cc", "subject", "domain", "has", "dkim", "before", "after", "message_id"
@@ -173,6 +199,11 @@ ErrorCode = Literal[
     "empty_selection",  # 400: the selection matches no mail
     "too_many_mails",  # 400: above BULK_LIMIT or EXPORT_LIMIT; message names the count
     "ambiguous_permalink",  # 409: the hash prefix fits mails with different contents
+    "no_preview",  # 415: the content is no format this preview shows (D120); message says what
+    "preview_too_large",  # 413: above MAILROBBE_PREVIEW_MAX_SIZE, or unhashed (D124)
+    "preview_failed",  # 422: the conversion failed, ran out of time or memory; message says why
+    "invalid_key",  # 400: no DKIM key name, or a record without a usable key (D103)
+    "archive_off",  # 409: the key archive is switched off (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off)
 ]
 
 
@@ -348,6 +379,46 @@ class MailSource(BaseModel):
     byte_length: int
 
 
+class UsedSignature(BaseModel):
+    mail_id: int | None  # None when no mail of the archive has this content any more
+    mail_sha256: str
+    signature_index: int
+
+
+class KeyEvidenceInfo(BaseModel):
+    """One piece of evidence for a key (D100): what one lookup of a source says about it."""
+
+    id: int
+    origin: KeyOrigin
+    source: KeyLookupSource
+    lookup_id: int
+    asked_at: datetime  # when Mailrobbe asked the source, or the key was entered
+    observed_from: datetime | None  # the source's own times: first seen, a document's date
+    observed_to: datetime | None  # last seen
+    reference: str | None  # URL, permalink /m/<hash>, /anhaenge/<id>, file name
+    note: str | None
+    editor: str | None  # D54
+    raw_sha256: str | None  # of the lookup's answer; /api/dkim/lookups/{lookup_id}/raw
+    raw_size: int | None  # bytes
+    # reconstruction: the signatures the key was computed from (dkim_key_evidence.details)
+    signatures: list[UsedSignature] = []
+
+
+class DkimKeyInfo(BaseModel):
+    """A key from a source other than today's DNS (dkim_key) with all its evidence."""
+
+    id: int
+    name: str  # '<selector>._domainkey.<domain>'
+    key_type: str  # rsa or ed25519
+    bits: int
+    key_sha256: str  # identity across sources: SHA-256 of the public key
+    record: str
+    origin: KeyOrigin  # the strongest of its evidence
+    factorable: bool  # shares a prime factor with another key: never used to verify
+    signatures: int  # signatures (dkim_result rows) this key verified
+    evidence: list[KeyEvidenceInfo]  # strongest origin first, then oldest
+
+
 class DkimSignature(BaseModel):
     """One dkim_result row, with the dns_cache row of its key when there is one."""
 
@@ -367,6 +438,10 @@ class DkimSignature(BaseModel):
     dns_record: str | None  # dns_cache.record for <selector>._domainkey.<domain>
     dns_fetched_at: datetime | None
     dns_ttl: int | None  # seconds
+    # Origin of the key the result rests on (D100); None when it rests on none (no_key,
+    # temp_error, a failure found before the key was asked for).
+    key_origin: KeyOrigin | None = None
+    key: DkimKeyInfo | None = None  # the dkim_key that verified it; None for today's DNS
 
 
 class MailDkim(BaseModel):
@@ -394,6 +469,7 @@ class AttachmentInfo(BaseModel):
     text_status: DocumentTextStatus | None = None
     pages: int | None = None
     document_mails: int | None = None  # mails carrying the document, duplicates not counted
+    preview: PreviewKind | None = None  # how the browser shows it (D120); None: download only
 
 
 class ThreadMail(BaseModel):
@@ -764,6 +840,14 @@ class DkimJob(JobInfo):
     progress: DkimProgress
 
 
+class DkimKeysJob(JobInfo):
+    """A run of `mailrobbe dkim-keys` (D101)."""
+
+    phase: DkimKeysPhase | None
+    options: DkimKeysOptions
+    progress: DkimKeysProgress
+
+
 class ImportTotals(BaseModel):
     """Sums over every mbox_file row, live."""
 
@@ -794,6 +878,7 @@ class ImportStatus(BaseModel):
     # What a start from the dashboard uses unless the request says otherwise: the options of
     # the latest import run, or the server's settings before the first (D49).
     defaults: ImportOptions
+    keys_job: DkimKeysJob | None = None  # the latest dkim-keys run (D101)
 
 
 class FailReasonCount(BaseModel):
@@ -1213,7 +1298,7 @@ class DocumentDetail(BaseModel):
     recipients: list[PersonCount]  # To, Cc or Bcc; most mails first, at most the limit
     recipient_count: int
     attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
-    preview: bool  # a raster image the browser shows from that content (PNG, JPEG, GIF, WebP)
+    preview: PreviewKind | None  # how the browser shows it (D120); None: download only
 
 
 class DocumentText(BaseModel):
@@ -1237,6 +1322,150 @@ class MailHits(BaseModel):
     stems: list[str]  # the lexemes of the query (German stems, lower case, no umlauts), ditto
     in_mail: bool  # the mail's own subject or text holds a word
     attachments: list[AttachmentHit]  # the attachments whose document holds a word, in mail order
+
+
+# Keys of deleted selectors (D100 to D104) ------------------------------------------------------
+
+# A key name is '<selector>._domainkey.<domain>', lowercase (dkim.override.key_name). A key name
+# "concerned" has signatures in the archive that are no_key, or fail with signature_mismatch and
+# an intact body (a new key under the old name); the selector pages list those.
+
+SELECTOR_MAILS_LIMIT = 200  # mails listed on a selector page, newest first
+EVIDENCE_FILE_LIMIT = 10 * 1024**2  # bytes of an evidence file a manual key may carry
+
+# Which names the selector list shows: concerned names that still have no key (open), concerned
+# names whose signatures a key from another source now verifies (resolved), or every name
+# with a signature (all).
+SelectorFilter = Literal["open", "resolved", "all"]
+
+
+class SelectorListParams(BaseModel):
+    q: str = ""  # part of the key name, any case
+    show: SelectorFilter = "open"
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    offset: int = Field(0, ge=0)
+
+
+class SelectorItem(BaseModel):
+    name: str
+    domain: str
+    selector: str
+    signatures: int  # dkim_result rows of mails that are no duplicates
+    mails: int
+    statuses: dict[DkimStatus, int]  # those signatures by status, only statuses present
+    rsa_signatures: int  # distinct RSA signatures (b=): reconstructable from 2 on
+    first_signed: datetime | None  # t= of the oldest and newest signature
+    last_signed: datetime | None
+    keys: int  # dkim_key rows for the name
+    best_origin: KeyOrigin | None  # the strongest origin of those keys
+    dns_status: DnsStatus | None  # today's answer in dns_cache; None: not asked yet
+
+
+class SelectorPage(BaseModel):
+    items: list[SelectorItem]
+    total: int
+
+
+class SelectorSummary(BaseModel):
+    """The figures of the dashboard card "Gelöschte Selektoren", live."""
+
+    names_missing: int  # key names with no_key signatures
+    mails_missing: int  # mails with status no_key
+    reconstructable: int  # of those names, the ones with at least 2 distinct RSA signatures
+    names_resolved: int  # key names whose signatures a key from another source verifies
+    mails_consistent: int  # mails with status consistent
+    keys: dict[KeyOrigin, int]  # dkim_key rows by origin, every origin present
+    factorable: int  # keys sharing a prime factor (never used)
+    signatures: dict[KeyOrigin, int]  # dkim_result rows by key_origin, every origin present
+    lookups: dict[KeyLookupSource, int]  # lookups by source, every source present
+    last_lookup_at: datetime | None
+
+
+class KeyLookupInfo(BaseModel):
+    """One question to a source (dkim_key_lookup), the answer itself at .../raw."""
+
+    id: int
+    source: KeyLookupSource
+    query: str
+    domain: str | None
+    name: str | None
+    asked_at: datetime
+    outcome: LookupOutcome
+    http_status: int | None
+    raw_sha256: str | None
+    raw_size: int | None
+    raw_type: str | None
+    raw_name: str | None
+    message: str | None  # English
+    tool_version: str
+    editor: str | None
+    keys: int  # keys this lookup gave evidence for
+
+
+class SelectorMail(BaseModel):
+    id: int
+    date: datetime | None
+    subject: str | None
+    sender: PersonRef | None
+    signature_index: int
+    status: DkimStatus  # of this signature
+    reason: DkimReason | None
+    key_origin: KeyOrigin | None
+    key_id: int | None
+    signed_at: datetime | None  # t=
+
+
+class SelectorDetail(BaseModel):
+    name: str
+    domain: str
+    selector: str
+    dns_status: DnsStatus | None  # today's answer in dns_cache; None: not asked yet
+    dns_record: str | None
+    dns_fetched_at: datetime | None
+    signatures: int
+    mails: int
+    statuses: dict[DkimStatus, int]
+    rsa_signatures: int
+    first_signed: datetime | None
+    last_signed: datetime | None
+    keys: list[DkimKeyInfo]  # strongest origin first
+    lookups: list[KeyLookupInfo]  # about this name or its domain, newest first
+    recent_mails: list[SelectorMail]  # newest first, at most SELECTOR_MAILS_LIMIT
+
+
+class ManualKeyRequest(BaseModel):
+    """A key a person found elsewhere (D103): a zone file, a provider's mail, a screenshot."""
+
+    record: str = Field(min_length=1, max_length=8192)  # the TXT record, or only the p= value
+    reference: str = Field(min_length=1, max_length=2000)  # where the key comes from
+    note: str = Field("", max_length=NOTE_LIMIT)
+    observed_from: datetime | None = None  # when the source says the key was published
+    observed_to: datetime | None = None
+    file_name: str | None = Field(None, max_length=255)  # the evidence file, if any
+    file_base64: str | None = None  # its bytes, at most EVIDENCE_FILE_LIMIT once decoded
+
+
+class ArchiveDomain(BaseModel):
+    domain: str
+    names: int  # concerned key names of the domain
+    mails: int  # mails with a signature of those names
+    last_asked_at: datetime | None  # the latest ZK Email lookup of the domain
+
+
+class KeyArchivePreview(BaseModel):
+    """What "Schlüsselarchiv abfragen" would send, before anything is sent (D102)."""
+
+    url: str | None  # the archive's base URL; None: switched off
+    domains: list[ArchiveDomain]  # concerned domains, most mails first
+    # Domains under reserved TLDs (.example, .test, ...) go only to an archive on this machine
+    skipped: list[str]
+
+
+class DkimKeysRunRequest(BaseModel):
+    task: DkimKeysTask
+    names: list[str] = Field([], max_length=1000)  # reconstruct, check: only these key names
+    domains: list[str] = Field([], max_length=1000)  # fetch: only these domains
+    workers: int | None = Field(default=None, ge=1, le=64)
 
 
 # Timeline (milestone 11, D90 to D95) -----------------------------------------------------------

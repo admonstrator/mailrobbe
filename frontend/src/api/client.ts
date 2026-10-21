@@ -104,8 +104,34 @@ export function apiDelete(path: string): Promise<void> {
   return request<void>("DELETE", path);
 }
 
+/** A GET whose answer is no JSON (an attachment's bytes, a converted document): the response, or
+ *  an ApiError as apiGet throws it. */
+export async function apiFetch(path: string, signal?: AbortSignal): Promise<Response> {
+  const response = await fetch(path, { signal });
+  if (!response.ok) throw await toApiError(response);
+  return response;
+}
+
 /** An attachment's bytes, read from its MBOX file on request (D76): a download, or the image of
  *  a preview for raster images. */
 export function attachmentContentUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/content`;
+}
+
+/** A DOCX or ODT as sanitized HTML, converted on the server and cached (D122). */
+export function attachmentHtmlUrl(attachmentId: number): string {
+  return `/api/attachments/${attachmentId}/html`;
+}
+
+/** Audio or video for a media element, with Range requests (D123). */
+export function attachmentMediaUrl(attachmentId: number): string {
+  return `/api/attachments/${attachmentId}/media`;
+}
+
+/** The PDF viewer's page (D121): pdf.js on an opaque origin, given the PDF by postMessage. */
+export const PDF_VIEWER_URL = "/viewer/pdf.html";
+
+/** A key source's answer as it came, stored with its SHA-256 (D101): a download. */
+export function lookupRawUrl(lookupId: number): string {
+  return `/api/dkim/lookups/${lookupId}/raw`;
 }

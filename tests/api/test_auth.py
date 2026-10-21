@@ -29,8 +29,9 @@ GOOD = _basic(f"{USER}:{PASSWORD}".encode())
 
 @pytest.fixture
 def dist(tmp_path: Path) -> Path:
-    (tmp_path / "dist").mkdir()
+    (tmp_path / "dist" / "viewer").mkdir(parents=True)
     (tmp_path / "dist" / "index.html").write_text(INDEX)
+    (tmp_path / "dist" / "viewer" / "pdf-viewer.js").write_text("void 0\n")
     return tmp_path / "dist"
 
 
@@ -85,6 +86,12 @@ async def test_with_credentials_every_request_needs_them(
                 assert (await http.get("/", headers=headers)).status_code == 401, headers
 
             assert (await http.get("/api/health")).status_code == 200
+            # the PDF viewer's code is open (D121); nothing else below /viewer/ is served
+            assert (await http.get("/viewer/pdf-viewer.js")).text == "void 0\n"
+            assert (await http.head("/viewer/pdf-viewer.js")).status_code == 200
+            assert (await http.get("/viewer/gone.js")).status_code == 404
+            assert (await http.get("/viewer/%2e%2e/index.html")).status_code == 401
+            assert (await http.post("/viewer/pdf-viewer.js")).status_code == 401
             assert (await http.get("/", headers=GOOD)).text == INDEX
             lower = {"Authorization": GOOD["Authorization"].replace("Basic", "basic")}
             assert (await http.get("/mails/1", headers=lower)).text == INDEX
