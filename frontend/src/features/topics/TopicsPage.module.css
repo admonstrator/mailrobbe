@@ -90,6 +90,17 @@
   .layout {
     grid-template-columns: minmax(0, 1fr) 300px;
   }
+
+  /* Beside the views the explanation stays in view, with a scroll of its own. */
+  .explanation {
+    position: sticky;
+    top: calc(var(--sticky-top) + 16px);
+    max-height: calc(var(--content-height) - 32px);
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }
 
 @media (max-width: 759px) {
