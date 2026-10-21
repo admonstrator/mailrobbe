@@ -50,6 +50,9 @@ class GenerationSummary:
     duplicates: int
     elapsed_seconds: float
     config: dict[str, Any] = field(default_factory=dict)
+    # expected text status (DocumentTextStatus value, "damaged" after invalid_base64) ->
+    # number of attachments, duplicates included
+    documents: dict[str, int] = field(default_factory=dict)
 
 
 def generate(config: GeneratorConfig) -> GenerationSummary:
@@ -64,6 +67,7 @@ def generate(config: GeneratorConfig) -> GenerationSummary:
     progress = _Progress(config.mails, started)
     dkim: Counter[str] = Counter()
     faults: Counter[str] = Counter()
+    documents: Counter[str] = Counter()
     duplicates = 0
     written = 0
     with (
@@ -79,6 +83,7 @@ def generate(config: GeneratorConfig) -> GenerationSummary:
             manifest.write(manifest_record(index, mail, file, offset, length, digest))
             dkim[mail.dkim.expected.value] += 1
             faults.update(fault.value for fault in mail.faults)
+            documents.update(truth.status or "damaged" for truth in mail.documents)
             duplicates += mail.duplicate_of is not None
             written += 1
             progress.update(written, length)
@@ -93,6 +98,7 @@ def generate(config: GeneratorConfig) -> GenerationSummary:
         duplicates=duplicates,
         elapsed_seconds=round(time.monotonic() - started, 3),
         config=config_dict(config),
+        documents=dict(sorted(documents.items())),
     )
     text = json.dumps(asdict(summary), indent=2, ensure_ascii=False) + "\n"
     (config.meta_dir / SUMMARY_NAME).write_text(text, encoding="utf-8")

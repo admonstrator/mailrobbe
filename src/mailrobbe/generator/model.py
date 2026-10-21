@@ -56,11 +56,40 @@ class Address:
 
 
 @dataclass(frozen=True, slots=True)
+class DocumentSpec:
+    """A real document an attachment carries (generator.documents); its bytes follow from this
+    and the attachment's size, so every mail that carries it carries the same bytes."""
+
+    seed: int
+    form: str  # pdf, pdf_scan, pdf_encrypted, pdf_damaged, docx, odt, xlsx, pptx, csv, txt, ...
+    theme: str  # what it is about: minutes, invoice, donations, ...
+    when: datetime  # date of the mail that first carried it
+
+
+@dataclass(frozen=True, slots=True)
 class AttachmentSpec:
     filename: str
     mime_type: str
-    size: int  # decoded payload size in bytes
+    size: int  # decoded payload size in bytes (a document's own size once it is built)
     inline: bool = False
+    document: DocumentSpec | None = None  # None: filler bytes behind a magic number
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentTruth:
+    """One attachment as manifest.jsonl lists it, in the order importer.parse.mime_parts finds
+    the attachments of the mail."""
+
+    sha256: str | None  # of the decoded bytes; None when a byte fault (invalid_base64) hit them
+    filename: str
+    kind: str  # DocumentKind value
+    status: str | None  # the DocumentTextStatus the extraction must reach; None after such a fault
+    marker: str | None  # a word the extracted text contains; None without expected text
+    pages: int | None  # pages, sheets or slides the extraction reports, where known
+    size: int  # decoded bytes
+
+    def as_json(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in self.__slots__}
 
 
 class MailKind(StrEnum):
@@ -145,6 +174,7 @@ class RenderedMail:
     dkim: DkimOutcome = field(default_factory=DkimOutcome)
     escape_from_lines: bool = True  # False: the writer leaves body lines starting "From " as is
     duplicate_of: int | None = None  # stream index of the mail this one repeats
+    documents: list[DocumentTruth] = field(default_factory=list)  # attachments, mime_parts order
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +201,7 @@ class ManifestRecord:
     dkim: dict[str, Any]  # {"expected": str, "signatures": [{domain, selector, ...}]}
     faults: dict[str, str]
     duplicate_of: int | None
+    documents: list[dict[str, Any]] = field(default_factory=list)  # DocumentTruth.as_json()
 
     def to_json_line(self) -> str:
         data = {name: getattr(self, name) for name in self.__slots__}

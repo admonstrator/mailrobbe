@@ -700,10 +700,12 @@ SEASONS_EN = ("spring", "summer", "autumn", "winter")
 _DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_ODT = "application/vnd.oasis.opendocument.text"
 
 # Attachment templates: (file name pattern, MIME type, median size, spread, weight). Sizes are
 # log-normal around the median; office files and PDFs are common, videos and archives rare.
-# Placeholders: {year}, {month2}, {day2}, {n}, {project}, {word}.
+# Placeholders: {year}, {month2}, {day2}, {n}, {project}, {word}. Office files, PDFs, CSV, text,
+# calendar, vCard and ZIP templates carry real documents (generator.documents.TEMPLATES).
 ATTACHMENT_TYPES = (
     ("Angebot_{project}.pdf", "application/pdf", 90_000, 0.9, 3.0),
     ("Rechnung_{year}-{month2}.pdf", "application/pdf", 50_000, 0.6, 2.0),
@@ -725,6 +727,11 @@ ATTACHMENT_TYPES = (
     ("Visitenkarte.vcf", "text/vcard", 800, 0.4, 0.6),
     ("Messe_Video.mp4", "video/mp4", 3_000_000, 0.8, 0.1),
     ("Katalog_{year}.pdf", "application/pdf", 1_500_000, 0.8, 0.2),
+    ("Protokoll_{year}-{month2}-{day2}.odt", _ODT, 30_000, 0.7, 0.6),
+    ("Kassenbericht_{year}.pdf", "application/pdf", 80_000, 0.7, 0.6),
+    ("Spendenliste_{year}.xlsx", _XLSX, 30_000, 0.8, 0.6),
+    ("Mitgliederliste_{year}.csv", "text/csv", 8_000, 0.8, 0.4),
+    ("Schreiben_{word}.docx", _DOCX, 40_000, 0.7, 0.8),
 )
 LARGE_ATTACHMENT_NAMES = (
     ("Projektarchiv_{year}.zip", "application/zip"),

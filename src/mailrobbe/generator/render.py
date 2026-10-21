@@ -6,12 +6,16 @@ Every message has LF line endings, ASCII-only headers, exactly one Message-ID an
 in its header block, and parses without defects with email.policy.default.
 
 Attachments are the parts that carry a file name; a forwarded message/rfc822 part has none.
-Their payloads are periodic blocks of seeded random bytes (or sample text) behind a plausible
-magic number, base64-encoded block by block, so even very large ones cost almost nothing.
+Documents (PDF, office files, CSV, text, calendar, vCard, ZIP) are real files built by
+generator.documents; the other payloads (pictures, media, the very large attachments) are
+periodic blocks of seeded random bytes behind a plausible magic number, base64-encoded block by
+block, so even very large ones cost almost nothing. RenderedMail.documents is the ground truth
+of every attachment, in the order importer.parse.mime_parts finds them.
 """
 
 import base64
 import binascii
+import hashlib
 import html
 import random
 import zlib
@@ -20,10 +24,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from functools import lru_cache
 
+from mailrobbe.generator import documents
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.model import (
     Address,
     AttachmentSpec,
+    DocumentTruth,
     Fault,
     MailKind,
     PlannedMail,
@@ -51,7 +57,18 @@ def render(planned: PlannedMail) -> RenderedMail:
         faults[Fault.NESTED_MIME] = "message_rfc822"
     elif (depth := _depth(root)) >= 3:
         faults[Fault.NESTED_MIME] = f"depth_{depth}"
-    return RenderedMail(planned, b"".join(chunks), planned.message_id, faults)
+    rendered = RenderedMail(planned, b"".join(chunks), planned.message_id, faults)
+    # mime_parts order: inline pictures sit in the body (multipart/related), files follow it,
+    # directly or inside a forwarded message/rfc822
+    ordered = sorted(planned.attachments, key=lambda spec: not spec.inline)
+    rendered.documents = [_truth(spec) for spec in ordered]
+    return rendered
+
+
+def _truth(spec: AttachmentSpec) -> DocumentTruth:
+    if spec.document is not None:
+        return documents.build(spec).truth(spec.filename)
+    return documents.filler_truth(spec, _payload_sha256(spec))
 
 
 # Mail programs ----------------------------------------------------------------------------
@@ -609,6 +626,8 @@ def _attachment_leaf(spec: AttachmentSpec, style: _Style, cid: str | None = None
     lines.append(
         f"Content-Disposition: {disposition};{style.fold}{_param('filename', spec.filename, style)}"
     )
+    if spec.document is not None:
+        return _Leaf("\n".join(lines) + "\n", documents.build(spec).encoded)
     return _Leaf("\n".join(lines) + "\n", _encoded_payload(spec))
 
 
@@ -646,19 +665,36 @@ def _filler(mime_type: str) -> tuple[bytes, bytes]:
     return block, base64.encodebytes(block)
 
 
-def _encoded_payload(spec: AttachmentSpec) -> tuple[bytes, ...]:
-    """Base64 lines of a deterministic payload of exactly `spec.size` bytes.
-
-    The first bytes depend on name, type and size, so different files hash differently and a
-    forwarded file keeps its hash; the rest repeats the filler of its type.
-    """
+def _payload_head(spec: AttachmentSpec) -> bytes:
+    """The first bytes of a filler payload; they depend on name, type and size, so different
+    files hash differently and a forwarded file keeps its hash."""
     seed = random.Random(f"{spec.filename}:{spec.mime_type}:{spec.size}")
     sample = _TEXT_SAMPLES.get(spec.mime_type)
     if sample is not None:
         own = f"{seed.getrandbits(64):016x}\n".encode() + sample * (_HEAD // len(sample) + 1)
     else:
         own = _MAGIC.get(spec.mime_type, b"") + seed.randbytes(_HEAD)
-    head = own[: min(_HEAD, spec.size)]
+    return own[: min(_HEAD, spec.size)]
+
+
+def _payload_sha256(spec: AttachmentSpec) -> str:
+    """SHA-256 of the filler payload _encoded_payload writes, without building it."""
+    head = _payload_head(spec)
+    digest = hashlib.sha256(head)
+    rest = spec.size - len(head)
+    if rest:
+        block, _ = _filler(spec.mime_type)
+        repeats, tail = divmod(rest, _BLOCK)
+        for _ in range(repeats):
+            digest.update(block)
+        digest.update(block[:tail])
+    return digest.hexdigest()
+
+
+def _encoded_payload(spec: AttachmentSpec) -> tuple[bytes, ...]:
+    """Base64 lines of a deterministic payload of exactly `spec.size` bytes: its head
+    (_payload_head), then the filler block of its type repeated."""
+    head = _payload_head(spec)
     rest = spec.size - len(head)
     if rest == 0:
         return (base64.encodebytes(head),)
