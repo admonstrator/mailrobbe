@@ -1,7 +1,7 @@
-/* The map fills the viewport below the shell header (56px plus its border). */
+/* The map fills the viewport below the shell header. */
 .page {
   display: flex;
-  height: calc(100vh - 57px);
+  height: var(--content-height);
   min-height: 560px;
 }
 

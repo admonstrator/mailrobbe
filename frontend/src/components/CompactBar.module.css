@@ -1,7 +1,8 @@
-/* Above the page and below a modal; the pages' frames and scroll margins count on its 48 px. */
+/* Above the page, below the shell's header and a modal; the pages' frames and scroll margins
+   count on its 48 px. */
 .bar {
   position: fixed;
-  top: 0;
+  top: var(--sticky-top);
   right: 0;
   left: 0;
   z-index: 20;

@@ -38,8 +38,23 @@
   --radius-tile: 8px;
   --radius-control: 6px;
   --shadow-popover: 0 8px 24px rgb(22 24 29 / 12%);
+  --shadow-card: 0 1px 2px rgb(22 24 29 / 4%);
+  --transition-fast: 120ms ease-out;
+
+  /* The shell's header stays at the top of the window; everything sticky on a page sits below
+     it at --sticky-top, and a pane that fills the window below the header is --content-height
+     high. Pages scroll with the window, so find in page, scroll restoration and the detail
+     pages' compact bars keep working. */
+  --header-height: 56px;
+  --sticky-top: var(--header-height);
+  --content-height: calc(100dvh - var(--header-height));
 
   color-scheme: light;
+}
+
+html {
+  scroll-padding-top: calc(var(--header-height) + 8px);
+  scrollbar-gutter: stable;
 }
 
 body {

@@ -1,14 +1,18 @@
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .header {
   display: flex;
   align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 30;
   gap: 24px;
-  height: 56px;
+  box-sizing: border-box;
+  height: var(--header-height);
   padding: 0 24px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -161,7 +165,7 @@
   font-weight: 600;
 }
 
-/* The header keeps one row of 56px (the map's height depends on it), so on narrower screens
+/* The header keeps one row of --header-height (the map's height and every sticky part depend on it), so on narrower screens
    its parts give way in steps: first the totals, then spacing and the editor's label, then the
    words of the logo and of the import state, whose dot and title stay, and last the spacing of
    the navigation. With ten entries every step leaves room for a running import's longer state
