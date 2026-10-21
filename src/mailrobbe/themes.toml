@@ -205,6 +205,7 @@ ignore = [
     "freundlichen", "freundliche", "herzlichen", "herzliche", "beste", "besten", "viele",
     "vielen", "Dank", "danke", "bitte", "MfG", "LG", "VG", "Mail", "E-Mail", "Mails", "Nachricht",
     "Betreff", "Anhang", "Anhänge", "anbei", "gesendet", "geschrieben", "schrieb", "Original",
+    "Ursprüngliche",
     "weitergeleitet", "weitergeleitete", "Weiterleitung", "Antwort", "Re", "AW", "WG", "Fwd", "Fw",
     "Tel", "Telefon", "Fax", "Mobil", "Handy", "www", "http", "https", "Uhr", "heute", "gestern",
     "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonnabend", "Sonntag",

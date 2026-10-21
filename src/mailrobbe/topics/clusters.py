@@ -65,7 +65,7 @@ _CANDIDATES = text("""
         WHERE u.lexeme = ANY(CAST(:candidates AS text[]))
     ) AS s
     WHERE m.is_duplicate_of IS NULL AND cardinality(found) BETWEEN 2 AND :most
-""").execution_options(yield_per=_PARTITION)
+""")
 
 # Per cluster and UTC month (NULL: undated) the mails holding any of the clusters' lexemes, each
 # owned by one cluster (:owners, in the order of :lexemes).
@@ -128,7 +128,7 @@ async def _count_pairs(session: AsyncSession, candidates: Sequence[str]) -> arra
     offsets = _offsets(size)
     pairs = array("i", [0]) * (size * (size - 1) // 2)
     params = {"candidates": list(candidates), "most": MAIL_MAX_TERMS}
-    async for partition in (await session.stream(_CANDIDATES, params)).partitions():
+    async for partition in (await session.stream(_CANDIDATES, params)).partitions(_PARTITION):
         found = [row[0] for row in partition]
         await asyncio.to_thread(_add_pairs, found, rank, offsets, pairs)
     return pairs
