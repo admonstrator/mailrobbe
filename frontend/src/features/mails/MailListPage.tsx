@@ -1,0 +1,244 @@
+import { Link } from "react-router";
+
+import { ApiError, buildQuery } from "../../api/client";
+import { useMailPage, useMailSummary, useMboxFiles, useStats } from "../../api/queries";
+import type { MailPage, MailSummary } from "../../api/types";
+import { Button, buttonClass } from "../../components/Button";
+import { Card } from "../../components/Card";
+import { Chip } from "../../components/Chip";
+import { EmptyState } from "../../components/EmptyState";
+import { ErrorState } from "../../components/ErrorState";
+import { Pagination } from "../../components/Pagination";
+import { Spinner } from "../../components/Spinner";
+import { formatNumber } from "../../lib/format";
+import { filterChips } from "./chips";
+import { ColumnMenu } from "./ColumnMenu";
+import { useColumns } from "./columns";
+import { FilterColumn } from "./FilterColumn";
+import {
+  hasFilters,
+  listSearch,
+  toFilters,
+  toListParams,
+  toOrderParams,
+  withFilters,
+  type ListState,
+} from "./listState";
+import styles from "./MailListPage.module.css";
+import { MailTable } from "./MailTable";
+import { invalidTerm } from "./queryText";
+import { formatTotal, SummaryTiles } from "./SummaryTiles";
+import { useListState } from "./useListState";
+
+const listHref = (state: ListState) => {
+  const search = listSearch(state).toString();
+  return search ? `/mails?${search}` : "/mails";
+};
+
+function hitText(summary: MailSummary | undefined, state: ListState): string {
+  const sorted = `sortiert nach Datum ${state.sort === "date_asc" ? "↑" : "↓"}`;
+  if (!summary) return sorted;
+  if (summary.total === null) return `Trefferzahl unbekannt · ${sorted}`;
+  return `${formatTotal(summary)} Treffer · ${sorted}`;
+}
+
+/** The person names a page knows, for the chips of the person and between filters. */
+function personName(page: MailPage | undefined, id: number): string {
+  for (const mail of page?.items ?? []) {
+    for (const person of [mail.sender, ...mail.recipients]) {
+      if (person?.person_id === id) return person.name || person.email;
+    }
+  }
+  return `#${id}`;
+}
+
+/** The mail list (SPEC 5.1): filters, figures, active filters, one page of mails. */
+export function MailListPage() {
+  const [state, setState] = useListState();
+  const stats = useStats();
+  const mboxFiles = useMboxFiles();
+  const page = useMailPage(toListParams(state));
+  const summary = useMailSummary(toFilters(state));
+  const [columns, setColumn] = useColumns();
+
+  const mboxPath = (id: number) =>
+    mboxFiles.data?.find((file) => file.id === id)?.path ?? `Datei #${id}`;
+  const chips = filterChips(state, page.data?.query_terms ?? [], {
+    person: (id) => personName(page.data, id),
+    mboxFile: mboxPath,
+  });
+  const exportQuery = buildQuery(toOrderParams(state)).toString();
+
+  return (
+    <div className={styles.layout}>
+      <title>Mails · Mailrobbe</title>
+      <FilterColumn
+        state={state}
+        onChange={setState}
+        stats={stats.data}
+        mboxFiles={mboxFiles.data}
+      />
+      <main className={styles.main}>
+        <h1 className="sr-only">Mails</h1>
+        <SummaryTiles summary={summary} />
+
+        <div className={styles.toolbar}>
+          {chips.map((chip) => (
+            <Chip key={chip.id} label={chip.label} onRemove={() => setState(chip.next)} />
+          ))}
+          <span className={styles.hits} aria-live="polite">
+            {hitText(summary.data, state)}
+          </span>
+          <div className={styles.actions}>
+            <label htmlFor="mail-sort" className="sr-only">
+              Sortierung
+            </label>
+            <select
+              id="mail-sort"
+              className={styles.sort}
+              value={state.sort}
+              onChange={(event) =>
+                setState(withFilters(state, { sort: event.target.value as ListState["sort"] }))
+              }
+            >
+              <option value="date_desc">Datum (neueste zuerst)</option>
+              <option value="date_asc">Datum (älteste zuerst)</option>
+            </select>
+            <ColumnMenu columns={columns} onChange={setColumn} />
+            <a
+              href={`/api/mails/export.csv${exportQuery ? `?${exportQuery}` : ""}`}
+              className={buttonClass()}
+              download
+            >
+              Export CSV
+            </a>
+          </div>
+        </div>
+
+        <Card className={styles.tableCard}>
+          {page.isPending ? (
+            <div className={styles.loading}>
+              <Spinner label="Mails werden geladen" />
+            </div>
+          ) : page.isError ? (
+            <PageError error={page.error} state={state} onRetry={() => void page.refetch()} />
+          ) : page.data.items.length === 0 ? (
+            <EmptyState
+              title="Keine Mails gefunden"
+              actions={
+                hasFilters(state) && (
+                  <Link to="/mails" className={buttonClass()}>
+                    Alle Filter zurücksetzen
+                  </Link>
+                )
+              }
+            >
+              {hasFilters(state)
+                ? "Kein Treffer für diese Suche und Filter."
+                : "Das Archiv ist leer."}
+            </EmptyState>
+          ) : (
+            <MailTable
+              items={page.data.items}
+              columns={columns}
+              detailSearch={listSearch(state).toString()}
+              mboxPath={mboxPath}
+              stale={page.isPlaceholderData}
+            />
+          )}
+        </Card>
+
+        {page.data && page.data.items.length > 0 && (
+          <Pagination
+            range={rangeText(state, page.data.items.length, summary.data)}
+            prev={
+              page.data.prev_cursor ? listHref(previousPage(state, page.data.prev_cursor)) : null
+            }
+            next={
+              page.data.next_cursor
+                ? listHref({ ...state, cursor: page.data.next_cursor, page: state.page + 1 })
+                : null
+            }
+          />
+        )}
+      </main>
+    </div>
+  );
+}
+
+function previousPage(state: ListState, cursor: string): ListState {
+  // The page before the second one is the first: without cursor, as the list starts.
+  return state.page === 2
+    ? { ...state, cursor: null, page: 1 }
+    : { ...state, cursor, page: Math.max(1, state.page - 1) };
+}
+
+/** "1–50 von 1.207", "51–100 von mehr als 10.000", or just the range when the total is open. */
+function rangeText(state: ListState, count: number, summary: MailSummary | undefined): string {
+  const first = (state.page - 1) * state.limit + 1;
+  const range = `${formatNumber(first)}–${formatNumber(first + count - 1)}`;
+  return summary && summary.total !== null ? `${range} von ${formatTotal(summary)}` : range;
+}
+
+function PageError({
+  error,
+  state,
+  onRetry,
+}: {
+  error: Error;
+  state: ListState;
+  onRetry: () => void;
+}) {
+  const code = error instanceof ApiError ? error.code : null;
+  if (code === "invalid_query") {
+    return (
+      <ErrorState
+        title={`Suche nicht verstanden: ${invalidTerm(error.message, state.q)}`}
+        actions={
+          <Link to={listHref(withFilters(state, { q: "" }))} className={buttonClass()}>
+            Suche leeren
+          </Link>
+        }
+      >
+        Suchoperatoren brauchen einen gültigen Wert, zum Beispiel after:2024-01-31, dkim:fail oder
+        has:attachment.
+      </ErrorState>
+    );
+  }
+  if (code === "invalid_filter") {
+    return (
+      <ErrorState
+        title="Diese Filter lassen sich nicht anwenden."
+        actions={
+          <Link to="/mails" className={buttonClass()}>
+            Filter zurücksetzen
+          </Link>
+        }
+      >
+        Die Adresse enthält eine Filterkombination, die Mailrobbe nicht auswerten kann.
+      </ErrorState>
+    );
+  }
+  if (code === "invalid_cursor") {
+    return (
+      <ErrorState
+        title="Diese Seite gibt es nicht mehr."
+        actions={
+          <Link to={listHref({ ...state, cursor: null, page: 1 })} className={buttonClass()}>
+            Zur ersten Seite
+          </Link>
+        }
+      >
+        Der Link verweist auf eine Seite einer anderen Sortierung oder ist veraltet.
+      </ErrorState>
+    );
+  }
+  return (
+    <ErrorState
+      title="Die Mails konnten nicht geladen werden."
+      actions={<Button onClick={onRetry}>Erneut versuchen</Button>}
+    >
+      Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
+    </ErrorState>
+  );
+}

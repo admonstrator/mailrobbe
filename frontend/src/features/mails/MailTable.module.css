@@ -1,0 +1,129 @@
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-hover);
+}
+
+.dkimCol {
+  width: 36px;
+}
+
+.iconCol {
+  width: 24px;
+}
+
+.table th.sizeCol {
+  width: 72px;
+  text-align: right;
+}
+
+.dateCol {
+  width: 150px;
+}
+
+.from {
+  overflow-wrap: anywhere;
+}
+
+.name,
+.name:hover {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.address {
+  display: block;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.subject {
+  overflow-wrap: anywhere;
+}
+
+.subjectLink,
+.subjectLink:hover {
+  color: var(--color-text);
+}
+
+.flag,
+.duplicate {
+  margin-left: 6px;
+  vertical-align: -2px;
+}
+
+.flag {
+  color: var(--color-no-key);
+}
+
+.duplicate {
+  color: var(--color-muted);
+}
+
+.icon {
+  color: var(--color-muted);
+  line-height: 0;
+}
+
+.size {
+  color: var(--color-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mbox {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.date {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--color-muted);
+}
