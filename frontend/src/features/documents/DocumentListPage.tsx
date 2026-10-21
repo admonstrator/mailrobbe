@@ -17,6 +17,7 @@ import { DocumentFilterColumn } from "./DocumentFilterColumn";
 import styles from "./DocumentListPage.module.css";
 import { DocumentTable } from "./DocumentTable";
 import { highlightTerms } from "../../lib/highlight";
+import { useBarHeight } from "../mails/useBarHeight";
 import { SORT_LABELS } from "./labels";
 import {
   documentListHref,
@@ -58,6 +59,7 @@ export function DocumentListPage() {
   const authors = useDocumentSummary(facetFilters(filters, "author"));
   const programs = useDocumentSummary(facetFilters(filters, "program"));
   const terms = useMemo(() => highlightTerms(state.q), [state.q]);
+  const bar = useBarHeight<HTMLDivElement>();
 
   const setState = (next: DocumentListState) =>
     setSearchParams(documentListSearch(next), { preventScrollReset: true });
@@ -83,45 +85,49 @@ export function DocumentListPage() {
         stats={stats.data}
       />
       <main className={styles.main}>
-        <div className={styles.head}>
-          <h1 className={styles.title}>Anhänge</h1>
-          <span className={styles.total} aria-live="polite">
-            {totalText(summary.data, hasDocumentFilters(state))}
-          </span>
-        </div>
-
-        <div className={styles.toolbar}>
-          <div className={styles.search}>
-            <SearchIcon className={styles.searchIcon} />
-            <label htmlFor="document-search" className="sr-only">
-              Anhänge durchsuchen
-            </label>
-            <DebouncedInput
-              id="document-search"
-              type="search"
-              className={styles.searchInput}
-              placeholder="Text und Dateinamen der Anhänge durchsuchen …"
-              value={state.q}
-              onCommit={(q) => typed({ q })}
-            />
+        {/* Title, count, search and sort in one row that stays above the table while it
+            scrolls. */}
+        <div ref={bar} className={styles.listBar}>
+          <div className={styles.head}>
+            <h1 className={styles.title}>Anhänge</h1>
+            <span className={styles.total} aria-live="polite">
+              {totalText(summary.data, hasDocumentFilters(state))}
+            </span>
           </div>
-          <label htmlFor="document-sort" className={styles.sortLabel}>
-            Sortierung
-          </label>
-          <select
-            id="document-sort"
-            className={styles.sort}
-            value={state.sort}
-            onChange={(event) =>
-              setState(withDocumentFilters(state, { sort: event.target.value as DocumentSort }))
-            }
-          >
-            {Object.entries(SORT_LABELS).map(([sort, label]) => (
-              <option key={sort} value={sort}>
-                {label}
-              </option>
-            ))}
-          </select>
+
+          <div className={styles.toolbar}>
+            <div className={styles.search}>
+              <SearchIcon className={styles.searchIcon} />
+              <label htmlFor="document-search" className="sr-only">
+                Anhänge durchsuchen
+              </label>
+              <DebouncedInput
+                id="document-search"
+                type="search"
+                className={styles.searchInput}
+                placeholder="Text und Dateinamen der Anhänge durchsuchen …"
+                value={state.q}
+                onCommit={(q) => typed({ q })}
+              />
+            </div>
+            <label htmlFor="document-sort" className={styles.sortLabel}>
+              Sortierung
+            </label>
+            <select
+              id="document-sort"
+              className={styles.sort}
+              value={state.sort}
+              onChange={(event) =>
+                setState(withDocumentFilters(state, { sort: event.target.value as DocumentSort }))
+              }
+            >
+              {Object.entries(SORT_LABELS).map(([sort, label]) => (
+                <option key={sort} value={sort}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <Card className={styles.tableCard}>

@@ -5,6 +5,7 @@ import { Checkbox } from "../../components/Checkbox";
 import { formatNumber } from "../../lib/format";
 import { REVIEW_KEYS, REVIEW_LABELS, TAG_PALETTE } from "../../lib/research";
 import styles from "./FilterColumn.module.css";
+import { FilterGroup } from "./FilterGroup";
 import type { FilterPatch, ListState } from "./listState";
 import { ReviewMark } from "./ReviewMark";
 
@@ -36,8 +37,17 @@ export function ResearchFilters({
     });
 
   return (
-    <fieldset className={styles.group}>
-      <legend className={styles.legend}>Recherche</legend>
+    <FilterGroup
+      id="mails.research"
+      title="Recherche"
+      active={
+        state.review.length > 0 ||
+        state.flagged ||
+        state.has_note ||
+        state.tag.length > 0 ||
+        state.collection.length > 0
+      }
+    >
       <p className={styles.scope}>Zahlen für das ganze Archiv</p>
       <div className={styles.sub} role="group" aria-label="Status">
         {REVIEW_KEYS.map((key) => (
@@ -90,7 +100,7 @@ export function ResearchFilters({
         unknown={(id) => `Akte #${id}`}
         onToggle={(id, checked) => change({ collection: toggled(state.collection, id, checked) })}
       />
-    </fieldset>
+    </FilterGroup>
   );
 }
 

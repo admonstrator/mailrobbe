@@ -56,7 +56,7 @@ describe("compact timeline", () => {
     const bars = [...slider.querySelectorAll("g > rect")];
     expect(bars).toHaveLength(36);
     // March 2024 is the largest count and far above the moving mean: the full height, marked.
-    expect(bars[14].getAttribute("height")).toBe("60");
+    expect(bars[14].getAttribute("height")).toBe("38");
     expect(bars[14].classList.contains(styles.high)).toBe(true);
     expect(bars[13].classList.contains(styles.high)).toBe(false);
     expect(bars[26].classList.contains(styles.high)).toBe(false);
@@ -69,7 +69,7 @@ describe("compact timeline", () => {
     expect(marks[0].classList.contains(styles.up)).toBe(true);
     expect(marks[0].getAttribute("y")).toBe("8");
     expect(marks[1].classList.contains(styles.down)).toBe(true);
-    expect(marks[1].getAttribute("y")).toBe("72");
+    expect(marks[1].getAttribute("y")).toBe("50");
 
     expect(screen.getByText("4.300")).toBeTruthy();
     expect(screen.getByText("Januar 2023")).toBeTruthy();

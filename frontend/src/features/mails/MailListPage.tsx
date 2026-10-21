@@ -52,6 +52,7 @@ import { invalidTerm } from "./queryText";
 import { SaveSearchDialog } from "./SaveSearchDialog";
 import { SignalFacets, useSignalChipNames } from "./SignalFacets";
 import { formatTotal, SummaryTiles } from "./SummaryTiles";
+import { useBarHeight } from "./useBarHeight";
 import { useListState } from "./useListState";
 
 const listHref = (state: ListState) => {
@@ -114,6 +115,7 @@ export function MailListPage() {
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState<Omit<ExportDialogProps, "onClose"> | null>(null);
+  const bar = useBarHeight<HTMLDivElement>();
 
   useEffect(() => {
     if (!notice) return;
@@ -166,106 +168,120 @@ export function MailListPage() {
         stats={stats.data}
         mboxFiles={mboxFiles.data}
         research={research.data}
-        terms={page.data?.query_terms}
       />
       <main className={styles.main}>
         <h1 className="sr-only">Mails</h1>
-        <SummaryTiles summary={summary} />
-        <MiniTimeline
-          filters={toFilters(state)}
-          onPick={(range) => setState(withFilters(state, range))}
-          collapsible
-        />
-
-        <div className={styles.toolbar}>
-          {chips.map((chip) => (
-            <Chip
-              key={chip.id}
-              label={chip.label}
-              color={chip.color && TAG_PALETTE[chip.color].text}
-              onRemove={() => setState(chip.next)}
-            />
-          ))}
-          {hasFilters(state) && (
-            <Button variant="link" size="sm" onClick={() => setSaving(true)}>
-              Suche speichern
-            </Button>
-          )}
-          {hasSelection(state) && (
-            <Link
-              to={selectionHref(state)}
-              className={buttonClass("link", "sm")}
-              title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
-            >
-              Begriffe
-            </Link>
-          )}
-          <span className={styles.hits} aria-live="polite">
-            {hitText(summary.data, state)}
-          </span>
-          <div className={styles.actions}>
-            <label htmlFor="mail-sort" className="sr-only">
-              Sortierung
-            </label>
-            <select
-              id="mail-sort"
-              className={styles.sort}
-              value={state.sort}
-              onChange={(event) =>
-                setState(withFilters(state, { sort: event.target.value as ListState["sort"] }))
-              }
-            >
-              <option value="date_desc">Datum (neueste zuerst)</option>
-              <option value="date_asc">Datum (älteste zuerst)</option>
-            </select>
-            <ColumnMenu columns={columns} onChange={setColumn} />
-            <a
-              href={`/api/mails/export.csv${exportQuery ? `?${exportQuery}` : ""}`}
-              className={buttonClass()}
-              download
-            >
-              Export CSV
-            </a>
-            <Button
-              onClick={() =>
-                setExporting({ selection: { filters: toFilters(state) }, count: exactTotal, label })
-              }
-            >
-              Exportieren
-            </Button>
+        <div className={styles.overview}>
+          <div className={styles.figures}>
+            <SummaryTiles summary={summary} />
           </div>
+          <MiniTimeline
+            filters={toFilters(state)}
+            onPick={(range) => setState(withFilters(state, range))}
+            collapsible
+          />
+        </div>
+        <div className={styles.topFacets}>
+          <SignalFacets state={state} onChange={setState} placement="top" />
+          <EntityFacets state={state} onChange={setState} placement="top" />
         </div>
 
-        {selectedIds.length > 0 ? (
-          <BulkBar
-            selected={selectedIds.length}
-            all={current.all}
-            summary={summary.data}
-            selection={selection}
-            onSelectAll={() => pick([], true)}
-            onClear={() => pick([])}
-            onDone={(result) => {
-              pick([]);
-              setNotice({ text: changedText(result) });
-            }}
-            onExport={() =>
-              setExporting({
-                selection,
-                count: current.all ? exactTotal : selectedIds.length,
-                label,
-              })
-            }
-          />
-        ) : (
-          notice && (
-            <p className={styles.notice} role="status">
-              {notice.text}
-            </p>
-          )
-        )}
+        {/* Chips, figures, sort and exports, and the bulk bar of a selection, stay above the
+            table while it scrolls. */}
+        <div ref={bar} className={styles.listBar}>
+          <div className={styles.toolbar}>
+            {chips.map((chip) => (
+              <Chip
+                key={chip.id}
+                label={chip.label}
+                color={chip.color && TAG_PALETTE[chip.color].text}
+                onRemove={() => setState(chip.next)}
+              />
+            ))}
+            {hasFilters(state) && (
+              <Button variant="link" size="sm" onClick={() => setSaving(true)}>
+                Suche speichern
+              </Button>
+            )}
+            {hasSelection(state) && (
+              <Link
+                to={selectionHref(state)}
+                className={buttonClass("link", "sm")}
+                title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
+              >
+                Begriffe
+              </Link>
+            )}
+            <span className={styles.hits} aria-live="polite">
+              {hitText(summary.data, state)}
+            </span>
+            <div className={styles.actions}>
+              <label htmlFor="mail-sort" className="sr-only">
+                Sortierung
+              </label>
+              <select
+                id="mail-sort"
+                className={styles.sort}
+                value={state.sort}
+                onChange={(event) =>
+                  setState(withFilters(state, { sort: event.target.value as ListState["sort"] }))
+                }
+              >
+                <option value="date_desc">Datum (neueste zuerst)</option>
+                <option value="date_asc">Datum (älteste zuerst)</option>
+              </select>
+              <ColumnMenu columns={columns} onChange={setColumn} />
+              <a
+                href={`/api/mails/export.csv${exportQuery ? `?${exportQuery}` : ""}`}
+                className={buttonClass("default", "sm")}
+                download
+              >
+                Export CSV
+              </a>
+              <Button
+                size="sm"
+                onClick={() =>
+                  setExporting({
+                    selection: { filters: toFilters(state) },
+                    count: exactTotal,
+                    label,
+                  })
+                }
+              >
+                Exportieren
+              </Button>
+            </div>
+          </div>
 
-        <SignalFacets state={state} onChange={setState} placement="top" />
-        <EntityFacets state={state} onChange={setState} placement="top" />
+          {selectedIds.length > 0 ? (
+            <BulkBar
+              selected={selectedIds.length}
+              all={current.all}
+              summary={summary.data}
+              selection={selection}
+              onSelectAll={() => pick([], true)}
+              onClear={() => pick([])}
+              onDone={(result) => {
+                pick([]);
+                setNotice({ text: changedText(result) });
+              }}
+              onExport={() =>
+                setExporting({
+                  selection,
+                  count: current.all ? exactTotal : selectedIds.length,
+                  label,
+                })
+              }
+            />
+          ) : (
+            notice && (
+              <p className={styles.notice} role="status">
+                {notice.text}
+              </p>
+            )
+          )}
+        </div>
+
         <Card className={styles.tableCard}>
           {page.isPending ? (
             <div className={styles.loading}>

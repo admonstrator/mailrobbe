@@ -1,11 +1,11 @@
-/* On the document page: the window below its compact bar (48 px) less the preview card's title,
-   padding and the note below the frame, so the whole frame is in view once the card reaches the
-   bar (D166); never shorter than a page of text. It scrolls inside itself. */
+/* On the document page: the window below the header and its compact bar (48 px) less the preview
+   card's title, padding and the note below the frame, so the whole frame is in view once the
+   card reaches the bar (D166); never shorter than a page of text. It scrolls inside itself. */
 .frame {
   display: block;
   box-sizing: border-box;
   width: 100%;
-  height: max(420px, calc(100vh - 168px));
+  height: max(420px, calc(var(--content-height) - 168px));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-tile);
 }
@@ -44,7 +44,7 @@
 .video {
   display: block;
   width: 100%;
-  max-height: max(320px, calc(100vh - 168px));
+  max-height: max(320px, calc(var(--content-height) - 168px));
   border-radius: var(--radius-tile);
   background: #000000;
 }

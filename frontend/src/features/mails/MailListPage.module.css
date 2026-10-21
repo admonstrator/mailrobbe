@@ -8,34 +8,88 @@
   display: flex;
   flex: 999 1 560px;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
-  padding: 20px 24px;
+  padding: 16px 20px 24px;
+  container: list / inline-size;
+}
+
+/* The figures beside the timeline where both fit, so the table starts high on the screen; one
+   above the other on narrow screens, and the figures as one strip while the timeline is hidden. */
+.overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+@container list (min-width: 680px) {
+  .overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview:has([data-timeline="hidden"]) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.figures {
+  display: grid;
+  min-width: 0;
+  container: figures / inline-size;
+}
+
+/* The signal and the entity facets above the table (below FACETS_COLUMN_QUERY): folded ones
+   share a line, an open one takes the whole width. */
+.topFacets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.topFacets:empty {
+  display: none;
+}
+
+/* Stays below the shell header while the table scrolls; the page's background behind it, edge
+   to edge of the column, so rows pass under it. Its height is --list-bar (useBarHeight). */
+.listBar {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: -6px -20px 0;
+  padding: 6px 20px 8px;
+  background: var(--color-bg);
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
+  min-height: 32px;
 }
 
 .hits {
   color: var(--color-muted);
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
 }
 
 .sort {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
-  padding: 7px 10px;
+  padding: 5px 8px;
   background: var(--color-surface);
   font-size: 13px;
 }
@@ -50,10 +104,11 @@
   font-weight: 600;
 }
 
+/* clip, not hidden: no scroll container, so the table's head can stick to the window. */
 .tableCard {
   gap: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .loading {
@@ -63,11 +118,11 @@
 }
 
 /* From the facets' width on (FACETS_COLUMN_QUERY) the signal and the entity facets share one
-   column right of the table: the signals on top, the entities down to the end of the list. */
+   column right of the table: the signals on top, the entities below. It stays beside the list
+   with a scroll of its own, as the filter column does. */
 .facets {
   display: flex;
   flex-direction: column;
-  align-self: stretch;
 }
 
 .facets > section {
@@ -82,9 +137,18 @@
   border-top: 1px solid var(--color-border);
 }
 
-@media (min-width: 1500px) {
+@media (min-width: 1280px) {
   .facets {
+    position: sticky;
+    top: var(--sticky-top);
     flex: 0 0 272px;
+    box-sizing: border-box;
+    height: var(--content-height);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-left: 1px solid var(--color-border);
+    background: var(--color-surface);
+    scrollbar-width: thin;
   }
 }
 
@@ -98,5 +162,10 @@
   .main {
     flex: 1 1 auto;
     padding: 16px;
+  }
+
+  .listBar {
+    margin-inline: -16px;
+    padding-inline: 16px;
   }
 }

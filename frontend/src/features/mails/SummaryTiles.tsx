@@ -106,7 +106,9 @@ export function SummaryTiles({ summary }: { summary: UseQueryResult<MailSummary>
           >
             {tile.value}
           </span>
-          <span className={styles.sub}>{tile.sub}</span>
+          <span className={styles.sub} title={tile.sub}>
+            {tile.sub}
+          </span>
         </div>
       ))}
     </div>

@@ -36,9 +36,10 @@ import type { ChipNames } from "./chips";
 import styles from "./EntityFacets.module.css";
 import { toFilters, withFilters, type ListState } from "./listState";
 
-/** From this width the facets are a column right of the table, which keeps its 900 px beside the
- *  filter column; below it they are a block above the table that can be folded away. */
-export const FACETS_COLUMN_QUERY = "(min-width: 1500px)";
+/** From this width the facets are a column right of the table, which keeps about 680 px beside
+ *  the filter column (MailTable's head sticks from there on); below it they are a block above the
+ *  table that can be folded away. */
+export const FACETS_COLUMN_QUERY = "(min-width: 1280px)";
 
 export function subscribeWidth(onChange: () => void): () => void {
   if (typeof window.matchMedia !== "function") return () => {};

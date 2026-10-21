@@ -1,3 +1,8 @@
+.card {
+  gap: 10px;
+  padding: 14px 22px;
+}
+
 .head {
   display: flex;
   flex-wrap: wrap;
@@ -28,11 +33,11 @@
 .signature {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 .signature + .signature {
-  padding-top: 16px;
+  padding-top: 12px;
   border-top: 1px solid var(--color-border-subtle);
 }
 
@@ -45,15 +50,15 @@
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px;
 }
 
 .tile {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border-radius: var(--radius-tile);
   background: var(--color-bg);
 }
@@ -105,7 +110,7 @@
 .facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 24px;
+  gap: 4px 24px;
   font-size: 13px;
 }
 
