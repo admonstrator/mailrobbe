@@ -5,11 +5,11 @@ import type { MailHeaders, MailRaw, MailText } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
-import { MarkedParts, type SearchMarks } from "../../components/Highlighted";
+import { MarkedParts, markWords, type SearchMarks } from "../../components/Highlighted";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatBytes, formatNumber } from "../../lib/format";
-import { highlightParts, markCount } from "../../lib/highlight";
+import { markCount } from "../../lib/highlight";
 import { splitQuoted } from "../../lib/quote";
 import styles from "./BodyCard.module.css";
 import { sourceErrorText } from "./errors";
@@ -117,7 +117,7 @@ function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
   const [showQuoted, setShowQuoted] = useState<boolean | null>(null);
   const split = useMemo(() => splitQuoted(data.text), [data.text]);
   const parts = useMemo(() => {
-    const mark = (text: string) => highlightParts(text, marks?.words ?? [], marks?.stems ?? []);
+    const mark = (text: string) => markWords(text, marks);
     return split
       ? { body: mark(split.body), quoted: mark(split.quoted) }
       : { body: mark(data.text), quoted: [] };

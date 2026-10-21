@@ -215,6 +215,7 @@ function item(
     tags: [],
     notes: 0,
     attachment_match: false,
+    hits: null,
     ...extra,
   };
 }
@@ -326,8 +327,13 @@ export const filteredQuery = "subject:Vertrag to:@stadtwerke-beispiel.example";
 export const filteredPage: MailPage = {
   ...mailPage,
   query_terms: [
-    { key: "subject", value: "Vertrag", raw: "subject:Vertrag" },
-    { key: "to", value: "@stadtwerke-beispiel.example", raw: "to:@stadtwerke-beispiel.example" },
+    { key: "subject", value: "Vertrag", raw: "subject:Vertrag", negated: false },
+    {
+      key: "to",
+      value: "@stadtwerke-beispiel.example",
+      raw: "to:@stadtwerke-beispiel.example",
+      negated: false,
+    },
   ],
 };
 
@@ -494,12 +500,26 @@ export const mailHits: MailHits = {
       attachment_id: 901,
       in_name: false,
       snippet: "§ 6 Haftung: Die Haftung beider Seiten ist auf den Auftragswert begrenzt.",
+      in_text: true,
     },
-    { attachment_id: 902, in_name: false, snippet: null },
+    { attachment_id: 902, in_name: false, snippet: null, in_text: true },
   ],
+  whole_word: false,
+  in_subject: false,
+  in_body: true,
+  counts: null,
 };
 
-export const noHits: MailHits = { words: [], stems: [], in_mail: false, attachments: [] };
+export const noHits: MailHits = {
+  words: [],
+  stems: [],
+  in_mail: false,
+  attachments: [],
+  whole_word: false,
+  in_subject: false,
+  in_body: false,
+  counts: null,
+};
 
 export const mailText: MailText = {
   text: [
@@ -3004,4 +3024,41 @@ export const personSignals: PersonSignals = {
   ],
   silent_since: null,
   silent_mails: null,
+};
+
+// Search options (D171 to D177) -----------------------------------------------------------------
+
+/** A list searched for "Neger" (D176): where the word occurs in each mail; the second is found
+ *  through a file name only, the third through words that are not counted. */
+export const hitsPage: MailPage = {
+  ...mailPage,
+  items: mailItems.map((mail, index) => ({
+    ...mail,
+    hits: [
+      { subject: 1, body: 3, attachment: 2, filename: 2 },
+      { subject: 0, body: 0, attachment: 0, filename: 2 },
+      { subject: 0, body: 0, attachment: 0, filename: 0 },
+    ][index] ?? { subject: 0, body: 1, attachment: 0, filename: 0 },
+  })),
+  query_terms: [{ key: "text", value: "Neger", raw: "Neger", negated: false }],
+};
+
+/** "Haftung" as a whole word in the list's places (D173, D176): the quoted "zur Haftung" of the
+ *  mail's text, not its "Haftungsklausel", and twice in the contract's text. */
+export const wholeWordHits: MailHits = {
+  words: ["Haftung"],
+  stems: [],
+  in_mail: true,
+  attachments: [
+    {
+      attachment_id: 901,
+      in_name: false,
+      snippet: "§ 6 Haftung: Die Haftung beider Seiten ist auf den Auftragswert begrenzt.",
+      in_text: true,
+    },
+  ],
+  whole_word: true,
+  in_subject: false,
+  in_body: true,
+  counts: { subject: 0, body: 1, attachment: 2, filename: 0 },
 };

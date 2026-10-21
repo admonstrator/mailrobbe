@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { DkimKey, MboxFileInfo, ResearchOverview, Stats } from "../../api/types";
+import type { DkimKey, MboxFileInfo, QueryTerm, ResearchOverview, Stats } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { DkimDot } from "../../components/DkimDot";
@@ -12,6 +12,7 @@ import { DomainDialog } from "./DomainDialog";
 import styles from "./FilterColumn.module.css";
 import { withFilters, withoutSidebarFilters, type FilterPatch, type ListState } from "./listState";
 import { ResearchFilters } from "./ResearchFilters";
+import { SearchOptions } from "./SearchOptions";
 
 const ALWAYS_SHOWN: readonly DkimKey[] = ["pass", "fail", "no_key", "unsigned"];
 const TOP_DOMAINS = 5;
@@ -23,12 +24,15 @@ export function FilterColumn({
   stats,
   mboxFiles,
   research,
+  terms,
 }: {
   state: ListState;
   onChange: (next: ListState) => void;
   stats: Stats | undefined;
   mboxFiles: MboxFileInfo[] | undefined;
   research: ResearchOverview | undefined;
+  /** The query terms of the page shown (MailPage.query_terms). */
+  terms: QueryTerm[] | undefined;
 }) {
   const [domainDialog, setDomainDialog] = useState(false);
   const change = (patch: FilterPatch) => onChange(withFilters(state, patch));
@@ -69,6 +73,8 @@ export function FilterColumn({
           Zurücksetzen
         </Button>
       </div>
+
+      <SearchOptions state={state} terms={terms} change={change} />
 
       <fieldset className={styles.group}>
         <legend className={styles.legend}>Zeitraum</legend>

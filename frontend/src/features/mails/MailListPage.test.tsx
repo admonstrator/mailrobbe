@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { filteredQuery, mailDetail } from "../../test/fixtures";
+import { filteredQuery, hitsPage, mailDetail } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
+
+const search = (location: { search: string }) => new URLSearchParams(location.search);
 
 const filteredPath = `/mails?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`;
 
@@ -201,6 +203,100 @@ describe("mail list", () => {
     expect(timelineCalls(calls)[0].url.search).toBe("?thread=184001");
     fireEvent.click(chip);
     expect(router.state.location.search).toBe("");
+  });
+
+  it("shows under the subject where the search words occur, only where they do (D176)", async () => {
+    // The third mail's attachment matched, but the counts say the words do not count there.
+    const page = {
+      ...hitsPage,
+      items: hitsPage.items.map((mail, index) =>
+        index === 2 ? { ...mail, attachment_match: true } : mail,
+      ),
+    };
+    renderApp("/mails?q=Neger", (call) =>
+      call.url.pathname === "/api/mails" ? page : fixtureApi(call),
+    );
+    const rows = (await screen.findAllByRole("row")).slice(1);
+    const line = (row: HTMLElement) => row.querySelector('[title^="Suchwörter"]');
+    expect(line(rows[0])!.textContent).toBe("Betreff 1 · Text 3 · Anhang 2 · Dateiname 2");
+    expect(line(rows[0])!.getAttribute("title")).toBe(
+      "Suchwörter: 1 im Betreff, 3 im Mailtext, 2 im Text von Anhängen, 2 in Dateinamen",
+    );
+    // in the subject's cell
+    expect(
+      within(line(rows[0])!.closest("td")!).getByRole("link", {
+        name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
+      }),
+    ).toBeTruthy();
+    // Found through a file name only, which is the point.
+    expect(line(rows[1])!.textContent).toBe("Dateiname 2");
+    expect(line(rows[2])).toBeNull();
+    expect(line(rows[3])!.textContent).toBe("Text 1");
+
+    // The mark of D73 beside the paperclip follows the counts and names the place.
+    const mark = (row: HTMLElement) => within(row).queryByText("im Anhang")?.getAttribute("title");
+    expect(mark(rows[0])).toBe("Suchbegriff steht im Text und im Dateinamen eines Anhangs");
+    expect(mark(rows[1])).toBe("Suchbegriff steht im Dateinamen eines Anhangs");
+    expect(mark(rows[2])).toBeUndefined();
+    expect(mark(rows[3])).toBeUndefined();
+  });
+
+  it("adds no line to rows without hits", async () => {
+    renderApp(filteredPath);
+    await screen.findAllByRole("row");
+    expect(document.querySelector('[title^="Suchwörter"]')).toBeNull();
+  });
+
+  it("sends the search options, shows them as chips and drops one by its chip", async () => {
+    const options = "q=Neger&scope=subject&scope=body&whole_word=true&min_hits=3";
+    const { router, calls } = renderApp(`/mails?${options}`, (call) =>
+      call.url.pathname === "/api/mails" ? hitsPage : fixtureApi(call),
+    );
+    for (const label of ["Nur in: Betreff, Mailtext", "Ganzes Wort", "Mindestens 3 Treffer"]) {
+      expect(
+        await screen.findByRole("button", { name: `Filter entfernen: ${label}` }),
+      ).toBeTruthy();
+    }
+    for (const path of ["/api/mails", "/api/mails/summary", "/api/timeline"]) {
+      expect(calls.find((call) => call.url.pathname === path)!.url.search).toBe(`?${options}`);
+    }
+    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
+      `/api/mails/export.csv?${options}`,
+    );
+    // The detail links carry them, so the detail marks as the list searched.
+    expect(
+      screen
+        .getByRole("link", { name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung" })
+        .getAttribute("href"),
+    ).toBe(`/mails/184221?${options}`);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Filter entfernen: Nur in: Betreff, Mailtext" }),
+    );
+    expect(router.state.location.search).toBe("?q=Neger&whole_word=true&min_hits=3");
+  });
+
+  it("names excluded terms and removes them from q", async () => {
+    const q = "Neger -datei:NEG -negere";
+    const { router } = renderApp(`/mails?${new URLSearchParams({ q })}`, (call) =>
+      call.url.pathname === "/api/mails"
+        ? {
+            ...hitsPage,
+            query_terms: [
+              { key: "text", value: "Neger", raw: "Neger", negated: false },
+              { key: "in_filename", value: "NEG", raw: "-datei:NEG", negated: true },
+              { key: "text", value: "-negere", raw: "-negere", negated: false },
+            ],
+          }
+        : fixtureApi(call),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Filter entfernen: Ohne: „negere“" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Filter entfernen: Nicht im Dateinamen: „NEG“" }),
+    );
+    expect(search(router.state.location).get("q")).toBe("Neger -negere");
   });
 
   it("names a thread by its id while its first mail is unknown", async () => {

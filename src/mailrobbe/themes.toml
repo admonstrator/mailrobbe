@@ -14,7 +14,10 @@
 # "mich", "an", "unter" are dropped, also inside phrases, so phrases need content words; with
 # "nicht" dropped, "nicht per Mail" would find every "per Mail", so negations are left out.
 # Terms that are numbers ("88") match every such number in the archive and are left out of
-# the searches.
+# the searches. A search may also set the mail list's options (D178): scope, a list of the
+# places "subject", "body", "attachment", "filename" (none: everywhere), whole_word = true for
+# whole words without German stems, and min_hits, how often the words must occur (1 to 999);
+# the searches below set none, since whole words would lose the inflections they are written for.
 
 [[theme]]
 key = "verfassungsfeindlichkeit"
