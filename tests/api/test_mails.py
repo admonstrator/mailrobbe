@@ -21,6 +21,7 @@ from mailrobbe.api import filters
 from mailrobbe.api.mails import CSV_HEADER
 from mailrobbe.api.schemas import RECIPIENT_PREVIEW
 from mailrobbe.enums import ParticipationRole
+from mailrobbe.signals.model import rules
 from tests.api.conftest import _client, api_settings
 from tests.conftest import GeneratedArchive
 
@@ -730,6 +731,31 @@ async def test_csv_of_everything_matches_the_summary(client: httpx.AsyncClient) 
     summary = await get(client, "/api/mails/summary")
     assert len(exported) == summary["total"]
     assert {row[7] for row in exported} == {"ja", "nein"}
+
+
+async def test_csv_names_the_signals_of_each_mail(
+    signal_client: httpx.AsyncClient,
+    signal_database_url: str,
+    generated_archive: GeneratedArchive,
+    tmp_path: Path,
+) -> None:
+    # D139: the last column names the stored signals in display order, empty without any.
+    assert CSV_HEADER[-1] == "Signale"
+    signal_rules = rules(api_settings(signal_database_url, generated_archive, tmp_path))
+    stored = await rows(
+        signal_database_url,
+        "SELECT m.id, ARRAY(SELECT s.signal FROM mail_signal s WHERE s.mail_id = m.id) AS keys"
+        " FROM mail m",
+    )
+    expected = {
+        row.id: ", ".join(signal_rules.label(key) for key in signal_rules.keys if key in row.keys)
+        for row in stored
+    }
+    exported = {int(row[0]): row[-1] for row in await export(signal_client)}
+    assert exported == expected
+    assert any(", " in cell for cell in exported.values())
+    assert "" in exported.values()
+    assert any("Wortfeld Verschleierung" in cell for cell in exported.values())
 
 
 async def test_csv_cells_never_start_a_formula(

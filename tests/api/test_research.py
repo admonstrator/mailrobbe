@@ -20,6 +20,7 @@ from mailrobbe.api import marks, research
 from mailrobbe.api.deps import EDITOR_HEADER
 from mailrobbe.api.schemas import COLLECTION_PERSONS, PERMALINK_DIGITS
 from mailrobbe.db.models import Mail
+from mailrobbe.entities.terms import term_key
 from mailrobbe.themes import load_themes
 from tests.api.conftest import _client, api_settings
 from tests.api.test_mails import rows
@@ -661,6 +662,24 @@ async def test_themes_are_listed(mutable_client: httpx.AsyncClient) -> None:
         "name": load_themes()[0].searches[0].name,
         "query": load_themes()[0].searches[0].query,
     }
+
+
+async def test_themes_name_the_entities_of_their_terms(
+    signal_client: httpx.AsyncClient, signal_database_url: str
+) -> None:
+    # The entity of each term, None for a term no mail mentions yet.
+    entities = {
+        row.key: row.id
+        for row in await rows(signal_database_url, "SELECT key, id FROM entity WHERE kind = 'term'")
+    }
+    listed = await call(signal_client, "GET", "/api/research/themes")
+    themes = load_themes()
+    assert [t["term_ids"] for t in listed] == [
+        [entities.get(term_key(theme.key, term)) for term in theme.terms] for theme in themes
+    ]
+    hidden = next(t for t in listed if t["key"] == "verschleierung")
+    assert hidden["term_ids"][hidden["terms"].index("unter uns")] is not None
+    assert any(None in t["term_ids"] for t in listed)
 
 
 async def test_the_starter_set_is_created_once(mutable_client: httpx.AsyncClient) -> None:
