@@ -4,12 +4,13 @@ import { Link, useNavigate } from "react-router";
 import { useResearch } from "../../api/queries";
 import type { MailListItem, PersonRef, TagRef } from "../../api/types";
 import { DkimDot } from "../../components/DkimDot";
-import { CopyIcon, FlagIcon, NoteIcon, PaperclipIcon } from "../../components/icons";
+import { CalendarIcon, CopyIcon, FlagIcon, NoteIcon, PaperclipIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatBytes, formatDateTime, formatNumber } from "../../lib/format";
 import { TAG_PALETTE } from "../../lib/research";
+import { EVENT_LABELS } from "./chips";
 import type { ColumnChoice } from "./columns";
 import styles from "./MailTable.module.css";
 import { ReviewMark } from "./ReviewMark";
@@ -179,6 +180,13 @@ export function MailTable({
                   {mail.flagged && <FlagIcon size={13} label="Markiert" className={styles.flag} />}
                   {mail.is_duplicate && (
                     <CopyIcon size={13} label="Duplikat" className={styles.duplicate} />
+                  )}
+                  {mail.event && (
+                    <CalendarIcon
+                      size={13}
+                      label={`Termin: ${EVENT_LABELS[mail.event]}`}
+                      className={cx(styles.event, mail.event === "cancel" && styles.eventCancel)}
+                    />
                   )}
                   {(mail.tags.length > 0 || mail.notes > 0) && (
                     <span className={styles.research}>

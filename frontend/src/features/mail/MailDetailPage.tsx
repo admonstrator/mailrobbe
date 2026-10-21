@@ -16,6 +16,7 @@ import { AttachmentsCard } from "./AttachmentsCard";
 import { BodyCard, type BodyTab } from "./BodyCard";
 import { DkimCard } from "./DkimCard";
 import { EntitiesCard } from "./EntitiesCard";
+import { EventCard } from "./EventCard";
 import { HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
 import { ParticipantsCard } from "./ParticipantsCard";
@@ -147,6 +148,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
               />
             )}
             <DkimCard mail={detail.data} />
+            <EventCard events={detail.data.events} mailId={id} mailHref={mailHref} />
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
             {detail.data.attachments.length > 0 && (
               <AttachmentsCard

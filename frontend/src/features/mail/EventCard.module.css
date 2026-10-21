@@ -1,0 +1,199 @@
+.event {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.event + .event {
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.cancelled {
+  border-left: 3px solid var(--color-fail);
+  padding-left: 12px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.kind {
+  border-radius: var(--radius-control);
+  padding: 1px 8px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.request {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.reply {
+  background: var(--color-pass-soft);
+  color: var(--color-pass-text);
+}
+
+.cancel {
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+}
+
+.small {
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+.summary {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sequence {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.notice {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 6px 10px;
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.facts dt {
+  color: var(--color-muted);
+}
+
+.facts dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.berlin {
+  color: var(--color-muted);
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.people {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.participant a {
+  color: var(--color-text);
+}
+
+.answer {
+  margin-left: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.accepted {
+  color: var(--color-pass-text);
+}
+
+.declined {
+  color: var(--color-fail-text);
+}
+
+.tentative {
+  color: var(--color-no-key-text);
+}
+
+.more summary,
+.description summary {
+  width: fit-content;
+  color: var(--color-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.more .people {
+  margin-top: 2px;
+}
+
+.description p {
+  margin: 6px 0 0;
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  background: var(--color-bg);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.others {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 10px;
+  font-size: 13px;
+}
+
+.othersTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mails {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.mail a {
+  overflow-wrap: anywhere;
+}
+
+.all {
+  width: fit-content;
+  font-size: 12px;
+}
