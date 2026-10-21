@@ -89,8 +89,12 @@ textarea {
   outline-offset: 2px;
 }
 
+/* Pinned to the start of its containing block: left at its own place, a label in a wide table
+   cell would stick out of the table's scroll area and widen the page. */
 .sr-only {
   position: absolute;
+  top: 0;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
