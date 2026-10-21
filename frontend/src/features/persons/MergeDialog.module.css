@@ -67,6 +67,16 @@
   background: var(--color-accent-soft);
 }
 
+.uncertain summary {
+  color: var(--color-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.uncertain[open] summary {
+  margin-bottom: 6px;
+}
+
 .note {
   margin: 4px 0;
   color: var(--color-muted);

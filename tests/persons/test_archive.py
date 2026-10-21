@@ -1,4 +1,5 @@
-"""The person figures and suggestions of the generated archive against its ground truth.
+"""The person figures and suggestions (with their tiers) of the generated archive against its
+ground truth.
 
 The manifest gives sender, To, Cc, Bcc, date and expected DKIM result of every mail; the
 importer stores exactly these participants, and dates the importer cannot parse fall back to
@@ -30,11 +31,17 @@ from tests.conftest import GeneratedArchive
 pytestmark = pytest.mark.db
 
 TABLES = ("person_stats", "person_year", "alias_suggestion")
-# Measured on this archive: recall 1.0 (all 8 pairs of addresses of one generator person are
-# suggested), precision 0.89 (8 of 9 suggestions; the other one is two automated senders of one
-# domain with the same name). The floors leave room for changes of the generator.
+# Measured on this archive (D160): all 8 pairs of addresses of one generator person are
+# suggested and every one of the 8 suggestions is right (before the tiers there was a ninth, two
+# automated senders of one domain with the same name). Names make 7 of them certain, contacts 1:
+# the generator draws a person's recipients anew for every mail, so the two addresses of the
+# other 6 share fewer than two contacts. The floors leave room for changes of the generator; a
+# certain suggestion must never be wrong, since "Alle sicheren zusammenführen" merges them
+# unseen (D162).
 RECALL_FLOOR = 0.75
 PRECISION_FLOOR = 0.6
+CERTAIN_RECALL_FLOOR = 0.1
+CERTAIN_PRECISION_FLOOR = 1.0
 
 
 @pytest.fixture
@@ -123,12 +130,17 @@ async def test_figures_match_the_manifest(
     )
 
 
-async def _suggested_pairs(connection: AsyncConnection) -> set[tuple[str, str]]:
+async def _suggested_pairs(
+    connection: AsyncConnection, tier: str | None = None
+) -> set[tuple[str, str]]:
+    """The suggested pairs by their addresses; of one tier, or of both."""
     rows = await connection.execute(
         text(
             "SELECT a.canonical_email, b.canonical_email FROM alias_suggestion s "
-            "JOIN person a ON a.id = s.person_a JOIN person b ON b.id = s.person_b"
-        )
+            "JOIN person a ON a.id = s.person_a JOIN person b ON b.id = s.person_b "
+            "WHERE s.tier::text = coalesce(:tier, s.tier::text)"
+        ),
+        {"tier": tier},
     )
     return {(min(a, b), max(a, b)) for a, b in rows}
 
@@ -158,6 +170,23 @@ async def test_suggestions_find_the_aliases_of_the_generator(
     assert aliases, "the archive has addresses of one person"
     assert len(aliases & suggested) / len(aliases) >= RECALL_FLOOR
     assert len(same_person) / len(suggested) >= PRECISION_FLOOR
+
+    certain = await _suggested_pairs(archive, "certain")
+    assert len(aliases & certain) / len(aliases) >= CERTAIN_RECALL_FLOOR
+    assert len(same_person & certain) / len(certain) >= CERTAIN_PRECISION_FLOOR
+
+
+async def test_the_tiers_of_the_generated_archive(
+    archive: AsyncConnection, generated_archive: GeneratedArchive
+) -> None:
+    """The measurement above as it is now; a change of the rules or the generator shows here."""
+    owners = _owners(generated_archive)
+    found = {}
+    for tier in ("certain", "uncertain"):
+        pairs = await _suggested_pairs(archive, tier)
+        right = sum(owners.get(a, -1) == owners.get(b, -2) for a, b in pairs)
+        found[tier] = (len(pairs), right)
+    assert found == {"certain": (1, 1), "uncertain": (7, 7)}
 
 
 async def _committed(engine: AsyncEngine, work: Callable[..., Awaitable[Any]], *args: Any) -> Any:

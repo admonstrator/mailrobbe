@@ -1,0 +1,103 @@
+.intro {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.notice {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  background: var(--color-pass-soft);
+  color: #166534;
+  font-size: 13px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.card {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.loading {
+  align-items: center;
+  padding: 48px;
+}
+
+.group {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.group:last-child {
+  border-bottom: 0;
+}
+
+.run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--color-field);
+}
+
+.runTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.what {
+  min-width: 0;
+}
+
+.moved {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.arrow {
+  color: var(--color-muted);
+}
+
+.meta {
+  margin: 2px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.undone .moved {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+}

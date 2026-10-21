@@ -32,6 +32,17 @@ export type ParticipationRole = "from" | "to" | "cc" | "bcc";
  *  cc = Cc only. */
 export type PersonRole = "sent" | "received" | "cc";
 export type PersonSort = "mails" | "name" | "recent";
+/** Tier of an alias suggestion (D160): certain when several signs agree. */
+export type AliasTier = "certain" | "uncertain";
+/** Why a suggestion was made: name and local part, a name that fits both addresses of one
+ *  organisation (both certain, with shared contacts), name and local part with too few shared
+ *  contacts, a name alone, a local part alone (all three uncertain). */
+export type SuggestionReason =
+  | "name_and_local_part"
+  | "name_fits_addresses"
+  | "name_and_local_part_few_contacts"
+  | "name"
+  | "local_part";
 export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
 export type SortOrder = "date_desc" | "date_asc";
 /** Review status of a mail (D55); null is unreviewed. */
@@ -90,7 +101,8 @@ export type ErrorCode =
   | "preview_too_large"
   | "preview_failed"
   | "invalid_key" // 400: no DKIM key name, or a record without a usable key (D103)
-  | "archive_off"; // 409: the key archive is switched off
+  | "archive_off" // 409: the key archive is switched off
+  | "merge_undone"; // 409: the merge, or every merge of the batch, was undone already (D163)
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -450,6 +462,7 @@ export interface ContactListParams {
 export interface SuggestionListParams {
   cursor?: string;
   limit?: number;
+  tier?: AliasTier; // default certain
 }
 
 export interface PersonMailCountParams {
@@ -532,6 +545,8 @@ export interface AliasCandidate {
   person: PersonSummary; // the other person
   same_name: string | null;
   same_local_part: string | null;
+  tier: AliasTier;
+  reason: SuggestionReason;
 }
 
 export interface AliasSuggestion {
@@ -539,12 +554,33 @@ export interface AliasSuggestion {
   second: PersonSummary;
   same_name: string | null;
   same_local_part: string | null;
+  tier: AliasTier;
+  reason: SuggestionReason;
+}
+
+export interface SuggestionCounts {
+  certain: number;
+  uncertain: number;
+}
+
+/** One logged merge (D163): the persons it moved into target's root. */
+export interface MergeLogEntry {
+  id: number;
+  target: PersonRef; // the root merged into
+  moved: PersonRef[]; // every person it moved, the source roots with their aliases
+  batch_id: number | null; // the run of "Alle sicheren zusammenführen" (D162)
+  editor: string | null;
+  created_at: string;
+  undone_at: string | null;
+  undone_by: string | null;
 }
 
 export interface SuggestionPage {
   items: AliasSuggestion[];
   next_cursor: string | null;
-  total: number;
+  total: number; // every open suggestion of the tier asked for
+  counts: SuggestionCounts; // every open suggestion per tier
+  computed: boolean; // false until a refresh computed them by the current rules (with tiers)
 }
 
 export interface PersonProfile {
@@ -557,7 +593,9 @@ export interface PersonProfile {
   figures: PersonFigures | null; // null until aggregated
   years: YearActivity[]; // oldest first
   top_contacts: Contact[];
-  suggestions: AliasCandidate[];
+  suggestions: AliasCandidate[]; // certain ones first
+  suggestion_counts: SuggestionCounts; // all open suggestions with this person per tier
+  merges: MergeLogEntry[]; // logged merges not undone that moved aliases into it, newest first
 }
 
 /** Mails per tab; null where counting ran out of time. */
@@ -566,6 +604,44 @@ export interface PersonMailCounts {
   sent: number | null;
   received: number | null;
   cc: number | null;
+}
+
+export interface MergeLogParams {
+  cursor?: string;
+  limit?: number;
+}
+
+/** A run of "Alle sicheren zusammenführen" (D162) with merges on the page. */
+export interface MergeBatchInfo {
+  id: number;
+  created_at: string;
+  editor: string | null;
+  merges: number; // all merges of the run
+  undone: number; // of them undone
+}
+
+export interface MergeLogPage {
+  items: MergeLogEntry[]; // newest first
+  batches: MergeBatchInfo[]; // the runs of the page's merges, newest first
+  next_cursor: string | null;
+  total: number; // every logged merge
+}
+
+/** What "Alle sicheren zusammenführen" merges now (D162). */
+export interface CertainMergePlan {
+  merges: number; // groups, each merged into the person with most mails
+  persons: number; // persons that become aliases
+  left_out_groups: number; // more than five persons, or a dismissed pair inside
+  left_out_persons: number;
+}
+
+export interface CertainMergeResult extends CertainMergePlan {
+  batch_id: number | null; // null when there was nothing to merge
+}
+
+export interface MergeUndoResult {
+  merges: number; // merges marked undone
+  persons: number; // persons put back
 }
 
 // Relationship map (milestone 6, D36 to D38) --------------------------------------------------

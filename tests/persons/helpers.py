@@ -23,6 +23,9 @@ from tests.importer.doubles import (
 
 Entry = tuple[ParsedMail, DkimStatus | None]
 
+# Two persons who write to the addresses acquainted() is given.
+ACQUAINTANCES = ("Kai Kern <kai.kern@k.example>", "Lea Lang <lea.lang@l.example>")
+
 
 def mail(
     sender: str,
@@ -45,6 +48,12 @@ def mail(
         bcc=tuple(map(_address, bcc)),
     )
     return parsed, None if dkim is None else DkimStatus(dkim)
+
+
+def acquainted(*addresses: str) -> list[Entry]:
+    """A mail from each of ACQUAINTANCES to all these addresses: the contacts in common that a
+    certain suggestion needs (D160)."""
+    return [mail(sender, to=addresses) for sender in ACQUAINTANCES]
 
 
 async def store(session: AsyncSession, entries: Sequence[Entry]) -> list[int]:
@@ -99,6 +108,17 @@ async def suggestions(session: AsyncSession) -> dict[tuple[str, str], tuple[str 
         "JOIN person b ON b.id = s.person_b",
     )
     return {(min(a, b), max(a, b)): (name, local_part) for a, b, name, local_part in rows}
+
+
+async def tiers(session: AsyncSession) -> dict[tuple[str, str], str]:
+    """The tier of each alias_suggestion (D160), by the addresses of both roots as above."""
+    rows = await fetch(
+        session,
+        "SELECT a.canonical_email, b.canonical_email, s.tier::text "
+        "FROM alias_suggestion s JOIN person a ON a.id = s.person_a "
+        "JOIN person b ON b.id = s.person_b",
+    )
+    return {(min(a, b), max(a, b)): tier for a, b, tier in rows}
 
 
 async def snapshot(session: AsyncSession) -> dict[str, list[tuple[Any, ...]]]:
