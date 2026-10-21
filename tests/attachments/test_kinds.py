@@ -13,6 +13,11 @@ ODT_HEAD = (
     + b"mimetypeapplication/vnd.oasis.opendocument.text"
 )
 OLE_HEAD = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 32
+SVG_HEAD = (
+    b'\xef\xbb\xbf<?xml version="1.0" encoding="UTF-8"?>\n<!-- Generator: Illustrator -->\n'
+    b'<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">\n<svg version="1.1" x="0px">'
+)
+XPS = "application/vnd.ms-xpsdocument"
 
 
 @pytest.mark.parametrize(
@@ -53,6 +58,25 @@ OLE_HEAD = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 32
         (".pdf", "application/octet-stream", b"", "other"),  # a hidden name, no extension
         (None, "application/octet-stream", b"", "other"),
         ("daten.bin", "application/x-whatever", b"\x00\x01", "other"),
+        # D78: content without text a reader would search
+        ("Logo.svg", "image/svg+xml", b"", "image"),
+        (None, "text/plain", SVG_HEAD, "image"),
+        ("Grafik.xml", "text/xml", SVG_HEAD, "image"),
+        ("Brief.xps", XPS, b"", "xps"),
+        ("Brief.oxps", "application/octet-stream", ZIP_HEAD, "xps"),
+        (None, XPS, ZIP_HEAD, "xps"),
+        ("Buch.epub", "application/epub+zip", ZIP_HEAD, "other"),  # a ZIP of another format
+        ("Daten.dat", "application/octet-stream", ZIP_HEAD, "other"),
+        ("signature.asc", "application/pgp-signature", b"-----BEGIN PGP SIGNATURE-----\n", "other"),
+        ("Schluessel.asc", "text/plain", b"\n-----BEGIN PGP PUBLIC KEY BLOCK-----", "other"),
+        ("Zertifikat.pem", "text/plain", b"-----BEGIN CERTIFICATE-----\nMIIC", "other"),
+        ("Brief.asc", "text/plain", b"-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA256", "text"),
+        ("style.css", "text/css", b"", "other"),
+        ("app.js", "application/octet-stream", b"", "other"),
+        (None, "text/javascript", b"", "other"),
+        ("notiz.txt", "text/plain", b'<?xml version="1.0"?><a/>', "xml"),
+        ("seite.txt", "text/plain", b"<!DOCTYPE html>\n<html lang=de>", "html"),
+        ("Liste.txt", "text/plain", b"Name;Betrag <Euro>", "text"),
     ],
 )
 def test_classify(filename: str | None, mime_type: str, head: bytes, expected: str) -> None:
@@ -63,4 +87,6 @@ def test_every_format_has_a_kind_and_legacy_office_is_not_extracted() -> None:
     assert {fmt.kind for fmt in FORMATS.values()} == set(DocumentKind)
     assert [name for name in ("doc", "xls", "ppt", "msg") if FORMATS[name].extractable] == []
     extractable = {name for name, fmt in FORMATS.items() if fmt.extractable}
-    assert {"pdf", "docx", "xlsx", "pptx", "odt", "ods", "odp", "csv", "text", "eml"} <= extractable
+    assert {"pdf", "docx", "xlsx", "pptx", "odt", "ods", "odp", "xps", "csv", "text", "eml"} <= (
+        extractable
+    )

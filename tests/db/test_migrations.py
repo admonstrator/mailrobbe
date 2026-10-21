@@ -172,7 +172,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
 
 
 @pytest.mark.db
@@ -321,6 +321,10 @@ def test_upgrade_renders_offline_without_database() -> None:
         "UPDATE alembic_version SET version_num='0008' WHERE alembic_version.version_num = '0007'"
         in sql
     )
+    assert (
+        "UPDATE alembic_version SET version_num='0009' WHERE alembic_version.version_num = '0008'"
+        in sql
+    )
 
 
 @pytest.mark.db
@@ -397,3 +401,38 @@ async def test_0008_numbers_the_attachments_of_older_imports(empty_database_url:
     finally:
         await engine.dispose()
     assert rows == [(1, "x", 0, None), (2, "p", 0, None), (1, "y", 1, None), (1, "z", 2, None)]
+
+
+@pytest.mark.db
+async def test_0009_sends_texts_archives_and_xps_files_to_the_next_extraction(
+    empty_database_url: str,
+) -> None:
+    await asyncio.to_thread(migrate.upgrade, "0008", empty_database_url)
+    engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO document (name, mime_type, size_bytes, kind, text_status) VALUES "
+                    "('Logo', 'text/plain', 1, 'text', 'text'), "
+                    "('Brief.xps', 'application/zip', 1, 'archive', 'text'), "
+                    "('Druck.XPS', 'application/octet-stream', 1, 'other', 'unsupported'), "
+                    "(NULL, 'application/oxps', 1, 'other', 'unsupported'), "
+                    "('Vertrag.pdf', 'application/pdf', 1, 'pdf', 'text'), "
+                    "('Foto.jpg', 'image/jpeg', 1, 'image', 'unsupported'), "
+                    "('fehlt.txt', 'text/plain', 1, 'text', 'unreadable'), "
+                    "('gross.zip', 'application/zip', 1, 'archive', 'too_large')"
+                )
+            )
+        await asyncio.to_thread(migrate.upgrade, "head", empty_database_url)
+        async with engine.connect() as connection:
+            rows = await _rows(connection, "SELECT text_status::text FROM document ORDER BY id")
+    finally:
+        await engine.dispose()
+    assert [status for (status,) in rows] == [
+        *["pending"] * 4,
+        "text",
+        "unsupported",
+        "unreadable",
+        "too_large",
+    ]
