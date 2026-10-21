@@ -11,6 +11,15 @@ mail's own text alone. The entity and amount filters (D86) take the same two for
 mentions of the mail and of its attachments' documents (_mentioned), the signal filter (D136)
 over the rows the last signals phase stored in mail_signal (_signal).
 
+The search options narrow the full text words without an index of their own (D171 to D175).
+Places are the weights of the two tsvectors: the query's lexemes carry the weights of the chosen
+places, and a side of the search without any (the mail's own text, its documents) drops out.
+Placed words (betreff:, text:, anhang:, datei:) are each such a condition in one place. Whole
+words ask the same indexes for the candidates and decide on their stored texts with a regular
+expression, in the same condition, so that only candidates are read; the mail's own text and
+each document are separate units, as with the tsvectors. A minus before an operator or a placed
+word negates its condition, which then also holds where it cannot be decided (_negated).
+
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
 mail by date_utc and id; a missing date stays NULL in the cursor and becomes -infinity in SQL.
@@ -29,7 +38,7 @@ import binascii
 import json
 import weakref
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, cast
@@ -38,6 +47,7 @@ from sqlalchemy import (
     BigInteger,
     BinaryExpression,
     ColumnElement,
+    Exists,
     Numeric,
     ScalarSelect,
     Select,
@@ -62,10 +72,21 @@ from sqlalchemy.orm import QueryableAttribute, aliased
 from sqlalchemy.sql import operators
 from sqlalchemy.sql.util import ClauseAdapter
 
-from mailrobbe.api.fulltext import FullText, full_text_search, text_search, ts_query
+from mailrobbe.api.fulltext import (
+    DOCUMENT_WEIGHTS,
+    MAIL_WEIGHTS,
+    FullText,
+    Words,
+    full_text_search,
+    text_search,
+    ts_query,
+    weighted,
+    weights,
+    word_regex,
+)
 from mailrobbe.api.hits import hit_count
 from mailrobbe.api.query import parse_day
-from mailrobbe.api.schemas import MailFilters, PersonRole, QueryTerm, SortOrder
+from mailrobbe.api.schemas import MailFilters, PersonRole, QueryTerm, SearchField, SortOrder
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TIMESTAMPTZ,
@@ -102,6 +123,17 @@ WALK_ROWS = 5000
 _WALK_FORMS: "weakref.WeakKeyDictionary[ColumnElement[bool], ColumnElement[bool]]" = (
     weakref.WeakKeyDictionary()
 )
+
+# The texts of the places of the full text search (D171, D173): a mail's own subject and text,
+# a document's file names and text, in the order a whole word is looked for in them.
+_TEXTS: dict[SearchField, QueryableAttribute[str | None]] = {
+    "subject": Mail.subject,
+    "body": Mail.body_text,
+    "filename": Document.names,
+    "attachment": Document.extracted_text,
+}
+# Words as alternatives of words that must all hold, as in fulltext.FullText.groups.
+_Groups = tuple[tuple[Words, ...], ...]
 
 # Contents of a research filter (a tag, an Akte, a review status, notes, bookmarks) that are
 # looked up one by one in ix_mail_raw_sha256 instead of walking (resolve_contents): about the
@@ -195,39 +227,114 @@ def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
 
 
 def text_conditions(search: FullText) -> list[ColumnElement[bool]]:
-    """The conditions of q's full text words (D73, D171 to D173, D175)."""
-    # Contract: the free words everywhere, by their German stems, as before D171.
-    return [full_text(ts_query(search.search))] if search.search else []
+    """The conditions of q's full text words: the free words in the places of search.fields
+    (D171), each placed word in its own place (D172), all of them as whole words with
+    search.whole_word (D173); a placed word written with a minus must not occur (D175)."""
+    where = []
+    if search.search:
+        words = search.prefilter() if search.whole_word else search.search
+        where.append(full_text(search.fields, words, search.groups if search.whole_word else None))
+    for field, placed in search.placed:
+        written = replace(placed, negated=False)
+        groups = ((written,),) if search.whole_word else None
+        found = full_text(frozenset((field,)), written.websearch(), groups)
+        where.append(_negated([found]) if placed.negated else found)
+    return where
 
 
-def full_text(query: ColumnElement[Any]) -> ColumnElement[bool]:
-    """D73: the mail's own text matches, or the text of one of its attachments' documents.
+def full_text(
+    fields: frozenset[SearchField], words: str | None, groups: _Groups | None
+) -> ColumnElement[bool]:
+    """D73: the words occur in the mail's own subject and text, or in the file names and text of
+    one of its attachments' documents, each side in its places among fields (D171), a side
+    without any left out. words are what the GIN indexes are asked (websearch_to_tsquery; None:
+    nothing to ask, every text is read); groups, for whole words, decide on the texts (D173).
 
     For a set of mails (counts, CSV, all matches of a rare word) each side uses its GIN index:
     the mails' own ids and those of the matching documents' mails (one array, computed once) are
     ORed as bitmaps. A UNION of the two id sets would make PostgreSQL join it back to mail, and
-    an EXISTS in the OR would make it scan every mail. first_ids's walk takes the second form,
-    which looks at one mail's attachments at a time and so never collects every matching
+    an EXISTS in the OR would make it scan every mail. The documents' side alone is an EXISTS, a
+    semi join PostgreSQL estimates from the documents' statistics (the array is estimated at ten
+    ids, see _mentioned), and negated an anti join (_negated). first_ids's walk takes the second
+    form, which looks at one mail's attachments at a time and so never collects every matching
     document of a common word.
     """
-    own = Mail.tsv.bool_op("@@")(query)
-    documents = (
-        select(Attachment.mail_id)
-        .join(Document, Document.id == Attachment.document_id)
-        .where(Document.tsv.bool_op("@@")(query))
-    )
-    found = or_(own, Mail.id == any_(func.array(documents.scalar_subquery())))
+    query = None if words is None else ts_query(words)
+    own = _in_unit(Mail.tsv, MAIL_WEIGHTS, fields, query, groups)
+    document = _in_unit(Document.tsv, DOCUMENT_WEIGHTS, fields, query, groups)
+    if document is None:
+        assert own is not None, "fields name at least one place"
+        return own
     attached = (
         select(true())
         .select_from(Attachment)
         .join(Document, Document.id == Attachment.document_id)
-        .where(Attachment.mail_id == Mail.id, Document.tsv.bool_op("@@")(query))
+        .where(Attachment.mail_id == Mail.id, document)
         .limit(1)
         .scalar_subquery()  # correlated and scalar: run per mail, never hashed in full
     )
     # has_attachments is true exactly for mails with attachment rows (importer.model)
-    _WALK_FORMS[found] = or_(own, and_(Mail.has_attachments, func.coalesce(attached, false())))
+    by_mail = and_(Mail.has_attachments, func.coalesce(attached, false()))
+    found: ColumnElement[bool]
+    if own is None:
+        found = exists().where(
+            Attachment.mail_id == Mail.id, Document.id == Attachment.document_id, document
+        )
+        _WALK_FORMS[found] = by_mail
+        return found
+    documents = (
+        select(Attachment.mail_id)
+        .join(Document, Document.id == Attachment.document_id)
+        .where(document)
+    )
+    found = or_(own, Mail.id == any_(func.array(documents.scalar_subquery())))
+    _WALK_FORMS[found] = or_(own, by_mail)
     return found
+
+
+def _in_unit(
+    tsv: QueryableAttribute[Any],
+    places: dict[SearchField, str],
+    fields: frozenset[SearchField],
+    query: ColumnElement[Any] | None,
+    groups: _Groups | None,
+) -> ColumnElement[bool] | None:
+    """The words in one unit of the search, a mail's own subject and text or a document's file
+    names and text (places: the weights of its tsvector), limited to fields; None when none of
+    fields is among places.
+
+    tsv is asked with the query's lexemes limited to the fields' weights, or with the query as it
+    is when the fields are all of the unit's places, as before D171. Whole words are looked for
+    in the same condition after it, so that PostgreSQL reads the texts of the index's candidates
+    only.
+    """
+    chosen = weights(fields, places)
+    if not chosen:
+        return None
+    found: list[ColumnElement[bool]] = []
+    if query is not None:
+        limited = query if len(chosen) == len(places) else weighted(query, chosen)
+        found.append(tsv.bool_op("@@")(limited))
+    if groups is not None:
+        found.append(_whole_words(groups, [_TEXTS[place] for place in places if place in fields]))
+    return and_(*found)
+
+
+def _whole_words(
+    groups: _Groups, texts: Sequence[QueryableAttribute[str | None]]
+) -> ColumnElement[bool]:
+    """D173, as websearch_to_tsquery reads the groups: in one of them every word occurs in one
+    of texts as written (fulltext.word_regex, any case) and every negated word in none. A
+    missing text (NULL) holds no word."""
+
+    def occurs(words: Words) -> ColumnElement[bool]:
+        pattern = word_regex(words)
+        return func.coalesce(or_(*(text.regexp_match(pattern, "i") for text in texts)), false())
+
+    return or_(
+        false(),
+        *(and_(*(~occurs(w) if w.negated else occurs(w) for w in group)) for group in groups),
+    )
 
 
 def _carries(document_id: int) -> ColumnElement[bool]:
@@ -236,6 +343,27 @@ def _carries(document_id: int) -> ColumnElement[bool]:
 
 
 def _term(term: QueryTerm) -> list[ColumnElement[bool]]:
+    """The conditions of an operator or a Message-ID; written with a minus, one condition that
+    holds where they do not (D175). Full text words, placed ones too, are text_conditions's."""
+    conditions = _operator(term)
+    return [_negated(conditions)] if term.negated and conditions else conditions
+
+
+def _negated(conditions: Sequence[ColumnElement[bool]]) -> ColumnElement[bool]:
+    """D175: the conditions do not all hold, also where they cannot be decided (NULL): an
+    unchecked mail matches -dkim:pass, a mail without a subject -subject:x. An EXISTS becomes NOT
+    EXISTS, which PostgreSQL runs as an anti join, and a condition with a walk form gets that
+    form negated. The result is neither a range of the walk nor a research filter (_ranges,
+    _contents), so first_ids checks it on the mails it passes."""
+    held = and_(*conditions)
+    negated = ~held if isinstance(held, Exists) else ~func.coalesce(held, false())
+    if any(condition in _WALK_FORMS for condition in conditions):
+        walk = and_(*(_WALK_FORMS.get(condition, condition) for condition in conditions))
+        _WALK_FORMS[negated] = ~func.coalesce(walk, false())
+    return negated
+
+
+def _operator(term: QueryTerm) -> list[ColumnElement[bool]]:
     value = term.value
     match term.key:
         case "from" | "to" | "cc":
@@ -257,7 +385,7 @@ def _term(term: QueryTerm) -> list[ColumnElement[bool]]:
             return _before(_day(value))
         case "message_id":
             return [Mail.message_id == value]
-    return []  # text: one tsquery for all words, built by the caller
+    return []  # full text words, free and placed: text_conditions
 
 
 def _contains(value: str) -> str:
