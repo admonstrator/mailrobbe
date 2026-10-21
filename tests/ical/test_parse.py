@@ -399,6 +399,25 @@ def test_an_inline_part_and_its_invite_ics_give_one_event() -> None:
     assert [event.uid for event in message_events(message)] == ["5f3b2c1a9e7d@kalender.example"]
 
 
+def test_a_copy_read_with_another_charset_is_the_same_event() -> None:
+    calendar = WEB.replace("Kick-off", "Übergabe")
+    message = (
+        b"Subject: Einladung\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=m\n\n"
+        b'--m\nContent-Type: text/calendar; charset="utf-8"; method=REQUEST\n\n'
+        + calendar.encode("latin-1")  # a wrong charset label: the copy reads differently
+        + b'--m\nContent-Type: application/ics; name="invite.ics"\n\n'
+        + calendar.encode()
+        + b"--m\nContent-Type: text/calendar\n\n"
+        + calendar.replace("SEQUENCE:0", "SEQUENCE:1").encode()
+        + b"--m--\n"
+    )
+    events = message_events(message)
+    assert [(event.summary, event.sequence) for event in events] == [
+        ("\ufffdbergabe Nordlicht", 0),  # the first copy, as its part declares it
+        ("Übergabe Nordlicht", 1),
+    ]
+
+
 def test_attached_mails_files_by_name_and_calendars_in_text() -> None:
     inner = (
         "Subject: Termin\nMIME-Version: 1.0\nContent-Type: multipart/mixed; boundary=i\n\n"

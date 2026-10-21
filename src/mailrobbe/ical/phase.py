@@ -69,8 +69,12 @@ def _any_of(words: Sequence[str]) -> str:
     return "|".join(word.lower().replace(" ", r"\s+") for word in words)
 
 
-# The candidate rule (model) in SQL: subjects after reply and forward prefixes, Outlook's lines.
-_SUBJECT = rf"^\s*((re|aw|antw|wg|fw|fwd)\s*:\s*)*({_any_of(SUBJECT_MARKS)})\s*:"
+# The candidate rule (model) in SQL: subjects after reply and forward prefixes and tags in
+# brackets ("[EXTERN]" of a gateway), Outlook's lines.
+_SUBJECT = (
+    r"^\s*(((re|aw|antw|wg|fw|fwd|sv)(\[\d+\])?\s*:|\[[^]]*\])\s*)*"
+    rf"({_any_of(SUBJECT_MARKS)})\s*:"
+)
 _LINE = r"(^|\n)[ \t]*({})[ \t]*:"
 _CANDIDATES = text("""
     SELECT m.id, f.path, m.byte_offset, m.byte_length, m.raw_sha256

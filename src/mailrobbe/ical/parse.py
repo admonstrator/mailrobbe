@@ -100,8 +100,10 @@ def parse_calendar(data: bytes | str) -> list[ParsedEvent]:
 
 def message_events(message: bytes) -> list[ParsedEvent]:
     """The events of a mail's calendar parts in document order, an event that two parts both
-    carry (an inline part and its invite.ics) once. At most EVENT_LIMIT events."""
-    found: dict[ParsedEvent, None] = {}
+    carry (an inline part and its invite.ics) once: the first of the events with the same UID,
+    METHOD, SEQUENCE and start, so a copy read with another charset is no second event. At most
+    EVENT_LIMIT events."""
+    found: dict[object, ParsedEvent] = {}
     for part in _PARSER.parsebytes(message).walk():
         if part.is_multipart() or not _calendar_part(part):
             continue
@@ -113,10 +115,17 @@ def message_events(message: bytes) -> list[ParsedEvent]:
         if charset and charset.replace("-", "").lower() != "utf8":  # else UTF-8, as RFC 5545
             calendar = mailtext.decode_bytes(data, charset, "calendar part", [])
         for event in parse_calendar(calendar):
-            found.setdefault(event)
+            found.setdefault(_identity(event), event)
             if len(found) >= EVENT_LIMIT:
-                return list(found)
-    return list(found)
+                return list(found.values())
+    return list(found.values())
+
+
+def _identity(event: ParsedEvent) -> object:
+    """What makes two events of one mail the same event."""
+    if event.uid is None:
+        return event
+    return (event.uid, event.method, event.sequence, event.starts_local, event.all_day)
 
 
 def _calendar_part(part: Message) -> bool:

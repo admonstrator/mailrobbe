@@ -70,8 +70,8 @@ OUTLOOK_TEXT = (
 MAILS = [
     # 0: Outlook's inline invitation, found by the lines of its text
     _mail(0, "Vorstandssitzung", OUTLOOK_TEXT, _inline(OUTLOOK, "REQUEST")),
-    # 1: the answer, found by its subject (Outlook writes no text)
-    _mail(1, "Angenommen: Vorstandssitzung", "", _inline(REPLY, "REPLY"), sender=ANNA),
+    # 1: the answer, found by its subject behind a gateway's tag (Outlook writes no text)
+    _mail(1, "[EXTERN] Angenommen: Vorstandssitzung", "", _inline(REPLY, "REPLY"), sender=ANNA),
     # 2: a web calendar's invitation, found by its attachment
     _mail(2, "Kick-off Nordlicht", "Sie wurden eingeladen.", _invite_ics(WEB)),
     # 3: no candidate
@@ -141,7 +141,7 @@ async def test_candidates_are_read_and_their_events_stored(
 
     assert await _scans(engine) == {
         "Vorstandssitzung": (True, 1),
-        "Angenommen: Vorstandssitzung": (True, 1),
+        "[EXTERN] Angenommen: Vorstandssitzung": (True, 1),
         "Kick-off Nordlicht": (True, 1),
         "Einladung zum Sommerfest": (False, 0),
         "AW: Einladung: Grillen": (True, 0),
@@ -149,7 +149,7 @@ async def test_candidates_are_read_and_their_events_stored(
     events = await _events(engine)
     assert [(e["mail"], e["kind"], e["summary"]) for e in events] == [
         ("Vorstandssitzung", "request", "Vorstandssitzung"),
-        ("Angenommen: Vorstandssitzung", "reply", "Angenommen: Vorstandssitzung"),
+        ("[EXTERN] Angenommen: Vorstandssitzung", "reply", "Angenommen: Vorstandssitzung"),
         ("Kick-off Nordlicht", "request", "Kick-off Nordlicht"),
     ]
     invitation = events[0]

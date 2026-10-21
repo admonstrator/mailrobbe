@@ -25,7 +25,7 @@ ATTENDEE_LIMIT = 500  # attendees kept of one event
 
 # The candidate rule (D154): which mails the phase reads. An iCalendar part by its type or name
 # among the attachments, inline parts (no name, as Outlook sends them) by the marks of an
-# invitation in the subject (after Re:, AW:, WG:, Fwd:) or in the text.
+# invitation in the subject (after Re:, AW:, WG:, Fwd: and tags like "[EXTERN]") or in the text.
 CALENDAR_TYPES = ("text/calendar", "application/ics", "text/x-vcalendar")
 CALENDAR_SUFFIXES = (".ics", ".vcs")
 SUBJECT_MARKS = (
