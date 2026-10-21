@@ -446,6 +446,9 @@ async def test_bulk_changes_by_ids_and_by_filters(
 
     result = await call(http, "POST", "/api/mails/bulk", bulk(action="tag_add", tag_id=tag))
     assert result == {"mails": 5, "changed": 4}  # byte-identical copies are one content
+    # The table is analyzed at once, so the next filter is planned for the rows it has now.
+    analyzed = await rows(url, "SELECT reltuples FROM pg_class WHERE relname = 'mail_tag'")
+    assert analyzed[0].reltuples == 4
     assert await call(http, "POST", "/api/mails/bulk", bulk(action="tag_add", tag_id=tag)) == {
         "mails": 5,
         "changed": 0,

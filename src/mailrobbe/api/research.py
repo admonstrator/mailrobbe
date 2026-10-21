@@ -34,6 +34,7 @@ from sqlalchemy import (
     func,
     literal,
     select,
+    text,
     true,
     update,
     values,
@@ -138,8 +139,8 @@ def _ids(ids: Sequence[int]) -> ColumnElement[list[int]]:
 
 def trimmed(value: str, field: str) -> str:
     """value without surrounding whitespace; nothing left is a 422 like FastAPI's own."""
-    text = value.strip()
-    if not text:
+    stripped = value.strip()
+    if not stripped:
         error = {
             "type": "string_too_short",
             "loc": ("body", field),
@@ -147,7 +148,7 @@ def trimmed(value: str, field: str) -> str:
             "input": value,
         }
         raise RequestValidationError([error])
-    return text
+    return stripped
 
 
 async def mail_sha256(session: AsyncSession, mail_id: int) -> str:
@@ -769,6 +770,14 @@ _BULK_VALUE = {
     "review": "review",
     "flag": "flagged",
 }
+_BULK_TABLE = {
+    "tag_add": MailTag,
+    "tag_remove": MailTag,
+    "collection_add": CollectionMail,
+    "collection_remove": CollectionMail,
+    "review": MailMark,
+    "flag": MailMark,
+}
 
 
 @router.post("/mails/bulk")
@@ -807,6 +816,11 @@ async def bulk_change(
         case "flag":
             assert request.flagged is not None
             changed = await _set_flag(session, shas, request.flagged, editor)
+    if changed:
+        # The change may be most of its table. Until autovacuum gets to it, PostgreSQL would
+        # plan the next filter by it for the rows the table had before: a tag it believes
+        # empty is joined as a nested loop over all of its links per mail, 30 s for 50,000.
+        await session.execute(text(f"ANALYZE {_BULK_TABLE[request.action].__tablename__}"))
     await session.commit()
     return BulkResult(mails=len(mails), changed=changed)
 
