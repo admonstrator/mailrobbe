@@ -21,6 +21,7 @@ from mailrobbe.config import Settings
 from mailrobbe.entities.model import scan_version
 from mailrobbe.importer.cli import run_import
 from mailrobbe.signals.model import rules
+from tests.api.search_cases import write_search_cases
 from tests.conftest import GeneratedArchive, _temporary_database
 
 
@@ -395,3 +396,48 @@ async def signal_client(
     settings = api_settings(signal_database_url, generated_archive, tmp_path / "no-frontend")
     async for http in _client(settings):
         yield http
+
+
+# Search cases (D170 to D176) -----------------------------------------------------------------
+#
+# The ten mails of tests/api/search_cases.py imported into a database of their own, read only.
+
+
+@pytest.fixture(scope="session")
+def search_archive(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    mbox_dir = tmp_path_factory.mktemp("search") / "mbox"
+    mbox_dir.mkdir()
+    write_search_cases(mbox_dir / "faelle.mbox")
+    return mbox_dir
+
+
+@pytest.fixture(scope="session")
+def search_database_url(database_server_url: str, search_archive: Path) -> Iterator[str]:
+    with _temporary_database(database_server_url) as url:
+        migrate.upgrade("head", url)
+        assert asyncio.run(run_import(Settings(database_url=url), search_archive, 1)) == 0
+        yield url
+
+
+@pytest.fixture
+async def search_client(
+    search_database_url: str, search_archive: Path, tmp_path: Path
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Client on the search cases' database. Read only."""
+    settings = Settings(
+        database_url=search_database_url,
+        mbox_dir=search_archive,
+        frontend_dir=tmp_path / "no-frontend",
+    )
+    async for http in _client(settings):
+        yield http
+
+
+async def search_ids(client: httpx.AsyncClient) -> dict[int, int]:
+    """Mail id by case index (search_cases.message_id)."""
+    page = (await client.get("/api/mails", params={"sort": "date_asc"})).json()
+    found = {}
+    for item in page["items"]:
+        detail = (await client.get(f"/api/mails/{item['id']}")).json()
+        found[int(detail["message_id"].split("-")[1].split("@")[0])] = item["id"]
+    return found

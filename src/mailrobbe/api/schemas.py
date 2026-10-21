@@ -48,7 +48,8 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/attachments/{id}/html              text/html of a DOCX or ODT for a sandboxed
                                                  iframe, converted and cached (D122)
     GET  /api/attachments/{id}/media             audio or video, with Range requests (D123)
-    GET  /api/mails/{id}/hits?q=                 MailHits: where q's words occur in the mail (D79)
+    GET  /api/mails/{id}/hits?MailHitsParams     MailHits: where q's words occur in the mail (D79,
+                                                 D176)
     GET  /api/timeline?TimelineParams            Timeline: the matching mails over time (D90)
     GET  /api/timeline/first-mentions?FirstMentionParams  FirstMentions, earliest first (D94)
 
@@ -183,8 +184,27 @@ ReviewKey = Literal["unreviewed", "seen", "relevant", "irrelevant"]
 DkimKey = Literal["pass", "consistent", "fail", "no_key", "unsigned", "temp_error", "unchecked"]
 SortOrder = Literal["date_desc", "date_asc"]
 QueryKey = Literal[
-    "text", "from", "to", "cc", "subject", "domain", "has", "dkim", "before", "after", "message_id"
+    "text",
+    "from",
+    "to",
+    "cc",
+    "subject",
+    "domain",
+    "has",
+    "dkim",
+    "before",
+    "after",
+    "message_id",
+    # Full text words in one place (D172), written betreff:, text:, anhang:, datei:
+    "in_subject",
+    "in_body",
+    "in_attachment",
+    "in_filename",
 ]
+# Where the full text words of q are looked for (D171): the mail's subject and its text, the
+# text of its attachments' documents and their file names.
+SearchField = Literal["subject", "body", "attachment", "filename"]
+MIN_HITS_LIMIT = 999  # the largest min_hits (D174)
 # Tabs of a person's mail list (D29, D32): sent = From; received = To, Cc or Bcc but not From;
 # cc = Cc only (neither From, To nor Bcc).
 PersonRole = Literal["sent", "received", "cc"]
@@ -260,6 +280,13 @@ class MailFilters(BaseModel):
     # Signals (D136): each of these holds for the mail; SignalKind values of mails or
     # "term:<theme key>" (signals.model); an unknown key is invalid_filter.
     signal: list[str] = []
+    # Full text options (D171 to D174), without effect when q has no full text words: where its
+    # free words are looked for (empty: everywhere), whole words only (no German stems, no part
+    # of a longer word, any case, umlauts and accents count), and at least min_hits occurrences
+    # of the words in those places of the mail and its attachments together.
+    scope: list[SearchField] = []
+    whole_word: bool = False
+    min_hits: int | None = Field(default=None, ge=1, le=MIN_HITS_LIMIT)
 
 
 class MailOrderParams(MailFilters):
@@ -286,6 +313,19 @@ class QueryTerm(BaseModel):
     key: QueryKey  # text: full text words; message_id: a bare <id@host> token
     value: str  # unquoted, e.g. 'finale Fassung' for subject:"finale Fassung"
     raw: str  # the exact substring of q; removing it from q removes this term
+    # An operator or Message-ID written with a leading minus: it must not hold (D175). Free
+    # text words keep their minus in value, as websearch_to_tsquery reads it.
+    negated: bool = False
+
+
+class MailHitCounts(BaseModel):
+    """How often the full text words of q occur in one mail, by place (D176): the words that
+    count for min_hits, each counted in the places it is looked for, 0 elsewhere."""
+
+    subject: int
+    body: int
+    attachment: int  # in the texts of its attachments' documents, every attachment counted
+    filename: int  # in the file names of its attachments' documents
 
 
 class MailListItem(BaseModel):
@@ -310,6 +350,7 @@ class MailListItem(BaseModel):
     notes: int = 0  # notes on the mail
     # q has full text words and the text of one of the mail's attachments matches them (D73)
     attachment_match: bool = False
+    hits: MailHitCounts | None = None  # q has full text words: where they occur (D176)
 
 
 class MailPage(BaseModel):
@@ -1373,21 +1414,36 @@ class DocumentText(BaseModel):
     text_status: DocumentTextStatus
 
 
+class MailHitsParams(BaseModel):
+    """The search of the mail list whose words GET /api/mails/{id}/hits looks for (D176)."""
+
+    q: str = ""
+    scope: list[SearchField] = []
+    whole_word: bool = False
+
+
 class AttachmentHit(BaseModel):
     attachment_id: int
     in_name: bool  # one of its document's file names holds a word
     # the text around the first place a word occurs, as typed or as a word one of the query's
     # stems begins; None: only the name holds it, or a form the stems do not begin (rare)
     snippet: str | None
+    in_text: bool = False  # its document's text holds a word (D176)
 
 
 class MailHits(BaseModel):
-    """Where the full text words of a mail list's q occur in one mail (D79)."""
+    """Where the full text words of a mail list's q occur in one mail (D79), in the places the
+    search looks (D171); with whole_word only the words as written (D173)."""
 
     words: list[str]  # the words and phrases as typed, which the browser marks; [] without any
-    stems: list[str]  # the lexemes of the query (German stems, lower case, no umlauts), ditto
+    stems: list[str]  # the lexemes of the query (German stems, lower case, no umlauts), ditto;
+    # [] with whole_word, where the browser marks the words alone
     in_mail: bool  # the mail's own subject or text holds a word
     attachments: list[AttachmentHit]  # the attachments whose document holds a word, in mail order
+    whole_word: bool = False  # mark whole words only (D173)
+    in_subject: bool = False  # the subject holds a word (D176)
+    in_body: bool = False  # the mail's own text holds a word
+    counts: MailHitCounts | None = None  # as MailListItem.hits; None without full text words
 
 
 class MetadataValueParams(DocumentFilters):

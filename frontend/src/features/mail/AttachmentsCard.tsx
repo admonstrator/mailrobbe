@@ -30,7 +30,9 @@ function documentLinkText(mails: number | null): string {
 /** Where an attachment holds a search word (D79): the text around it, or the name. */
 function hitText(hit: AttachmentHit, marks: SearchMarks | undefined) {
   if (hit.snippet !== null) return <Highlighted text={`…${hit.snippet}…`} marks={marks} />;
-  return hit.in_name ? "Suchwort im Dateinamen" : "Suchwort im Text, in einer anderen Wortform";
+  return hit.in_name && !hit.in_text
+    ? "Suchwort im Dateinamen"
+    : "Suchwort im Text, in einer anderen Wortform";
 }
 
 /** What the file says about itself, in one line (D167): "Autor Peter Hofmann · Microsoft Word ·

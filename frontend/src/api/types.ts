@@ -52,7 +52,19 @@ export type QueryKey =
   | "dkim"
   | "before"
   | "after"
-  | "message_id";
+  | "message_id"
+  // Full text words in one place (D172), written betreff:, text:, anhang:, datei:
+  | "in_subject"
+  | "in_body"
+  | "in_attachment"
+  | "in_filename";
+
+/** Where the full text words of q are looked for (D171): the mail's subject and its text, the
+ *  text of its attachments' documents and their file names. */
+export type SearchField = "subject" | "body" | "attachment" | "filename";
+export const SEARCH_FIELDS: readonly SearchField[] = ["subject", "body", "attachment", "filename"];
+/** The largest min_hits (D174). */
+export const MIN_HITS_LIMIT = 999;
 
 export type ErrorCode =
   | "not_found"
@@ -114,6 +126,13 @@ export interface MailFilters {
   amount_min?: number; // an amount of at least this value is mentioned, any currency
   amount_context?: EntityContextKey[]; // such an amount next to any of these contexts
   signal?: SignalKey[]; // each of these signals holds for the mail (D136)
+  /** Full text options (D171 to D174), without effect when q has no full text words: where its
+   *  free words are looked for (empty: everywhere), whole words only (no German stems, no part
+   *  of a longer word, any case, umlauts and accents count), and at least min_hits occurrences
+   *  of the words in those places of the mail and its attachments together. */
+  scope?: SearchField[];
+  whole_word?: boolean;
+  min_hits?: number; // 1 to MIN_HITS_LIMIT
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -137,6 +156,18 @@ export interface QueryTerm {
   key: QueryKey;
   value: string;
   raw: string; // exact substring of q; removing it from q removes the term
+  /** An operator or Message-ID written with a leading minus: it must not hold (D175). Free text
+   *  words keep their minus in value. */
+  negated: boolean;
+}
+
+/** How often the full text words of q occur in one mail, by place (D176): the words that count
+ *  for min_hits, each counted in the places it is looked for, 0 elsewhere. */
+export interface MailHitCounts {
+  subject: number;
+  body: number;
+  attachment: number; // in the texts of its attachments' documents, every attachment counted
+  filename: number; // in the file names of its attachments' documents
 }
 
 export interface MailListItem {
@@ -160,6 +191,8 @@ export interface MailListItem {
   notes: number;
   /** q has full text words and the text of one of its attachments matches them (D73). */
   attachment_match: boolean;
+  /** q has full text words: where they occur (D176); null otherwise. */
+  hits: MailHitCounts | null;
 }
 
 export interface MailPage {
@@ -1191,6 +1224,13 @@ export interface DocumentText {
   text_status: DocumentTextStatus;
 }
 
+/** The search of the mail list whose words GET /api/mails/{id}/hits looks for (D176). */
+export interface MailHitsParams {
+  q?: string;
+  scope?: SearchField[];
+  whole_word?: boolean;
+}
+
 export interface AttachmentHit {
   attachment_id: number;
   /** One of its document's file names holds a word. */
@@ -1198,6 +1238,8 @@ export interface AttachmentHit {
   /** The text around the first place a word occurs as typed; null: only another form of a word
    *  occurs (German stemming), or only the name holds it. */
   snippet: string | null;
+  /** Its document's text holds a word (D176). */
+  in_text: boolean;
 }
 
 /** Where the full text words of a mail list's q occur in one mail (D79). */
@@ -1211,6 +1253,14 @@ export interface MailHits {
   in_mail: boolean;
   /** The attachments whose document holds a word, in mail order. */
   attachments: AttachmentHit[];
+  /** Mark whole words only (D173); stems is then []. */
+  whole_word: boolean;
+  /** The subject holds a word (D176). */
+  in_subject: boolean;
+  /** The mail's own text holds a word. */
+  in_body: boolean;
+  /** As MailListItem.hits; null without full text words. */
+  counts: MailHitCounts | null;
 }
 
 /** GET /api/documents/metadata-values: the authors or programs of the filtered documents whose

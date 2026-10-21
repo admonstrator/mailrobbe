@@ -161,6 +161,25 @@ describe("Gespeicherte Suchen tab", () => {
     ]);
   });
 
+  it("counts a search with its search options and opens it with them (D178)", async () => {
+    const query = "q=Neger&scope=subject&scope=body&whole_word=true&min_hits=2";
+    const saved = { ...searches[0], id: 5, name: "Neger ohne Dateinamen", query };
+    const { calls } = renderApp("/akten?tab=suchen", (call) =>
+      call.url.pathname === "/api/research"
+        ? { ...research, searches: [...research.searches, saved] }
+        : fixtureApi(call),
+    );
+    const link = await screen.findByRole("link", { name: "Neger ohne Dateinamen" });
+    expect(link.getAttribute("href")).toBe(`/mails?${query}`);
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) => call.url.pathname === "/api/mails/summary" && call.url.search === `?${query}`,
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("renames, reassigns and deletes a search", async () => {
     const { calls } = renderApp("/akten?tab=suchen", researchApi);
     fireEvent.click(

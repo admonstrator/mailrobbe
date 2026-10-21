@@ -128,3 +128,37 @@ def test_parse_day() -> None:
     assert parse_day("2023-02-29") is None
     assert parse_day("02/03/2024") is None
     assert parse_day("2024-01-01T00:00") is None
+
+
+def test_placed_words_have_german_operator_names() -> None:
+    assert _terms('betreff:Neger TEXT:"großer Austausch" anhang:Quittung datei:NEG') == [
+        ("in_subject", "Neger", "betreff:Neger"),
+        ("in_body", "großer Austausch", 'TEXT:"großer Austausch"'),
+        ("in_attachment", "Quittung", "anhang:Quittung"),
+        ("in_filename", "NEG", "datei:NEG"),
+    ]
+
+
+def test_internal_keys_are_no_operator_names() -> None:
+    assert _terms("in_subject:x") == [("text", "in_subject:x", "in_subject:x")]
+
+
+def test_a_minus_negates_operators_and_message_ids() -> None:
+    terms = parse_query("-datei:NEG -from:anna -<a@b.example> Neger -negere")
+    assert [(t.key, t.value, t.raw, t.negated) for t in terms] == [
+        ("in_filename", "NEG", "-datei:NEG", True),
+        ("from", "anna", "-from:anna", True),
+        ("message_id", "<a@b.example>", "-<a@b.example>", True),
+        ("text", "Neger", "Neger", False),
+        ("text", "-negere", "-negere", False),  # websearch_to_tsquery reads the minus
+    ]
+
+
+def test_a_negated_operator_without_value_is_a_word() -> None:
+    assert _terms("-from: -") == [("text", "-from:", "-from:"), ("text", "-", "-")]
+
+
+def test_a_negated_operator_checks_its_value() -> None:
+    with pytest.raises(QueryError) as caught:
+        parse_query("-dkim:maybe")
+    assert caught.value.term == "-dkim:maybe"

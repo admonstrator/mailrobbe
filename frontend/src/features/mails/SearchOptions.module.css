@@ -1,0 +1,54 @@
+/* The group "Suche" of the filter column; group, legend, sub-group and field come from
+   FilterColumn.module.css, so it looks like the groups below it. */
+
+/* Under "Ganzes Wort", aligned with its label. */
+.hint {
+  margin: 2px 0 0 28px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* "Mindestens [n] Treffer" on one line. */
+.minHits {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Room for three digits, MIN_HITS_LIMIT has three. */
+.minHits .minHitsInput {
+  width: 48px;
+}
+
+.syntax {
+  font-size: 12px;
+}
+
+.summary {
+  width: fit-content;
+  color: var(--color-accent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.summary:hover {
+  color: var(--color-accent-hover);
+}
+
+.syntaxList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-muted);
+  line-height: 1.4;
+}
+
+.code {
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

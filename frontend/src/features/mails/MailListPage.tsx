@@ -161,6 +161,7 @@ export function MailListPage() {
         stats={stats.data}
         mboxFiles={mboxFiles.data}
         research={research.data}
+        terms={page.data?.query_terms}
       />
       <main className={styles.main}>
         <h1 className="sr-only">Mails</h1>

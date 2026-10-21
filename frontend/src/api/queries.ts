@@ -77,6 +77,7 @@ import type {
   MailResearch,
   MailSummary,
   MailHits,
+  MailHitsParams,
   MailSignals,
   MailText,
   ManualKeyRequest,
@@ -182,7 +183,7 @@ export const queryKeys = {
   documentSummary: (filters: DocumentFilters) => ["documents", "summary", filters] as const,
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
-  hits: (id: number, q: string) => ["documents", "hits", id, q] as const,
+  hits: (id: number, params: MailHitsParams) => ["documents", "hits", id, params] as const,
   metadataValues: (params: MetadataValueParams) => ["documents", "metadata", params] as const,
   attachmentHtml: (id: number) => ["attachments", "html", id] as const,
   /** Prefix of everything about keys of deleted selectors (D100 to D104). */
@@ -791,13 +792,14 @@ export function useDocumentText(id: number, enabled: boolean) {
   });
 }
 
-/** Where the mail list's full text words occur in one mail (D79); under the documents prefix,
- *  so an import's new texts refresh it. */
-export function useMailHits(id: number, q: string) {
+/** Where the mail list's full text words occur in one mail (D79), in the list's places and as
+ *  whole words when it searched for them (D176); under the documents prefix, so an import's new
+ *  texts refresh it. */
+export function useMailHits(id: number, params: MailHitsParams) {
   return useQuery({
-    queryKey: queryKeys.hits(id, q),
-    queryFn: ({ signal }) => apiGet<MailHits>(`/api/mails/${id}/hits`, { q }, signal),
-    enabled: q.trim() !== "",
+    queryKey: queryKeys.hits(id, params),
+    queryFn: ({ signal }) => apiGet<MailHits>(`/api/mails/${id}/hits`, params, signal),
+    enabled: (params.q ?? "").trim() !== "",
   });
 }
 
