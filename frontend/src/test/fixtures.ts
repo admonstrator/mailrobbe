@@ -532,7 +532,11 @@ export const mailText: MailText = {
   truncated: false,
   source: "text/plain",
   has_html: true,
-  segments: [],
+  // as quotes.split_text cuts it (D151): the own words, then the quoted history
+  segments: [
+    { kind: "text", start: 0, end: 412, lines: 6, folded: false },
+    { kind: "quote", start: 412, end: 626, lines: 5, folded: true },
+  ],
 };
 
 export const mailHeaders: MailHeaders = {

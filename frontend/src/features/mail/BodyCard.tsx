@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode, type Ref } from "react";
 
 import { useMailBody } from "../../api/queries";
-import type { MailHeaders, MailRaw, MailText } from "../../api/types";
+import type { MailHeaders, MailRaw, MailText, SegmentKind, TextSegment } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
@@ -9,8 +9,7 @@ import { MarkedParts, type SearchMarks } from "../../components/Highlighted";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatBytes, formatNumber } from "../../lib/format";
-import { highlightParts, markCount } from "../../lib/highlight";
-import { splitQuoted } from "../../lib/quote";
+import { highlightParts, markCount, type TextPart } from "../../lib/highlight";
 import styles from "./BodyCard.module.css";
 import { sourceErrorText } from "./errors";
 
@@ -112,57 +111,111 @@ function Loaded<T>({
 const places = (count: number) =>
   count === 1 ? "1 Fundstelle" : `${formatNumber(count)} Fundstellen`;
 
+const lineCount = (count: number) => (count === 1 ? "1 Zeile" : `${formatNumber(count)} Zeilen`);
+
+type FoldKind = Exclude<SegmentKind, "text">;
+
+/** The name of each kind of segment that can start folded (D151), on its toggle. */
+const FOLD_LABELS: Record<FoldKind, string> = {
+  quote: "Zitat",
+  original: "Ursprüngliche Nachricht",
+  forward: "Weitergeleitete Nachricht",
+  signature: "Signatur",
+};
+
+interface Block {
+  fold: FoldKind | null; // null: shown as written, the own words and what starts open
+  lines: number; // of a folded segment
+  parts: TextPart[];
+}
+
+/** The blocks the text view shows: each segment that starts folded on its own, the segments
+ *  between them together as written, blank lines at a block's ends left out. Without segments
+ *  the text is one block. */
+function textBlocks(
+  text: string,
+  segments: TextSegment[],
+  mark: (shown: string) => TextPart[],
+): Block[] {
+  // The server counts characters as Python does, in code points; JavaScript counts UTF-16 units,
+  // which differ after a character beyond the BMP, such as an emoji.
+  const chars = /[\uD800-\uDFFF]/.test(text) ? Array.from(text) : null;
+  const slice = (start: number, end: number) =>
+    chars ? chars.slice(start, end).join("") : text.slice(start, end);
+  const blocks: Block[] = [];
+  const add = (fold: FoldKind | null, lines: number, start: number, end: number) => {
+    const shown = slice(start, end)
+      .replace(/^([ \t]*\r?\n)+/, "")
+      .trimEnd();
+    if (shown) blocks.push({ fold, lines, parts: mark(shown) });
+  };
+  let open: [number, number] | null = null;
+  for (const segment of segments) {
+    if (segment.kind !== "text" && segment.folded) {
+      if (open) add(null, 0, ...open);
+      open = null;
+      add(segment.kind, segment.lines, segment.start, segment.end);
+    } else {
+      open = [open?.[0] ?? segment.start, segment.end];
+    }
+  }
+  if (open) add(null, 0, ...open);
+  return segments.length ? blocks : [{ fold: null, lines: 0, parts: mark(text.trimEnd()) }];
+}
+
+/** The text with quotes, originals, forwards and signatures folded as the server's segments say
+ *  (D151); a folded block holding a search word opens itself (D79). */
 function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
-  // null: as the hits suggest, open when only the quoted part holds a search word
-  const [showQuoted, setShowQuoted] = useState<boolean | null>(null);
-  const split = useMemo(() => splitQuoted(data.text), [data.text]);
-  const parts = useMemo(() => {
+  // the blocks opened or closed by hand, by index; the others as the hits suggest
+  const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const blocks = useMemo(() => {
     const mark = (text: string) => highlightParts(text, marks?.words ?? [], marks?.stems ?? []);
-    return split
-      ? { body: mark(split.body), quoted: mark(split.quoted) }
-      : { body: mark(data.text), quoted: [] };
-  }, [data.text, split, marks]);
+    return textBlocks(data.text, data.segments, mark);
+  }, [data.text, data.segments, marks]);
   if (data.source === "none" || !data.text.trim()) {
     return <p className={styles.note}>Diese Mail enthält keinen Text.</p>;
   }
-  const inBody = markCount(parts.body);
-  const inQuoted = markCount(parts.quoted);
-  const open = showQuoted ?? (inBody === 0 && inQuoted > 0);
+  const hits = blocks.map((block) => markCount(block.parts));
+  const total = hits.reduce((sum, count) => sum + count, 0);
   return (
     <>
-      {(data.source === "text/html" || inBody + inQuoted > 0) && (
+      {(data.source === "text/html" || total > 0) && (
         <p className={styles.note}>
           {data.source === "text/html" && "aus HTML umgewandelt"}
-          {data.source === "text/html" && inBody + inQuoted > 0 && " · "}
-          {inBody + inQuoted > 0 && `${places(inBody + inQuoted)} markiert`}
+          {data.source === "text/html" && total > 0 && " · "}
+          {total > 0 && `${places(total)} markiert`}
         </p>
       )}
-      <div className={styles.text}>
-        <MarkedParts parts={parts.body} />
-      </div>
-      {split && (
-        <>
-          <div className={styles.quoteToggle}>
-            <button
-              type="button"
-              className={styles.linkButton}
-              aria-expanded={open}
-              onClick={() => setShowQuoted(!open)}
-            >
-              {open
-                ? "Zitierten Verlauf ausblenden"
-                : `Zitierten Verlauf einblenden (${formatNumber(split.quotedLines)} Zeilen${
-                    inQuoted > 0 ? `, ${places(inQuoted)}` : ""
-                  })`}
-            </button>
-          </div>
-          {open && (
-            <div className={`${styles.text} ${styles.quoted}`}>
-              <MarkedParts parts={parts.quoted} />
+      {blocks.map(({ fold, lines, parts }, index) => {
+        if (fold === null) {
+          return (
+            <div key={index} className={styles.text}>
+              <MarkedParts parts={parts} />
             </div>
-          )}
-        </>
-      )}
+          );
+        }
+        const open = toggled[index] ?? hits[index] > 0;
+        const counts = lineCount(lines) + (hits[index] > 0 ? `, ${places(hits[index])}` : "");
+        return (
+          <div key={index} className={styles.fold}>
+            <div className={styles.quoteToggle}>
+              <button
+                type="button"
+                className={styles.linkButton}
+                aria-expanded={open}
+                onClick={() => setToggled({ ...toggled, [index]: !open })}
+              >
+                {`${FOLD_LABELS[fold]} ${open ? "ausblenden" : "einblenden"} (${counts})`}
+              </button>
+            </div>
+            {open && (
+              <div className={`${styles.text} ${styles.quoted}`}>
+                <MarkedParts parts={parts} />
+              </div>
+            )}
+          </div>
+        );
+      })}
       {data.truncated && (
         <p className={styles.note}>
           Der Text ist sehr lang und hier gekürzt; die EML-Datei enthält ihn vollständig.
