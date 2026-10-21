@@ -3,6 +3,8 @@
 
 import type {
   CalendarEventInfo,
+  CertainMergePlan,
+  CertainMergeResult,
   CollectionDetail,
   CollectionInfo,
   Contact,
@@ -50,6 +52,8 @@ import type {
   MailSummary,
   MailText,
   MboxFileInfo,
+  MergeLogPage,
+  MetadataValueCount,
   NotePage,
   ParticipationRole,
   PermalinkTarget,
@@ -414,6 +418,14 @@ export const mailDetail: MailDetail = {
       pages: 14,
       document_mails: 6,
       preview: "pdf",
+      metadata: {
+        author: "Peter Hofmann",
+        modified_by: null,
+        software: "Microsoft Word für Microsoft 365",
+        device: null,
+        created: "2026-10-08T15:40:12Z",
+        gps: false,
+      },
     },
     {
       id: 902,
@@ -427,6 +439,7 @@ export const mailDetail: MailDetail = {
       pages: 2,
       document_mails: 1,
       preview: null,
+      metadata: null,
     },
   ],
   thread_id: 184001,
@@ -743,6 +756,9 @@ export const personPage: PersonPage = {
   total: 1710,
 };
 
+/** The certain suggestions (D160); the uncertain ones are uncertainSuggestionPage. */
+const suggestionCounts = { certain: 4, uncertain: 2_180 };
+
 export const suggestionPage: SuggestionPage = {
   items: [
     {
@@ -750,18 +766,47 @@ export const suggestionPage: SuggestionPage = {
       second: ps.peterPost,
       same_name: "peter hofmann",
       same_local_part: "p.hofmann",
+      tier: "certain",
+      reason: "name_and_local_part",
     },
-    { first: ps.anna, second: ps.annaPost, same_name: "anna keller", same_local_part: null },
-    { first: ps.jonas, second: ps.jonasPrivate, same_name: "jonas brandt", same_local_part: null },
+    {
+      first: ps.anna,
+      second: ps.annaPost,
+      same_name: "anna keller",
+      same_local_part: null,
+      tier: "certain",
+      reason: "name_fits_addresses",
+    },
+    {
+      first: ps.jonas,
+      second: ps.jonasPrivate,
+      same_name: "jonas brandt",
+      same_local_part: null,
+      tier: "certain",
+      reason: "name_fits_addresses",
+    },
   ],
   next_cursor: "suggestions-page-2",
   total: 4,
+  counts: suggestionCounts,
+  computed: true,
 };
 
 export const suggestionPage2: SuggestionPage = {
-  items: [{ first: ps.anna, second: ps.annaShort, same_name: null, same_local_part: "a.keller" }],
+  items: [
+    {
+      first: ps.anna,
+      second: ps.annaShort,
+      same_name: "anna keller",
+      same_local_part: "a.keller",
+      tier: "certain",
+      reason: "name_and_local_part",
+    },
+  ],
   next_cursor: null,
   total: 4,
+  counts: suggestionCounts,
+  computed: true,
 };
 
 function contact(
@@ -845,9 +890,23 @@ export const annaProfile: PersonProfile = {
   years: YEARS.map(([year, sent, received]) => ({ year, sent, received })),
   top_contacts: topContacts,
   suggestions: [
-    { person: ps.annaPost, same_name: "anna keller", same_local_part: null },
-    { person: ps.annaShort, same_name: null, same_local_part: "a.keller" },
+    {
+      person: ps.annaPost,
+      same_name: "anna keller",
+      same_local_part: null,
+      tier: "certain",
+      reason: "name_fits_addresses",
+    },
+    {
+      person: ps.annaShort,
+      same_name: null,
+      same_local_part: "a.keller",
+      tier: "uncertain",
+      reason: "local_part",
+    },
   ],
+  suggestion_counts: { certain: 1, uncertain: 1 },
+  merges: [],
   label: null,
 };
 
@@ -1713,6 +1772,16 @@ export const documentSummary: DocumentSummary = {
     failed: 391,
     timeout: 6,
   } as DocumentSummary["text_status"],
+  authors: [
+    { value: "Peter Hofmann", documents: 412 },
+    { value: "Anna Keller", documents: 233 },
+    { value: "Buchhaltung", documents: 87 },
+  ],
+  programs: [
+    { value: "Microsoft Word für Microsoft 365", documents: 3_120 },
+    { value: "Canon EOS 80D Firmware 1.0.3", documents: 641 },
+    { value: "LibreOffice/7.6.4.1$Linux_X86_64", documents: 95 },
+  ],
 };
 
 export const documentSummaryFiltered: DocumentSummary = {
@@ -1720,7 +1789,17 @@ export const documentSummaryFiltered: DocumentSummary = {
   exact: true,
   kinds: { pdf: 151, spreadsheet: 63 } as DocumentSummary["kinds"],
   text_status: { text: 177, scanned: 37 } as DocumentSummary["text_status"],
+  authors: [{ value: "Peter Hofmann", documents: 21 }],
+  programs: [{ value: "Microsoft Word für Microsoft 365", documents: 34 }],
 };
+
+/** The search within the facets "Autor" and "Programm" (D167): more than the top values. */
+export const metadataValues: MetadataValueCount[] = [
+  ...documentSummary.authors!,
+  { value: "Peter Hofmann-Berg", documents: 4 },
+  ...documentSummary.programs!,
+  { value: "Microsoft Excel", documents: 1_870 },
+];
 
 export const documentDetail: DocumentDetail = {
   id: 5101,
@@ -1762,6 +1841,38 @@ export const documentDetail: DocumentDetail = {
   recipient_count: 14,
   attachment_id: 901,
   preview: null,
+  metadata: {
+    status: "found",
+    error: null,
+    fields: {
+      pdf: {
+        version: "1.7",
+        revisions: 3,
+        title: "Rahmenvereinbarung 2026",
+        author: "Peter Hofmann",
+        creator: "Microsoft Word für Microsoft 365",
+        producer: "Microsoft Word für Microsoft 365",
+        creation_date: "2026-10-08T17:40:12+02:00",
+        mod_date: "2026-10-09T08:02:51+02:00",
+      },
+      xmp: {
+        creator: ["Peter Hofmann"],
+        creator_tool: "Microsoft Word für Microsoft 365",
+        document_id: "uuid:7D4E1F0C-1B6C-4D6E-9F2A-3C5B7A9E0D11",
+        history_agents: ["Microsoft Word für Microsoft 365", "Adobe Acrobat Pro 24.1"],
+        history_events: 2,
+      },
+      pdf_custom: { Abteilung: "Einkauf" },
+    },
+    summary: {
+      author: "Peter Hofmann",
+      modified_by: null,
+      software: "Microsoft Word für Microsoft 365",
+      device: null,
+      created: "2026-10-08T15:40:12Z",
+      gps: false,
+    },
+  },
 };
 
 /** A photo: no text, shown as a preview. */
@@ -1785,6 +1896,36 @@ export const imageDocument: DocumentDetail = {
   recipient_count: 1,
   attachment_id: 9105,
   preview: "image",
+  metadata: {
+    status: "found",
+    error: null,
+    fields: {
+      exif: {
+        make: "Canon",
+        model: "Canon EOS 80D",
+        software: "Firmware Version 1.0.3",
+        datetime_original: "2026-10-02T14:31:07+02:00",
+        datetime_digitized: "2026-10-02T14:31:07",
+        artist: "Sofia Brandt",
+        body_serial_number: "032021001234",
+        lens_model: "EF-S18-135mm f/3.5-5.6 IS USM",
+      },
+      gps: {
+        latitude: 53.5438333,
+        longitude: 9.9661667,
+        altitude: 12.5,
+        timestamp: "2026-10-02T12:31:05Z",
+      },
+    },
+    summary: {
+      author: "Sofia Brandt",
+      modified_by: null,
+      software: "Firmware Version 1.0.3",
+      device: "Canon EOS 80D",
+      created: "2026-10-02T12:31:07Z",
+      gps: true,
+    },
+  },
 };
 
 export const documentText: DocumentText = {
@@ -3298,5 +3439,101 @@ export const personEvents: PersonEvents = {
       },
     },
   ],
+  total: 3,
+};
+
+// Alias tiers, merging every certain suggestion, the merge log (D160 to D163) -------------------
+
+const refOf = (summary: PersonSummary): PersonRef => ({
+  person_id: summary.id,
+  email: summary.email,
+  name: summary.name,
+});
+
+/** The uncertain suggestions: namesakes without shared contacts, a name alone, a local part
+ *  alone. */
+export const uncertainSuggestionPage: SuggestionPage = {
+  items: [
+    {
+      first: summary(
+        person(33, "Jonas Weber", "jonas.weber@baeckerei-nord.example"),
+        figures(8, 6),
+      ),
+      second: summary(person(34, "Jonas Weber", "jonas.weber@kanzlei-sued.example"), figures(2, 1)),
+      same_name: "jonas weber",
+      same_local_part: "jonas.weber",
+      tier: "uncertain",
+      reason: "name_and_local_part_few_contacts",
+    },
+    {
+      first: ps.anna,
+      second: summary(person(31, "Anna Keller", "keller@schule-ost.example"), figures(5, 9)),
+      same_name: "anna keller",
+      same_local_part: null,
+      tier: "uncertain",
+      reason: "name",
+    },
+    {
+      first: ps.lukas,
+      second: summary(person(32, "L. Vogt", "lukas.vogt@mail.example"), figures(3, 4)),
+      same_name: null,
+      same_local_part: "lukas.vogt",
+      tier: "uncertain",
+      reason: "local_part",
+    },
+  ],
+  next_cursor: "uncertain-page-2",
+  total: 2_180,
+  counts: { certain: 4, uncertain: 2_180 },
+  computed: true,
+};
+
+export const certainMergePlan: CertainMergePlan = {
+  merges: 290,
+  persons: 312,
+  left_out_groups: 4,
+  left_out_persons: 27,
+};
+
+export const certainMergeResult: CertainMergeResult = { ...certainMergePlan, batch_id: 7 };
+
+/** Two merges of run 7, one of them undone, and one merge of Anna's aliases on its own. */
+export const mergeLogPage: MergeLogPage = {
+  items: [
+    {
+      id: 42,
+      target: refOf(ps.peter),
+      moved: [refOf(ps.peterPost)],
+      batch_id: 7,
+      editor: "Lena Vogt",
+      created_at: "2026-10-21T14:03:00Z",
+      undone_at: null,
+      undone_by: null,
+    },
+    {
+      id: 41,
+      target: refOf(ps.jonas),
+      moved: [refOf(ps.jonasPrivate)],
+      batch_id: 7,
+      editor: "Lena Vogt",
+      created_at: "2026-10-21T14:03:00Z",
+      undone_at: "2026-10-21T14:10:00Z",
+      undone_by: "Lena Vogt",
+    },
+    {
+      id: 40,
+      target: anna,
+      moved: [annaWork, annaPrivate],
+      batch_id: null,
+      editor: null,
+      created_at: "2026-10-20T09:12:00Z",
+      undone_at: null,
+      undone_by: null,
+    },
+  ],
+  batches: [
+    { id: 7, created_at: "2026-10-21T14:03:00Z", editor: "Lena Vogt", merges: 290, undone: 1 },
+  ],
+  next_cursor: null,
   total: 3,
 };

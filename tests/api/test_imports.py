@@ -336,7 +336,7 @@ async def test_summary_has_the_sizes_and_the_aggregated_figures(
         "SELECT pg_database_size(current_database()) AS db,"
         " (SELECT sum(size_bytes) FROM mbox_file) AS raw,"
         " pg_relation_size('ix_mail_tsv') AS fulltext,"
-        " (SELECT count(*) FROM alias_suggestion) AS suggestions,"
+        " (SELECT count(*) FROM alias_suggestion WHERE tier = 'certain') AS suggestions,"
         " (SELECT count(*) FROM person WHERE merged_into IS NULL) AS persons,"
         " (SELECT count(*) FROM mail WHERE is_duplicate_of IS NOT NULL) AS duplicates,"
         " (SELECT count(*) FROM edge) AS pairs,"

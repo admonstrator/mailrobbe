@@ -1,0 +1,32 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.body p {
+  margin: 0;
+}
+
+.error {
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.running {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+}

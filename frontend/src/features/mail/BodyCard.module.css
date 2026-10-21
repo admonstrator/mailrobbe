@@ -1,5 +1,6 @@
+/* "Text zeigen" and "Rohmail" scroll it to just below the compact bar (48 px, D166). */
 .card {
-  scroll-margin-top: 16px;
+  scroll-margin-top: 64px;
 }
 
 .panel {
@@ -59,9 +60,14 @@
   text-decoration: underline;
 }
 
+/* The window below the compact bar less the card's tabs and padding, so the whole frame is in
+   view once the card reaches the bar; never shorter than a few paragraphs. It scrolls inside
+   itself. */
 .html {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
-  height: 640px;
+  height: max(420px, calc(100vh - 164px));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-tile);
   background: #fff;
@@ -100,7 +106,7 @@
 }
 
 .raw {
-  max-height: 70vh;
+  max-height: max(320px, calc(100vh - 164px));
   margin: 0;
   padding: 12px 14px;
   overflow: auto;

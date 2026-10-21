@@ -52,7 +52,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   (duplicates included), person_signal per root person the mails it sent with each signal and
   whether it fell silent; both are recomputed by the signals phase of every import, and
   global_stats 'signals' keeps that phase's figures and rules (mailrobbe.signals.model).
-- Milestone 14 (migration 0014, D150 to D157): mail_near holds each mail's fingerprint and its
+- Corrections from the real archive (migration 0014, D160 to D167): alias_suggestion.tier sorts
+  the suggestions into certain and uncertain ones (D160); merge_batch, person_merge and
+  person_merge_member log every merge with the persons it moved and where each pointed before,
+  so it can be undone (D163).
+- Milestone 14 (migration 0015, D150 to D158): mail_near holds each mail's fingerprint and its
   group of near duplicates (near phase); calendar_scan records which mails the calendar phase
   looked at, calendar_event and calendar_attendee the events of their iCalendar parts; and
   person_label the labels the team gives to addresses (user data, keyed by address like the
@@ -90,9 +94,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
 from mailrobbe.enums import (
+    AliasTier,
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMetadataStatus,
     DocumentTextStatus,
     EntityKind,
     JobKind,
@@ -126,6 +132,8 @@ document_kind_enum = _pg_enum(DocumentKind, "document_kind")
 document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
 entity_kind_enum = _pg_enum(EntityKind, "entity_kind")
 key_origin_enum = _pg_enum(KeyOrigin, "key_origin")
+alias_tier_enum = _pg_enum(AliasTier, "alias_tier")
+document_metadata_status_enum = _pg_enum(DocumentMetadataStatus, "document_metadata_status")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -350,6 +358,16 @@ class Document(Base):
         Index("ix_document_size_bytes", "size_bytes", "id"),
         Index("ix_document_kind", "kind"),
         Index("ix_document_text_status", "text_status"),
+        Index(
+            "ix_document_metadata_author",
+            "metadata_author",
+            postgresql_where=text("metadata_author IS NOT NULL"),
+        ),
+        Index(
+            "ix_document_metadata_program",
+            "metadata_program",
+            postgresql_where=text("metadata_program IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -381,6 +399,21 @@ class Document(Base):
     tsv: Mapped[Any | None] = mapped_column(
         TSVECTOR, Computed(DOCUMENT_TSV_EXPRESSION, persisted=True)
     )
+    # What the file says about itself (migration 0014, D167), read by the import's metadata step:
+    # every field found (source -> key -> value, attachments.metadata.model) and the few the
+    # list's facets and the mail detail use, from attachments.metadata.model.summarize.
+    metadata_status: Mapped[DocumentMetadataStatus] = mapped_column(
+        document_metadata_status_enum, server_default="pending"
+    )
+    metadata_version: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    metadata_error: Mapped[str | None] = mapped_column(Text)  # English, one line
+    metadata_fields: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    metadata_author: Mapped[str | None] = mapped_column(Text)
+    metadata_modified_by: Mapped[str | None] = mapped_column(Text)
+    metadata_program: Mapped[str | None] = mapped_column(Text)
+    metadata_device: Mapped[str | None] = mapped_column(Text)
+    metadata_created: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    metadata_gps: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
 
 
 class DkimResult(Base):
@@ -537,6 +570,7 @@ class AliasSuggestion(Base):
     )
     same_name: Mapped[str | None] = mapped_column(Text)  # the normalized display name both use
     same_local_part: Mapped[str | None] = mapped_column(Text)  # the local part both addresses have
+    tier: Mapped[AliasTier] = mapped_column(alias_tier_enum)  # D160
 
 
 class AliasDismissal(Base):
@@ -550,6 +584,54 @@ class AliasDismissal(Base):
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class MergeBatch(Base):
+    """One "Alle sicheren zusammenführen" (D162): the merges it made share it."""
+
+    __tablename__ = "merge_batch"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    editor: Mapped[str | None] = mapped_column(Text)
+
+
+class PersonMerge(Base):
+    """One merge of persons into a target (D163), undone when undone_at is set."""
+
+    __tablename__ = "person_merge"
+    __table_args__ = (
+        Index("ix_person_merge_target", "target"),
+        Index("ix_person_merge_batch_id", "batch_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    target: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE")
+    )  # the root the persons were merged into
+    batch_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("merge_batch.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    editor: Mapped[str | None] = mapped_column(Text)
+    undone_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    undone_by: Mapped[str | None] = mapped_column(Text)
+
+
+class PersonMergeMember(Base):
+    """A person a merge moved, and where it pointed before (D163)."""
+
+    __tablename__ = "person_merge_member"
+    __table_args__ = (Index("ix_person_merge_member_person_id", "person_id"),)
+
+    merge_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person_merge.id", ondelete="CASCADE"), primary_key=True
+    )
+    person_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    # person.merged_into before the merge: None for a root, else the root it belonged to
+    previous_root: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class GlobalStats(Base):

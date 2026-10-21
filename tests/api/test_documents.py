@@ -1,6 +1,8 @@
 """The document API (D70 to D77): the document list with its filters, sorts, paging and
 snippets, its summary, a document's page and text, attachment downloads, the mail list's filter
-by document and its search through attachments (D73), and the import summary's figures.
+by document and its search through attachments (D73), the import summary's figures, and what the
+files say about themselves (D167): the page's metadata, the filters and facets by author and
+program, and the summary in the mail detail.
 
 Two archives. The generated one (tests/api/conftest.py), where expectations come from SQL
 written apart from api/documents.py, from the stored hashes and from extracting the downloaded
@@ -16,7 +18,7 @@ import re
 import shutil
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -42,9 +44,12 @@ from mailrobbe.api.schemas import (
     DocumentDetail,
     DocumentListItem,
     DocumentText,
+    MailDetail,
+    MetadataSummary,
     PersonRef,
 )
 from mailrobbe.attachments.extract import ExtractionLimits, extract_document
+from mailrobbe.attachments.metadata import METADATA_VERSION
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT
 from mailrobbe.enums import DocumentKind, DocumentTextStatus
@@ -53,6 +58,7 @@ from mailrobbe.preview.kinds import preview_kind
 from tests.api.conftest import _client
 from tests.api.test_mails import Params, at, get, rows
 from tests.attachments.doubles import FIRST_DAY, Attached, attachment_mail, digest
+from tests.attachments.metadata import samples
 from tests.conftest import _temporary_database
 from tests.importer.doubles import SEPARATOR
 
@@ -128,8 +134,12 @@ PROTOKOLL = (
 )
 UEBERSICHT = "Übersicht über das Weihnachtsgeld im März.\n"
 ZETTEL = "Ein Zettel ohne Datum.\n"
-PNG = b"\x89PNG\r\n\x1a\n" + bytes(64)
-JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00" + bytes(200)
+# The images carry metadata (D167): a camera's EXIF with GPS, and PNG text chunks.
+PNG = samples.png(
+    samples.chunk(b"tEXt", b"Author\x00Peter Hofmann"),
+    samples.chunk(b"tEXt", b"Software\x00GIMP 2.10"),
+)
+JPEG = samples.jpeg(samples.exif_segment(samples.camera_tiff()))
 PDF = b"%PDF-1.4\n%kein echtes PDF\n"
 HTML = b"<html><script>alert(1)</script>Hallo</html>\n"
 BLOB = bytes(range(256)) * 4
@@ -298,6 +308,12 @@ async def detail_of(client: httpx.AsyncClient, document_id: int) -> DocumentDeta
         ([("q", "Spendenliste -Müller")], set()),
         ([("q", "Spendenquittung"), ("name", "final")], {"notes"}),
         ([("q", "Spendenquittung"), ("date_from", day(2))], set()),
+        ([("author", "Peter Hofmann")], {"png", "jpeg"}),
+        ([("author", "peter hofmann")], set()),  # exact values, as the facet lists them
+        ([("author", "Peter")], set()),
+        ([("program", "GIMP 2.10"), ("program", "Firmware 1.8.1")], {"png", "jpeg"}),
+        ([("author", "Peter Hofmann"), ("program", "GIMP 2.10")], {"png"}),
+        ([("author", "Peter Hofmann"), ("date_to", day(4))], {"png"}),
     ],
 )
 async def test_filters_of_the_document_list(
@@ -567,11 +583,12 @@ async def test_the_summary_falls_back_to_a_bounded_count(
         return None
 
     monkeypatch.setattr(documents, "_all_unless_canceled", canceled)
+    nothing = {"kinds": None, "text_status": None, "authors": None, "programs": None}
     summary = await get(crafted_client, "/api/documents/summary")
-    assert summary == {"total": len(CONTENTS), "exact": True, "kinds": None, "text_status": None}
+    assert summary == {"total": len(CONTENTS), "exact": True, **nothing}
     monkeypatch.setattr(documents, "COUNT_LIMIT", 4)
     summary = await get(crafted_client, "/api/documents/summary")
-    assert summary == {"total": 4, "exact": False, "kinds": None, "text_status": None}
+    assert summary == {"total": 4, "exact": False, **nothing}
 
 
 async def test_the_summary_runs_out_of_time(crafted: Crafted) -> None:
@@ -587,11 +604,141 @@ async def test_the_summary_runs_out_of_time(crafted: Crafted) -> None:
                     "exact": False,
                     "kinds": None,
                     "text_status": None,
+                    "authors": None,
+                    "programs": None,
+                }
+                values = [("field", "author")]
+                assert await get(client, "/api/documents/metadata-values", values) == {
+                    "values": None
                 }
                 await other.rollback()
             assert (await get(client, "/api/documents/summary"))["exact"] is True
     finally:
         await engine.dispose()
+
+
+# What the files say about themselves (crafted, D167) ------------------------------------------
+
+
+async def test_the_summary_counts_authors_and_programs(
+    crafted_client: httpx.AsyncClient, crafted: Crafted
+) -> None:
+    summary = await get(crafted_client, "/api/documents/summary")
+    assert summary["authors"] == [{"value": "Peter Hofmann", "documents": 2}]
+    assert summary["programs"] == [  # most documents first, then by value
+        {"value": "Firmware 1.8.1", "documents": 1},
+        {"value": "GIMP 2.10", "documents": 1},
+    ]
+    filtered = await get(crafted_client, "/api/documents/summary", [("date_to", day(4))])
+    assert filtered["authors"] == [{"value": "Peter Hofmann", "documents": 1}]
+    assert filtered["programs"] == [{"value": "GIMP 2.10", "documents": 1}]
+    by_author = await get(crafted_client, "/api/documents/summary", [("author", "Peter Hofmann")])
+    assert (by_author["total"], by_author["kinds"]["image"]) == (2, 2)
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        ([("field", "author")], [("Peter Hofmann", 2)]),
+        ([("field", "author"), ("search", "HOF")], [("Peter Hofmann", 2)]),
+        ([("field", "author"), ("search", "x")], []),
+        ([("field", "program"), ("search", " gimp ")], [("GIMP 2.10", 1)]),
+        ([("field", "program"), ("search", "%")], []),  # a literal percent sign
+        ([("field", "program"), ("search", "1.8")], [("Firmware 1.8.1", 1)]),
+        ([("field", "program"), ("limit", "1")], [("Firmware 1.8.1", 1)]),
+        ([("field", "program"), ("kind", "pdf")], []),
+        ([("field", "program"), ("date_from", day(5))], [("Firmware 1.8.1", 1)]),
+    ],
+)
+async def test_the_search_within_the_metadata_values(
+    crafted_client: httpx.AsyncClient, params: Params, expected: list[tuple[str, int]]
+) -> None:
+    found = await get(crafted_client, "/api/documents/metadata-values", params)
+    assert [(value["value"], value["documents"]) for value in found["values"]] == expected
+
+
+@pytest.mark.parametrize(
+    "params", [[], [("field", "device")], [("field", "author"), ("limit", "101")]]
+)
+async def test_invalid_metadata_value_parameters(
+    crafted_client: httpx.AsyncClient, params: Params
+) -> None:
+    await get(crafted_client, "/api/documents/metadata-values", params, status=422)
+
+
+async def test_the_page_shows_every_field_the_file_states(
+    crafted_client: httpx.AsyncClient, crafted: Crafted
+) -> None:
+    jpeg = (await detail_of(crafted_client, crafted.documents["jpeg"])).metadata
+    assert (jpeg.status, jpeg.error) == ("found", None)
+    assert jpeg.fields["exif"]["make"] == "Canon"
+    assert jpeg.fields["exif"]["datetime_original"] == "2024-05-06T10:09:10+02:00"
+    assert jpeg.fields["exif"]["datetime_digitized"] == "2024-05-06T10:09:10"  # no zone given
+    assert jpeg.fields["gps"] == {
+        "latitude": 52.5200833,
+        "longitude": 13.41,
+        "altitude": 34.5,
+        "timestamp": "2024-05-06T08:09:10Z",
+    }
+    assert jpeg.summary == MetadataSummary(
+        author="Peter Hofmann",
+        software="Firmware 1.8.1",
+        device="Canon EOS R6",
+        created=datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC),
+        gps=True,
+    )
+    png = (await detail_of(crafted_client, crafted.documents["png"])).metadata
+    assert png.fields == {"png": {"Author": "Peter Hofmann", "Software": "GIMP 2.10"}}
+    notes = (await detail_of(crafted_client, crafted.documents["notes"])).metadata
+    assert (notes.status, notes.fields, notes.summary) == ("unsupported", {}, None)
+    pdf = (await detail_of(crafted_client, crafted.documents["pdf"])).metadata
+    assert pdf.fields == {"pdf": {"version": "1.4"}}  # the rest is no PDF
+    assert pdf.error is not None and pdf.error.startswith("damaged PDF")
+    stored = await rows(crafted.url, "SELECT DISTINCT metadata_version FROM document")
+    assert [row.metadata_version for row in stored] == [METADATA_VERSION]
+
+
+async def test_an_unread_document_says_so(
+    crafted_client: httpx.AsyncClient, crafted: Crafted
+) -> None:
+    pending = "metadata_status = 'pending', metadata_version = 0"
+    await rows(
+        crafted.url, f"UPDATE document SET {pending} WHERE id = :id", id=crafted.documents["html"]
+    )
+    try:
+        html = (await detail_of(crafted_client, crafted.documents["html"])).metadata
+        assert (html.status, html.fields, html.summary) == ("pending", {}, None)
+    finally:
+        await rows(
+            crafted.url,
+            "UPDATE document SET metadata_status = 'unsupported', metadata_version = :version"
+            " WHERE id = :id",
+            id=crafted.documents["html"],
+            version=METADATA_VERSION,
+        )
+
+
+async def test_the_mail_detail_shows_each_attachments_summary(
+    crafted_client: httpx.AsyncClient, crafted: Crafted
+) -> None:
+    mail = MailDetail.model_validate(await get(crafted_client, f"/api/mails/{crafted.mails[5]}"))
+    found = {attachment.filename: attachment.metadata for attachment in mail.attachments}
+    assert found == {
+        "evil.html": None,
+        None: None,
+        "scan.jpg": MetadataSummary(
+            author="Peter Hofmann",
+            software="Firmware 1.8.1",
+            device="Canon EOS R6",
+            created=datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC),
+            gps=True,
+        ),
+    }
+    first = MailDetail.model_validate(await get(crafted_client, f"/api/mails/{crafted.mails[0]}"))
+    assert [attachment.metadata for attachment in first.attachments] == [
+        None,  # a text file
+        MetadataSummary(author="Peter Hofmann", software="GIMP 2.10"),
+    ]
 
 
 # A document's page and text (crafted) ---------------------------------------------------------
@@ -1080,6 +1227,16 @@ async def test_the_summary_of_the_generated_archive(
     }
     images = await get(client, "/api/documents/summary", [("kind", "image")])
     assert images["total"] == summary["kinds"]["image"] > 0
+    for field, column in (("authors", "metadata_author"), ("programs", "metadata_program")):
+        counted = await rows(
+            imported_database_url,
+            f"SELECT {column} AS value, count(*) AS documents FROM document"
+            f" WHERE {column} IS NOT NULL GROUP BY 1"
+            f' ORDER BY 2 DESC, {column} COLLATE "C" LIMIT 20',
+        )
+        assert summary[field] == [dict(row._mapping) for row in counted]
+    # The generator writes the core properties of office files with an author.
+    assert summary["authors"]
 
 
 async def test_every_attachment_downloads_its_bytes(
@@ -1160,6 +1317,22 @@ async def test_every_document_page_against_sql(
         size, limit = row.size_bytes, Settings().preview_max_size
         preview = preview_kind(kind, row.name, row.mime_type, size, hashed=hashed, max_size=limit)
         assert detail.preview == preview
+        assert row.metadata_version == METADATA_VERSION  # the import read every document
+        assert (detail.metadata.status, detail.metadata.error) == (
+            row.metadata_status,
+            row.metadata_error,
+        )
+        assert detail.metadata.fields == (row.metadata_fields or {})
+        summary = detail.metadata.summary
+        if row.metadata_fields:
+            assert summary is not None
+            assert (summary.author, summary.software, summary.gps) == (
+                row.metadata_author,
+                row.metadata_program,
+                row.metadata_gps,
+            )
+        else:
+            assert summary is None
 
 
 async def test_the_mails_carrying_each_generated_document(

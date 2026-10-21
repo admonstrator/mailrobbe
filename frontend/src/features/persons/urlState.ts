@@ -1,12 +1,14 @@
 // The persons screens keep their state in the URL: search, sort, page, tab and "Nur benannte"
-// of the person list (/personen), and the mail card of a profile (/personen/:id: role, year,
-// contact, page).
+// of the person list (/personen) with the switch for uncertain suggestions, and the mail card
+// of a profile (/personen/:id: role, year, contact, page).
 
 import { buildQuery } from "../../api/client";
 import type { PersonListParams, PersonRole, PersonSort } from "../../api/types";
 import { DEFAULT_LIST_STATE, PERSON_ROLES, positiveInt, type ListState } from "../mails/listState";
 
-export type PersonsTab = "personen" | "vorschlaege";
+export type PersonsTab = "personen" | "vorschlaege" | "zusammengefuehrt";
+
+const TABS: readonly PersonsTab[] = ["personen", "vorschlaege", "zusammengefuehrt"];
 
 export interface PersonListState {
   q: string;
@@ -17,6 +19,8 @@ export interface PersonListState {
   tab: PersonsTab;
   /** Only persons the team named (D157). */
   labelled: boolean;
+  /** The suggestions tab shows the uncertain suggestions instead of the certain ones (D160). */
+  uncertain: boolean;
 }
 
 export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
@@ -26,6 +30,7 @@ export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
   page: 1,
   tab: "personen",
   labelled: false,
+  uncertain: false,
 };
 
 const SORTS: readonly PersonSort[] = ["mails", "name", "recent"];
@@ -37,8 +42,9 @@ export function parsePersonListState(search: URLSearchParams): PersonListState {
     sort: SORTS.find((sort) => sort === search.get("sort")) ?? "mails",
     cursor,
     page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
-    tab: search.get("tab") === "vorschlaege" ? "vorschlaege" : "personen",
+    tab: TABS.find((tab) => tab === search.get("tab")) ?? "personen",
     labelled: search.get("labelled") === "true",
+    uncertain: search.get("unsicher") === "1",
   };
 }
 
@@ -46,6 +52,7 @@ export function parsePersonListState(search: URLSearchParams): PersonListState {
 export function personListSearch(state: PersonListState): URLSearchParams {
   return buildQuery({
     tab: state.tab === "personen" ? null : state.tab,
+    unsicher: state.uncertain ? 1 : null,
     q: state.q,
     sort: state.sort === "mails" ? null : state.sort,
     labelled: state.labelled,

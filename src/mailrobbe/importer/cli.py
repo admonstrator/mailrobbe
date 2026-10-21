@@ -1,12 +1,12 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction, calendar, near duplicates, entities, signals and topics.
+text extraction, metadata, calendar, near duplicates, entities, signals and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize, attachments (only when documents wait for their text, D72),
-calendar (only when mails wait for a look, D154), near (fingerprints when mails wait for one,
-groups always, D153), entities (only when texts wait for their scan, D84), signals (always,
-D135) and topics (only when the archive changed since they were computed, D146), and reports
-its figures
+it, D52), import, finalize, attachments (only when documents wait for their text, D72, or for
+their metadata, D167, which has a step of its own), calendar (only when mails wait for a look,
+D154), near (fingerprints when mails wait for one, groups always, D153), entities (only when
+texts wait for their scan, D84), signals (always, D135) and topics (only when the archive
+changed since they were computed, D146), and reports its figures
 (ImportFigures) every few seconds, with one step per phase and per part of the finalize and the
 topics (STEPS, D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the
 workers store their batch, the files pause, the global figures count what is stored, and the
@@ -65,6 +65,7 @@ STEPS = (
     "import",
     *finalize.STEPS,
     "attachments",
+    "metadata",
     "calendar",
     *near.STEPS,
     "entities",
@@ -199,6 +200,8 @@ async def _import(
             sessionmaker, settings, mbox_dir, workers, job, figures, extract
         )
     if not stop.is_set():
+        await _collect_metadata(sessionmaker, settings, mbox_dir, workers, job, figures)
+    if not stop.is_set():
         await _scan_calendar(sessionmaker, mbox_dir, workers, job)
     if not stop.is_set():
         await _find_near(sessionmaker, job)
@@ -313,6 +316,27 @@ async def _extract_texts(
             extract=extract,
         )
     return result.stored
+
+
+async def _collect_metadata(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    mbox_dir: Path,
+    workers: int,
+    job: JobRun,
+    figures: ImportFigures,
+) -> None:
+    """The metadata step (D167), when documents wait for their metadata."""
+    async with sessionmaker() as session:
+        waiting = await phase.metadata_waiting(session, int(settings.attachment_text_max_size))
+    if not waiting:
+        job.steps.skip("metadata")
+        return
+    job.set_phase("attachments")  # the step belongs to the attachments phase (jobs.ImportPhase)
+    with job.steps.step("metadata", unit="documents", total=len(waiting)) as step:
+        await phase.collect_metadata(
+            sessionmaker, settings, mbox_dir, waiting, workers, job.stop, figures, step
+        )
 
 
 async def _scan_calendar(

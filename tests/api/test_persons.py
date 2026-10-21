@@ -1,4 +1,5 @@
-"""The persons API (D28 to D33): list, profile, contacts, mail counts, suggestions and merges.
+"""The persons API (D28 to D33, D160 to D163): list, profile, contacts, mail counts,
+suggestions, merges, the merge log and undoing merges.
 
 The tests run on copies of the imported archive whose aggregate rows are replaced by a seed:
 person_stats, person_year, edge and alias_suggestion get rows chosen here (ties, persons without
@@ -15,6 +16,7 @@ import json
 from collections.abc import AsyncIterator, Collection, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,8 @@ Json = dict[str, Any]
 BASE = datetime(2015, 3, 1, 12, tzinfo=UTC)
 SORTS = ["mails", "name", "recent"]
 UNKNOWN = 987654321
+TIERS = ["certain", "uncertain"]
+EDITOR = {"X-Mailrobbe-Editor": "Lena%20Vogt"}
 SEARCHED_NAME = "Zacharias Quellenhof"  # in no address
 # Mails in which busy's addresses take several roles, which the tabs tell apart (D29): Cc and To,
 # Cc and Bcc, To and From, and Bcc of a mail from `other`.
@@ -89,6 +93,15 @@ def stamp(value: datetime | None) -> str | None:
     return None if value is None else value.isoformat().replace("+00:00", "Z")
 
 
+def reason(name: str | None, local: str | None, tier: str) -> str:
+    """Why a suggestion was made, from its row (D160)."""
+    if name is not None and local is not None:
+        return "name_and_local_part" if tier == "certain" else "name_and_local_part_few_contacts"
+    if name is not None:
+        return "name_fits_addresses" if tier == "certain" else "name"
+    return "local_part"
+
+
 # The seed ------------------------------------------------------------------------------------
 
 
@@ -101,7 +114,7 @@ class Seed:
     stats: dict[int, Json]  # person_stats rows by person id (dates as datetime)
     years: dict[int, list[tuple[int, int, int]]]  # person_year rows by person: year, sent, received
     edges: list[Json]  # edge rows
-    suggestions: list[tuple[int, int, str | None, str | None]]  # alias_suggestion rows
+    suggestions: list[tuple[int, int, str | None, str | None, str]]  # alias_suggestion rows
     aliases: dict[int, list[int]]  # root -> the persons merged into it
     busy: int  # a root with two aliases, years, more contacts than TOP_CONTACTS, suggestions
     other: int  # a root with one alias
@@ -165,10 +178,12 @@ class Seed:
             )
         return sorted(found, key=lambda c: (c["mails"], c["person"]["person_id"]), reverse=True)
 
-    def suggestion_page(self) -> list[Json]:
-        """Every suggestion as AliasSuggestion, in the order of the suggestion list."""
+    def suggestion_page(self, tier: str) -> list[Json]:
+        """The suggestions of a tier as AliasSuggestion, in the order of the suggestion list."""
         items = []
-        for a, b, name, local in self.suggestions:
+        for a, b, name, local, kind in self.suggestions:
+            if kind != tier:
+                continue
             first, second = (b, a) if self.mails(b) > self.mails(a) else (a, b)
             key = (name is not None and local is not None, self.mails(first), first, second)
             items.append((key, first, second, name, local))
@@ -178,21 +193,35 @@ class Seed:
                 "second": self.summary(second),
                 "same_name": name,
                 "same_local_part": local,
+                "tier": tier,
+                "reason": reason(name, local, tier),
             }
             for _, first, second, name, local in sorted(items, reverse=True)
         ]
 
+    def counts(self, root: int | None = None) -> Json:
+        """The suggestions per tier, of root or of all."""
+        tiers = [row[4] for row in self.suggestions if root is None or root in row[:2]]
+        return {tier: tiers.count(tier) for tier in TIERS}
+
     def candidates(self, root: int) -> list[Json]:
-        """The suggestions with root as AliasCandidate, the other person's mails first."""
+        """The suggestions with root as AliasCandidate: certain ones first, then the other
+        person's mails."""
         found = [
-            (b if a == root else a, name, local)
-            for a, b, name, local in self.suggestions
+            (b if a == root else a, name, local, tier)
+            for a, b, name, local, tier in self.suggestions
             if root in (a, b)
         ]
-        found.sort(key=lambda c: (self.mails(c[0]), c[0]), reverse=True)
+        found.sort(key=lambda c: (c[3] == "certain", self.mails(c[0]), c[0]), reverse=True)
         return [
-            {"person": self.summary(other), "same_name": name, "same_local_part": local}
-            for other, name, local in found[:SUGGESTION_LIMIT]
+            {
+                "person": self.summary(other),
+                "same_name": name,
+                "same_local_part": local,
+                "tier": tier,
+                "reason": reason(name, local, tier),
+            }
+            for other, name, local, tier in found[:SUGGESTION_LIMIT]
         ]
 
 
@@ -281,16 +310,16 @@ async def _seed(url: str) -> Seed:
     )
     c = others[6:-6]
     pairs = [
-        (busy, c[0], "anna beispiel", "anna"),
-        (busy, c[1], "anna beispiel", None),
-        (busy, c[2], None, "anna"),
-        (other, c[3], None, "otto"),
-        (c[4], c[5], "bert muster", "bert"),
-        (c[6], c[7], None, "carl"),
-        (c[8], c[9], "dora", None),
-        (c[10], c[11], "emil", "emil"),
+        (busy, c[0], "anna beispiel", "anna", "certain"),
+        (busy, c[1], "anna beispiel", None, "certain"),
+        (busy, c[2], None, "anna", "uncertain"),
+        (other, c[3], None, "otto", "uncertain"),
+        (c[4], c[5], "bert muster", "bert", "certain"),
+        (c[6], c[7], "carl ober", "carl", "uncertain"),  # too few shared contacts
+        (c[8], c[9], "dora reich", None, "uncertain"),
+        (c[10], c[11], "emil sander", "emil", "certain"),
     ]
-    suggestions = [(min(a, b), max(a, b), name, local) for a, b, name, local in pairs]
+    suggestions = [(min(a, b), max(a, b), *keys) for a, b, *keys in pairs]
     figures = "sent, received, cc_only, contacts, first_date, last_date, dkim_pass_ratio"
     await execute(
         url,
@@ -314,9 +343,12 @@ async def _seed(url: str) -> Seed:
             edges,
         ),
         (
-            "INSERT INTO alias_suggestion (person_a, person_b, same_name, same_local_part)"
-            " VALUES (:a, :b, :name, :local)",
-            [{"a": a, "b": b, "name": name, "local": local} for a, b, name, local in suggestions],
+            "INSERT INTO alias_suggestion (person_a, person_b, same_name, same_local_part,"
+            " tier) VALUES (:a, :b, :name, :local, CAST(:tier AS alias_tier))",
+            [
+                {"a": a, "b": b, "name": name, "local": local, "tier": tier}
+                for a, b, name, local, tier in suggestions
+            ],
         ),
     )
     return Seed(
@@ -373,8 +405,14 @@ async def get(client: httpx.AsyncClient, path: str, params: Params = (), status:
     return response.json()
 
 
-async def post(client: httpx.AsyncClient, path: str, body: Any, status: int = 200) -> Any:
-    response = await client.post(path, json=body)
+async def post(
+    client: httpx.AsyncClient,
+    path: str,
+    body: Any,
+    status: int = 200,
+    headers: dict[str, str] | None = None,
+) -> Any:
+    response = await client.post(path, json=body, headers=headers)
     assert response.status_code == status, response.text
     return None if status == 204 else response.json()
 
@@ -580,9 +618,12 @@ async def test_the_profile_of_a_person_with_aliases(seeded: httpx.AsyncClient, s
         ],
         "top_contacts": contacts[:TOP_CONTACTS],
         "suggestions": seed.candidates(root),
+        "suggestion_counts": {"certain": 2, "uncertain": 1},
+        "merges": [],
         "label": None,
     }
-    assert len(expected["suggestions"]) == 3
+    assert seed.counts(root) == expected["suggestion_counts"]
+    assert [c["tier"] for c in expected["suggestions"]] == ["certain", "certain", "uncertain"]
     for requested in (root, *seed.aliases[root]):
         assert await get(seeded, f"/api/persons/{requested}") == expected, requested
 
@@ -596,12 +637,15 @@ async def test_the_profile_of_a_person_without_figures(
     assert profile["figures"] is None
     assert (profile["aliases"], profile["years"], profile["top_contacts"]) == ([], [], [])
     assert profile["suggestions"] == []
+    assert profile["suggestion_counts"] == {"certain": 0, "uncertain": 0}
+    assert profile["merges"] == []
     assert profile["display_names"] == await expected_display_names(seed, root)
 
     other = await get(seeded, f"/api/persons/{seed.other}")
     assert [alias["person_id"] for alias in other["aliases"]] == seed.aliases[seed.other]
     assert other["top_contacts"] == seed.contacts(seed.other)
     assert other["suggestions"] == seed.candidates(seed.other)
+    assert other["suggestion_counts"] == seed.counts(seed.other)
 
 
 async def test_unknown_and_invalid_person_ids(seeded: httpx.AsyncClient) -> None:
@@ -644,19 +688,60 @@ async def test_contacts_page_through_every_edge(seeded: httpx.AsyncClient, seed:
 # Alias suggestions -----------------------------------------------------------------------------
 
 
-async def test_suggestions_page_in_order(seeded: httpx.AsyncClient, seed: Seed) -> None:
-    expected = seed.suggestion_page()
-    assert [item["same_name"] is not None for item in expected][:3] == [True] * 3
-    found = await pages(seeded, "/api/persons/suggestions", [], 3)
+@pytest.mark.parametrize("tier", TIERS)
+async def test_suggestions_page_in_order(seeded: httpx.AsyncClient, seed: Seed, tier: str) -> None:
+    expected = seed.suggestion_page(tier)
+    reasons = {
+        "certain": {"name_and_local_part", "name_fits_addresses"},
+        "uncertain": {"name_and_local_part_few_contacts", "name", "local_part"},
+    }
+    assert {item["reason"] for item in expected} == reasons[tier]
+    found = await pages(seeded, "/api/persons/suggestions", [("tier", tier)], 3)
+    assert len(found) > 1
     assert [item for page in found for item in page["items"]] == expected
     assert {page["total"] for page in found} == {len(expected)}
+    assert {json.dumps(page["counts"]) for page in found} == {json.dumps(seed.counts())}
+    assert {page["computed"] for page in found} == {True}
     for item in expected:
         assert item["first"]["figures"]["mails"] >= item["second"]["figures"]["mails"]
 
+
+async def test_the_suggestion_list_shows_certain_ones_by_default(
+    seeded: httpx.AsyncClient, seed: Seed
+) -> None:
+    page = await get(seeded, "/api/persons/suggestions")
+    assert page["items"] == seed.suggestion_page("certain")
+    assert page["counts"] == seed.counts() == {"certain": 4, "uncertain": 4}
+
+    certain = await get(seeded, "/api/persons/suggestions", [("limit", "1")])
     persons = await get(seeded, "/api/persons", [("limit", "2")])
-    for cursor in (persons["next_cursor"], "!!"):
-        error = await get(seeded, "/api/persons/suggestions", [("cursor", cursor)], status=400)
+    for params in (
+        [("cursor", persons["next_cursor"])],
+        [("cursor", "!!")],
+        [("tier", "uncertain"), ("cursor", certain["next_cursor"])],
+    ):
+        error = await get(seeded, "/api/persons/suggestions", params, status=400)
         assert error["detail"]["code"] == "invalid_cursor"
+    await get(seeded, "/api/persons/suggestions", [("tier", "maybe")], status=422)
+
+
+async def test_suggestions_that_were_never_computed(
+    writable: httpx.AsyncClient, writable_url: str
+) -> None:
+    empty: Json = {
+        "items": [],
+        "next_cursor": None,
+        "total": 0,
+        "counts": {"certain": 0, "uncertain": 0},
+        "computed": False,
+    }
+    # Suggestions of older rules, then none at all.
+    for change in (
+        "UPDATE global_stats SET value = '{\"rules\": 1}' WHERE key = 'alias_suggestions'",
+        "DELETE FROM global_stats WHERE key = 'alias_suggestions'",
+    ):
+        await execute(writable_url, ("DELETE FROM alias_suggestion", {}), (change, {}))
+        assert await get(writable, "/api/persons/suggestions") == empty
 
 
 # Mail counts -----------------------------------------------------------------------------------
@@ -824,7 +909,7 @@ async def test_unmerge_makes_an_alias_a_person_again(
 async def test_dismissing_a_suggestion(
     writable: httpx.AsyncClient, writable_url: str, seed: Seed
 ) -> None:
-    first, second, _, _ = next(s for s in seed.suggestions if seed.busy in s[:2])
+    first, second, *_ = next(s for s in seed.suggestions if seed.busy in s[:2])
     other = second if first == seed.busy else first
     alias = seed.aliases[seed.busy][0]
     # Given by an alias, the suggestion of its root is dismissed.
@@ -841,7 +926,7 @@ async def test_dismissing_a_suggestion(
     )
     assert left == []
     page = await get(writable, "/api/persons/suggestions")
-    assert page["total"] == len(seed.suggestions) - 1
+    assert page["counts"] == {**seed.counts(), "certain": seed.counts()["certain"] - 1}
     profile = await get(writable, f"/api/persons/{seed.busy}")
     assert other not in [c["person"]["id"] for c in profile["suggestions"]]
     # Again: nothing changes.
@@ -858,3 +943,152 @@ async def test_dismissing_a_suggestion(
         assert error["detail"]["code"] == code
     for persons in ([seed.busy], [seed.busy, other, alias]):
         await post(writable, "/api/persons/suggestions/dismiss", {"persons": persons}, 422)
+
+
+# Merging every certain suggestion, the merge log, undoing merges -----------------------------
+
+
+def ref(seed: Seed, person_id: int) -> Json:
+    person = seed.people[person_id]
+    return {"person_id": person_id, "email": person.canonical_email, "name": person.display_name}
+
+
+async def test_merging_every_certain_suggestion_and_undoing_the_run(
+    writable: httpx.AsyncClient, writable_url: str, seed: Seed
+) -> None:
+    before = await merged_into(writable_url)
+    certain = [(a, b) for a, b, *_, tier in seed.suggestions if tier == "certain"]
+    # busy and its two certain suggestions are one group, merged into busy (most mails); the
+    # other two pairs into the one with more mails, the lower id on a tie.
+    groups = {seed.busy: sorted({p for pair in certain if seed.busy in pair for p in pair})}
+    for a, b in certain:
+        if seed.busy not in (a, b):
+            groups[min((a, b), key=lambda p: (-seed.mails(p), p))] = [a, b]
+    moved = {p: target for target, members in groups.items() for p in members if p != target}
+    plan = {"merges": 3, "persons": 4, "left_out_groups": 0, "left_out_persons": 0}
+    assert len(moved) == 4
+    assert await get(writable, "/api/persons/merge-certain") == plan
+
+    done = await post(writable, "/api/persons/merge-certain", None, headers=EDITOR)
+    assert done == {**plan, "batch_id": done["batch_id"]}
+    roots = await merged_into(writable_url)
+    assert {p: roots[p] for p in moved} == moved
+    assert_flat(roots)
+    log = await get(writable, "/api/persons/merges")
+    assert (log["total"], log["next_cursor"]) == (3, None)
+    ids = [item["id"] for item in log["items"]]
+    assert ids == sorted(ids, reverse=True)
+    assert sorted(item["target"]["person_id"] for item in log["items"]) == sorted(groups)
+    for item in log["items"]:
+        target = item["target"]
+        assert target == ref(seed, target["person_id"])
+        assert item["moved"] == [
+            ref(seed, p) for p in groups[target["person_id"]] if p != target["person_id"]
+        ]
+        assert (item["batch_id"], item["editor"]) == (done["batch_id"], "Lena Vogt")
+        assert (item["undone_at"], item["undone_by"]) == (None, None)
+    [batch] = log["batches"]
+    assert {key: batch[key] for key in ("id", "editor", "merges", "undone")} == {
+        "id": done["batch_id"],
+        "editor": "Lena Vogt",
+        "merges": 3,
+        "undone": 0,
+    }
+    profile = await get(writable, f"/api/persons/{seed.busy}")
+    [merge] = profile["merges"]
+    assert merge == next(item for item in log["items"] if item["target"]["person_id"] == seed.busy)
+
+    undo = f"/api/persons/merge-batches/{done['batch_id']}/undo"
+    assert await post(writable, undo, None, headers=EDITOR) == {"merges": 3, "persons": 4}
+    assert await merged_into(writable_url) == before
+    log = await get(writable, "/api/persons/merges")
+    assert {item["undone_by"] for item in log["items"]} == {"Lena Vogt"}
+    assert all(item["undone_at"] for item in log["items"])
+    assert log["batches"][0]["undone"] == 3
+    assert (await get(writable, f"/api/persons/{seed.busy}"))["merges"] == []
+
+    for path in (undo, f"/api/persons/merges/{merge['id']}/undo"):
+        error = await post(writable, path, None, 409)
+        assert error["detail"]["code"] == "merge_undone"
+    for path in (
+        f"/api/persons/merges/{UNKNOWN}/undo",
+        f"/api/persons/merge-batches/{UNKNOWN}/undo",
+    ):
+        error = await post(writable, path, None, 404)
+        assert error["detail"]["code"] == "not_found"
+    await post(writable, f"/api/persons/merges/{2**63}/undo", None, 422)
+    assert await merged_into(writable_url) == before
+
+
+async def test_groups_too_large_or_with_a_dismissed_pair_are_left_out(
+    writable: httpx.AsyncClient, writable_url: str, seed: Seed
+) -> None:
+    chain = [p for p in seed.listed if p not in (seed.busy, seed.other)][-6:]
+    # Six persons joined by certain suggestions, and two of them dismissed apart.
+    await execute(
+        writable_url,
+        ("DELETE FROM alias_suggestion", {}),
+        (
+            "INSERT INTO alias_suggestion (person_a, person_b, same_name, same_local_part, tier)"
+            " VALUES (:a, :b, 'kai lenz', 'kai', 'certain')",
+            [
+                {"a": min(pair), "b": max(pair)}
+                for pair in [*pairwise(chain), (seed.other, seed.busy)]
+            ],
+        ),
+        (
+            "INSERT INTO alias_dismissal (person_a, person_b) VALUES (:a, :b)",
+            {"a": min(seed.busy, seed.other), "b": max(seed.busy, seed.other)},
+        ),
+    )
+    plan = await get(writable, "/api/persons/merge-certain")
+    assert plan == {"merges": 0, "persons": 0, "left_out_groups": 2, "left_out_persons": 8}
+    before = await merged_into(writable_url)
+    assert await post(writable, "/api/persons/merge-certain", None) == {**plan, "batch_id": None}
+    assert await merged_into(writable_url) == before
+    assert (await get(writable, "/api/persons/merges"))["total"] == 0
+
+
+async def test_a_merge_is_logged_and_undone_after_a_later_one(
+    writable: httpx.AsyncClient, writable_url: str, seed: Seed
+) -> None:
+    before = await merged_into(writable_url)
+    first, second = [p for p in seed.listed if p not in seed.aliases][:2]
+    # other (with its alias) into first, then first into second.
+    request = {"target": first, "sources": [seed.other]}
+    profile = await post(writable, "/api/persons/merge", request, headers=EDITOR)
+    [merge] = profile["merges"]
+    members = sorted([seed.other, *seed.aliases[seed.other]])
+    assert merge["moved"] == [ref(seed, p) for p in members]
+    assert (merge["target"], merge["editor"], merge["batch_id"]) == (
+        ref(seed, first),
+        "Lena Vogt",
+        None,
+    )
+    await post(writable, "/api/persons/merge", {"target": second, "sources": [first]})
+    page = await get(writable, "/api/persons/merges", [("limit", "1")])
+    assert (page["total"], page["batches"]) == (2, [])
+    [later] = page["items"]
+    rest = await get(writable, "/api/persons/merges", [("cursor", page["next_cursor"])])
+    assert rest["items"] == [merge]
+    assert rest["next_cursor"] is None
+    assert (later["target"], later["editor"]) == (ref(seed, second), None)
+    assert later["moved"] == [ref(seed, p) for p in sorted([first, *members])]
+
+    # Undoing the first takes other and its alias out of second; first stays in it.
+    undone = await post(writable, f"/api/persons/merges/{merge['id']}/undo", None)
+    assert undone == {"merges": 1, "persons": len(members)}
+    roots = await merged_into(writable_url)
+    assert roots[seed.other] is None
+    assert [roots[p] for p in seed.aliases[seed.other]] == [seed.other]
+    assert roots[first] == second
+    assert [m["id"] for m in (await get(writable, f"/api/persons/{second}"))["merges"]] == [
+        later["id"]
+    ]
+    await post(writable, f"/api/persons/merges/{later['id']}/undo", None)
+    assert await merged_into(writable_url) == before
+
+    suggestions = await get(writable, "/api/persons/suggestions", [("limit", "1")])
+    for cursor in ("!!", suggestions["next_cursor"]):
+        error = await get(writable, "/api/persons/merges", [("cursor", cursor)], status=400)
+        assert error["detail"]["code"] == "invalid_cursor"

@@ -1,7 +1,8 @@
 """manifest.json and manifest.csv of an export (D62): the export and, per mail, what the archive
 knows about it and the files that hold it.
 
-The models below are the format of manifest.json, version 1; times are ISO 8601 in UTC. The CSV
+The models below are the format of manifest.json, version 1; times are ISO 8601 in UTC. Each
+attachment carries every metadata field its file states about itself (D167), as found. The CSV
 holds the same per mail, in German, semicolon-separated UTF-8 with a byte order mark as the mail
 list's CSV (D25), below a few lines about the export. Research data (review status, bookmark,
 tags, Akten, notes), the signals of each mail (D139), the labels of its participants (D157, in
@@ -19,17 +20,18 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from mailrobbe.api.mails import CSV_BOM, csv_cell
-from mailrobbe.api.schemas import MailResearch, PersonLabel, PersonRef
+from mailrobbe.api.schemas import MailResearch, MetadataValue, PersonLabel, PersonRef
 from mailrobbe.enums import (
     DkimReason,
     DkimStatus,
     DnsStatus,
+    DocumentMetadataStatus,
     KeyOrigin,
     ParticipationRole,
     ReviewStatus,
 )
 from mailrobbe.export.pdf import ORIGIN_TEXTS, REVIEW_TEXTS
-from mailrobbe.export.records import ExportMail
+from mailrobbe.export.records import AttachmentMetadata, ExportMail
 
 MailError = Literal[
     "not_in_archive",  # no mail of the archive has this content any more
@@ -101,12 +103,24 @@ class ManifestDkim(BaseModel):
     signatures: list[ManifestSignature]
 
 
+class ManifestMetadata(BaseModel):
+    """What the attachment's file says about itself (D167): every field the import's metadata
+    step found, as found and never checked, grouped by where it stands in the file (exif, gps,
+    xmp, png, pdf, pdf_custom, office, office_custom, odf, odf_custom), keys as in
+    attachments.metadata.model."""
+
+    status: DocumentMetadataStatus  # pending: not read yet; unsupported: a format not read
+    error: str | None  # English: why reading failed, or the part found damaged
+    fields: dict[str, dict[str, MetadataValue]]  # source -> key -> value; {} without any
+
+
 class ManifestAttachment(BaseModel):
     filename: str | None
     mime_type: str
     size: int  # bytes, decoded
     sha256: str | None  # None above the import's hash limit
     file: ManifestFile | None = None  # its own file in anhaenge/; not exported yet (D62)
+    metadata: ManifestMetadata | None = None  # None: no document assigned yet (D70)
 
 
 class ManifestNote(BaseModel):
@@ -238,12 +252,24 @@ def mail_entry(
         ],
     )
     entry.attachments = [
-        ManifestAttachment(filename=a.filename, mime_type=a.mime_type, size=a.size, sha256=a.sha256)
+        ManifestAttachment(
+            filename=a.filename,
+            mime_type=a.mime_type,
+            size=a.size,
+            sha256=a.sha256,
+            metadata=_metadata(mail.attachment_metadata.get(a.id)),
+        )
         for a in mail.attachments
     ]
     if research is not None:
         entry.signals = list(signals)
     return entry
+
+
+def _metadata(found: AttachmentMetadata | None) -> ManifestMetadata | None:
+    if found is None:
+        return None
+    return ManifestMetadata(status=found.status, error=found.error, fields=found.fields)
 
 
 def _addresses(

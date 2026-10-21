@@ -1,8 +1,8 @@
-"""What an export says about a mail, from the database: metadata, DKIM, attachments, the
-signals the last signals phase stored (D139), the labels of its participants (D157) and the
-research data (D62), a batch of mails in a few queries; and the keys from other sources than
-today's DNS its signatures rest on, with their evidence and the sources' answers (D105), one key
-at a time.
+"""What an export says about a mail, from the database: metadata, DKIM, attachments with what
+their files say about themselves (D167), the signals the last signals phase stored (D139), the
+labels of its participants (D157) and the research data (D62), a batch of mails in a few
+queries; and the keys from other sources than today's DNS its signatures rest on, with their
+evidence and the sources' answers (D105), one key at a time.
 
 An export names its mails by content (D53); of the mails with one raw SHA-256 the original (no
 duplicate, then the lowest id) stands for all, as for permalinks (D61).
@@ -40,6 +40,7 @@ from mailrobbe.db.models import (
     DkimKeyLookup,
     DkimResult,
     DnsCache,
+    Document,
     Mail,
     MailMark,
     MailSignal,
@@ -52,7 +53,14 @@ from mailrobbe.db.models import (
 )
 from mailrobbe.dkim.keys.identity import key_identity
 from mailrobbe.dkim.override import key_name
-from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus, KeyOrigin, ParticipationRole
+from mailrobbe.enums import (
+    DkimReason,
+    DkimStatus,
+    DnsStatus,
+    DocumentMetadataStatus,
+    KeyOrigin,
+    ParticipationRole,
+)
 from mailrobbe.persons.labels import label_text, shown_labels
 from mailrobbe.signals.model import SignalRules, signal_keys
 
@@ -94,6 +102,16 @@ class Signature:
 
 
 @dataclass(frozen=True, slots=True)
+class AttachmentMetadata:
+    """What an attachment's file says about itself (D167), as the import's metadata step stored
+    it: every field found (attachments.metadata.model), never rated."""
+
+    status: DocumentMetadataStatus
+    error: str | None
+    fields: dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True, slots=True)
 class ExportMail:
     id: int
     raw_sha256: str
@@ -113,6 +131,8 @@ class ExportMail:
     signals: list[str] = field(default_factory=list)
     # The labels its participants show (D156), by person id; written only with research data.
     labels: dict[int, PersonLabel] = field(default_factory=dict)
+    # Attachment id -> its metadata; attachments without a document yet are left out.
+    attachment_metadata: dict[int, AttachmentMetadata] = field(default_factory=dict)
 
     def signal_names(self, signal_rules: SignalRules) -> list[str]:
         """The German names of its signals, as the mail list's CSV names them."""
@@ -263,16 +283,28 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
             Attachment.mime_type,
             Attachment.size_bytes,
             Attachment.sha256,
+            Document.metadata_status,
+            Document.metadata_error,
+            Document.metadata_fields,
         )
+        .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == any_(ids))
         .order_by(Attachment.mail_id, Attachment.id)
     )
-    for mail_id, attachment_id, filename, mime_type, size, sha256 in attachments:
-        found[mail_id].attachments.append(
+    for row in attachments:
+        found[row.mail_id].attachments.append(
             AttachmentInfo(
-                id=attachment_id, filename=filename, mime_type=mime_type, size=size, sha256=sha256
+                id=row.id,
+                filename=row.filename,
+                mime_type=row.mime_type,
+                size=row.size_bytes,
+                sha256=row.sha256,
             )
         )
+        if row.metadata_status is not None:
+            found[row.mail_id].attachment_metadata[row.id] = AttachmentMetadata(
+                row.metadata_status, row.metadata_error, row.metadata_fields or {}
+            )
     # signal_keys() is the display order of SignalRules.keys whatever the settings, so no
     # settings are needed here; a key of a theme removed since goes last.
     order = {key: index for index, key in enumerate(signal_keys())}

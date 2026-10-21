@@ -11,7 +11,7 @@ SHA-256 is still raw_sha256; parsing and DKIM checks run in a worker thread too.
 
 import asyncio
 import logging
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 import fastapi
 from fastapi import APIRouter, HTTPException, Query
@@ -39,6 +39,7 @@ from mailrobbe.api.schemas import (
     MailSource,
     MailText,
     Mark,
+    MetadataSummary,
     NoteInfo,
     Participant,
     PersonRef,
@@ -74,7 +75,7 @@ from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
 from mailrobbe.dkim.keys.store import load_candidates
 from mailrobbe.dkim.override import key_name
-from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
+from mailrobbe.enums import DkimReason, DkimStatus, DocumentMetadataStatus, ParticipationRole
 from mailrobbe.mbox import read_verified
 from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
@@ -541,11 +542,32 @@ async def _attachments(
             Document.text_status,
             Document.pages,
             Document.mails,
+            Document.metadata_status,
+            Document.metadata_author,
+            Document.metadata_modified_by,
+            Document.metadata_program,
+            Document.metadata_device,
+            Document.metadata_created,
+            Document.metadata_gps,
         )
         .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == mail_id)
         .order_by(Attachment.id)
     )
+
+    def metadata(row: Any) -> MetadataSummary | None:
+        """What the file says about itself (D167), when its summary names anything."""
+        summary = MetadataSummary(
+            author=row.metadata_author,
+            modified_by=row.metadata_modified_by,
+            software=row.metadata_program,
+            device=row.metadata_device,
+            created=row.metadata_created,
+            gps=bool(row.metadata_gps),
+        )
+        found = row.metadata_status == DocumentMetadataStatus.FOUND
+        return summary if found and summary != MetadataSummary() else None
+
     return [
         AttachmentInfo(
             id=row.id,
@@ -566,6 +588,7 @@ async def _attachments(
                 hashed=row.sha256 is not None,
                 max_size=preview_max_size,
             ),
+            metadata=metadata(row),
         )
         for row in rows
     ]

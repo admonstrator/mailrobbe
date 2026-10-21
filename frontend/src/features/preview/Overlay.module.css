@@ -1,0 +1,78 @@
+/* The whole window but a margin. Only an open dialog is a flex box: the closed one keeps the
+   browser's display: none. */
+.dialog {
+  box-sizing: border-box;
+  width: calc(100vw - 32px);
+  max-width: none;
+  height: calc(100vh - 32px);
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog::backdrop {
+  background: rgb(22 24 29 / 55%);
+}
+
+.bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The content fills what is left; a preview's frames scroll inside themselves. */
+.body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.padded {
+  padding: 12px 16px 14px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+}
+
+@media (max-width: 759px) {
+  .dialog {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 16px);
+  }
+
+  .bar {
+    flex-wrap: wrap;
+  }
+
+  .title {
+    flex-basis: 100%;
+  }
+}
