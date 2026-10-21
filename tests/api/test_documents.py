@@ -897,13 +897,13 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
                 "attachment_id": uebersicht,
                 "in_name": False,
                 "snippet": UEBERSICHT.strip(),
-                "in_text": False,
+                "in_text": True,
             }
         ],
         "whole_word": False,
         "in_subject": False,
         "in_body": False,
-        "counts": None,
+        "counts": {"subject": 0, "body": 0, "attachment": 1, "filename": 0},
     }
     tannenbaum = await hits(m[2], "Tannenbaum")
     assert tannenbaum["in_mail"] is True
@@ -919,7 +919,7 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
         "whole_word": False,
         "in_subject": False,
         "in_body": False,
-        "counts": None,
+        "counts": {"subject": 0, "body": 0, "attachment": 0, "filename": 1},
     }
     # Found as another form of the word (German stemming): the snippet around the word the stem
     # begins, which the browser marks
