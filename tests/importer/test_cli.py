@@ -4,6 +4,7 @@
 import asyncio
 import logging
 import os
+import re
 import shutil
 import signal
 from pathlib import Path
@@ -94,6 +95,8 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     assert "mails:         50 (50 imported in this run)" in out
     assert "persons:       2" in out
     assert "documents:     0 (0 with text, 0 waiting; 0 stored in this run)" in out
+    assert "computed the topics in " in caplog.text
+    assert re.search(r"topics: +\d+ terms, 3 periods, 0 clusters \(\d+\.\d s\)", out)
 
     caplog.clear()
     assert _import(database_url, mbox_dir) == 0
@@ -101,6 +104,14 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     assert "2 MBOX files, 0 new, 0 to import" in caplog.text
     assert "updated duplicates, threads, display names and aggregates" in caplog.text
     assert "mails:         50 (0 imported in this run)" in out
+    assert "topics:        unchanged" in out  # the same archive (D146)
+    second = ImportProgress.model_validate(asyncio.run(_jobs(database_url))[-1]["progress"])
+    assert {step.key: step.status for step in second.steps if step.key.startswith("topic_")} == {
+        "topic_terms": "skipped",
+        "topic_labels": "skipped",
+        "topic_periods": "skipped",
+        "topic_clusters": "skipped",
+    }
 
 
 @pytest.mark.db
@@ -110,7 +121,7 @@ async def test_an_import_records_its_run(database_url: str, mbox_dir: Path) -> N
     assert await run_import(settings, mbox_dir, 3, pipeline=PIPELINE, origin=JobOrigin.UI) == 0
     [job] = await _jobs(database_url)
     assert (job["kind"], job["origin"], job["status"]) == (JobKind.IMPORT, "ui", "done")
-    assert job["phase"] == "entities"  # the last phase: the texts of the mails (D84)
+    assert job["phase"] == "topics"  # the last phase (D146)
     assert job["message"].startswith("50 mails imported in ")
     assert job["message"].endswith(
         "s; 50 mails, 0 import errors; 0 of 0 documents with text, 0 waiting; "
