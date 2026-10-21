@@ -1,0 +1,273 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Wide screens: a column right of the list, like the filter column on its left. */
+.column {
+  flex: 0 0 272px;
+  align-self: stretch;
+  box-sizing: border-box;
+  padding: 20px 18px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+/* Narrower screens: a block above the table that can be folded away. */
+.top {
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.closed {
+  padding-block: 8px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.title {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scope {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.headLinks {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 12px;
+}
+
+/* In the column the scope goes below the title and the link. */
+.column .scope {
+  order: 1;
+  flex-basis: 100%;
+}
+
+.all {
+  white-space: nowrap;
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition: opacity 0.15s;
+}
+
+/* Above the table each group is one line, two side by side where they fit, so the table stays
+   near the top; "mehr" opens a line. */
+.top .groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
+  gap: 6px 28px;
+}
+
+.top .group {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.top .groupTitle {
+  min-height: 24px;
+}
+
+.top .label {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top .more {
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+/* One line of chips; keyboard focus inside opens it, so no focused chip stays hidden. Only the
+   keyboard's: a click would open the line under the pointer and shift the rows below it. */
+.clipped {
+  max-height: 24px;
+  overflow: hidden;
+}
+
+.clipped:has(:focus-visible) {
+  max-height: none;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--color-nav);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-field);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.chip:hover {
+  border-color: var(--color-border-strong);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  border: 0;
+  border-radius: 999px 0 0 999px;
+  padding: 2px 4px 2px 9px;
+  background: transparent;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.count {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.open,
+.open:hover {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0 999px 999px 0;
+  padding: 0 8px 0 3px;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.open:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+.selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.selected .toggle {
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+.selected .count {
+  color: var(--color-accent-hover);
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.more {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.more:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .groups {
+    transition: none;
+  }
+}

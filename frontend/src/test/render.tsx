@@ -127,6 +127,8 @@ export function fixtureApi({ method, url }: ApiCall): unknown {
   if (path === "/api/timeline/first-mentions") return fx.firstMentions;
   const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);
   if (document) return documentApi(Number(document[1]), document[2]);
+  const entities = entityApi(url);
+  if (entities !== undefined) return entities;
   return Response.json({ detail: "Not Found" }, { status: 404 });
 }
 
@@ -157,4 +159,36 @@ export function renderApp(path: string, api: (call: ApiCall) => unknown = fixtur
     </QueryClientProvider>,
   );
   return { router, calls };
+}
+
+/** The entity endpoints (milestone 10), or undefined for other paths. The facets of a filter are
+ *  the filtered fixture whatever the filter; "mehr" gets the kinds it asks for. */
+function entityApi(url: URL): unknown {
+  const path = url.pathname;
+  const search = url.searchParams;
+  if (path === "/api/mails/facets") {
+    if (search.has("kind")) {
+      const kinds = search.getAll("kind");
+      const all = { ...fx.entityFacets.kinds, ...fx.entityFacetsAmounts.kinds };
+      const asked = Object.entries(all).filter(([kind]) => kinds.includes(kind));
+      return { ...fx.entityFacets, kinds: Object.fromEntries(asked) };
+    }
+    const filtered = [...search.keys()].some((key) => key !== "limit");
+    return filtered ? fx.entityFacetsFiltered : fx.entityFacets;
+  }
+  if (/^\/api\/mails\/\d+\/entities$/.test(path)) return fx.mailEntities;
+  if (path === "/api/entities/summary") return fx.entitySummary;
+  if (path === "/api/entities/refs") {
+    const ids = search.getAll("id").map(Number);
+    return Object.values(fx.entities).filter((ref) => ids.includes(ref.id));
+  }
+  if (path === "/api/entities") return fx.entityPage;
+  const detail = /^\/api\/entities\/(\d+)$/.exec(path);
+  if (detail) {
+    const found = [fx.entityDetail, fx.entityDetailEmail].find(
+      (candidate) => candidate.id === Number(detail[1]),
+    );
+    return found ?? notFound(`entity with id ${detail[1]}`);
+  }
+  return undefined;
 }

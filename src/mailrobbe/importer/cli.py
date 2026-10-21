@@ -1,13 +1,14 @@
-"""The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize
-and text extraction.
+"""The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
+text extraction and entities.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize and attachments (only when documents wait for their text, D72), and
-reports its figures (ImportFigures) every few seconds, with one step per phase and per part of
-the finalize (STEPS, D110). It stops on Ctrl-C, SIGTERM and the
-dashboard's stop request alike: the workers store their batch, the files pause, the global
-figures count what is stored, and the finalize and the attachments are left to the next run;
-during the attachments phase, the texts stored so far stay.
+it, D52), import, finalize, attachments (only when documents wait for their text, D72) and
+entities (only when texts wait for their scan, D84), and reports its figures (ImportFigures)
+every few seconds, with one step per phase and per part of the finalize (STEPS, D110). It stops
+on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch, the
+files pause, the global figures count what is stored, and the finalize, the attachments and the
+entities are left to the next run; during the attachments and entities phases, what is stored
+so far stays.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error or the import could not start, 130 when it was stopped; the next run resumes.
@@ -30,6 +31,7 @@ from mailrobbe.attachments import phase
 from mailrobbe.attachments.extract import extract_document
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
+from mailrobbe.entities import phase as entities
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
 from mailrobbe.importer import finalize, headers
 from mailrobbe.importer.runner import (
@@ -47,7 +49,7 @@ log = logging.getLogger(__name__)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
-STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments")  # of a run, in order
+STEPS = ("scan", "headers", "import", *finalize.STEPS, "attachments", "entities")  # in order
 
 
 def _worker_count(value: str) -> int:
@@ -174,8 +176,13 @@ async def _import(
         extracted = await _extract_texts(
             sessionmaker, settings, mbox_dir, workers, job, figures, extract
         )
+    scanned = 0
+    if not stop.is_set():
+        scanned = await _scan_entities(sessionmaker, workers, job)
     async with sessionmaker() as session:
-        summary = await _summary(session, report, outcomes, extracted, time.monotonic() - started)
+        summary = await _summary(
+            session, report, outcomes, extracted, scanned, time.monotonic() - started
+        )
     print(summary.text)
     if stop.is_set():
         # The figures in the header and on the dashboard count the mails stored so far (D48).
@@ -274,6 +281,21 @@ async def _extract_texts(
     return result.stored
 
 
+async def _scan_entities(
+    sessionmaker: async_sessionmaker[AsyncSession], workers: int, job: JobRun
+) -> int:
+    """The entities phase (D84), when texts wait for their scan; the texts scanned."""
+    async with sessionmaker() as session:
+        waiting = await entities.waiting(session)
+    if not waiting:
+        job.steps.skip("entities")
+        return 0
+    job.set_phase("entities")
+    with job.steps.step("entities", unit="bytes", total=waiting.bytes) as step:
+        result = await entities.scan_entities(sessionmaker, workers, job.stop, step)
+    return result.mails + result.documents
+
+
 def _log_scan(report: ScanReport, mbox_dir: Path) -> None:
     log.info(
         "scan of %s: %d MBOX files, %d new, %d to import",
@@ -302,6 +324,7 @@ async def _summary(
     report: ScanReport,
     outcomes: Sequence[FileOutcome],
     extracted: int,
+    scanned: int,
     elapsed: float,
 ) -> _Summary:
     """The closing summary, and how many files of this run ended in error."""
@@ -321,6 +344,7 @@ async def _summary(
         )
     ).one()
     persons = await session.scalar(text("SELECT count(*) FROM person"))
+    found = await session.scalar(text("SELECT count(*) FROM entity"))
     kinds = [
         (kind, count)
         for kind, count in await session.execute(
@@ -348,6 +372,7 @@ async def _summary(
         f"import errors: {errors}" + (f" ({by_kind})" if kinds else ""),
         f"documents:     {documents.total()} ({with_text} with text, {waiting} waiting; "
         f"{extracted} stored in this run)",
+        f"entities:      {found} ({scanned} texts scanned in this run)",
         f"elapsed:       {elapsed:.1f} s, {imported / max(elapsed, 1e-9):.0f} mails/s",
     ]
     line = (

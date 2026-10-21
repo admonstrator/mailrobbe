@@ -20,6 +20,7 @@ from mailrobbe.enums import (
     DnsStatus,
     DocumentKind,
     DocumentTextStatus,
+    EntityKind,
     JobKind,
     JobStatus,
     MboxStatus,
@@ -56,6 +57,11 @@ TABLES = {
     "saved_search",
     "mail_export",
     "document",
+    "entity",
+    "mail_entity",
+    "document_entity",
+    "mail_entity_scan",
+    "document_entity_scan",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -95,6 +101,23 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
             "failed",
             "timeout",
             "unreadable",
+        ],
+    ),
+    "entity_kind": (
+        EntityKind,
+        [
+            "amount",
+            "iban",
+            "account",
+            "organization",
+            "person",
+            "place",
+            "phone",
+            "email",
+            "url",
+            "domain",
+            "date",
+            "term",
         ],
     ),
 }
@@ -140,6 +163,22 @@ INDEXES = {
     "ON public.document USING btree (sha256)",
     "ix_attachment_document_id": "CREATE INDEX ix_attachment_document_id "
     "ON public.attachment USING btree (document_id, mail_id)",
+    "uq_entity_kind_key": "CREATE UNIQUE INDEX uq_entity_kind_key "
+    "ON public.entity USING btree (kind, key)",
+    "ix_entity_kind_mails": "CREATE INDEX ix_entity_kind_mails "
+    "ON public.entity USING btree (kind, mails, id)",
+    "ix_entity_first_date": "CREATE INDEX ix_entity_first_date ON public.entity "
+    "USING btree (COALESCE(first_date, '-infinity'::timestamp with time zone), id)",
+    "ix_entity_value": "CREATE INDEX ix_entity_value ON public.entity "
+    "USING btree (value, id) WHERE (value IS NOT NULL)",
+    "ix_entity_label_trgm": "CREATE INDEX ix_entity_label_trgm "
+    "ON public.entity USING gin (label gin_trgm_ops)",
+    "pk_mail_entity": "CREATE UNIQUE INDEX pk_mail_entity "
+    "ON public.mail_entity USING btree (entity_id, mail_id)",
+    "ix_mail_entity_mail_id": "CREATE INDEX ix_mail_entity_mail_id "
+    "ON public.mail_entity USING btree (mail_id, entity_id)",
+    "ix_document_entity_document_id": "CREATE INDEX ix_document_entity_document_id "
+    "ON public.document_entity USING btree (document_id, entity_id)",
 }
 
 # Everything in the database apart from system catalogs: relations (tables, indexes, sequences),
@@ -172,7 +211,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0010"
 
 
 @pytest.mark.db
@@ -323,6 +362,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0009' WHERE alembic_version.version_num = '0008'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0010' WHERE alembic_version.version_num = '0009'"
         in sql
     )
 

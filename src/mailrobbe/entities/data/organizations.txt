@@ -1,0 +1,254 @@
+# Organisations matched as written (entities/names.py): parties at federal and state level and
+# their youth organisations, authorities, courts and parliaments that matter for the research,
+# foundations close to parties, and major media. "Name = Entity" finds Name and counts it as the
+# entity on the right (Alternative für Deutschland = AfD), so that a long and a short form are
+# one entity. The extremist groups of the research themes are not listed: they are theme terms
+# already (themes.toml, D83).
+
+# Parties
+AfD
+Alternative für Deutschland = AfD
+CDU
+Christlich Demokratische Union = CDU
+Christlich Demokratische Union Deutschlands = CDU
+CSU
+Christlich-Soziale Union = CSU
+Christlich-Soziale Union in Bayern = CSU
+SPD
+Sozialdemokratische Partei Deutschlands = SPD
+FDP
+Freie Demokratische Partei = FDP
+Bündnis 90/Die Grünen
+Die Grünen = Bündnis 90/Die Grünen
+Grünen = Bündnis 90/Die Grünen
+Die Linke
+DIE LINKE = Die Linke
+Linkspartei = Die Linke
+BSW
+Bündnis Sahra Wagenknecht = BSW
+Freie Wähler
+FREIE WÄHLER = Freie Wähler
+Die PARTEI
+ÖDP
+Piratenpartei
+Tierschutzpartei
+dieBasis
+WerteUnion
+Werteunion = WerteUnion
+Bündnis Deutschland
+Freie Sachsen
+Die Republikaner
+DVU
+Deutsche Volksunion = DVU
+
+# Youth organisations
+Junge Alternative
+Generation Deutschland
+Junge Union
+Jusos
+Junge Liberale
+Grüne Jugend
+Linksjugend
+Junge Nationalisten
+RCDS
+
+# Foundations close to parties
+Desiderius-Erasmus-Stiftung
+Konrad-Adenauer-Stiftung
+Friedrich-Ebert-Stiftung
+Friedrich-Naumann-Stiftung
+Heinrich-Böll-Stiftung
+Rosa-Luxemburg-Stiftung
+Hanns-Seidel-Stiftung
+
+# Parliaments and governments
+Bundestag
+Deutscher Bundestag = Bundestag
+Bundestagsverwaltung
+Bundesrat
+Bundesregierung
+Bundeskanzleramt
+Bundespräsidialamt
+Bayerischer Landtag
+Sächsischer Landtag
+Thüringer Landtag
+Hessischer Landtag
+Niedersächsischer Landtag
+Schleswig-Holsteinischer Landtag
+Landtag Brandenburg
+Landtag von Sachsen-Anhalt
+Landtag Sachsen-Anhalt = Landtag von Sachsen-Anhalt
+Landtag Mecklenburg-Vorpommern
+Landtag Nordrhein-Westfalen
+Landtag Baden-Württemberg
+Landtag Rheinland-Pfalz
+Landtag des Saarlandes
+Abgeordnetenhaus Berlin
+Hamburgische Bürgerschaft
+Bremische Bürgerschaft
+Landesregierung
+Staatskanzlei
+Europäisches Parlament
+EU-Parlament = Europäisches Parlament
+Europäische Kommission
+EU-Kommission = Europäische Kommission
+Europarat
+Vereinte Nationen
+UNO
+NATO
+OSZE
+
+# Ministries and federal authorities
+Bundesministerium des Innern
+Bundesinnenministerium = Bundesministerium des Innern
+Bundesministerium der Finanzen
+Bundesfinanzministerium = Bundesministerium der Finanzen
+Bundesministerium der Justiz
+Bundesjustizministerium = Bundesministerium der Justiz
+Bundesministerium der Verteidigung
+Verteidigungsministerium = Bundesministerium der Verteidigung
+Auswärtiges Amt
+Bundesamt für Verfassungsschutz
+BfV = Bundesamt für Verfassungsschutz
+Landesamt für Verfassungsschutz
+Bayerisches Landesamt für Verfassungsschutz
+Militärischer Abschirmdienst
+MAD = Militärischer Abschirmdienst
+Bundesnachrichtendienst
+BND = Bundesnachrichtendienst
+Bundeskriminalamt
+BKA = Bundeskriminalamt
+Landeskriminalamt
+LKA = Landeskriminalamt
+Bundespolizei
+Bundeswehr
+Generalbundesanwalt
+Bundesanwaltschaft
+Bundesrechnungshof
+Bundeszentralamt für Steuern
+Bundesamt für Justiz
+Bundesamt für Migration und Flüchtlinge
+BAMF = Bundesamt für Migration und Flüchtlinge
+Bundesagentur für Arbeit
+Bundesamt für Sicherheit in der Informationstechnik
+BSI = Bundesamt für Sicherheit in der Informationstechnik
+Bundeszentrale für politische Bildung
+Deutsche Bundesbank
+Bundesbank = Deutsche Bundesbank
+Bundesanstalt für Finanzdienstleistungsaufsicht
+BaFin = Bundesanstalt für Finanzdienstleistungsaufsicht
+Financial Intelligence Unit
+Zentralstelle für Finanztransaktionsuntersuchungen
+Generalzolldirektion
+Zollfahndung
+Steuerfahndung
+Staatsanwaltschaft
+Generalstaatsanwaltschaft
+Finanzamt
+Europol
+Interpol
+
+# Courts
+Bundesverfassungsgericht
+BVerfG = Bundesverfassungsgericht
+Bundesgerichtshof
+BGH = Bundesgerichtshof
+Bundesverwaltungsgericht
+Bundesfinanzhof
+Europäischer Gerichtshof
+EuGH = Europäischer Gerichtshof
+Europäischer Gerichtshof für Menschenrechte
+
+# Media and news agencies
+ARD
+ZDF
+Deutschlandfunk
+Deutschlandradio
+Deutsche Welle
+WDR
+NDR
+MDR
+SWR
+rbb
+Radio Bremen
+Saarländischer Rundfunk
+Bayerischer Rundfunk
+Hessischer Rundfunk
+RTL
+n-tv
+ntv
+Sat.1
+ProSieben
+Tagesschau
+tagesschau = Tagesschau
+Der Spiegel
+SPIEGEL = Der Spiegel
+Spiegel Online
+DIE ZEIT
+Zeit Online
+ZEIT ONLINE = Zeit Online
+Süddeutsche Zeitung
+Süddeutsche = Süddeutsche Zeitung
+Frankfurter Allgemeine Zeitung
+Frankfurter Allgemeine = Frankfurter Allgemeine Zeitung
+FAZ = Frankfurter Allgemeine Zeitung
+Frankfurter Rundschau
+WELT
+Welt am Sonntag
+Bild-Zeitung
+BILD = Bild-Zeitung
+Bild am Sonntag
+taz
+Tagesspiegel
+Der Tagesspiegel = Tagesspiegel
+Handelsblatt
+Wirtschaftswoche
+Berliner Zeitung
+Berliner Morgenpost
+Hamburger Abendblatt
+Kölner Stadt-Anzeiger
+Rheinische Post
+Westdeutsche Allgemeine Zeitung
+WAZ = Westdeutsche Allgemeine Zeitung
+Stuttgarter Zeitung
+Sächsische Zeitung
+Leipziger Volkszeitung
+Mitteldeutsche Zeitung
+Neue Zürcher Zeitung
+NZZ = Neue Zürcher Zeitung
+Der Standard
+Kronen Zeitung
+Correctiv
+CORRECTIV = Correctiv
+dpa
+Deutsche Presse-Agentur = dpa
+AFP
+Reuters
+Associated Press
+epd
+KNA
+BBC
+CNN
+New York Times
+The New York Times = New York Times
+Washington Post
+Financial Times
+Le Monde
+RT DE
+RT Deutsch
+Russia Today
+Sputnik
+Junge Freiheit
+Compact-Magazin
+COMPACT = Compact-Magazin
+Tichys Einblick
+Achse des Guten
+PI-News
+Epoch Times
+NIUS
+Nius = NIUS
+AUF1
+Kontrafunk
+Deutschland-Kurier
+Antaios
+Institut für Staatspolitik

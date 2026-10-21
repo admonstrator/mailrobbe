@@ -13,6 +13,15 @@ import type {
   DocumentPage,
   DocumentSummary,
   DocumentText,
+  EntityCount,
+  EntityDetail,
+  EntityFacets,
+  EntityKind,
+  EntityListItem,
+  EntityPage,
+  EntityRef,
+  EntitySummary,
+  MailEntity,
   ExportInfo,
   Graph,
   GraphEdge,
@@ -1882,3 +1891,267 @@ export const firstMentions: FirstMentions = {
   persons: 4,
   timed_out: false,
 };
+
+// Entities (milestone 10) -----------------------------------------------------------------------
+// What the texts mention: the themes' terms, amounts around a donation of 12.500 EUR to the
+// account DE89 …, organisations, places and contact data of the generated corpus.
+
+const entity = (
+  id: number,
+  kind: EntityKind,
+  label: string,
+  detail: string | null = null,
+): EntityRef => ({ id, kind, label, detail });
+
+export const entities = {
+  spende: entity(302, "term", "Spende", "spenden"),
+  barspende: entity(301, "term", "Barspende", "spenden"),
+  waffe: entity(303, "term", "Waffe", "gewalt"),
+  amount12500: entity(312, "amount", "12.500,00 EUR"),
+  amount5000: entity(311, "amount", "5.000,00 EUR"),
+  amountDem: entity(313, "amount", "20.000,00 DEM"),
+  amount1000: entity(314, "amount", "1.000,00 EUR"),
+  amount250: entity(315, "amount", "250,00 EUR"),
+  amountChf: entity(316, "amount", "3.000,00 CHF"),
+  amount750: entity(317, "amount", "750,00 EUR"),
+  amount100000: entity(318, "amount", "100.000,00 EUR"),
+  iban: entity(321, "iban", "DE89 3704 0044 0532 0130 00", "DE"),
+  account: entity(322, "account", "1234567 (BLZ 370 400 44)"),
+  nordstahl: entity(332, "organization", "Nordstahl GmbH & Co. KG"),
+  freundeskreis: entity(331, "organization", "Freundeskreis Nord e.V."),
+  meier: entity(341, "person", "Hans Meier"),
+  koeln: entity(351, "place", "Köln", "city"),
+  schweiz: entity(352, "place", "Schweiz", "country"),
+  phone: entity(361, "phone", "+49 30 23125123", "DE"),
+  kasse: entity(371, "email", "kasse@freundeskreis-nord.example"),
+  url: entity(
+    381,
+    "url",
+    "https://www.freundeskreis-nord.example/spenden",
+    "www.freundeskreis-nord.example",
+  ),
+  domain: entity(382, "domain", "freundeskreis-nord.example"),
+  date: entity(391, "date", "14.03.2019"),
+};
+
+const counted = (ref: EntityRef, mails: number): EntityCount => ({ entity: ref, mails });
+const e = entities;
+
+/** The facets without filters: entity.mails of the whole archive. Amounts fill their 8. */
+export const entityFacets: EntityFacets = {
+  kinds: {
+    term: [counted(e.spende, 412), counted(e.barspende, 88), counted(e.waffe, 31)],
+    amount: [
+      counted(e.amount12500, 41),
+      counted(e.amount5000, 37),
+      counted(e.amountDem, 22),
+      counted(e.amount1000, 19),
+      counted(e.amount250, 15),
+      counted(e.amountChf, 9),
+      counted(e.amount750, 8),
+      counted(e.amount100000, 3),
+    ],
+    iban: [counted(e.iban, 12)],
+    account: [counted(e.account, 4)],
+    organization: [counted(e.nordstahl, 140), counted(e.freundeskreis, 61)],
+    person: [counted(e.meier, 6)],
+    place: [counted(e.koeln, 230), counted(e.schweiz, 17)],
+    phone: [counted(e.phone, 512)],
+    email: [counted(e.kasse, 9)],
+    url: [counted(e.url, 14)],
+    domain: [counted(e.domain, 33)],
+    date: [counted(e.date, 5)],
+  },
+  mails: null,
+  sampled: false,
+};
+
+/** The facets of a filter, counted over its 1.207 mails. */
+export const entityFacetsFiltered: EntityFacets = {
+  kinds: {
+    term: [counted(e.spende, 77), counted(e.barspende, 21)],
+    amount: [counted(e.amount12500, 41), counted(e.amount5000, 12)],
+    iban: [counted(e.iban, 12)],
+  },
+  mails: 1207,
+  sampled: false,
+};
+
+/** "mehr" of the amounts: up to 50. */
+export const entityFacetsAmounts: EntityFacets = {
+  kinds: {
+    amount: [
+      ...(entityFacets.kinds.amount ?? []),
+      counted(entity(319, "amount", "500,00 USD"), 2),
+      counted(entity(320, "amount", "80,00 EUR"), 1),
+    ],
+  },
+  mails: null,
+  sampled: false,
+};
+
+export const entitySummary: EntitySummary = {
+  kinds: {
+    amount: 4210,
+    iban: 96,
+    account: 41,
+    organization: 1830,
+    person: 2650,
+    place: 410,
+    phone: 1203,
+    email: 2290,
+    url: 3120,
+    domain: 640,
+    date: 5900,
+    term: 64,
+  },
+  mails_waiting: 12000,
+  documents_waiting: 40,
+};
+
+function listed(
+  ref: EntityRef,
+  mails: number,
+  extra: Partial<EntityListItem> = {},
+): EntityListItem {
+  return {
+    ...ref,
+    value: null,
+    currency: null,
+    mails,
+    documents: 0,
+    first_date: "2019-03-14T09:30:00Z",
+    last_date: "2026-10-18T12:32:07Z",
+    ...extra,
+  };
+}
+
+export const entityItems: EntityListItem[] = [
+  listed(e.phone, 512, { documents: 3 }),
+  listed(e.spende, 412, { documents: 14 }),
+  listed(e.koeln, 230),
+  listed(e.nordstahl, 140, { documents: 6 }),
+  listed(e.amount12500, 41, {
+    value: 12500,
+    currency: "EUR",
+    documents: 2,
+    first_date: "2019-03-14T09:30:00Z",
+    last_date: "2019-03-14T09:30:00Z",
+  }),
+  listed(e.iban, 12, { documents: 2 }),
+  listed(e.kasse, 9, { first_date: null, last_date: null }),
+];
+
+export const entityPage: EntityPage = {
+  items: entityItems,
+  next_cursor: "entities-page-2",
+  prev_cursor: null,
+};
+
+/** The donation of 12.500 EUR: in mails and in the contract PDF. */
+export const entityDetail: EntityDetail = {
+  ...listed(e.amount12500, 41, {
+    value: 12500,
+    currency: "EUR",
+    documents: 2,
+    first_date: "2019-03-14T09:30:00Z",
+    last_date: "2026-10-18T12:32:07Z",
+  }),
+  key: "EUR 12500.00",
+  contexts: { cash: 3, donation: 12, receipt: 0 },
+  years: [
+    { year: 2019, mails: 4 },
+    { year: 2021, mails: 9 },
+    { year: 2026, mails: 28 },
+  ],
+  senders: [
+    { person: anna, mails: 14 },
+    { person: lukas, mails: 9 },
+  ],
+  sender_count: 7,
+  recipients: [
+    { person: jonas, mails: 20 },
+    { person: miriam, mails: 8 },
+  ],
+  recipient_count: 2,
+  related: [counted(e.iban, 11), counted(e.spende, 9), counted(e.freundeskreis, 6)],
+  persons_sampled: false,
+  samples: [
+    {
+      mail: {
+        id: 183011,
+        date: "2019-03-14T09:30:00Z",
+        subject: "Spende Freundeskreis",
+        sender: anna,
+        dkim_status: "pass",
+      },
+      snippet: "wie besprochen geht die Spende über 12.500,00 EUR in bar an den Freundeskreis.",
+      document_id: null,
+      document_name: null,
+    },
+    {
+      mail: {
+        id: 183644,
+        date: "2026-09-28T11:15:00Z",
+        subject: "Vertrag Nordstahl: Änderungswünsche Einkauf",
+        sender: lukas,
+        dkim_status: "pass",
+      },
+      snippet: "§ 7 Zahlungen: Die Spende über 12.500,00 eur geht auf das Konto DE89 …",
+      document_id: 5101,
+      document_name: "Rahmenvereinbarung_2026_final.pdf",
+    },
+  ],
+  archive_person: null,
+};
+
+/** An address in the text that is also a person of the archive; persons counted in a sample. */
+export const entityDetailEmail: EntityDetail = {
+  ...listed(e.kasse, 9),
+  key: "kasse@freundeskreis-nord.example",
+  contexts: { cash: 0, donation: 0, receipt: 0 },
+  years: [{ year: 2019, mails: 9 }],
+  senders: [{ person: anna, mails: 9 }],
+  sender_count: 1,
+  recipients: [],
+  recipient_count: 0,
+  related: [],
+  persons_sampled: true,
+  samples: [],
+  archive_person: {
+    person_id: 20,
+    email: "kasse@freundeskreis-nord.example",
+    name: "Kasse Freundeskreis",
+  },
+};
+
+const mention = (ref: EntityRef, occurrences = 1, extra: Partial<MailEntity> = {}): MailEntity => ({
+  entity: ref,
+  occurrences,
+  context: [],
+  document_id: null,
+  document_name: null,
+  ...extra,
+});
+
+const contract = { document_id: 5101, document_name: "Rahmenvereinbarung_2026_final.pdf" };
+
+/** What was found in the mail detail's mail (184221) and its contract PDF: 15 entities. */
+export const mailEntities: MailEntity[] = [
+  mention(e.nordstahl, 3),
+  mention(e.amount12500, 1, { context: ["donation"] }),
+  mention(e.amount12500, 2, { context: ["cash"], ...contract }),
+  mention(e.iban, 1, { context: ["donation"], ...contract }),
+  mention(e.spende, 2),
+  mention(e.koeln),
+  mention(e.phone),
+  mention(e.domain, 2),
+  mention(e.url),
+  mention(e.kasse),
+  mention(e.meier),
+  mention(e.date),
+  mention(e.freundeskreis),
+  mention(e.schweiz),
+  mention(e.amount5000),
+  mention(e.barspende, 1, contract),
+];

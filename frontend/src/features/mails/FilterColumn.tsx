@@ -6,6 +6,8 @@ import { Checkbox } from "../../components/Checkbox";
 import { DkimDot } from "../../components/DkimDot";
 import { DKIM_FILTER_LABELS, DKIM_KEYS } from "../../lib/dkim";
 import { formatNumber, utcDay } from "../../lib/format";
+import { parseAmount } from "../entities/amount";
+import { CONTEXT_LABELS, ENTITY_CONTEXTS } from "../entities/labels";
 import { DomainDialog } from "./DomainDialog";
 import styles from "./FilterColumn.module.css";
 import { withFilters, withoutSidebarFilters, type FilterPatch, type ListState } from "./listState";
@@ -128,6 +130,8 @@ export function FilterColumn({
           </button>
         )}
       </fieldset>
+
+      <AmountFilters state={state} change={change} />
 
       <ResearchFilters state={state} change={change} research={research} />
 
@@ -252,5 +256,79 @@ export function DateField({
         }}
       />
     </div>
+  );
+}
+
+/** The amounts mentioned in a mail or its attachments (D86): at least a value, in any currency
+ *  (no conversion), and the contexts such an amount stands next to. The value counts on Enter
+ *  or when the field is left; German notation such as 10.000 is read, an empty field clears it. */
+function AmountFilters({
+  state,
+  change,
+}: {
+  state: ListState;
+  change: (patch: FilterPatch) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const shown = state.amount_min === null ? "" : formatNumber(state.amount_min);
+
+  useEffect(() => {
+    if (input.current && document.activeElement !== input.current) input.current.value = shown;
+  }, [shown]);
+
+  function commit(field: HTMLInputElement) {
+    const value = parseAmount(field.value);
+    if (value === undefined) {
+      field.value = shown; // not an amount: the filter stays as it is
+      return;
+    }
+    field.value = value === null ? "" : formatNumber(value);
+    if (value !== state.amount_min) change({ amount_min: value });
+  }
+
+  return (
+    <fieldset className={styles.group}>
+      <legend className={styles.legend}>Beträge</legend>
+      <p className={styles.scope}>In Text oder Anhang erwähnt, jede Währung</p>
+      <div className={styles.amount}>
+        <label htmlFor="filter-amount-min" className={styles.dateLabel}>
+          ab
+        </label>
+        <input
+          ref={input}
+          id="filter-amount-min"
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          className={styles.input}
+          defaultValue={shown}
+          placeholder="z. B. 10.000"
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            commit(event.currentTarget);
+          }}
+          onBlur={(event) => commit(event.currentTarget)}
+        />
+      </div>
+      <div className={styles.sub} role="group" aria-label="Im Zusammenhang mit">
+        <span className={styles.subLegend}>Im Zusammenhang mit</span>
+        {ENTITY_CONTEXTS.map((key) => (
+          <Checkbox
+            key={key}
+            checked={state.amount_context.includes(key)}
+            onChange={(checked) =>
+              change({
+                amount_context: ENTITY_CONTEXTS.filter((other) =>
+                  other === key ? checked : state.amount_context.includes(other),
+                ),
+              })
+            }
+          >
+            {CONTEXT_LABELS[key]}
+          </Checkbox>
+        ))}
+      </div>
+    </fieldset>
   );
 }
