@@ -7,7 +7,8 @@ indexed for this), research data through its tables keyed by mail.raw_sha256 (D5
 through attachment. The full text words match the mail's own text or the text of one of its
 attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL ORs as bitmaps
 (full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
-mail's own text alone.
+mail's own text alone. The entity and amount filters (D86) take the same two forms over the
+mentions of the mail and of its attachments' documents (_mentioned).
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -26,15 +27,17 @@ import base64
 import binascii
 import json
 import weakref
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Any, cast
 
 from sqlalchemy import (
     BigInteger,
     BinaryExpression,
     ColumnElement,
+    Numeric,
     ScalarSelect,
     Select,
     Text,
@@ -50,6 +53,7 @@ from sqlalchemy import (
     select,
     true,
     tuple_,
+    union_all,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,14 +70,17 @@ from mailrobbe.db.models import (
     Attachment,
     CollectionMail,
     Document,
+    DocumentEntity,
+    Entity,
     Mail,
+    MailEntity,
     MailMark,
     MailTag,
     Note,
     Participation,
     Person,
 )
-from mailrobbe.enums import DkimStatus, ParticipationRole, ReviewStatus
+from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
 _NO_DATE = literal_column("'-infinity'::timestamp with time zone", TIMESTAMPTZ)
@@ -159,6 +166,10 @@ def mail_conditions(
         where.append(_external(internal))
     if filters.document is not None:
         where.append(_carries(filters.document))
+    # Entities (D86): each listed entity, and amounts by value and context.
+    where += [_mentions_entity(entity_id) for entity_id in sorted(set(filters.entity))]
+    if filters.amount_min is not None or filters.amount_context:
+        where.append(_mentions_amount(filters.amount_min, filters.amount_context))
     return where
 
 
@@ -358,6 +369,89 @@ def _external(internal: Sequence[str]) -> ColumnElement[bool]:
         recipient.id == recipient_link.person_id,
         _in_domains(sender.domain, internal) != _in_domains(recipient.domain, internal),
     )
+
+
+# Entities (D86) -------------------------------------------------------------------------------
+
+_BIGINT = range(-(2**63), 2**63)
+_Mention = type[MailEntity] | type[DocumentEntity]
+
+
+def _mentions_entity(entity_id: int) -> ColumnElement[bool]:
+    """The entity is mentioned in the mail's subject or text or in one of its attachments; an
+    id beyond bigint names no entity and matches nothing."""
+    if entity_id not in _BIGINT:
+        return false()
+    return _mentioned(lambda mention: [mention.entity_id == entity_id])
+
+
+def _mentions_amount(minimum: float | None, contexts: Sequence[str]) -> ColumnElement[bool]:
+    """An amount of at least minimum (any currency, D86) is mentioned; with contexts, in a
+    mention next to any of them (D82)."""
+    flags = EntityContext(0)
+    for key in contexts:
+        flags |= EntityContext[key.upper()]
+
+    def amounts(mention: _Mention) -> list[ColumnElement[bool]]:
+        found = [mention.entity_id == Entity.id, Entity.kind == EntityKind.AMOUNT]
+        if minimum is not None:
+            found.append(Entity.value >= amount(minimum))
+        if flags:
+            found.append(mention.context.op("&")(int(flags)) != 0)
+        return found
+
+    return _mentioned(amounts)
+
+
+def amount(value: float) -> ColumnElement[Decimal]:
+    """A value to compare entity.value with: numeric without a scale, so that neither the scale
+    of the column rounds it nor a float comparison keeps ix_entity_value from applying."""
+    return literal(Decimal(str(value)), Numeric())
+
+
+def _mentioned(conditions: Callable[[_Mention], list[ColumnElement[bool]]]) -> ColumnElement[bool]:
+    """A mention meeting conditions (on mail_entity or document_entity and the tables they
+    name) is in the mail's own text or in the text of one of its attachments' documents, as
+    entities.mentions has it.
+
+    Two forms, as for full_text. For a set of mails (counts, CSV, every match of a rare entity)
+    a semi join: the mentioning mails' ids come from both tables by entity (pk_mail_entity,
+    pk_document_entity and ix_attachment_document_id), and their statistics tell PostgreSQL
+    how many there are, so it joins them to mail by its primary key or hashes them. The array
+    form full_text takes for the documents' mails is estimated at ten ids, and a second such
+    condition is then tested against the first one's mails id by id along the whole array:
+    two common entities took seconds at 60,000 mails, against 40 ms as a join. first_ids's
+    walk takes the second form, which looks at the mentions of one mail at a time (by entity
+    and mail, or through its attachments) and so never collects the 30,000 mails of a common
+    entity to fill a page. Scalar subqueries, as an EXISTS in an OR may be hashed in full.
+    """
+    own = select(MailEntity.mail_id).where(*conditions(MailEntity))
+    attached = (
+        select(Attachment.mail_id)
+        .join(DocumentEntity, DocumentEntity.document_id == Attachment.document_id)
+        .where(*conditions(DocumentEntity))
+    )
+    found = Mail.id.in_(union_all(own, attached))
+    in_text = (
+        select(true())
+        .where(MailEntity.mail_id == Mail.id, *conditions(MailEntity))
+        .limit(1)
+        .scalar_subquery()
+    )
+    in_attachment = (
+        select(true())
+        .select_from(Attachment)
+        .join(DocumentEntity, DocumentEntity.document_id == Attachment.document_id)
+        .where(Attachment.mail_id == Mail.id, *conditions(DocumentEntity))
+        .limit(1)
+        .scalar_subquery()
+    )
+    # has_attachments is true exactly for mails with attachment rows (importer.model)
+    _WALK_FORMS[found] = or_(
+        func.coalesce(in_text, false()),
+        and_(Mail.has_attachments, func.coalesce(in_attachment, false())),
+    )
+    return found
 
 
 # Order and keyset ----------------------------------------------------------------------------
