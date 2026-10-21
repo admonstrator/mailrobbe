@@ -185,14 +185,14 @@ def mail_conditions(
     # Signals (D136): each listed signal.
     where += [_signal(key) for key in sorted(set(filters.signal))]
     # Near duplicates (D153) and calendar events (D155).
-    if filters.collapse_near:
-        where.append(_near_first())
     if filters.near_group is not None:
         where.append(_near(MailNear.group_id == filters.near_group))
     if filters.event:
         where.append(_event(CalendarEvent.kind.in_(sorted(set(filters.event)))))
     if filters.event_uid is not None:
         where.append(_event(CalendarEvent.uid == filters.event_uid))
+    if filters.collapse_near:  # last: it looks at every other condition
+        where.append(_near_first(where))
     return where
 
 
@@ -511,10 +511,25 @@ def _signal(key: str) -> ColumnElement[bool]:
 # Near duplicates (D153) and calendar events (D155) -------------------------------------------
 
 
-def _near_first() -> ColumnElement[bool]:
-    """collapse_near (D153): the mail is in no group, or no earlier mail of its group meets the
-    other conditions. Placeholder until then: the group's first mail."""
-    return ~exists().where(MailNear.mail_id == Mail.id, MailNear.group_id != Mail.id)
+def _near_first(others: Sequence[ColumnElement[bool]]) -> ColumnElement[bool]:
+    """collapse_near (D153): the mail is in no group, or no earlier mail of its group (in the
+    list's ascending order: sort key, then id) meets the other conditions, which are evaluated
+    on that mail: an alias of mail that the conditions are moved onto, as the walk moves them
+    onto its window. MAIL_SORT_KEY is unqualified SQL, so a date bound moved onto the alias
+    names its date_utc as the nearest one in scope."""
+    earlier = Mail.__table__.alias("near_earlier")
+    mine, theirs = aliased(MailNear), aliased(MailNear)
+    on_earlier = ClauseAdapter(earlier).traverse
+    before = tuple_(func.coalesce(earlier.c.date_utc, _NO_DATE), earlier.c.id) < tuple_(
+        func.coalesce(Mail.date_utc, _NO_DATE), Mail.id
+    )
+    return ~exists().where(
+        mine.mail_id == Mail.id,
+        theirs.group_id == mine.group_id,
+        earlier.c.id == theirs.mail_id,
+        before,
+        *(on_earlier(condition) for condition in others),
+    )
 
 
 def _near(condition: ColumnElement[bool]) -> ColumnElement[bool]:
