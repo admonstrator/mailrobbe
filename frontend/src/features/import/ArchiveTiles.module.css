@@ -10,9 +10,9 @@
 .tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
-  padding: 14px 16px;
+  padding: 10px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
@@ -29,7 +29,8 @@
 
 .value {
   overflow: hidden;
-  font-size: 22px;
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
   font-weight: 700;
   line-height: 1.25;
   text-overflow: ellipsis;
