@@ -1,0 +1,290 @@
+// The HTTP contract of the backend, mirrored by hand from src/mailrobbe/api/schemas.py.
+// Change both together. Times are ISO 8601 strings in UTC.
+
+export const COUNT_LIMIT = 10_000;
+export const PAGE_SIZE = 50;
+export const RECIPIENT_PREVIEW = 3;
+export const NOTE_LIMIT = 10_000;
+
+export type DkimStatus = "pass" | "fail" | "no_key" | "unsigned" | "temp_error";
+/** Filter and count keys: the statuses plus "unchecked" for mails not checked yet. */
+export type DkimKey = DkimStatus | "unchecked";
+export type DkimCounts = Record<DkimKey, number>;
+
+export type DkimReason =
+  | "body_hash_mismatch"
+  | "signature_mismatch"
+  | "signature_malformed"
+  | "unsupported_algorithm"
+  | "from_not_signed"
+  | "key_malformed"
+  | "key_too_short"
+  | "message_malformed"
+  | "key_not_found"
+  | "key_revoked"
+  | "dns_timeout"
+  | "dns_offline";
+
+export type ParticipationRole = "from" | "to" | "cc" | "bcc";
+export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
+export type SortOrder = "date_desc" | "date_asc";
+
+export type QueryKey =
+  | "text"
+  | "from"
+  | "to"
+  | "cc"
+  | "subject"
+  | "domain"
+  | "has"
+  | "dkim"
+  | "before"
+  | "after"
+  | "message_id";
+
+export type ErrorCode =
+  | "not_found"
+  | "invalid_query"
+  | "invalid_cursor"
+  | "invalid_filter"
+  | "no_html"
+  | "source_missing"
+  | "source_changed";
+
+/** Body of every contract error: {"detail": ApiErrorDetail}. */
+export interface ApiErrorDetail {
+  code: ErrorCode;
+  message: string;
+}
+
+// Query parameters ----------------------------------------------------------------------------
+
+/** Filters of the mail list; every given one must hold. Lists repeat the parameter. */
+export interface MailFilters {
+  q?: string;
+  dkim?: DkimKey[];
+  sender_domain?: string[];
+  date_from?: string; // YYYY-MM-DD, UTC day, inclusive
+  date_to?: string; // YYYY-MM-DD, UTC day, inclusive
+  has_attachment?: boolean;
+  in_thread?: boolean;
+  hide_duplicates?: boolean;
+  external?: boolean;
+  flagged?: boolean;
+  mbox_file?: number;
+  person?: number[];
+  between?: number[]; // exactly two person ids
+}
+
+export interface MailOrderParams extends MailFilters {
+  sort?: SortOrder;
+}
+
+export interface MailListParams extends MailOrderParams {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface NoteUpdate {
+  flagged: boolean;
+  note: string;
+}
+
+// Mail list -------------------------------------------------------------------------------------
+
+export interface PersonRef {
+  person_id: number;
+  email: string;
+  name: string | null;
+}
+
+export interface QueryTerm {
+  key: QueryKey;
+  value: string;
+  raw: string; // exact substring of q; removing it from q removes the term
+}
+
+export interface MailListItem {
+  id: number;
+  date: string | null;
+  subject: string | null;
+  dkim_status: DkimStatus | null;
+  has_attachments: boolean;
+  sender: PersonRef | null;
+  recipients: PersonRef[];
+  recipient_count: number;
+  thread_id: number | null;
+  is_duplicate: boolean;
+  flagged: boolean;
+  size: number;
+  mbox_file_id: number;
+}
+
+export interface MailPage {
+  items: MailListItem[];
+  next_cursor: string | null;
+  prev_cursor: string | null;
+  query_terms: QueryTerm[];
+}
+
+export interface MailSummary {
+  total: number | null; // null: unknown
+  exact: boolean; // false: total is a lower bound
+  dkim: DkimCounts | null;
+  persons: number | null;
+  domains: number | null;
+  date_min: string | null;
+  date_max: string | null;
+}
+
+export interface MailNeighbors {
+  prev_id: number | null;
+  next_id: number | null;
+  position: number | null;
+}
+
+// Stats and files -------------------------------------------------------------------------------
+
+export interface DomainCount {
+  domain: string;
+  mails: number;
+}
+
+export interface ImportState {
+  running: boolean;
+  files_total: number;
+  files_done: number;
+  progress: number; // 0 to 1
+}
+
+export interface Stats {
+  mails: number;
+  persons: number;
+  domains: number;
+  date_min: string | null;
+  date_max: string | null;
+  dkim: DkimCounts;
+  sender_domains: DomainCount[];
+  sender_domain_count: number;
+  mbox_files: number;
+  internal_domains: string[];
+  importer: ImportState;
+  updated_at: string | null;
+}
+
+export interface MboxFileInfo {
+  id: number;
+  path: string;
+  size_bytes: number;
+  status: MboxStatus;
+  mails_parsed: number;
+  bytes_done: number;
+}
+
+// Mail detail -----------------------------------------------------------------------------------
+
+export interface MailSource {
+  mbox_file_id: number;
+  path: string;
+  byte_offset: number;
+  byte_length: number;
+}
+
+export interface DkimSignature {
+  index: number;
+  status: DkimStatus;
+  reason: DkimReason | null;
+  domain: string | null;
+  selector: string | null;
+  algorithm: string | null;
+  key_bits: number | null;
+  signed_headers: string[] | null;
+  body_hash_ok: boolean | null;
+  signed_at: string | null;
+  aligned: boolean | null;
+  checked_at: string;
+  dns_cached: boolean;
+  dns_record: string | null;
+  dns_fetched_at: string | null;
+  dns_ttl: number | null;
+}
+
+export interface MailDkim {
+  status: DkimStatus | null;
+  signatures: DkimSignature[];
+}
+
+export interface Participant extends PersonRef {
+  role: ParticipationRole;
+  mails: number | null; // filled by milestone 5
+  contacts: number | null;
+  mails_with_sender: number | null;
+}
+
+export interface AttachmentInfo {
+  id: number;
+  filename: string | null;
+  mime_type: string;
+  size: number;
+  sha256: string | null;
+}
+
+export interface ThreadMail {
+  id: number;
+  date: string | null;
+  subject: string | null;
+  sender: PersonRef | null;
+  dkim_status: DkimStatus | null;
+}
+
+export interface Note {
+  flagged: boolean;
+  note: string;
+  updated_at: string | null;
+}
+
+export interface MailDetail {
+  id: number;
+  subject: string | null;
+  date: string | null;
+  message_id: string | null;
+  in_reply_to: string | null;
+  in_reply_to_id: number | null;
+  reference_ids: string[];
+  source: MailSource;
+  raw_sha256: string;
+  has_attachments: boolean;
+  dkim: MailDkim;
+  participants: Participant[];
+  attachments: AttachmentInfo[];
+  thread_id: number | null;
+  thread: ThreadMail[];
+  thread_size: number;
+  duplicate_of: number | null;
+  duplicates: number[];
+  note: Note;
+}
+
+// Bodies --------------------------------------------------------------------------------------
+
+export interface MailText {
+  text: string;
+  truncated: boolean;
+  source: "text/plain" | "text/html" | "none";
+  has_html: boolean;
+}
+
+export interface HeaderField {
+  name: string;
+  value: string;
+}
+
+export interface MailHeaders {
+  headers: HeaderField[];
+}
+
+export interface MailRaw {
+  raw: string;
+  truncated: boolean;
+  size: number;
+}

@@ -43,9 +43,11 @@ async def _execute_autocommit(server_url: str, statement: str) -> None:
 
 
 @contextmanager
-def _temporary_database(server_url: str) -> Iterator[str]:
+def _temporary_database(server_url: str, template: str | None = None) -> Iterator[str]:
+    """A new database, optionally a copy of `template` (which must have no open connections)."""
     name = f"mailrobbe_test_{secrets.token_hex(6)}"
-    asyncio.run(_execute_autocommit(server_url, f"CREATE DATABASE {name}"))
+    copy = f" TEMPLATE {template}" if template else ""
+    asyncio.run(_execute_autocommit(server_url, f"CREATE DATABASE {name}{copy}"))
     try:
         yield make_url(server_url).set(database=name).render_as_string(hide_password=False)
     finally:

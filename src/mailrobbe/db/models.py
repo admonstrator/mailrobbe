@@ -16,6 +16,10 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   the TEXT_SEARCH_CONFIG configuration; queries must use the same configuration.
 - edge.mails_total is a stored generated column (sum of all three counters) for the index the
   spec asks for.
+- ix_mail_sort orders mails by MAIL_SORT_KEY (date, missing dates oldest) and id, for keyset
+  paging in the mail list (D19), ix_mail_dkim_sort the same within one DKIM status (it replaced
+  ix_mail_dkim_status); ix_mail_subject_trgm serves the subject: search (D20).
+- mail_note holds the flag and note a user sets on a mail (D23), the only user-written data.
 """
 
 from datetime import datetime
@@ -71,6 +75,11 @@ TSV_EXPRESSION = " || ".join(
 )
 
 
+# Sort key of the mail list (migration 0003, D19): mails without a date sort as the oldest.
+# Keyset conditions and ORDER BY must use exactly this expression to use ix_mail_sort.
+MAIL_SORT_KEY = "COALESCE(date_utc, '-infinity'::timestamp with time zone)"
+
+
 class MboxFile(Base):
     __tablename__ = "mbox_file"
 
@@ -95,8 +104,15 @@ class Mail(Base):
         Index("ix_mail_message_id", "message_id"),
         Index("ix_mail_raw_sha256", "raw_sha256"),
         Index("ix_mail_thread_id", "thread_id"),
-        Index("ix_mail_dkim_status", "dkim_status"),
         Index("ix_mail_tsv", "tsv", postgresql_using="gin"),
+        Index("ix_mail_sort", text(MAIL_SORT_KEY), "id"),
+        Index("ix_mail_dkim_sort", "dkim_status", text(MAIL_SORT_KEY), "id"),
+        Index(
+            "ix_mail_subject_trgm",
+            "subject",
+            postgresql_using="gin",
+            postgresql_ops={"subject": "gin_trgm_ops"},
+        ),
         Index(
             "ix_mail_is_duplicate_of",
             "is_duplicate_of",
@@ -124,6 +140,17 @@ class Mail(Base):
         BigInteger, ForeignKey("mail.id", ondelete="SET NULL")
     )
     reference_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+
+
+class MailNote(Base):
+    __tablename__ = "mail_note"
+
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    flagged: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    note: Mapped[str] = mapped_column(Text, server_default="")
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
 
 
 class MailHeader(Base):

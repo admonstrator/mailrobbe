@@ -6,7 +6,8 @@ front to back. Pages go as chunks to a pool of worker processes; each worker rea
 with mbox.read_message, makes sure they are still the bytes that were imported (raw_sha256) and
 checks them with its own DkimChecker, built once from the dns_cache rows the main process
 loaded. The main process writes every finished chunk (save_verdicts, upsert_dns_cache) and
-commits it, so an interrupted run keeps what it finished.
+commits it, so an interrupted run keeps what it finished. A run that checked mails ends by
+recomputing global_stats, whose DKIM counts the mail list shows (D19).
 
 A mail whose file is missing, whose record cannot be read or whose bytes changed is skipped:
 counted by kind and logged, never written, and the run goes on.
@@ -32,6 +33,7 @@ from enum import StrEnum
 from sqlalchemy import ColumnElement, false, func, or_, select, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from mailrobbe.aggregates import refresh_global_stats
 from mailrobbe.config import Settings
 from mailrobbe.db.models import Mail, MboxFile
 from mailrobbe.db.session import create_engine
@@ -136,6 +138,9 @@ async def _run(settings: Settings, where: ColumnElement[bool], jobs: int) -> Rec
                         await _write(connection, *pending.popleft(), tally)
                 while pending:
                     await _write(connection, *pending.popleft(), tally)
+            if tally.checked:
+                await refresh_global_stats(connection)
+                await connection.commit()
     finally:
         await engine.dispose()
     return tally.finish()
@@ -291,6 +296,10 @@ class _Tally:
         self._lookups = 0
         self._hits = 0
 
+    @property
+    def checked(self) -> int:
+        return self._statuses.total()
+
     def count(self, chunk: list[_Mail], checked: _Checked) -> list[tuple[int, MailVerdict]]:
         """Count a finished chunk; returns the verdicts to save."""
         verdicts: list[tuple[int, MailVerdict]] = []
@@ -339,7 +348,7 @@ class _Tally:
 
     def finish(self) -> RecheckSummary:
         elapsed = time.monotonic() - self._started
-        checked = self._statuses.total()
+        checked = self.checked
         log.info(
             "done: %d mails checked, %d skipped in %.1f s (%.0f mails/s)",
             checked,

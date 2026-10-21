@@ -1,0 +1,88 @@
+/* Design tokens (SPEC 7) and the few rules every screen shares. Components style themselves
+   with CSS modules on these properties. */
+
+:root {
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-border: #e3e6eb;
+  --color-border-strong: #d5d9e0;
+  --color-border-subtle: #eef0f3;
+  --color-text: #16181d;
+  --color-muted: #5b6270;
+  --color-nav: #3b4250;
+  --color-accent: #1d5bd6;
+  --color-accent-hover: #1446a8;
+  --color-accent-soft: #e8effc;
+  --color-hover: #f6f8fc;
+  --color-field: #f1f3f6;
+  --color-code-bg: #16181d;
+  --color-code-text: #e6e8ec;
+  --color-skeleton: #eceef2;
+
+  --color-pass: #16a34a;
+  --color-fail: #dc2626;
+  --color-no-key: #d97706;
+  --color-unsigned: #9ca3af;
+  --color-pass-text: #15803d;
+  --color-fail-text: #b91c1c;
+  --color-no-key-text: #b45309;
+  --color-pass-soft: #dcfce7;
+  --color-fail-soft: #fee2e2;
+  --color-no-key-soft: #fef3c7;
+  --color-unsigned-soft: #f1f3f6;
+
+  --font-sans: "Inter Variable", Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-card: 10px;
+  --radius-tile: 8px;
+  --radius-control: 6px;
+  --shadow-popover: 0 8px 24px rgb(22 24 29 / 12%);
+
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  accent-color: var(--color-accent);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}

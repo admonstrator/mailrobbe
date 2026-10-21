@@ -42,6 +42,10 @@ services:
       # Empty means the defaults, 50MiB (no hash above) and 128MiB (headers only above).
       MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT: ${MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT:-}
       MAILROBBE_IMPORT_MAX_MAIL_SIZE: ${MAILROBBE_IMPORT_MAX_MAIL_SIZE:-}
+      # Web UI: Basic Auth when both are set (D4); the owner's domains for "Nur extern <-> intern".
+      MAILROBBE_BASIC_AUTH_USER: ${MAILROBBE_BASIC_AUTH_USER:-}
+      MAILROBBE_BASIC_AUTH_PASSWORD: ${MAILROBBE_BASIC_AUTH_PASSWORD:-}
+      MAILROBBE_INTERNAL_DOMAINS: ${MAILROBBE_INTERNAL_DOMAINS:-}
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
     ports:

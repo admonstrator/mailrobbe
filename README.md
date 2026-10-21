@@ -13,7 +13,7 @@ docker compose up -d --build
 curl http://127.0.0.1:8000/api/health
 ```
 
-Das startet PostgreSQL 16 und das Backend, das beim Start das Datenbankschema anlegt bzw. aktualisiert. Die MBOX-Dateien werden aus `./data/mbox` gelesen, schreibgeschützt eingebunden als `/data/mbox`. Ein anderes Verzeichnis lässt sich in einer `.env`-Datei neben `docker-compose.yml` festlegen:
+Das startet PostgreSQL 16 und das Backend, das beim Start das Datenbankschema anlegt bzw. aktualisiert und unter http://127.0.0.1:8000 die Web-Oberfläche ausliefert. Die MBOX-Dateien werden aus `./data/mbox` gelesen, schreibgeschützt eingebunden als `/data/mbox`. Ein anderes Verzeichnis lässt sich in einer `.env`-Datei neben `docker-compose.yml` festlegen:
 
 ```sh
 MAILROBBE_MBOX_HOST_DIR=/Volumes/Archiv/mbox
@@ -61,6 +61,19 @@ docker compose run --rm backend mailrobbe dkim --mail 4711 # einzelne Mails
 
 Ohne Netz: `MAILROBBE_DKIM_OFFLINE=1` (oder `--offline`) nutzt nur den Cache; was dort fehlt, bekommt den Status DNS-Fehler und wird beim nächsten Nachprüfen erneut gefragt. Weitere Einstellungen: `MAILROBBE_DKIM_DNS_TIMEOUT` (Sekunden je Schlüssel, Standard 5), `MAILROBBE_DKIM_NAMESERVERS` (kommagetrennte IP-Adressen, Standard: System-Resolver), `MAILROBBE_DKIM_DNS_OVERRIDE` (eigene Override-Tabelle). Abgelaufene Signaturen gelten als gültig, wenn die Kryptografie stimmt; die Begründung steht in [docs/DECISIONS.md](docs/DECISIONS.md).
 
+## Web-Oberfläche
+
+Nach dem Import zeigt http://127.0.0.1:8000 die Mailliste. Alles läuft lokal: keine externen Schriften, Skripte oder Bilder.
+
+- **Mailliste**: Suche, Filterspalte (Zeitraum, DKIM-Status, Absender-Domain, Anhang, Thread, Duplikate, markierte Mails, MBOX-Datei), Kennzahlen zum aktuellen Filter, Sortierung nach Datum, Seiten zu je 50 Mails mit Zurück/Weiter, CSV-Export aller Treffer (Semikolon, öffnet direkt in Excel). Filter und Suche stehen in der Adresszeile, Links lassen sich also aufheben und teilen.
+- **Mail-Detail**: Vor/Zurück innerhalb der Treffer (auch mit den Pfeiltasten), Kopfdaten mit Quelle (Datei, Offset, Größe) und SHA-256, DKIM-Prüfung je Signatur mit Grund, DNS-Record und „Neu prüfen“, Text, HTML, alle Header und Rohmail werden erst beim Öffnen aus der MBOX-Datei gelesen, Anhänge, Beteiligte, Thread, EML-Download, Markierung und Notiz. HTML-Mails laufen in einem abgeschotteten Rahmen ohne Skripte und ohne Nachladen von außen.
+- **Suche**: `from:anna@`, `to:@beispiel.de`, `cc:keller`, `subject:Vertrag`, `domain:beispiel.de`, `has:attachment`, `dkim:fail` (auch `pass`, `no_key`, `unsigned`, `temp_error`, `unchecked`), `after:2024-01-01`, `before:2025-01-01`, Anführungszeichen für Phrasen, eine `<message-id@host>` findet genau diese Mail; der Rest ist Volltext (deutsche Wortstämme). Adressen und Betreff finden auch Teilwörter.
+- **Zugriffsschutz**: ohne Login, solange nichts eingestellt ist. `MAILROBBE_BASIC_AUTH_USER` und `MAILROBBE_BASIC_AUTH_PASSWORD` in der `.env` schalten HTTP Basic Auth ein (nur `/api/health` bleibt für den Container-Healthcheck offen).
+- **Intern/extern**: Mit `MAILROBBE_INTERNAL_DOMAINS=firma.de,firma.ch` erscheint der Filter „Nur extern ↔ intern“ (Mails, bei denen eine Seite intern und die andere extern ist; Subdomains zählen als intern).
+- **Zahlen**: Gesamtzahlen und die Zähler neben den Filtern werden nach jedem Import und jeder DKIM-Nachprüfung neu berechnet, sonst spätestens alle fünf Minuten. Trefferzahlen eines Filters sind exakt, solange die Zählung höchstens zwei Sekunden dauert (`MAILROBBE_API_COUNT_TIMEOUT`), sonst steht dort „mehr als 10.000“.
+
+Zahlen und Personendaten im Mail-Detail (Mails und Kontakte je Person) und die Bildschirme Personen, Karte und Import folgen mit den nächsten Meilensteinen. Entwicklung am Frontend: siehe [CLAUDE.md](CLAUDE.md) (`frontend/`, Node 22).
+
 ## Annahmen zur Hardware
 
 Ausgelegt für macOS oder Linux mit etwa 10 GB RAM für Datenbank und Importer zusammen. Die Voreinstellungen in `docker-compose.yml` (u. a. `shared_buffers` 2 GB, Importer-Worker = min(8, CPU-Kerne)) lassen sich über `.env` anpassen.
@@ -69,9 +82,9 @@ Ausgelegt für macOS oder Linux mit etwa 10 GB RAM für Datenbank und Importer z
 
 - [docs/SPEC.md](docs/SPEC.md): Spezifikation mit Architektur, Datenmodell, API und Meilensteinen
 - [docs/mockup/](docs/mockup/): klickbarer UI-Prototyp der fünf Screens (HTML-Datei im Browser öffnen)
-- [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware, DKIM, Import)
+- [docs/DECISIONS.md](docs/DECISIONS.md): getroffene Entscheidungen (Frontend, Aliase, HTML, Zugriff, Export, Arbeitsweise, Hardware, DKIM, Import, Mailliste und Detail)
 - [CLAUDE.md](CLAUDE.md): Entwicklungshinweise (Befehle, Konventionen, Tests)
 
 ## Stand
 
-Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads) und Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl) sind fertig. Die Web-Oberfläche folgt in den nächsten Meilensteinen.
+Meilenstein 1 (Gerüst, Datenbankschema, Testdaten-Generator), Meilenstein 2 (Importer mit Fortsetzen, Duplikaten und Threads), Meilenstein 3 (DKIM-Prüfung mit DNS-Cache und Nachprüf-Befehl) und Meilenstein 4 (API, Mailliste und Mail-Detail) sind fertig. Als Nächstes folgen Personenprofil mit Aggregationen, Beziehungskarte und Import-Dashboard.

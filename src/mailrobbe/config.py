@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from pydantic import ByteSize
+from pydantic import ByteSize, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,21 @@ class Settings(BaseSettings):
     dkim_offline: bool = False  # no DNS lookups: keys not in the cache become temp_error
     dkim_dns_timeout: float = 5.0  # seconds per key name, retries included
     dkim_nameservers: str = ""  # comma-separated IP addresses; empty: the system resolver
+    # Web UI and API (milestone 4). Basic Auth (D4) is on when both are set, an error when only
+    # one is; /api/health stays open for container health checks.
+    basic_auth_user: str = ""
+    basic_auth_password: SecretStr = SecretStr("")
+    # The built frontend (npm run build in frontend/); relative paths are taken from the working
+    # directory, /app in the Docker image. Missing: the API runs without the UI.
+    frontend_dir: Path = Path("frontend/dist")
+    # Comma-separated domains of the archive owner for the "Nur extern <-> intern" filter (D21);
+    # their subdomains count too. Empty: the filter is not offered.
+    internal_domains: str = ""
+    # Time budget for exact hit counts of a filtered mail list; above it the count is a lower
+    # bound (D19).
+    api_count_timeout: float = 2.0
+    # global_stats older than this many seconds are recomputed when the API reads them (D19).
+    stats_max_age: int = 300
 
 
 def get_settings() -> Settings:

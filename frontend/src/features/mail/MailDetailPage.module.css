@@ -1,0 +1,60 @@
+.page {
+  display: flex;
+  flex-direction: column;
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.steps {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 16px 24px 24px;
+}
+
+.main {
+  display: flex;
+  flex: 999 1 560px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.side {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  max-width: 360px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 64px;
+}
+
+.message {
+  margin: 16px 24px 24px;
+}

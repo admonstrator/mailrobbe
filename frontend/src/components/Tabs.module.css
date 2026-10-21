@@ -1,0 +1,44 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tab {
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 6px 12px;
+  background: transparent;
+  color: var(--color-nav);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tab:hover:not(:disabled) {
+  background: var(--color-field);
+}
+
+.tab:disabled {
+  color: var(--color-unsigned);
+  cursor: default;
+}
+
+.active,
+.active:hover:not(:disabled) {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+.end {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 12px;
+}

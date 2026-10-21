@@ -1,0 +1,14 @@
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.steps {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
