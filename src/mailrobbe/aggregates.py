@@ -9,8 +9,8 @@ global_stats holds the whole-archive figures (D19), one row per key: mails, DKIM
 domains, date range, every sender domain with its mails and the number of MBOX files, and for
 the import dashboard (D48) duplicates, the reasons of failed DKIM checks and how many signature
 keys came from the DNS cache. They are
-recomputed after each import (importer.finalize), after `mailrobbe dkim` and by the API when they
-are older than MAILROBBE_STATS_MAX_AGE.
+recomputed after each import (importer.finalize) and when one pauses, after `mailrobbe dkim` and
+by the API when they are older than MAILROBBE_STATS_MAX_AGE.
 
 refresh_global_stats and the readers run in the caller's transaction and never commit;
 current_global_stats manages its own short transaction for the API.

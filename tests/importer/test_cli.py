@@ -183,9 +183,13 @@ async def test_a_stop_request_pauses_the_import(
             )
             statuses: dict[str, int] = {status: count for status, count in rows}
             mails = await connection.scalar(text("SELECT count(*) FROM mail"))
+            counted = await connection.scalar(
+                text("SELECT value FROM global_stats WHERE key = 'mails'")
+            )
     finally:
         run.cancel()
         await engine.dispose()
+    assert counted == mails  # the header's figures include the mails stored before the pause
     assert "stop requested from the dashboard" in caplog.text
     assert "stopping: 2 workers store their current batch" in caplog.text
     # The two running files pause, or end when their current batch was their last one.

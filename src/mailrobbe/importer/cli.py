@@ -3,7 +3,8 @@
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
 it, D52), import and finalize, and reports its figures (ImportFigures) every few seconds. It
 stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their batch,
-the files pause, and the finalize is left to the next run.
+the files pause, the global figures count what is stored, and the finalize is left to the
+next run.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error or the import could not start, 130 when it was stopped; the next run resumes.
@@ -20,6 +21,7 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from mailrobbe.aggregates import refresh_global_stats
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
@@ -168,6 +170,9 @@ async def _import(
         summary = await _summary(session, report, outcomes, time.monotonic() - started)
     print(summary.text)
     if stop.is_set():
+        # The figures in the header and on the dashboard count the mails stored so far (D48).
+        async with sessionmaker() as session, session.begin():
+            await refresh_global_stats(session)
         log.info("interrupted: run `mailrobbe import` again to continue")
         return _Ending(JobStatus.STOPPED, summary.line, EXIT_INTERRUPTED)
     if summary.files_in_error:
