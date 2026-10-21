@@ -35,27 +35,6 @@ function Icon({
   );
 }
 
-export function LogoIcon() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-      <path
-        d="M13 13L3 6M13 13L23 6M13 13L3 20M13 13L23 20M13 13V2M13 13V24"
-        stroke="var(--color-accent)"
-        strokeWidth="1.5"
-      />
-      <g fill="var(--color-accent)">
-        <circle cx="13" cy="13" r="4" />
-        <circle cx="3" cy="6" r="2" />
-        <circle cx="23" cy="6" r="2" />
-        <circle cx="3" cy="20" r="2" />
-        <circle cx="23" cy="20" r="2" />
-        <circle cx="13" cy="2" r="1.5" />
-        <circle cx="13" cy="24" r="1.5" />
-      </g>
-    </svg>
-  );
-}
-
 export function SearchIcon(props: IconProps) {
   return (
     <Icon {...props}>

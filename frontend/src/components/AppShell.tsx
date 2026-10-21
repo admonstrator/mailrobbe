@@ -9,7 +9,7 @@ import { formatNumber } from "../lib/format";
 import { isPlainKey } from "../lib/keys";
 import styles from "./AppShell.module.css";
 import { EditorDialog } from "./EditorDialog";
-import { LogoIcon, SearchIcon } from "./icons";
+import { SearchIcon } from "./icons";
 
 const NAVIGATION = [
   { to: "/mails", label: "Mails" },
@@ -27,7 +27,7 @@ export function AppShell() {
     <div className={styles.app}>
       <header className={styles.header}>
         <Link to="/mails" className={styles.logo}>
-          <LogoIcon />
+          <img src="/logo.svg" alt="" width={28} height={28} />
           Mailrobbe
         </Link>
         <nav aria-label="Hauptnavigation" className={styles.nav}>
