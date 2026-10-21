@@ -3,7 +3,10 @@
 The list, its summary, the neighbours of a mail and the CSV export all build on these, so they
 agree on which mails match and in which order (D19 to D21). Conditions are plain columns of mail
 or EXISTS subqueries correlated to it: participants through participation and person (both
-indexed for this), flags through mail_note.
+indexed for this), flags through mail_note, documents through attachment. The full text words
+match the mail's own text or the text of one of its attachments' documents (D73): both GIN
+indexes give mail ids, which PostgreSQL ORs as bitmaps (full_text); first_ids's walk tests the
+mails it passes one by one instead, as it did for the mail's own text alone.
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -20,6 +23,7 @@ bounds and a single DKIM status narrow the walk itself (see _ranges).
 import base64
 import binascii
 import json
+import weakref
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -32,6 +36,7 @@ from sqlalchemy import (
     Select,
     UnaryExpression,
     and_,
+    any_,
     exists,
     false,
     func,
@@ -39,6 +44,7 @@ from sqlalchemy import (
     literal_column,
     or_,
     select,
+    true,
     tuple_,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +57,8 @@ from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TEXT_SEARCH_CONFIG,
     TIMESTAMPTZ,
+    Attachment,
+    Document,
     Mail,
     MailNote,
     Participation,
@@ -68,6 +76,11 @@ _RECIPIENTS = (ParticipationRole.TO, ParticipationRole.CC, ParticipationRole.BCC
 # Mails of the order a filtered page looks at before collecting all matches instead: a filter
 # matching one mail in 100 fills a page of 50 within them.
 WALK_ROWS = 5000
+# Conditions with a form of their own for the walk (full_text): the walk passes them mail by
+# mail. Keyed by the condition object, gone with it.
+_WALK_FORMS: "weakref.WeakKeyDictionary[ColumnElement[bool], ColumnElement[bool]]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 class FilterError(ValueError):
@@ -88,10 +101,9 @@ def mail_conditions(
 ) -> list[ColumnElement[bool]]:
     """Every condition of the filters and of q's terms; a mail matches when all hold."""
     where = [condition for term in terms for condition in _term(term)]
-    words = [_phrase(term) for term in terms if term.key == "text"]
-    if words:
-        query = func.websearch_to_tsquery(_TEXT_SEARCH, " ".join(words))
-        where.append(Mail.tsv.bool_op("@@")(query))
+    query = text_query(terms)
+    if query is not None:
+        where.append(full_text(query))
     if filters.dkim:
         where.append(_dkim(filters.dkim))
     if filters.sender_domain:
@@ -118,7 +130,52 @@ def mail_conditions(
         where.append(_between(filters.between))
     if filters.external:
         where.append(_external(internal))
+    if filters.document is not None:
+        where.append(_carries(filters.document))
     return where
+
+
+def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
+    """The tsquery of q's full text words; None without any."""
+    words = [_phrase(term) for term in terms if term.key == "text"]
+    if not words:
+        return None
+    return func.websearch_to_tsquery(_TEXT_SEARCH, " ".join(words))
+
+
+def full_text(query: ColumnElement[Any]) -> ColumnElement[bool]:
+    """D73: the mail's own text matches, or the text of one of its attachments' documents.
+
+    For a set of mails (counts, CSV, all matches of a rare word) each side uses its GIN index:
+    the mails' own ids and those of the matching documents' mails (one array, computed once) are
+    ORed as bitmaps. A UNION of the two id sets would make PostgreSQL join it back to mail, and
+    an EXISTS in the OR would make it scan every mail. first_ids's walk takes the second form,
+    which looks at one mail's attachments at a time and so never collects every matching
+    document of a common word.
+    """
+    own = Mail.tsv.bool_op("@@")(query)
+    documents = (
+        select(Attachment.mail_id)
+        .join(Document, Document.id == Attachment.document_id)
+        .where(Document.tsv.bool_op("@@")(query))
+    )
+    found = or_(own, Mail.id == any_(func.array(documents.scalar_subquery())))
+    attached = (
+        select(true())
+        .select_from(Attachment)
+        .join(Document, Document.id == Attachment.document_id)
+        .where(Attachment.mail_id == Mail.id, Document.tsv.bool_op("@@")(query))
+        .limit(1)
+        .scalar_subquery()  # correlated and scalar: run per mail, never hashed in full
+    )
+    # has_attachments is true exactly for mails with attachment rows (importer.model)
+    _WALK_FORMS[found] = or_(own, and_(Mail.has_attachments, func.coalesce(attached, false())))
+    return found
+
+
+def _carries(document_id: int) -> ColumnElement[bool]:
+    """One of the mail's attachments is this document (D75)."""
+    return exists().where(Attachment.mail_id == Mail.id, Attachment.document_id == document_id)
 
 
 def _term(term: QueryTerm) -> list[ColumnElement[bool]]:
@@ -310,7 +367,11 @@ async def first_ids(
         .subquery("walk")
     )
     on_window = ClauseAdapter(window).traverse
-    rest = [on_window(condition) for condition in where if not _ranges(condition)]
+    rest = [
+        on_window(_WALK_FORMS.get(condition, condition))
+        for condition in where
+        if not _ranges(condition)
+    ]
     walked = list(await session.scalars(_ordered(window, sort, reverse, limit).where(*rest)))
     if len(walked) == limit:
         return walked

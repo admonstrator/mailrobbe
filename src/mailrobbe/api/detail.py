@@ -48,6 +48,7 @@ from mailrobbe.db.models import (
     Attachment,
     DkimResult,
     DnsCache,
+    Document,
     Edge,
     Mail,
     MailNote,
@@ -373,6 +374,7 @@ def _signature(result: DkimResult, keys: dict[str, DnsCache]) -> DkimSignature:
 
 
 async def _attachments(session: AsyncSession, mail_id: int) -> list[AttachmentInfo]:
+    """The mail's attachments, each with its document (D75) once finalize assigned it."""
     rows = await session.execute(
         select(
             Attachment.id,
@@ -380,13 +382,30 @@ async def _attachments(session: AsyncSession, mail_id: int) -> list[AttachmentIn
             Attachment.mime_type,
             Attachment.size_bytes,
             Attachment.sha256,
+            Attachment.document_id,
+            Document.kind,
+            Document.text_status,
+            Document.pages,
+            Document.mails,
         )
+        .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == mail_id)
         .order_by(Attachment.id)
     )
     return [
-        AttachmentInfo(id=id_, filename=name, mime_type=mime_type, size=size, sha256=sha256)
-        for id_, name, mime_type, size, sha256 in rows
+        AttachmentInfo(
+            id=row.id,
+            filename=row.filename,
+            mime_type=row.mime_type,
+            size=row.size_bytes,
+            sha256=row.sha256,
+            document_id=row.document_id,
+            kind=row.kind,
+            text_status=row.text_status,
+            pages=row.pages,
+            document_mails=row.mails,
+        )
+        for row in rows
     ]
 
 

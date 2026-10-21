@@ -45,6 +45,7 @@ from mailrobbe.api.filters import (
     internal_domains,
     mail_conditions,
     order,
+    text_query,
 )
 from mailrobbe.api.query import DKIM_KEYS, QueryError, parse_query
 from mailrobbe.api.schemas import (
@@ -166,12 +167,33 @@ async def list_mails(
     else:
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
+    items = [_item(row, people.get(row.id, []), members) for row in rows]
+    through_attachments = await _found_through_attachments(session, terms, ids)
+    for item in items:
+        item.attachment_match = item.id in through_attachments
     return MailPage(
-        items=[_item(row, people.get(row.id, []), members) for row in rows],
+        items=items,
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         query_terms=terms,
     )
+
+
+async def _found_through_attachments(
+    session: AsyncSession, terms: Sequence[QueryTerm], mail_ids: Sequence[int]
+) -> set[int]:
+    """The mails of a page that matched q's full text words through an attachment alone (D73):
+    their own text does not match."""
+    query = text_query(terms)
+    if query is None or not mail_ids:
+        return set()
+    own = await session.scalars(
+        select(Mail.id).where(
+            Mail.id == any_(literal(list(mail_ids), ARRAY(BigInteger))),
+            Mail.tsv.bool_op("@@")(query),
+        )
+    )
+    return set(mail_ids) - set(own)
 
 
 async def _participants(

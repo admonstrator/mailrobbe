@@ -60,7 +60,7 @@ class Archive:
     mbox_dir: Path
     manifest: list[Record]
     mails: list[Row]
-    attachments: dict[int, list[Row]]  # mail id -> attachment rows by id
+    attachments: dict[int, list[Row]]  # mail id -> attachment rows by id, with their document
     participants: dict[int, list[tuple[str, str, str | None]]]  # mail id -> (role, email, name)
     dkim: dict[int, list[Row]]  # mail id -> dkim_result rows by signature_index
     dns: dict[str, Row]  # dns_cache rows by name
@@ -97,7 +97,11 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
                 )
             }
             attachments: dict[int, list[Row]] = defaultdict(list)
-            for row in await rows("SELECT * FROM attachment ORDER BY id"):
+            for row in await rows(
+                "SELECT a.*, d.kind::text AS kind, d.text_status::text AS text_status, d.pages, "
+                "d.mails AS document_mails FROM attachment a "
+                "LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
+            ):
                 attachments[row["mail_id"]].append(row)
             participants: dict[int, list[tuple[str, str, str | None]]] = defaultdict(list)
             for row in await rows(
@@ -248,14 +252,17 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
                 "mime_type": row["mime_type"],
                 "size": row["size_bytes"],
                 "sha256": row["sha256"],
-                "document_id": None,
-                "kind": None,
-                "text_status": None,
-                "pages": None,
-                "document_mails": None,
+                "document_id": row["document_id"],
+                "kind": row["kind"],
+                "text_status": row["text_status"],
+                "pages": row["pages"],
+                "document_mails": row["document_mails"],
             }
             for row in archive.attachments[mail_id]
         ]
+        # finalize gave every attachment its document, the attachments phase every text status
+        assert all(a.document_id and a.document_mails for a in detail.attachments), index
+        assert all(a.text_status != "pending" for a in detail.attachments), index
         assert len(detail.attachments) == record["attachments"], index
         assert detail.has_attachments == (record["attachments"] > 0)
 

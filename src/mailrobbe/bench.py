@@ -4,7 +4,8 @@ clicks through the screens (D51).
 It first picks its samples through the API itself: the newest mails and words of their
 subjects, the person with the most mails and one from the middle of the person list, that
 person's strongest contact and busiest year, the top sender domains, thresholds at which the
-map's excerpts stay below 2,000 nodes. So it needs nothing but the server's URL and runs on the
+map's excerpts stay below 2,000 nodes, the document carried by the most mails and words of the
+busiest document with text. So it needs nothing but the server's URL and runs on the
 host or in the container (`docker compose exec backend mailrobbe bench`) against any archive.
 Then it requests every scenario `--rounds` times, one request after the other over one
 keep-alive connection, and prints the median, the 95th percentile and the maximum of each,
@@ -145,6 +146,10 @@ class Samples:
     middle_rank: int | None = None  # 1-based, in the person list by mails
     ego_thresholds: dict[int, int] = field(default_factory=dict)  # depth -> min_edge
     domains_threshold: int | None = None
+    documents: int = 0
+    document_id: int | None = None  # the document carried by the most mails
+    text_document_id: int | None = None  # the one with text carried by the most mails
+    document_words: list[str] = field(default_factory=list)  # most common words of its text
 
 
 def pick_samples(client: Client) -> Samples:
@@ -172,6 +177,9 @@ def pick_samples(client: Client) -> Samples:
                 samples.neighbours = (*filtered, items[len(items) // 2]["id"])
     if samples.persons:
         _pick_persons(client, samples)
+    samples.documents = sum(client.json("/api/import/summary")["documents"].values())
+    if samples.documents:
+        _pick_documents(client, samples)
     return samples
 
 
@@ -209,6 +217,19 @@ def _pick_persons(client: Client, samples: Samples) -> None:
     if len(samples.sender_domains) == 2:
         domains = [("mode", "domains"), *(("domain", d) for d in samples.sender_domains)]
         samples.domains_threshold = fit_threshold(client, domains)
+
+
+def _pick_documents(client: Client, samples: Samples) -> None:
+    busiest = [("sort", "mails"), ("limit", 1)]
+    items = client.json("/api/documents", busiest)["items"]
+    if items:
+        samples.document_id = items[0]["id"]
+    items = client.json("/api/documents", [*busiest, ("text_status", "text")])["items"]
+    if items:
+        samples.text_document_id = items[0]["id"]
+        text = client.json(f"/api/documents/{samples.text_document_id}/text")["text"]
+        words = Counter(word.lower() for word in _WORD.findall(text))
+        samples.document_words = [word for word, _ in words.most_common(WORDS)]
 
 
 def fit_threshold(client: Client, params: Params) -> int:
@@ -325,6 +346,34 @@ def scenarios(samples: Samples, with_export: bool = False) -> tuple[list[Scenari
     add("map size, ego depth 2", top and with_query("/api/graph/size", [*ego, ("depth", 2)]))
     add("GraphML, top 50", persons and "/api/graph/export.graphml?mode=top&limit=50")
 
+    listed = s.documents and "/api/documents"
+    document = None if s.document_id is None else f"/api/documents/{s.document_id}"
+    document_words: list[str | None] = list(s.document_words) or [None]
+    add("documents, newest first", listed)
+    add("documents, oldest first", listed and "/api/documents?sort=oldest")
+    add("documents by mails", listed and "/api/documents?sort=mails")
+    add("documents by size", listed and "/api/documents?sort=size")
+    add(
+        "documents, full text word",
+        *(word and with_query("/api/documents", [("q", word)]) for word in document_words),
+    )
+    add("documents summary, unfiltered", listed and "/api/documents/summary")
+    add(
+        "documents summary, full text word",
+        *(word and with_query("/api/documents/summary", [("q", word)]) for word in document_words),
+    )
+    add("document page", document)
+    text = s.text_document_id and f"/api/documents/{s.text_document_id}/text"
+    add("document text", text)
+    add(
+        "mails of a document, oldest first",
+        document and mails(("document", s.document_id), ("sort", "date_asc")),
+    )
+    add(
+        "mail search through attachments",
+        *(word and mails(("q", word)) for word in document_words),
+    )
+
     add("import status", "/api/import/status")
     add("import summary", "/api/import/summary")
     add("import errors", "/api/import/errors")
@@ -427,6 +476,13 @@ def describe(samples: Samples) -> list[str]:
         if s.domains_threshold is not None:
             parts.append(f"{s.domains_threshold} for two domains")
         lines.append(f"  map min_edge    {', '.join(parts)}, so they have at most 2,000 nodes")
+    if s.document_id is not None:
+        lines.append(f"  document        #{s.document_id} of {s.documents:,}, in the most mails")
+    if s.document_words:
+        lines.append(
+            f"  document words  {', '.join(s.document_words)} "
+            f"(from the text of #{s.text_document_id})"
+        )
     return lines
 
 

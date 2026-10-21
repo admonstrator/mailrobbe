@@ -111,9 +111,11 @@ def test_every_file_is_done(imported: Imported) -> None:
 
 
 def test_the_run_is_recorded_with_its_dkim_checks(imported: Imported) -> None:
-    assert (imported.job["status"], imported.job["phase"]) == ("done", "finalize")
+    # The archive has attachments, so the run ends with their texts (D72).
+    assert (imported.job["status"], imported.job["phase"]) == ("done", "attachments")
     progress = ImportProgress.model_validate(imported.job["progress"])
     assert progress.mails_imported == len(imported.manifest)
+    assert progress.documents_done == progress.documents_total > 0
     # Every mail got a verdict (D13: the importer checks inline), so both rates are the same.
     assert progress.dkim_per_second == progress.mails_per_second > 0
 
