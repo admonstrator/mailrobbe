@@ -297,7 +297,7 @@ async def test_a_run_ends_what_a_dead_run_of_its_kind_left_in_the_database(
     finally:
         await dead.dispose()
         await dkim.dispose()
-    assert "ended 1 database sessions left by an earlier import run" in caplog.text
+    assert "ended 1 database session left by an earlier import run" in caplog.text
 
 
 async def _active(db: AsyncConnection, kind: JobKind) -> bool:

@@ -208,7 +208,10 @@ async def job_run(
             raise RunRefused(problem)
         ended = await end_leftovers(connection, kind)
         if ended:
-            log.warning("ended %d database sessions left by an earlier %s run", ended, kind)
+            plural = "" if ended == 1 else "s"
+            log.warning(
+                "ended %d database session%s left by an earlier %s run", ended, plural, kind
+            )
         job_id = await begin_job(connection, kind, origin, options, phase)
         await connection.commit()
         run = JobRun(connection, job_id, kind, figures, phase)
