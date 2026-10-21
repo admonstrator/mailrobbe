@@ -51,6 +51,8 @@ def test_result_rows_follow_the_dkim_result_columns() -> None:
         "reason": "key_not_found",
         "checked_at": CHECKED_AT,
         "dns_cached": False,
+        "key_id": None,
+        "key_origin": None,
     }
     assert rows[0]["reason"] is None
     assert MailVerdict().result_rows(7, CHECKED_AT) == []

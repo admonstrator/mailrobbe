@@ -10,6 +10,11 @@
   background: var(--color-pass);
 }
 
+/* Signature holds, but the key is only reconstructed (D100): a ring in the colour of pass. */
+.consistent {
+  border: 2px solid var(--color-pass);
+}
+
 .fail {
   background: var(--color-fail);
 }
@@ -45,6 +50,11 @@
 .badge_pass {
   background: var(--color-pass-soft);
   color: #166534;
+}
+
+.badge_consistent {
+  background: var(--color-pass-soft);
+  color: var(--color-pass-text);
 }
 
 .badge_fail {

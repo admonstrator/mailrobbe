@@ -1,0 +1,162 @@
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.keys {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.key {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.key + .key {
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 13px;
+}
+
+.type {
+  font-weight: 600;
+}
+
+.hash {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.count {
+  margin-left: auto;
+  color: var(--color-nav);
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.warning,
+.note {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.warning {
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+}
+
+.note {
+  background: var(--color-no-key-soft);
+  color: #92400e;
+}
+
+.details {
+  font-size: 13px;
+}
+
+.summary {
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.summary:hover {
+  color: var(--color-accent-hover);
+}
+
+.record {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-tile);
+  background: var(--color-code-bg);
+  color: var(--color-code-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.evidenceTitle {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  border-left: 3px solid var(--color-border);
+  padding: 2px 0 2px 12px;
+  font-size: 13px;
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.reference {
+  overflow-wrap: anywhere;
+}
+
+.evidenceNote {
+  margin: 0;
+  color: var(--color-nav);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.used {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usedList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

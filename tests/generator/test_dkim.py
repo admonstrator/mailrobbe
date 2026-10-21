@@ -246,7 +246,7 @@ def test_every_signed_mail_verifies_as_expected(setup: DkimSetup, table: DnsOver
             outer = signed.dkim.signatures[0].domain
             assert outer in setup.relays or outer in (mail.planned.list_id or "")
             assert outer != mail.planned.sender.domain
-    assert set(statuses) == set(DkimStatus)
+    assert set(statuses) == set(DkimStatus) - {DkimStatus.CONSISTENT}  # never generated (D100)
     assert {"selector_retired", "body_modified", "header_modified", "dns_timeout"} <= set(reasons)
     assert mixed_pairs
 

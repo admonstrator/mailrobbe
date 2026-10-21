@@ -23,6 +23,7 @@ from mailrobbe.enums import (
     EntityKind,
     JobKind,
     JobStatus,
+    KeyOrigin,
     MboxStatus,
     ParticipationRole,
     PersonKind,
@@ -62,19 +63,26 @@ TABLES = {
     "document_entity",
     "mail_entity_scan",
     "document_entity_scan",
+    "dkim_key",
+    "dkim_key_lookup",
+    "dkim_key_evidence",
     "mail_signal",
     "person_signal",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
-    "dkim_status": (DkimStatus, ["pass", "fail", "no_key", "unsigned", "temp_error"]),
+    "dkim_status": (
+        DkimStatus,
+        ["pass", "consistent", "fail", "no_key", "unsigned", "temp_error"],
+    ),
     "participation_role": (ParticipationRole, ["from", "to", "cc", "bcc"]),
     "mbox_status": (MboxStatus, ["pending", "running", "paused", "done", "error"]),
     "dns_status": (DnsStatus, ["found", "not_found", "temp_error"]),
     "person_kind": (PersonKind, ["list", "automated"]),
-    "job_kind": (JobKind, ["import", "dkim"]),
+    "job_kind": (JobKind, ["import", "dkim", "dkim_keys"]),
     "job_status": (JobStatus, ["running", "done", "stopped", "failed"]),
     "review_status": (ReviewStatus, ["seen", "relevant", "irrelevant"]),
+    "key_origin": (KeyOrigin, ["dns", "observed", "documented", "reconstructed"]),
     "document_kind": (
         DocumentKind,
         [
@@ -181,6 +189,8 @@ INDEXES = {
     "ON public.mail_entity USING btree (mail_id, entity_id)",
     "ix_document_entity_document_id": "CREATE INDEX ix_document_entity_document_id "
     "ON public.document_entity USING btree (document_id, entity_id)",
+    "ix_dkim_result_key_id": "CREATE INDEX ix_dkim_result_key_id ON public.dkim_result "
+    "USING btree (key_id) WHERE (key_id IS NOT NULL)",
 }
 
 # Everything in the database apart from system catalogs: relations (tables, indexes, sequences),
@@ -371,7 +381,7 @@ def test_upgrade_renders_offline_without_database() -> None:
         in sql
     )
     assert (
-        "UPDATE alembic_version SET version_num='0012' WHERE alembic_version.version_num = '0010'"
+        "UPDATE alembic_version SET version_num='0012' WHERE alembic_version.version_num = '0011'"
         in sql
     )
 
@@ -450,6 +460,63 @@ async def test_0008_numbers_the_attachments_of_older_imports(empty_database_url:
     finally:
         await engine.dispose()
     assert rows == [(1, "x", 0, None), (2, "p", 0, None), (1, "y", 1, None), (1, "z", 2, None)]
+
+
+async def test_0011_marks_older_results_as_dns_and_forgets_other_keys_on_downgrade(
+    empty_database_url: str,
+) -> None:
+    """Results before 0011 rest on today's DNS where they rest on a key; a downgrade forgets
+    the results that rest on a key from another source, so `mailrobbe dkim` checks them again."""
+
+    async def sql(statement: str) -> list[tuple[Any, ...]]:
+        engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)
+        try:
+            async with engine.begin() as connection:
+                result = await connection.execute(text(statement))
+                return [tuple(row) for row in result] if result.returns_rows else []
+        finally:
+            await engine.dispose()
+
+    await asyncio.to_thread(migrate.upgrade, "0010", empty_database_url)
+    await sql(
+        "INSERT INTO mbox_file (id, path, size_bytes) OVERRIDING SYSTEM VALUE VALUES (1, 'a', 9)"
+    )
+    await sql(
+        "INSERT INTO mail (id, mbox_file_id, byte_offset, byte_length, raw_sha256, dkim_status)"
+        " OVERRIDING SYSTEM VALUE VALUES (1, 1, 0, 3, 'aa', 'pass'), (2, 1, 3, 3, 'bb', 'fail'),"
+        " (3, 1, 6, 3, 'cc', 'no_key')"
+    )
+    await sql(
+        "INSERT INTO dkim_result (mail_id, signature_index, status, reason) VALUES"
+        " (1, 0, 'pass', NULL), (2, 0, 'fail', 'body_hash_mismatch'),"
+        " (2, 1, 'fail', 'from_not_signed'), (3, 0, 'no_key', 'key_not_found')"
+    )
+    await asyncio.to_thread(migrate.upgrade, "head", empty_database_url)
+    assert await sql(
+        "SELECT mail_id, signature_index, key_origin::text FROM dkim_result ORDER BY 1, 2"
+    ) == [(1, 0, "dns"), (2, 0, "dns"), (2, 1, None), (3, 0, None)]
+
+    await sql(
+        "INSERT INTO dkim_key (id, name, domain, selector, key_type, bits, key_sha256, record,"
+        " origin) OVERRIDING SYSTEM VALUE VALUES (7, 's._domainkey.a.example', 'a.example', 's',"
+        " 'rsa', 2048, 'ff', 'p=', 'reconstructed')"
+    )
+    await sql(
+        "UPDATE dkim_result SET status = 'consistent', reason = NULL, key_id = 7,"
+        " key_origin = 'reconstructed' WHERE mail_id = 3"
+    )
+    await sql("UPDATE mail SET dkim_status = 'consistent' WHERE id = 3")
+    await asyncio.to_thread(migrate.downgrade, "0010", empty_database_url)
+    assert await sql("SELECT id, dkim_status::text FROM mail ORDER BY id") == [
+        (1, "pass"),
+        (2, "fail"),
+        (3, None),
+    ]
+    assert await sql("SELECT mail_id FROM dkim_result ORDER BY 1, signature_index") == [
+        (1,),
+        (2,),
+        (2,),
+    ]
 
 
 @pytest.mark.db

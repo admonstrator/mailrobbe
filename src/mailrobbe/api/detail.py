@@ -1,5 +1,5 @@
 """One mail: metadata, research data, bodies read on demand from its MBOX file, EML download and
-DKIM recheck (D22, D53).
+DKIM recheck (D22, D53); each signature with the key from another source it rests on (D100).
 
 Routes: GET /api/mails/{id}, /api/mails/{id}/body, /api/mails/{id}/eml,
 POST /api/mails/{id}/dkim/recheck. Writes to the research data are in research.py.
@@ -16,7 +16,7 @@ from typing import Annotated, Literal, cast
 import fastapi
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import BigInteger, func, literal_column, select, tuple_
+from sqlalchemy import BigInteger, Text, any_, func, literal, literal_column, select, tuple_
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -28,7 +28,9 @@ from mailrobbe.api.schemas import (
     THREAD_LIMIT,
     AttachmentInfo,
     CollectionRef,
+    DkimKeyInfo,
     DkimSignature,
+    KeyEvidenceInfo,
     MailDetail,
     MailDkim,
     MailHeaders,
@@ -43,6 +45,7 @@ from mailrobbe.api.schemas import (
     TagColor,
     TagRef,
     ThreadMail,
+    UsedSignature,
 )
 from mailrobbe.config import Settings
 from mailrobbe.db.models import (
@@ -50,6 +53,9 @@ from mailrobbe.db.models import (
     Attachment,
     Collection,
     CollectionMail,
+    DkimKey,
+    DkimKeyEvidence,
+    DkimKeyLookup,
     DkimResult,
     DnsCache,
     Document,
@@ -66,6 +72,7 @@ from mailrobbe.db.models import (
 )
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
+from mailrobbe.dkim.keys.store import load_candidates
 from mailrobbe.dkim.override import key_name
 from mailrobbe.enums import DkimReason, DkimStatus, ParticipationRole
 from mailrobbe.mbox import read_verified
@@ -218,9 +225,12 @@ async def recheck_dkim(mail_id: MailId, session: Session, settings: AppSettings)
     """Check the mail again (SPEC 3.4, D13): keys that were missing or timed out are asked anew."""
     message = await stored_message(session, settings, mail_id)
     answers = await store.load_dns_cache(session)
+    candidates = await load_candidates(session)  # keys of deleted selectors (D100)
     await session.commit()  # no transaction stays open while DNS answers
     try:
-        checker = DkimChecker.from_settings(settings, preload=answers, refresh_negative=True)
+        checker = DkimChecker.from_settings(
+            settings, preload=answers, refresh_negative=True, candidates=candidates
+        )
     except (OSError, ValueError) as error:
         log.error(
             "cannot recheck DKIM of mail %d, the DKIM DNS settings are wrong: %s", mail_id, error
@@ -356,7 +366,8 @@ async def _participants(session: AsyncSession, mail_id: int) -> list[Participant
 
 
 async def _dkim(session: AsyncSession, mail_id: int, status: DkimStatus | None) -> MailDkim:
-    """The mail's signatures by index, each with the dns_cache row of its key if there is one."""
+    """The mail's signatures by index, each with the dns_cache row of its key if there is one
+    and the key from another source it rests on (D100)."""
     results = list(
         await session.scalars(
             select(DkimResult)
@@ -369,10 +380,15 @@ async def _dkim(session: AsyncSession, mail_id: int, status: DkimStatus | None) 
     if names:
         cached = await session.scalars(select(DnsCache).where(DnsCache.name.in_(names)))
         keys = {key.name: key for key in cached}
-    return MailDkim(status=status, signatures=[_signature(result, keys) for result in results])
+    found = await key_infos(session, {r.key_id for r in results if r.key_id is not None})
+    return MailDkim(
+        status=status, signatures=[_signature(result, keys, found) for result in results]
+    )
 
 
-def _signature(result: DkimResult, keys: dict[str, DnsCache]) -> DkimSignature:
+def _signature(
+    result: DkimResult, keys: dict[str, DnsCache], found: dict[int, DkimKeyInfo]
+) -> DkimSignature:
     key = None
     if result.selector and result.domain:
         key = keys.get(key_name(result.selector, result.domain))
@@ -393,7 +409,110 @@ def _signature(result: DkimResult, keys: dict[str, DnsCache]) -> DkimSignature:
         dns_record=key.record if key else None,
         dns_fetched_at=key.fetched_at if key else None,
         dns_ttl=key.ttl if key else None,
+        key_origin=result.key_origin,
+        key=None if result.key_id is None else found.get(result.key_id),
     )
+
+
+async def key_infos(session: AsyncSession, key_ids: set[int]) -> dict[int, DkimKeyInfo]:
+    """The dkim_key rows with these ids and all their evidence, strongest origin first: one query
+    for the keys, one for their evidence, one for today's ids of the mails a reconstruction used
+    (by content, the original first, as permalinks do, D61).
+
+    A key's signatures are the results it verified on mails that are no duplicates, counted
+    through ix_dkim_result_key_id.
+    """
+    if not key_ids:
+        return {}
+    ids = literal(sorted(key_ids), postgresql.ARRAY(BigInteger))
+    verified = (
+        select(func.count())
+        .select_from(DkimResult)
+        .join(Mail, Mail.id == DkimResult.mail_id)
+        .where(DkimResult.key_id == DkimKey.id, Mail.is_duplicate_of.is_(None))
+        .scalar_subquery()
+    )
+    keys = (
+        await session.execute(
+            select(DkimKey, verified.label("signatures"))
+            .where(DkimKey.id == any_(ids))
+            .order_by(DkimKey.origin, DkimKey.id)  # key_origin lists the strongest first
+        )
+    ).all()
+    lookup = DkimKeyLookup
+    evidence = (
+        await session.execute(
+            select(
+                DkimKeyEvidence,
+                lookup.source,
+                lookup.asked_at,
+                lookup.raw_sha256,
+                func.octet_length(lookup.raw).label("raw_size"),
+            )
+            .join(lookup, lookup.id == DkimKeyEvidence.lookup_id)
+            .where(DkimKeyEvidence.key_id == any_(ids))
+            .order_by(DkimKeyEvidence.origin, DkimKeyEvidence.created_at, DkimKeyEvidence.id)
+        )
+    ).all()
+    used = {
+        row.DkimKeyEvidence.id: [
+            (entry["mail_sha256"], entry["signature_index"])
+            for entry in row.DkimKeyEvidence.details.get("signatures", [])
+        ]
+        for row in evidence
+    }
+    today = await _originals(session, {sha for pairs in used.values() for sha, _ in pairs})
+    pieces: dict[int, list[KeyEvidenceInfo]] = {}
+    for row in evidence:
+        item: DkimKeyEvidence = row.DkimKeyEvidence
+        pieces.setdefault(item.key_id, []).append(
+            KeyEvidenceInfo(
+                id=item.id,
+                origin=item.origin,
+                source=row.source,
+                lookup_id=item.lookup_id,
+                asked_at=row.asked_at,
+                observed_from=item.observed_from,
+                observed_to=item.observed_to,
+                reference=item.reference,
+                note=item.note,
+                editor=item.editor,
+                raw_sha256=row.raw_sha256,
+                raw_size=row.raw_size,
+                signatures=[
+                    UsedSignature(mail_id=today.get(sha), mail_sha256=sha, signature_index=index)
+                    for sha, index in used[item.id]
+                ],
+            )
+        )
+    return {
+        key.id: DkimKeyInfo(
+            id=key.id,
+            name=key.name,
+            key_type=key.key_type,
+            bits=key.bits,
+            key_sha256=key.key_sha256,
+            record=key.record,
+            origin=key.origin,
+            factorable=key.factorable,
+            signatures=signatures,
+            evidence=pieces.get(key.id, []),
+        )
+        for key, signatures in keys
+    }
+
+
+async def _originals(session: AsyncSession, hashes: set[str]) -> dict[str, int]:
+    """The mail standing for each content: no duplicate first, then the lowest id."""
+    if not hashes:
+        return {}
+    rows = await session.execute(
+        select(Mail.raw_sha256, Mail.id)
+        .where(Mail.raw_sha256 == any_(literal(sorted(hashes), postgresql.ARRAY(Text))))
+        .order_by(Mail.raw_sha256, Mail.is_duplicate_of.is_not(None), Mail.id)
+        .ext(postgresql.distinct_on(Mail.raw_sha256))
+    )
+    return {sha: mail_id for sha, mail_id in rows}
 
 
 async def _attachments(session: AsyncSession, mail_id: int) -> list[AttachmentInfo]:
