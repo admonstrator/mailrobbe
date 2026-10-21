@@ -69,7 +69,7 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
         "/api/documents/summary?q=quittung",
     )
     assert paths["document page"] == ("/api/documents/12",)
-    assert paths["document text"] == ("/api/documents/12/text",)
+    assert paths["document text"] == ("/api/documents/13/text",)
     assert paths["mails of a document, oldest first"] == ("/api/mails?document=12&sort=date_asc",)
     assert paths["mail search through attachments"] == (
         "/api/mails?q=spenden",

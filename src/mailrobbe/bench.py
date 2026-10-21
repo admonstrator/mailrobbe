@@ -363,7 +363,8 @@ def scenarios(samples: Samples, with_export: bool = False) -> tuple[list[Scenari
         *(word and with_query("/api/documents/summary", [("q", word)]) for word in document_words),
     )
     add("document page", document)
-    add("document text", document and f"{document}/text")
+    text = s.text_document_id and f"/api/documents/{s.text_document_id}/text"
+    add("document text", text)
     add(
         "mails of a document, oldest first",
         document and mails(("document", s.document_id), ("sort", "date_asc")),
