@@ -105,6 +105,55 @@ describe("mail detail", () => {
     );
   });
 
+  it("marks where the list's search words occur: subject, text, quoted text, attachments", async () => {
+    const scrolled: Element[] = [];
+    // jsdom does not scroll
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    const { calls } = renderApp(`/mails/184221?${new URLSearchParams({ q: "Haftung" })}`);
+
+    const hits = await screen.findByRole("region", { name: "Suchtreffer" });
+    expect(hits.textContent).toBe(
+      "Suchtreffer für „Haftung“: im Text der Mail · im Anhang Rahmenvereinbarung_2026_final.pdf" +
+        " · im Anhang Aenderungsprotokoll.xlsx",
+    );
+    expect(calls.find((call) => call.url.pathname.endsWith("/hits"))!.url.search).toBe(
+      "?q=Haftung",
+    );
+    // The stem marks the longer word in the text; the quoted part has one more place.
+    expect(await screen.findByText("2 Fundstellen markiert")).toBeTruthy();
+    expect(screen.getByText("Haftungsklausel").tagName).toBe("MARK");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Zitierten Verlauf einblenden (7 Zeilen, 1 Fundstelle)" }),
+    );
+    const quoted = screen.getByText(/danke für den Entwurf/);
+    expect(within(quoted).getByText("Haftung").tagName).toBe("MARK");
+
+    const pdf = screen
+      .getByText("Rahmenvereinbarung_2026_final.pdf", { selector: "span *, span" })
+      .closest("li")!;
+    expect([...pdf.querySelectorAll("mark")].map((mark) => mark.textContent)).toEqual([
+      "Haftung",
+      "Haftung",
+    ]);
+    const sheet = screen
+      .getByText("Aenderungsprotokoll.xlsx", { selector: "span *, span" })
+      .closest("li")!;
+    expect(within(sheet).getByText("Suchwort im Text, in einer anderen Wortform")).toBeTruthy();
+    fireEvent.click(
+      within(hits).getByRole("button", { name: "im Anhang Aenderungsprotokoll.xlsx" }),
+    );
+    expect(scrolled).toEqual([sheet]);
+  });
+
+  it("marks nothing without full text words in the list's query", async () => {
+    renderApp(`/mails/184221?${listQuery}`);
+    expect(await screen.findByText(/Hallo Herr Brandt/)).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Suchtreffer" })).toBeNull();
+    expect(document.querySelector("mark")).toBeNull();
+  });
+
   it("shows the result of Neu prüfen", async () => {
     const failed: MailDkim = {
       status: "fail",

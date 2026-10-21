@@ -6,7 +6,7 @@ import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatDate, formatDateTime } from "../../lib/format";
 import styles from "./DocumentTable.module.css";
-import { highlightParts } from "./highlight";
+import { highlightParts } from "../../lib/highlight";
 import { KindIcon } from "./KindIcon";
 import {
   documentName,
