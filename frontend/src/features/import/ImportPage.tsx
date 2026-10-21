@@ -20,6 +20,7 @@ import { CrossIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { ArchiveTiles } from "./ArchiveTiles";
+import { KeyRecoveryCard } from "../keys/KeyRecoveryCard";
 import { DkimResult } from "./DkimResult";
 import { DocumentResult } from "./DocumentResult";
 import { ErrorDialog } from "./ErrorDialog";
@@ -163,6 +164,7 @@ function Dashboard({ status }: { status: ImportStatus }) {
         </div>
         <div className={styles.side}>
           {summary.data && <DkimResult summary={summary.data} />}
+          <KeyRecoveryCard />
           {summary.data && <DocumentResult summary={summary.data} />}
           <ErrorLog alive={runAlive(status)} onShowAll={() => setErrorFilters({})} />
           <SettingsCard defaults={status.defaults} draft={draft} onChange={setDraft} />
@@ -204,7 +206,9 @@ function Toolbar({
     ? "Es läuft gerade ein Import."
     : status.dkim_job?.alive
       ? "Es läuft gerade eine DKIM-Prüfung."
-      : null;
+      : status.keys_job?.alive
+        ? "Es läuft gerade eine Schlüsselsuche."
+        : null;
   const needsDir = busy ?? (status.mbox_dir_ok ? null : MBOX_DIR_MISSING);
   const showError = (error: Error) => onNotice({ tone: "error", content: actionErrorText(error) });
 

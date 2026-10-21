@@ -2017,8 +2017,10 @@ export const keysJobRunning: DkimKeysJob = {
   stop_requested: false,
   started_at: "2026-10-21T09:30:00Z",
   updated_at: "2026-10-21T09:41:12Z",
+  report_age_seconds: 1.4,
   finished_at: null,
   message: null,
+  leftover: null,
   phase: "reconstruct",
   options: { task: "reconstruct", names: [], domains: [], workers: 4, archive_url: null },
   progress: {
@@ -2028,6 +2030,34 @@ export const keysJobRunning: DkimKeysJob = {
     factorable: 0,
     mails_checked: 0,
     mails_changed: 0,
+    steps: [
+      {
+        key: "select",
+        status: "done",
+        unit: "names",
+        done: 164,
+        total: 164,
+        started_at: "2026-10-21T09:30:00Z",
+        seconds: 4,
+        rate: null,
+        eta_seconds: null,
+      },
+      {
+        key: "reconstruct",
+        status: "running",
+        unit: "names",
+        done: 41,
+        total: 164,
+        started_at: "2026-10-21T09:30:04Z",
+        seconds: 668,
+        rate: 0.06,
+        eta_seconds: 2050,
+      },
+      ...["compare", "check", "edges", "person_stats", "suggestions", "global_stats"].map(
+        waitingStep,
+      ),
+    ],
+    database: null,
   },
 };
 
@@ -2046,6 +2076,8 @@ export const keysJobDone: DkimKeysJob = {
     factorable: 1,
     mails_checked: 9_859,
     mails_changed: 9_212,
+    steps: [],
+    database: null,
   },
 };
 

@@ -54,7 +54,7 @@ DkimPhase = Literal["check", "aggregates"]
 LOST_MESSAGE = "the run ended without recording its end"
 
 StepStatus = Literal["waiting", "running", "done", "stopped", "skipped", "failed"]
-StepUnit = Literal["bytes", "mails", "documents"]  # what a step's done and total count
+StepUnit = Literal["bytes", "mails", "documents", "names", "domains"]  # what done and total count
 
 
 class StepProgress(BaseModel):

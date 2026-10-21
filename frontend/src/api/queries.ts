@@ -392,7 +392,7 @@ export type ImportErrorFilters = Pick<ImportErrorParams, "kind" | "mbox_file">;
 
 /** An import or a DKIM run is alive: its process holds the lock of its kind. */
 export function runAlive(status: ImportStatus | undefined): boolean {
-  return Boolean(status?.import_job?.alive || status?.dkim_job?.alive);
+  return Boolean(status?.import_job?.alive || status?.dkim_job?.alive || status?.keys_job?.alive);
 }
 
 /** How often the dashboard asks for the status (D48): every 2 s while a run is alive, else

@@ -610,7 +610,7 @@ export interface ImportOptions {
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
-export type StepUnit = "bytes" | "mails" | "documents";
+export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains"; // names: DKIM key names
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {

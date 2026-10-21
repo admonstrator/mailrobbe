@@ -5,6 +5,7 @@ import { useKeysStatus, useStopKeysRun } from "../../api/queries";
 import type { DkimKeysJob } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
+import { StepList } from "../import/StepList";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import styles from "./KeysRun.module.css";
 import { busyText, keysErrorText, PHASE_LABELS, runFigures, TASK_LABELS } from "./labels";
@@ -60,10 +61,14 @@ export function KeysRun({
             )}
           </span>
           {job.phase && <span>{PHASE_LABELS[job.phase]}</span>}
-          {/* The phase's progress bar, rate and remaining time come with the progress steps
-              every run reports (the dashboard's step model); they belong here. */}
           <span className={styles.figures}>{runFigures(job)}</span>
           <span className={styles.muted}>{started}</span>
+          <StepList
+            steps={job.progress.steps}
+            alive
+            age={job.report_age_seconds}
+            database={job.progress.database}
+          />
         </div>
         <Button
           size="sm"

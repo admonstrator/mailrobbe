@@ -123,6 +123,14 @@ describe("key recovery card", () => {
     expect(within(card()).getByText("Rekonstruktion wird angehalten …")).toBeTruthy();
   });
 
+  it("lists the steps of a running run with key names as their unit", async () => {
+    renderElement(<KeyRecoveryCard />, backend(keysJobRunning).api);
+    const step = await within(card()).findByText("Schlüssel rekonstruieren", { selector: "li *" });
+    expect(step.closest("li")!.textContent).toContain(
+      "41 von 164 Selektoren · 3,6 Selektoren/min · Restzeit geschätzt 34 min",
+    );
+  });
+
   it("says in German why a run did not start", async () => {
     const { api } = backend(null, (call) =>
       call.method === "POST" ? apiError(409, "job_running") : undefined,
