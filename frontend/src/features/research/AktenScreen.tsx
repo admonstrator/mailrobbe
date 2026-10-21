@@ -69,17 +69,18 @@ export function AktenScreen() {
             gesichtet
           </span>
         )}
+        <div className={styles.tabs}>
+          <Tabs<AktenTab>
+            items={items}
+            active={tab}
+            onSelect={(next) =>
+              setSearchParams(next === "akten" ? {} : { tab: next }, { preventScrollReset: true })
+            }
+            idPrefix={TABS_ID}
+            label="Bereiche der Rechercheakte"
+          />
+        </div>
       </div>
-
-      <Tabs<AktenTab>
-        items={items}
-        active={tab}
-        onSelect={(next) =>
-          setSearchParams(next === "akten" ? {} : { tab: next }, { preventScrollReset: true })
-        }
-        idPrefix={TABS_ID}
-        label="Bereiche der Rechercheakte"
-      />
 
       <div {...tabPanelProps(TABS_ID, tab)} className={styles.panel}>
         {tab === "notizen" ? (
