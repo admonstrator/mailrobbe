@@ -35,11 +35,11 @@
   padding: 48px;
 }
 
-/* The periods in as many columns of at least 480 px as fit, divided by thin lines; the card
+/* The periods in as many columns of at least 440 px as fit, divided by thin lines; the card
    clips the lines at its edges. */
 .periods {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
   margin: 0;
   padding: 0;
   list-style: none;

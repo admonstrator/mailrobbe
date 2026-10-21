@@ -124,7 +124,7 @@
   border-top-right-radius: var(--radius-card);
 }
 
-@media (max-width: 759px) {
+@media (max-width: 1023px) {
   .scroll {
     overflow-x: auto;
   }
