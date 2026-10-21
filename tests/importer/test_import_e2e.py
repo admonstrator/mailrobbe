@@ -28,10 +28,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe import migrate
 from mailrobbe.config import Settings
+from mailrobbe.enums import DocumentKind
 from mailrobbe.importer import cli
 from mailrobbe.importer.cli import run_import
 from mailrobbe.importer.model import BODY_TEXT_LIMIT
 from mailrobbe.jobs import ImportProgress
+from mailrobbe.preview.kinds import preview_kind
 from tests.conftest import GeneratedArchive, _temporary_database
 from tests.importer.doubles import copy_archive
 
@@ -51,6 +53,8 @@ class Imported:
     errors: dict[tuple[str, int], set[str]] = field(repr=False)  # (file, offset) -> kinds
     signatures: dict[int, list[str]] = field(repr=False)  # mail id -> dkim_result statuses
     job: dict[str, Any] = field(repr=False)  # the run's job row
+    # mail id -> its attachments by position, with their document's kind and text status
+    attachments: dict[int, list[dict[str, Any]]] = field(repr=False)
 
     def mail(self, record: dict[str, Any]) -> dict[str, Any]:
         return self.mails[record["file"], record["offset"]]
@@ -100,9 +104,17 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
         for mail_id, status in await rows("SELECT mail_id, status::text FROM dkim_result"):
             signatures[mail_id].append(status)
         files = {path: status for path, status in await rows("SELECT path, status FROM mbox_file")}
+        attachments: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for row in await rows(
+            "SELECT a.*, d.kind::text AS kind, d.text_status::text AS status FROM attachment a "
+            "JOIN document d ON d.id = a.document_id ORDER BY a.mail_id, a.position"
+        ):
+            attachments[row.mail_id].append(row._asdict())
         [job] = [row._asdict() for row in await rows("SELECT * FROM job")]
     await engine.dispose()
-    return Imported(exit_code, files, manifest, mails, participants, errors, signatures, job)
+    return Imported(
+        exit_code, files, manifest, mails, participants, errors, signatures, job, attachments
+    )
 
 
 def test_every_file_is_done(imported: Imported) -> None:
@@ -167,6 +179,31 @@ def test_attachments_and_body(imported: Imported) -> None:
         assert mail["has_attachments"] == (record["attachments"] > 0), record["index"]
         assert len(mail["body_text"] or "") <= BODY_TEXT_LIMIT
         assert mail["tsv"] is not None
+
+
+def test_documents_match_the_manifest(imported: Imported) -> None:
+    """Each attachment is the manifest's file (D77): its SHA-256, size, kind and text status
+    after the attachments phase, and the preview the API offers for what the database holds
+    (D125)."""
+    max_size = Settings().preview_max_size
+    kinds: Counter[str] = Counter()
+    for record in imported.manifest:
+        attachments = imported.attachments.get(imported.mail(record)["id"], [])
+        assert [a["filename"] for a in attachments] == [t["filename"] for t in record["documents"]]
+        for truth, attachment in zip(record["documents"], attachments, strict=True):
+            if truth["sha256"] is None:  # the invalid_base64 fault: bytes unknown
+                continue
+            where = (record["index"], truth["filename"])
+            found = [attachment[key] for key in ("sha256", "size_bytes", "kind", "status")]
+            assert found == [truth[key] for key in ("sha256", "size", "kind", "status")], where
+            hint = preview_kind(
+                DocumentKind(attachment["kind"]), attachment["filename"], attachment["mime_type"],
+                attachment["size_bytes"], hashed=attachment["sha256"] is not None,
+                max_size=max_size,
+            )  # fmt: skip
+            assert hint == truth["preview"], where
+            kinds[truth["kind"]] += 1
+    assert {"pdf", "document", "spreadsheet", "image"} <= set(kinds), kinds
 
 
 def test_dkim_matches_the_manifest(imported: Imported) -> None:

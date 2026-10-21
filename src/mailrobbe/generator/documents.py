@@ -19,12 +19,18 @@ invented bank codes, no real institutions). Every distinct document with text ho
 word, "Dokmarke" and a code from its seed, so a test can search for it. Forms: PDFs with a text
 layer, scans (images only), PDFs encrypted with a user password, damaged (truncated) PDFs, DOCX,
 XLSX (amounts as numbers, IBANs as text), PPTX, ODT, CSV, plain text (some empty), iCalendar,
-vCard and ZIP archives of a few documents. Pictures, audio, video and the very large attachments
-stay filler (render.py); filler_truth() states what the extraction makes of them.
+vCard and ZIP archives of a few documents.
+
+Pictures and recordings circulate like documents (D125): PNGs and JPEGs of their own (a few cut
+short, so no browser shows them), and recordings as people send them (voice messages, phone
+videos, interviews), each one of a handful of real files per format in media/ that browsers
+play, apart from WMA and AVI, which they do not. Inline pictures of a mail body are pictures of
+their own that do not circulate. Only the very large attachments stay filler (render.py);
+filler_truth() states what the extraction makes of them.
 
 DocumentTruth (model.py) is what manifest.jsonl lists for each attachment of a mail, in the
 order importer.parse.mime_parts finds them: SHA-256, file name, kind, expected text status,
-marker and pages.
+marker, pages, the preview the API offers and the media type its endpoint sends.
 """
 
 import binascii
@@ -45,9 +51,14 @@ from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.fileformats import Block, Para, Table
 from mailrobbe.generator.model import AttachmentSpec, DocumentSpec, DocumentTruth, stage_rng
 from mailrobbe.generator.population import transliterate
+from mailrobbe.preview.kinds import preview_kind
 
 # The importer's default MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE: larger attachments are not read.
 TEXT_MAX_SIZE = 50 * 1024**2
+# The defaults of MAILROBBE_IMPORT_ATTACHMENT_HASH_LIMIT and MAILROBBE_PREVIEW_MAX_SIZE: larger
+# attachments are not hashed and get no preview.
+HASH_LIMIT = 50 * 1024**2
+PREVIEW_MAX_SIZE = 50 * 1024**2
 MARKER_WORD = "Dokmarke"
 
 REUSE_SHARE = 0.8  # attachments of people that are a recent document again
@@ -56,8 +67,10 @@ AGAIN_SHARE = 0.5  # replies with attachments to a mail with documents: they are
 OCTET_SHARE = 0.06  # new documents declared as application/octet-stream
 ENCRYPTED_SHARE = 0.05  # text PDFs with a user password
 DAMAGED_SHARE = 0.04  # text PDFs cut short
+DAMAGED_PICTURE_SHARE = 0.05  # pictures cut short
 EMPTY_TEXT_SHARE = 0.15  # notes files without any text
 PAPER_SHARE = 0.13  # new documents of people that are association papers (PAPERS)
+RECORDING_SHARE = 0.03  # new documents of people that are recordings (RECORDINGS)
 RECENT_DOCUMENTS = 200  # documents that may be passed on again
 _TEXT_SIZE_CAP = 200_000  # text formats are written, not padded: their size is their content
 _CACHE_BYTES = 96 * 1024**2  # built documents kept per process
@@ -89,6 +102,19 @@ TEMPLATES: dict[str, tuple[str, tuple[str, ...]]] = {
     "Schreiben_{word}.docx": ("docx", ("letter",)),
     "Export_{n}.csv": ("csv", ("export",)),
     "Termin.ics": ("ics", ("calendar",)),
+    "IMG_{n}.jpg": ("jpeg", ("photo",)),
+    "Foto.png": ("png", ("photo",)),
+    "Messe_Video.mp4": ("mp4", ("video",)),
+    "Sprachnachricht_{n}.m4a": ("m4a", ("voice",)),
+    "Mitschnitt_{year}-{month2}-{day2}.mp3": ("mp3", ("voice",)),
+    "Ansage.wav": ("wav", ("voice",)),
+    "Interview_{word}.ogg": ("ogg", ("voice",)),
+    "Aufnahme.flac": ("flac", ("voice",)),
+    "Diktat_{n}.wma": ("wma", ("voice",)),
+    "Video_{n}.mp4": ("mp4", ("video",)),
+    "IMG_{n}.MOV": ("mov", ("video",)),
+    "Clip_{project}.webm": ("webm", ("video",)),
+    "MVI_{n}.AVI": ("avi", ("video",)),
 }
 _ODT = "application/vnd.oasis.opendocument.text"
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -104,6 +130,41 @@ PAPERS = (
     ("Mitgliederliste_{year}.csv", "text/csv", 8_000, 0.8, 0.4),
     ("Schreiben_{word}.docx", _DOCX, 40_000, 0.7, 0.8),
 )
+# Recordings people send, chosen as the papers are (the plan has only Messe_Video.mp4): voice
+# messages, recorded calls, phone videos, and two formats browsers do not play. (file name
+# pattern, MIME type, weight); their size is that of their file in media/.
+RECORDINGS = (
+    ("Sprachnachricht_{n}.m4a", "audio/x-m4a", 6),
+    ("Mitschnitt_{year}-{month2}-{day2}.mp3", "audio/mpeg", 5),
+    ("Ansage.wav", "audio/x-wav", 2),
+    ("Interview_{word}.ogg", "audio/ogg", 3),
+    ("Aufnahme.flac", "audio/flac", 2),
+    ("Diktat_{n}.wma", "audio/x-ms-wma", 1),
+    ("Video_{n}.mp4", "video/mp4", 4),
+    ("IMG_{n}.MOV", "video/quicktime", 4),
+    ("Clip_{project}.webm", "video/webm", 2),
+    ("MVI_{n}.AVI", "video/x-msvideo", 1),
+)
+
+# Pictures and recordings (D125): form -> the type the preview endpoint sends for them (the
+# content endpoint for pictures, D76; the media endpoint for recordings, D123), None for the
+# formats browsers do not play; and how many recordings of the form media/ has (their files are
+# named <form>-<number>.<form>). Damaged pictures are "<form>_damaged".
+PICTURE_TYPES = {"png": "image/png", "jpeg": "image/jpeg"}
+RECORDING_FORMS: dict[str, tuple[str | None, int]] = {
+    "mp3": ("audio/mpeg", 3),
+    "m4a": ("audio/mp4", 3),
+    "wav": ("audio/wav", 2),
+    "ogg": ("audio/ogg", 3),
+    "flac": ("audio/flac", 2),
+    "mp4": ("video/mp4", 2),
+    "mov": ("video/quicktime", 2),
+    "webm": ("video/webm", 2),
+    "wma": (None, 1),
+    "avi": (None, 1),
+}
+_DAMAGED_PICTURES = tuple(f"{form}_damaged" for form in PICTURE_TYPES)
+_FILES = frozenset((*PICTURE_TYPES, *RECORDING_FORMS))  # not swapped for a paper or recording
 
 _KINDS = {
     "pdf": DocumentKind.PDF,
@@ -120,12 +181,17 @@ _KINDS = {
     "ics": DocumentKind.TEXT,
     "vcf": DocumentKind.TEXT,
     "zip": DocumentKind.ARCHIVE,
+    **dict.fromkeys((*PICTURE_TYPES, *_DAMAGED_PICTURES), DocumentKind.IMAGE),
+    **dict.fromkeys(RECORDING_FORMS, DocumentKind.MEDIA),
 }
 _STATUSES = {
     "pdf_scan": DocumentTextStatus.SCANNED,
     "pdf_encrypted": DocumentTextStatus.ENCRYPTED,
     "pdf_damaged": DocumentTextStatus.FAILED,
     "txt_empty": DocumentTextStatus.EMPTY,
+    **dict.fromkeys(
+        (*PICTURE_TYPES, *_DAMAGED_PICTURES, *RECORDING_FORMS), DocumentTextStatus.UNSUPPORTED
+    ),
 }
 _TEXT_FORMS = frozenset({"csv", "txt", "txt_empty", "ics", "vcf"})
 
@@ -157,6 +223,7 @@ class DocumentPool:
         self._recent: deque[AttachmentSpec] = deque(maxlen=RECENT_DOCUMENTS)
         self._shared: dict[str, AttachmentSpec] = {}  # bounded: senders times years
         self._count = 0
+        self._inline = 0
 
     def attach(
         self,
@@ -168,7 +235,7 @@ class DocumentPool:
         circulate: bool = True,
         shared: str | None = None,
     ) -> AttachmentSpec:
-        """The attachment with its document; `spec` as it is for pictures and media.
+        """The attachment with its document; `spec` as it is for a pattern without one.
 
         `taken` are the mail's other attachments (no document twice), `circulate` False keeps
         the document out of reuse (invoices, automated mail), `shared` names a document many
@@ -189,8 +256,12 @@ class DocumentPool:
             documents = {a.document for a in taken}
             if again.filename not in names and again.document not in documents:
                 return again
-        if circulate and shared is None and rng.random() < PAPER_SHARE:
-            spec, template = _paper(spec, when, rng)
+        if circulate and shared is None and template[0] not in _FILES:
+            draw = rng.random()
+            if draw < PAPER_SHARE:
+                spec, template = _paper(spec, when, rng)
+            elif draw < PAPER_SHARE + RECORDING_SHARE:
+                spec, template = _recording(spec, when, rng)
         while spec.filename in names:  # a document passed on before took the planned name
             spec = replace(spec, filename=_renamed(spec.filename, rng))
         form, themes = template
@@ -203,6 +274,8 @@ class DocumentPool:
                 form = "pdf_damaged"
         elif form == "txt" and rng.random() < EMPTY_TEXT_SHARE:
             form = "txt_empty"
+        elif form in PICTURE_TYPES and rng.random() < DAMAGED_PICTURE_SHARE:
+            form = f"{form}_damaged"
         mime_type = "application/octet-stream" if rng.random() < OCTET_SHARE else spec.mime_type
         seed = document_seed(self._seed, str(self._count))
         self._count += 1
@@ -215,6 +288,14 @@ class DocumentPool:
         elif circulate:
             self._recent.append(made)
         return made
+
+    def inline(self, spec: AttachmentSpec, when: datetime) -> AttachmentSpec:
+        """An inline picture of a mail body (a logo in the signature, a pasted screenshot): a
+        picture of its own that does not circulate, made without a random draw."""
+        form = "jpeg" if spec.mime_type == "image/jpeg" else "png"
+        self._inline += 1
+        seed = document_seed(self._seed, f"inline{self._inline}")
+        return replace(spec, document=DocumentSpec(seed, form, "inline", when))
 
     def again(
         self, parent: Sequence[AttachmentSpec], own: tuple[AttachmentSpec, ...]
@@ -242,6 +323,21 @@ def _paper(
     return replace(spec, filename=filename, mime_type=mime_type, size=size), TEMPLATES[pattern]
 
 
+def _recording(
+    spec: AttachmentSpec, when: datetime, rng: random.Random
+) -> tuple[AttachmentSpec, tuple[str, tuple[str, ...]]]:
+    pattern, mime_type, _ = rng.choices(RECORDINGS, [r[2] for r in RECORDINGS])[0]
+    filename = pattern.format(
+        year=when.year,
+        month2=f"{when.month:02d}",
+        day2=f"{when.day:02d}",
+        n=rng.randint(1000, 9999),
+        project=rng.choice(vocab.PROJECTS).replace(" ", "_"),
+        word=rng.choice(vocab.SURNAMES_DE).replace(" ", "_"),
+    )
+    return replace(spec, filename=filename, mime_type=mime_type), TEMPLATES[pattern]
+
+
 _RENAMES = ("_Kopie", "_final", "_neu", "_v2", "_überarbeitet", " (1)")
 
 
@@ -267,8 +363,11 @@ class Built:
     status: DocumentTextStatus
     marker: str | None
     pages: int | None
+    media_type: str | None  # what a preview endpoint sends for a picture or recording
 
-    def truth(self, filename: str) -> DocumentTruth:
+    def truth(self, filename: str, mime_type: str) -> DocumentTruth:
+        """The truth of an attachment carrying this document under that name and type."""
+        preview, media_type = _preview(self.kind, filename, mime_type, self.size, self.media_type)
         return DocumentTruth(
             self.sha256,
             filename,
@@ -277,7 +376,21 @@ class Built:
             self.marker,
             self.pages,
             self.size,
+            preview,
+            media_type,
         )
+
+
+def _preview(
+    kind: DocumentKind, filename: str, mime_type: str, size: int, media_type: str | None
+) -> tuple[str | None, str | None]:
+    """The preview the API offers under the default settings (preview_kind decides it), and
+    the type its endpoint sends for an image, audio or video preview."""
+    hashed = size <= HASH_LIMIT
+    preview = preview_kind(
+        kind, filename, mime_type, size, hashed=hashed, max_size=PREVIEW_MAX_SIZE
+    )
+    return preview, media_type if preview in ("image", "audio", "video") else None
 
 
 class _Cache:
@@ -328,7 +441,14 @@ def _build(spec: DocumentSpec, size: int) -> Built:
         status=status,
         marker=marker(spec.seed) if status is DocumentTextStatus.TEXT else None,
         pages=pages,
+        media_type=_media_type(spec.form),
     )
+
+
+def _media_type(form: str) -> str | None:
+    if form in RECORDING_FORMS:
+        return RECORDING_FORMS[form][0]
+    return PICTURE_TYPES.get(form.removesuffix("_damaged"))
 
 
 _FILLER_KINDS = {
@@ -341,7 +461,8 @@ _FILLER_KINDS = {
 def filler_truth(spec: AttachmentSpec, sha256: str) -> DocumentTruth:
     """What the extraction makes of a filler attachment (render.py): pictures and media are
     unsupported, a PDF or ZIP of noise behind its magic number is damaged, sample text is text;
-    above TEXT_MAX_SIZE nothing is read."""
+    above TEXT_MAX_SIZE nothing is read. A preview endpoint sends the declared type, which its
+    magic number proves."""
     mime = spec.mime_type
     if mime.startswith("image/"):
         kind = DocumentKind.IMAGE
@@ -359,17 +480,24 @@ def filler_truth(spec: AttachmentSpec, sha256: str) -> DocumentTruth:
         status = DocumentTextStatus.TEXT
     else:
         status = DocumentTextStatus.UNSUPPORTED
-    return DocumentTruth(sha256, spec.filename, kind.value, status.value, None, None, spec.size)
+    preview, media_type = _preview(kind, spec.filename, mime, spec.size, mime)
+    return DocumentTruth(
+        sha256, spec.filename, kind.value, status.value, None, None, spec.size, preview, media_type
+    )
 
 
 def damaged(truths: list[DocumentTruth], raw: bytes) -> list[DocumentTruth]:
     """The truths after the invalid_base64 fault: an attachment whose base64 it broke has
-    unknown bytes (sha256, status, marker and pages None)."""
+    unknown bytes (sha256, status, marker, pages, preview and media type None)."""
     flags = damaged_attachments(raw)
     if len(flags) != len(truths):
         raise ValueError(f"{len(truths)} attachments planned, {len(flags)} found")
     return [
-        replace(truth, sha256=None, status=None, marker=None, pages=None) if bad else truth
+        replace(
+            truth, sha256=None, status=None, marker=None, pages=None, preview=None, media_type=None
+        )
+        if bad
+        else truth
         for truth, bad in zip(truths, flags, strict=True)
     ]
 
@@ -404,6 +532,12 @@ def document_bytes(spec: DocumentSpec, size: int) -> tuple[bytes, int | None]:
     and its pages, sheets or slides (None where it has none)."""
     rng = random.Random(f"document:{spec.seed}")
     form = spec.form
+    if form in RECORDING_FORMS:
+        return ff.fixture(f"{form}-{rng.randint(1, RECORDING_FORMS[form][1])}.{form}"), None
+    if form.removesuffix("_damaged") == "png":
+        return ff.png(rng, size, damaged=form != "png"), None
+    if form.removesuffix("_damaged") == "jpeg":
+        return ff.jpeg(rng, size, damaged=form != "jpeg"), None
     if form == "pdf_scan":
         count = rng.randint(1, 2) if spec.theme == "plan" else rng.randint(1, 5)
         share = max(size - 1500 * count, 2000) // count

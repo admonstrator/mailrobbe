@@ -89,7 +89,9 @@ def test_large_records_are_truncated_but_hashed_whole(
     generated_archive: GeneratedArchive, tmp_path: Path, block_size: int
 ) -> None:
     large = next(e for e in generated_archive.manifest if "large_attachment" in e["faults"])
-    data, hashes = _sample(generated_archive, tmp_path, {large["index"] - 1, large["index"]})
+    before = generated_archive.manifest[: large["index"]]
+    small = next(e for e in reversed(before) if e["length"] < large["length"])  # stays whole
+    data, hashes = _sample(generated_archive, tmp_path, {small["index"], large["index"]})
     assert large["length"] > TRUNCATED_HEAD_SIZE
     max_size = large["length"] - 1
     records = _records(data, max_size=max_size, block_size=block_size)
