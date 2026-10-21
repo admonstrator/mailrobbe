@@ -18,6 +18,7 @@ import { DkimCard } from "./DkimCard";
 import { EntitiesCard } from "./EntitiesCard";
 import { HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
+import { NearCard } from "./NearCard";
 import { ParticipantsCard } from "./ParticipantsCard";
 import { ResearchCard } from "./ResearchCard";
 import { SearchHitsCard } from "./SearchHitsCard";
@@ -161,6 +162,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             <SignalsCard mailId={id} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
+            {detail.data.near_group !== null && <NearCard mail={detail.data} mailHref={mailHref} />}
             <EntitiesCard mailId={id} />
             <ActionsCard
               mail={detail.data}
