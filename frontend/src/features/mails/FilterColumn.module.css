@@ -127,3 +127,14 @@ label.legend {
     border-bottom: 1px solid var(--color-border);
   }
 }
+
+/* "ab" and the amount's field on one line. */
+.amount {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.amount .input {
+  flex: 1;
+}

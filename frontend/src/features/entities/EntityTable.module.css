@@ -1,0 +1,110 @@
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-hover);
+}
+
+.table th.num,
+.num {
+  text-align: right;
+}
+
+.iconCol {
+  width: 16px;
+}
+
+.icon {
+  color: var(--color-muted);
+  line-height: 0;
+}
+
+.entity {
+  min-width: 260px;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.label,
+.label:hover {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.badge {
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.kind,
+.period,
+.muted {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.mails {
+  font-variant-numeric: tabular-nums;
+}
+
+.open {
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table {
+    transition: none;
+  }
+}

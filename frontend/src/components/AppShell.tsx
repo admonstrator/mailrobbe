@@ -15,6 +15,7 @@ const NAVIGATION = [
   { to: "/mails", label: "Mails" },
   { to: "/personen", label: "Personen" },
   { to: "/anhaenge", label: "Anhänge" },
+  { to: "/entitaeten", label: "Entitäten" },
   { to: "/karte", label: "Karte" },
   { to: "/zeitachse", label: "Zeitachse" },
   { to: "/akten", label: "Akten" },
