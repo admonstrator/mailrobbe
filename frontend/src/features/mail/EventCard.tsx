@@ -230,7 +230,7 @@ function EventBlock({
       </p>
       {cancelled && (
         <p className={styles.notice} role="note">
-          Abgesagt: Dieser Termin wurde abgesagt.
+          Dieser Termin wurde abgesagt.
         </p>
       )}
       <dl className={styles.facts}>
@@ -276,7 +276,8 @@ function EventBlock({
           <>
             <dt>{event.kind === "reply" ? "Antwort von" : "Teilnehmende"}</dt>
             <dd>
-              <Attendees attendees={attendees} />
+              {/* A cancellation repeats the answers it was sent with; they no longer count. */}
+              <Attendees attendees={attendees} answers={!cancelled} />
             </dd>
           </>
         )}
@@ -294,13 +295,13 @@ function EventBlock({
   );
 }
 
-function Attendees({ attendees }: { attendees: CalendarAttendee[] }) {
+function Attendees({ attendees, answers }: { attendees: CalendarAttendee[]; answers: boolean }) {
   const rest = attendees.slice(ATTENDEES_SHOWN);
   const list = (people: CalendarAttendee[]) => (
     <ul className={styles.people}>
       {people.map((who, index) => (
         <li key={`${who.email ?? ""}-${index}`}>
-          <Participant who={who} />
+          <Participant who={who} answers={answers} />
         </li>
       ))}
     </ul>
@@ -319,11 +320,11 @@ function Attendees({ attendees }: { attendees: CalendarAttendee[] }) {
 }
 
 /** A name linking to the person when the address is one of a person's, the address, the role
- *  when it is not a plain one, and the answer. */
-function Participant({ who }: { who: CalendarAttendee }) {
+ *  when it is not a plain one, and the answer unless answers is false. */
+function Participant({ who, answers = true }: { who: CalendarAttendee; answers?: boolean }) {
   const shown = who.person ? personName(who.person) : who.name || who.email || "(ohne Adresse)";
   const role = who.role ? ROLE_LABELS[who.role.toUpperCase()] : undefined;
-  const answer = answerText(who.partstat);
+  const answer = answers ? answerText(who.partstat) : null;
   return (
     <span className={styles.participant}>
       {who.person ? <PersonLink person={who.person} /> : <span>{shown}</span>}

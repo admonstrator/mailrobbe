@@ -166,10 +166,12 @@ describe("calendar events of a mail", () => {
     const card = await eventCard("Termine (2)");
     const [first, second] = within(card).getAllByRole("article");
     expect(within(first).getByText("Absage")).toBeTruthy();
-    expect(within(first).getByRole("note").textContent).toBe(
-      "Abgesagt: Dieser Termin wurde abgesagt.",
-    );
+    expect(within(first).getByRole("note").textContent).toBe("Dieser Termin wurde abgesagt.");
     expect(fact(first, "Wann").textContent).toBe("Do, 04.06.2026 – Fr, 05.06.2026 (ganztägig)");
+    // The answers a cancellation repeats no longer count.
+    expect(answer(fact(first, "Teilnehmende"), "Jonas Brandt")).toBe(
+      "Jonas Brandt <j.brandt@stadtwerke-beispiel.example>",
+    );
     // A rule that is not simple stays as written.
     expect(fact(first, "Wiederholung").textContent).toBe("FREQ=MONTHLY;BYDAY=1TH");
     expect(within(first).queryByText(/^geändert/)).toBeNull();
