@@ -52,6 +52,11 @@ _SENDER_COUNTS = text("""
     GROUP BY s.domain
     ORDER BY mails DESC, s.domain
 """)
+_PERSON_COUNT = text("""
+    UPDATE global_stats
+    SET value = to_jsonb((SELECT count(*) FROM person WHERE merged_into IS NULL))
+    WHERE key = 'persons'
+""")
 _STATE = text("""
     SELECT count(*), bool_and(updated_at > now() - make_interval(secs => :max_age))
     FROM global_stats WHERE key = ANY(:keys)
@@ -81,11 +86,18 @@ class GlobalFigures:
 
 
 async def refresh_aggregates(db: Executor, persons: Collection[int] | None = None) -> None:
-    """Every aggregation table; persons limits all but global_stats to these persons (D33)."""
+    """Every aggregation table; persons limits them to these persons after a merge (D33).
+
+    A merge changes no global figure but the number of persons, so only that one is counted
+    again then; the others stay as they are, and so does their updated_at.
+    """
     await refresh_edges(db, persons)
     await refresh_person_stats(db, persons)
     await refresh_alias_suggestions(db, persons)
-    await refresh_global_stats(db)
+    if persons is None:
+        await refresh_global_stats(db)
+    else:
+        await db.execute(_PERSON_COUNT)
 
 
 async def refresh_global_stats(db: Executor) -> None:

@@ -78,8 +78,10 @@ async def _assert_consistent(session: AsyncSession) -> None:
     )
     assert chained == []
     partial = await snapshot(session)
+    figures = await fetch(session, "SELECT key, value FROM global_stats ORDER BY key")
     await aggregates.refresh_aggregates(session)
     assert await snapshot(session) == partial
+    assert await fetch(session, "SELECT key, value FROM global_stats ORDER BY key") == figures
 
 
 async def test_merge_and_unmerge_keep_roots_and_figures(db_session: AsyncSession) -> None:
