@@ -87,6 +87,11 @@ class DocumentTruth:
     marker: str | None  # a word the extracted text contains; None without expected text
     pages: int | None  # pages, sheets or slides the extraction reports, where known
     size: int  # decoded bytes
+    # The preview the API offers under the default settings (a PreviewKind value: image, pdf,
+    # html, audio, video; None: download only, or unknown after a byte fault), and the media
+    # type its endpoint sends for an image, audio or video preview (else None).
+    preview: str | None = None
+    media_type: str | None = None
 
     def as_json(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__slots__}
