@@ -130,6 +130,7 @@ def _parts(message: Message) -> list[tuple[Message, Message | None]]:
     def walk(part: Message, parent: Message | None) -> None:
         if part.is_multipart():
             for child in part.get_payload():
+                assert isinstance(child, Message)
                 walk(child, part)
         else:
             found.append((part, parent))

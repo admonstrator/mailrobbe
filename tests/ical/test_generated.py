@@ -83,12 +83,14 @@ async def _load(url: str) -> Stored:
 
 def _start(row: dict[str, Any], truth: str) -> bool:
     """Whether the stored start is the truth's: a date, an instant, or a floating time."""
+    local: datetime = row["starts_local"]
+    instant: datetime | None = row["starts_at"]
     if row["all_day"]:
-        return row["starts_local"].date() == date.fromisoformat(truth)
+        return local.date() == date.fromisoformat(truth)
     expected = datetime.fromisoformat(truth)
     if expected.tzinfo is None:
-        return row["starts_at"] is None and row["starts_local"] == expected
-    return row["starts_at"] == expected
+        return instant is None and local == expected
+    return instant == expected
 
 
 def _key(item: dict[str, Any]) -> tuple[Any, ...]:
