@@ -18,6 +18,8 @@ from mailrobbe.db.base import Base
 from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
+    DocumentKind,
+    DocumentTextStatus,
     JobKind,
     JobStatus,
     MboxStatus,
@@ -53,6 +55,7 @@ TABLES = {
     "collection_mail",
     "saved_search",
     "mail_export",
+    "document",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -64,6 +67,36 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
     "job_kind": (JobKind, ["import", "dkim"]),
     "job_status": (JobStatus, ["running", "done", "stopped", "failed"]),
     "review_status": (ReviewStatus, ["seen", "relevant", "irrelevant"]),
+    "document_kind": (
+        DocumentKind,
+        [
+            "pdf",
+            "document",
+            "spreadsheet",
+            "presentation",
+            "text",
+            "email",
+            "image",
+            "archive",
+            "media",
+            "other",
+        ],
+    ),
+    "document_text_status": (
+        DocumentTextStatus,
+        [
+            "pending",
+            "text",
+            "empty",
+            "scanned",
+            "encrypted",
+            "unsupported",
+            "too_large",
+            "failed",
+            "timeout",
+            "unreadable",
+        ],
+    ),
 }
 
 # pg_get_indexdef() output: method, column order and operator class in one string.
@@ -98,6 +131,15 @@ INDEXES = {
     "ON public.person_stats USING btree (mails, person_id)",
     "ix_person_stats_last_date": "CREATE INDEX ix_person_stats_last_date ON public.person_stats "
     "USING btree (COALESCE(last_date, '-infinity'::timestamp with time zone), person_id)",
+    "ix_document_tsv": "CREATE INDEX ix_document_tsv ON public.document USING gin (tsv)",
+    "ix_document_names_trgm": "CREATE INDEX ix_document_names_trgm "
+    "ON public.document USING gin (names gin_trgm_ops)",
+    "ix_document_first_date": "CREATE INDEX ix_document_first_date ON public.document "
+    "USING btree (COALESCE(first_date, '-infinity'::timestamp with time zone), id)",
+    "uq_document_sha256": "CREATE UNIQUE INDEX uq_document_sha256 "
+    "ON public.document USING btree (sha256)",
+    "ix_attachment_document_id": "CREATE INDEX ix_attachment_document_id "
+    "ON public.attachment USING btree (document_id, mail_id)",
 }
 
 # Everything in the database apart from system catalogs: relations (tables, indexes, sequences),
@@ -130,7 +172,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0007"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
 
 
 @pytest.mark.db
@@ -275,6 +317,10 @@ def test_upgrade_renders_offline_without_database() -> None:
         "UPDATE alembic_version SET version_num='0007' WHERE alembic_version.version_num = '0006'"
         in sql
     )
+    assert (
+        "UPDATE alembic_version SET version_num='0008' WHERE alembic_version.version_num = '0007'"
+        in sql
+    )
 
 
 @pytest.mark.db
@@ -316,3 +362,38 @@ async def test_research_migration_keeps_flags_and_notes(empty_database_url: str)
         (1, True, "Kopie"),
         (2, False, "Rückruf bei Eva"),
     ]
+
+
+async def test_0008_numbers_the_attachments_of_older_imports(empty_database_url: str) -> None:
+    await asyncio.to_thread(migrate.upgrade, "0006", empty_database_url)
+    engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO mbox_file (id, path, size_bytes) OVERRIDING SYSTEM VALUE "
+                    "VALUES (1, 'a.mbox', 10)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO mail (id, mbox_file_id, byte_offset, byte_length, raw_sha256) "
+                    "OVERRIDING SYSTEM VALUE VALUES (1, 1, 0, 5, 'a'), (2, 1, 5, 5, 'b')"
+                )
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO attachment (mail_id, filename, mime_type, size_bytes) VALUES "
+                    "(1, 'x', 'text/plain', 1), (2, 'p', 'text/plain', 1), "
+                    "(1, 'y', 'text/plain', 1), (1, 'z', 'text/plain', 1)"
+                )
+            )
+        await asyncio.to_thread(migrate.upgrade, "head", empty_database_url)
+        async with engine.connect() as connection:
+            rows = await _rows(
+                connection,
+                "SELECT mail_id, filename, position, document_id FROM attachment ORDER BY id",
+            )
+    finally:
+        await engine.dispose()
+    assert rows == [(1, "x", 0, None), (2, "p", 0, None), (1, "y", 1, None), (1, "z", 2, None)]

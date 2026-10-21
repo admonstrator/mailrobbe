@@ -107,7 +107,12 @@ CASES: dict[str, tuple[Params, str]] = {
     ),
     "flagged-and-word": ([("flagged", "true"), ("q", "Angebot")], f"{FLAGGED} AND {{word}}"),
 }
-WORD = "tsv @@ websearch_to_tsquery('german', 'Angebot')"
+# D73: the word in the mail's own text or in the text of one of its attachments
+WORD = (
+    "(tsv @@ websearch_to_tsquery('german', 'Angebot') OR id IN (SELECT a.mail_id"
+    " FROM attachment a JOIN document d ON d.id = a.document_id"
+    " WHERE d.tsv @@ websearch_to_tsquery('german', 'Angebot')))"
+)
 
 
 @pytest.fixture(scope="module")

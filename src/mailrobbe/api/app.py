@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from mailrobbe.api import (
     auth,
     detail,
+    documents,
     exports,
     frontend,
     graph,
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(persons.router)
     app.include_router(graph.router)
     app.include_router(imports.router)
+    app.include_router(documents.router)  # /api/documents/summary before {id}, as for mails
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

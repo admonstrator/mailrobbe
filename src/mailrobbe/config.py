@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # separators cannot exhaust memory. Parsing needs up to about 8 times a mail's size, so the
     # default keeps one worker below about 1 GB; mail servers rarely accept more than 150 MB.
     import_max_mail_size: ByteSize = ByteSize(128 * 1024**2)
+    # Text extraction of attachments (D72): larger documents are not read; each extraction runs
+    # in a child process that is stopped after the timeout (seconds) and may use this much more
+    # memory (Linux).
+    attachment_text_max_size: ByteSize = ByteSize(50 * 1024**2)
+    attachment_text_timeout: float = 60.0
+    attachment_text_memory: ByteSize = ByteSize(1024**3)
     # DKIM key lookups (SPEC 3.4, mailrobbe/dkim/checker.py). The override table answers the
     # names it lists; unset means mbox_dir/_generator/dns_override.json when that file exists.
     dkim_dns_override: Path | None = None

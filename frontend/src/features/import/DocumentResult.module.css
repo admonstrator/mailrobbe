@@ -1,0 +1,97 @@
+.card {
+  gap: 10px;
+}
+
+.none,
+.note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.none {
+  font-size: 13px;
+}
+
+.bar {
+  display: flex;
+  height: 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--color-border-subtle);
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.label,
+.label:hover {
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.label:hover {
+  text-decoration: underline;
+}
+
+.count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One colour per text status: read green; scans and locked files amber, the work of later
+   steps; failures red; no text by nature grey; waiting the accent. */
+.text {
+  background: var(--color-pass);
+}
+
+.scanned {
+  background: var(--color-no-key);
+}
+
+.encrypted {
+  background: var(--color-no-key-text);
+}
+
+.failed,
+.unreadable {
+  background: var(--color-fail);
+}
+
+.timeout {
+  background: var(--color-fail-text);
+}
+
+.empty,
+.too_large {
+  background: var(--color-border-strong);
+}
+
+.unsupported {
+  background: var(--color-unsigned);
+}
+
+.pending {
+  background: var(--color-accent);
+}

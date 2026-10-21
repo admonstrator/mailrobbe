@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { ApiError, buildQuery } from "../../api/client";
 import {
+  useDocument,
   useMailPage,
   useMailSummary,
   useMboxFiles,
@@ -94,6 +95,8 @@ export function MailListPage() {
   const page = useMailPage(toListParams(state));
   const summary = useMailSummary(toFilters(state));
   const [columns, setColumn] = useColumns();
+  // The document filter's chip is named by the document (D75).
+  const filtered = useDocument(state.document ?? 0, state.document !== null);
   const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -112,6 +115,8 @@ export function MailListPage() {
     mboxFile: mboxPath,
     tag: (id) => research.data?.tags.find((tag) => tag.id === id),
     collection: (id) => research.data?.collections.find((other) => other.id === id)?.name,
+    document: (id) =>
+      filtered.data?.id === id ? (filtered.data.name ?? "(ohne Dateinamen)") : `#${id}`,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);

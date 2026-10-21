@@ -103,3 +103,9 @@ export function apiPatch<T>(path: string, body: unknown): Promise<T> {
 export function apiDelete(path: string): Promise<void> {
   return request<void>("DELETE", path);
 }
+
+/** An attachment's bytes, read from its MBOX file on request (D76): a download, or the image of
+ *  a preview for raster images. */
+export function attachmentContentUrl(attachmentId: number): string {
+  return `/api/attachments/${attachmentId}/content`;
+}

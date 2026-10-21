@@ -23,6 +23,7 @@ from email.parser import BytesHeaderParser
 from email.utils import format_datetime
 
 from mailrobbe.generator.config import GeneratorConfig
+from mailrobbe.generator.documents import damaged
 from mailrobbe.generator.model import Fault, RenderedMail, stage_rng
 
 # Variant names as recorded in RenderedMail.faults and the manifest.
@@ -381,6 +382,8 @@ def _invalid_base64(mail: RenderedMail, rng: random.Random) -> bool:
             line = raw[last:end]  # padding lost, or one character short
             stripped = line.rstrip(b"=")
             mail.raw = _replace(raw, last, end, stripped if stripped != line else line[:-1])
+        if mail.documents:  # the part may be an attachment: its bytes are no longer known
+            mail.documents = damaged(mail.documents, mail.raw)
         return True
     return False
 
@@ -472,6 +475,7 @@ def _duplicate(source: RenderedMail, source_position: int, rng: random.Random) -
         dkim=source.dkim,
         escape_from_lines=source.escape_from_lines,
         duplicate_of=source_position,
+        documents=source.documents,
     )
 
 

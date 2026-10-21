@@ -36,6 +36,8 @@ export interface ListState {
   tag: number[];
   collection: number[];
   has_note: boolean;
+  /** Mails carrying this document (D75). */
+  document: number | null;
   sort: SortOrder;
   cursor: string | null;
   limit: number;
@@ -65,6 +67,7 @@ export const DEFAULT_LIST_STATE: ListState = {
   tag: [],
   collection: [],
   has_note: false,
+  document: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -87,7 +90,7 @@ export function positiveInt(value: string | null, max = Number.MAX_SAFE_INTEGER)
   return n >= 1 && n <= max ? n : null;
 }
 
-function isDay(value: string | null): value is string {
+export function isDay(value: string | null): value is string {
   if (value === null || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
@@ -125,6 +128,7 @@ export function parseListState(search: URLSearchParams): ListState {
   state.tag = ids(search, "tag");
   state.collection = ids(search, "collection");
   state.has_note = search.get("has_note") === "true";
+  state.document = positiveInt(search.get("document"));
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   state.cursor = search.get("cursor") || null;
@@ -151,6 +155,7 @@ export function toFilters(state: ListState): MailFilters {
   if (state.tag.length) filters.tag = state.tag;
   if (state.collection.length) filters.collection = state.collection;
   if (state.has_note) filters.has_note = true;
+  if (state.document !== null) filters.document = state.document;
   return filters;
 }
 

@@ -57,6 +57,9 @@ export function ProfileHeader({
         <a href={`/api/mails/export.csv?${exportQuery}`} className={buttonClass()} download>
           Alle Mails exportieren
         </a>
+        <Link to={`/anhaenge?person=${profile.id}`} className={buttonClass()}>
+          Anhänge dieser Person
+        </Link>
       </div>
     </Card>
   );

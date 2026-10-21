@@ -200,6 +200,14 @@ export function MailTable({
                 {columns.attachment && (
                   <td className={styles.icon}>
                     {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
+                    {mail.attachment_match && (
+                      <span
+                        className={styles.inAttachment}
+                        title="Suchbegriff steht im Text eines Anhangs"
+                      >
+                        im Anhang
+                      </span>
+                    )}
                   </td>
                 )}
                 {columns.size && <td className={styles.size}>{formatBytes(mail.size)}</td>}

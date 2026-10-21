@@ -111,7 +111,7 @@ async def test_deleting_mbox_file_cascades(db_session: AsyncSession) -> None:
         [
             MailHeader(mail_id=mail.id, position=0, name="Subject", value="Angebot"),
             Participation(mail_id=mail.id, person_id=person.id, role=ParticipationRole.FROM),
-            Attachment(mail_id=mail.id, mime_type="application/pdf", size_bytes=1024),
+            Attachment(mail_id=mail.id, mime_type="application/pdf", size_bytes=1024, position=0),
             DkimResult(mail_id=mail.id, signature_index=0, status=DkimStatus.PASS),
             ImportErrorRecord(mbox_file_id=mbox_file.id, kind="encoding", message="bad charset"),
         ]

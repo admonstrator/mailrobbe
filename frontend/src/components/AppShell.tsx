@@ -14,6 +14,7 @@ import { LogoIcon, SearchIcon } from "./icons";
 const NAVIGATION = [
   { to: "/mails", label: "Mails" },
   { to: "/personen", label: "Personen" },
+  { to: "/anhaenge", label: "Anhänge" },
   { to: "/karte", label: "Karte" },
   { to: "/akten", label: "Akten" },
   { to: "/import", label: "Import" },

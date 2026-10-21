@@ -4,7 +4,7 @@
 import { ApiError } from "../../api/client";
 import type { DkimKey, ImportErrorKind, ImportJob, MboxStatus, ScanResult } from "../../api/types";
 import { DKIM_FILTER_LABELS } from "../../lib/dkim";
-import { formatNumber } from "../../lib/format";
+import { formatNumber, formatRemaining } from "../../lib/format";
 import type { FileFilter, RunState } from "./model";
 
 export const RUN_TITLES: Record<RunState, string> = {
@@ -27,9 +27,27 @@ export function phaseText(job: ImportJob): string | null {
     }
     case "finalize":
       return "Nachlauf: Duplikate, Threads und Kennzahlen werden berechnet";
+    case "attachments":
+      return attachmentsPhaseText(job.progress);
     default:
       return null;
   }
+}
+
+const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+
+/** The attachments phase (D72): "Anhänge auswerten: Text aus 1.200 von 5.000 Dokumenten
+ *  gelesen · 40 Dokumente/s · Restzeit ca. 2 min"; rate and remaining time once measured. */
+function attachmentsPhaseText(progress: ImportJob["progress"]): string {
+  const { documents_done: done, documents_total: total, documents_per_second: rate } = progress;
+  const parts = [
+    `Anhänge auswerten: Text aus ${formatNumber(done)} von ${formatNumber(total)} ${total === 1 ? "Dokument" : "Dokumenten"} gelesen`,
+  ];
+  if (rate > 0) {
+    parts.push(`${rateFormat.format(rate)} Dokumente/s`);
+    if (total > done) parts.push(`Restzeit ca. ${formatRemaining((total - done) / rate)}`);
+  }
+  return parts.join(" · ");
 }
 
 export const FILE_STATUS_LABELS: Record<MboxStatus, string> = {

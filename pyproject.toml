@@ -14,6 +14,7 @@ dependencies = [
     "fpdf2>=2.8.9",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
+    "pypdf>=6.19.0",
     "sqlalchemy[asyncio]>=2.1.5",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -29,7 +30,6 @@ build-backend = "hatchling.build"
 dev = [
     "httpx>=0.28.1",
     "mypy>=2.4.0",
-    "pypdf>=6.21.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.17.1",

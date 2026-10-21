@@ -22,6 +22,7 @@ export interface ChipNames {
   mboxFile: (id: number) => string;
   tag: (id: number) => TagRef | undefined;
   collection: (id: number) => string | undefined;
+  document?: (id: number) => string;
 }
 
 const day = (value: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? formatDay(value) : value);
@@ -148,6 +149,13 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: `collection-${id}`,
       label: name ? `Akte: ${name}` : `Akte #${id}`,
       next: withFilters(state, { collection: state.collection.filter((other) => other !== id) }),
+    });
+  }
+  if (state.document !== null) {
+    chips.push({
+      id: "document",
+      label: `Dokument: ${names.document?.(state.document) ?? `#${state.document}`}`,
+      next: withFilters(state, { document: null }),
     });
   }
   return chips;

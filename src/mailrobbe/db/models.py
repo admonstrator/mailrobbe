@@ -65,6 +65,8 @@ from mailrobbe.db.base import Base
 from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
+    DocumentKind,
+    DocumentTextStatus,
     JobKind,
     JobStatus,
     MboxStatus,
@@ -91,6 +93,8 @@ person_kind_enum = _pg_enum(PersonKind, "person_kind")
 job_kind_enum = _pg_enum(JobKind, "job_kind")
 job_status_enum = _pg_enum(JobStatus, "job_status")
 review_status_enum = _pg_enum(ReviewStatus, "review_status")
+document_kind_enum = _pg_enum(DocumentKind, "document_kind")
+document_text_status_enum = _pg_enum(DocumentTextStatus, "document_text_status")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -114,6 +118,22 @@ LAST_DATE_SORT_KEY = "COALESCE(last_date, '-infinity'::timestamp with time zone)
 # parses (migration 0006, D52): 1 = with list_id and automated (D39). Files imported before
 # have 0, and the importer reads the headers of their mails again.
 HEADER_VERSION = 1
+
+# Text of a document (migration 0008, D72): stored and indexed up to this many characters, which
+# keeps document.tsv well below PostgreSQL's 1 MB limit of a tsvector for ordinary text.
+DOCUMENT_TEXT_LIMIT = 400_000
+# document.extractor_version of a text extracted by the current extractors; raising it extracts
+# the documents of lower versions again at the next import (D72).
+EXTRACTOR_VERSION = 1
+# document.tsv: file names (one per line, "_" "." "-" read as spaces) weighted A, extracted_text B.
+DOCUMENT_TSV_EXPRESSION = (
+    f"setweight(to_tsvector('{TEXT_SEARCH_CONFIG}'::regconfig, "
+    "translate(names, '_.-'::text, '   '::text)), 'A'::\"char\") || "
+    f"setweight(to_tsvector('{TEXT_SEARCH_CONFIG}'::regconfig, "
+    "COALESCE(extracted_text, ''::text)), 'B'::\"char\")"
+)
+# Sort key of the document list by first appearance (D74): documents without a dated mail last.
+FIRST_DATE_SORT_KEY = "COALESCE(first_date, '-infinity'::timestamp with time zone)"
 
 
 class MboxFile(Base):
@@ -257,6 +277,8 @@ class Attachment(Base):
     __table_args__ = (
         Index("ix_attachment_mail_id", "mail_id"),
         Index("ix_attachment_sha256", "sha256"),
+        # the mails of a document, read from the index alone (search through attachments, D73)
+        Index("ix_attachment_document_id", "document_id", "mail_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -265,6 +287,63 @@ class Attachment(Base):
     mime_type: Mapped[str] = mapped_column(Text)
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str | None] = mapped_column(Text)
+    # 0-based among the mail's attachments in the order importer.parse.mime_parts finds them
+    position: Mapped[int] = mapped_column(SmallInteger)
+    # NULL until the next finalize assigns it (attachments.documents)
+    document_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="SET NULL")
+    )
+
+
+class Document(Base):
+    """One distinct attachment content (D70): its text and figures over the mails carrying it."""
+
+    __tablename__ = "document"
+    __table_args__ = (
+        UniqueConstraint("sha256"),
+        Index("ix_document_tsv", "tsv", postgresql_using="gin"),
+        Index(
+            "ix_document_names_trgm",
+            "names",
+            postgresql_using="gin",
+            postgresql_ops={"names": "gin_trgm_ops"},
+        ),
+        Index("ix_document_first_date", text(FIRST_DATE_SORT_KEY), "id"),
+        Index("ix_document_mails", "mails", "id"),
+        Index("ix_document_size_bytes", "size_bytes", "id"),
+        Index("ix_document_kind", "kind"),
+        Index("ix_document_text_status", "text_status"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    # NULL for an attachment above the hash limit (D18), which is a document of its own
+    sha256: Mapped[str | None] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)  # the file name used most
+    names: Mapped[str] = mapped_column(Text, server_default="")  # every file name, one per line
+    mime_type: Mapped[str] = mapped_column(Text)  # the declared MIME type used most
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    kind: Mapped[DocumentKind | None] = mapped_column(document_kind_enum)  # NULL: unclassified
+    text_status: Mapped[DocumentTextStatus] = mapped_column(
+        document_text_status_enum, server_default="pending"
+    )
+    # at most DOCUMENT_TEXT_LIMIT characters; NULL until extracted or without text
+    extracted_text: Mapped[str | None] = mapped_column(Text)
+    text_truncated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    text_error: Mapped[str | None] = mapped_column(Text)  # English, one line
+    pages: Mapped[int | None] = mapped_column(Integer)  # pages, sheets or slides
+    extractor_version: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    extracted_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    # Figures over the mails carrying it that are not duplicates (D70), set by finalize.
+    mails: Mapped[int] = mapped_column(Integer, server_default="0")
+    attachments: Mapped[int] = mapped_column(Integer, server_default="0")  # duplicates included
+    first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    first_mail_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="SET NULL")
+    )
+    tsv: Mapped[Any | None] = mapped_column(
+        TSVECTOR, Computed(DOCUMENT_TSV_EXPRESSION, persisted=True)
+    )
 
 
 class DkimResult(Base):

@@ -76,11 +76,12 @@ def test_bench_measures_every_scenario_of_a_real_server(
     results = json.loads(report.read_text())
     assert results["skipped"] == []
     assert results["failed"] == 0
-    assert len(results["scenarios"]) == results["requests"] == 48
+    assert len(results["scenarios"]) == results["requests"] == 59
     assert all(row["errors"] == [] and row["size_bytes"] > 0 for row in results["scenarios"])
     assert results["samples"]["top_person"] is not None
     assert results["samples"]["tag"] is not None
-    assert "All 48 requests succeeded" in output
+    assert results["samples"]["document_words"] and results["samples"]["document_id"]
+    assert "All 59 requests succeeded" in output
     for row in results["scenarios"]:
         assert row["name"] in output
 

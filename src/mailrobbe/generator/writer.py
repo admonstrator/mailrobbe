@@ -166,6 +166,7 @@ def manifest_record(
         dkim={"expected": mail.dkim.expected.value, "signatures": signatures},
         faults={fault.value: variant for fault, variant in sorted(mail.faults.items())},
         duplicate_of=mail.duplicate_of,
+        documents=[truth.as_json() for truth in mail.documents],
     )
 
 

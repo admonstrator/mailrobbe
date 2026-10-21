@@ -8,6 +8,11 @@ import type {
   ContactPage,
   DkimJob,
   DkimStatus,
+  DocumentDetail,
+  DocumentListItem,
+  DocumentPage,
+  DocumentSummary,
+  DocumentText,
   ExportInfo,
   Graph,
   GraphEdge,
@@ -158,6 +163,7 @@ function item(
     review: null,
     tags: [],
     notes: 0,
+    attachment_match: false,
     ...extra,
   };
 }
@@ -337,6 +343,11 @@ export const mailDetail: MailDetail = {
       mime_type: "application/pdf",
       size: 172_032,
       sha256: "91ab44c0d2e8f1a37b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f40",
+      document_id: 5101,
+      kind: "pdf",
+      text_status: "text",
+      pages: 14,
+      document_mails: 6,
     },
     {
       id: 902,
@@ -344,6 +355,11 @@ export const mailDetail: MailDetail = {
       mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       size: 14_336,
       sha256: "5c07e2b9a4d13f8e6b0a7c9d2e4f61a3b5c7d9e0f1a2b3c4d5e6f708192a3b4c",
+      document_id: 5102,
+      kind: "spreadsheet",
+      text_status: "text",
+      pages: 2,
+      document_mails: 1,
     },
   ],
   thread_id: 184001,
@@ -991,6 +1007,8 @@ export const importDefaults: ImportOptions = {
   dkim_nameservers: "1.1.1.1, 9.9.9.9",
   dkim_offline: false,
   mbox_dir: "/data/mbox",
+  text_max_size: 50 * MIB,
+  text_timeout: 60,
 };
 
 export const importJob: ImportJob = {
@@ -1018,6 +1036,9 @@ export const importJob: ImportJob = {
     eta_seconds: 6_012,
     headers_total: 0,
     headers_done: 0,
+    documents_total: 0,
+    documents_done: 0,
+    documents_per_second: 0,
   },
 };
 
@@ -1138,6 +1159,19 @@ export const importSummary: ImportSummary = {
     { reason: "key_too_short", mails: 12 },
   ],
   updated_at: "2026-10-20T01:12:30Z",
+  attachments: 118_204,
+  documents: {
+    pending: 0,
+    text: 41_380,
+    empty: 212,
+    scanned: 6_904,
+    encrypted: 87,
+    unsupported: 30_116,
+    too_large: 14,
+    failed: 391,
+    timeout: 6,
+    unreadable: 0,
+  },
 };
 
 /** A rescan that found two new files, a changed one and one it cannot read. */
@@ -1341,4 +1375,274 @@ export const researchWithTags: ResearchOverview = {
     moreTag(7, "Prüfen", "gray", 41),
   ].sort((a, b) => a.name.localeCompare(b.name)),
   collections: [...collections, { ...collections[0], id: 2, name: "Spenden 2024", mails: 61 }],
+};
+
+// Attachments and documents (milestone 9) ------------------------------------------------------
+// The contract PDF of the mail detail (document 5101) travels in six mails; beside it a
+// spreadsheet, a scan, an encrypted list, a photo, an archive, an attached mail and two documents
+// whose text could not be read (yet).
+
+function documentItem(
+  id: number,
+  name: string | null,
+  kind: DocumentListItem["kind"],
+  mime_type: string,
+  extra: Partial<DocumentListItem> = {},
+): DocumentListItem {
+  return {
+    id,
+    name,
+    names: 1,
+    kind,
+    mime_type,
+    size: 48_213,
+    sha256: String(id).padStart(64, "a"),
+    pages: null,
+    text_status: "text",
+    mails: 1,
+    first_date: "2026-10-01T04:00:00Z",
+    last_date: "2026-10-01T04:00:00Z",
+    first_sender: billing,
+    snippet: null,
+    ...extra,
+  };
+}
+
+export const documentItems: DocumentListItem[] = [
+  documentItem(5101, "Rahmenvereinbarung_2026_final.pdf", "pdf", "application/pdf", {
+    names: 3,
+    size: 172_032,
+    sha256: "91ab44c0d2e8f1a37b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f40",
+    pages: 14,
+    mails: 6,
+    first_date: "2026-09-28T11:15:00Z",
+    last_date: "2026-10-18T12:32:07Z",
+    first_sender: lukas,
+    snippet:
+      "§ 7 Zahlungen: Die Spende über 12.500,00 EUR geht auf das Konto DE89 3704 0044 0532 0130 00; weitere Spenden nach Absprache.",
+  }),
+  documentItem(
+    5102,
+    "Aenderungsprotokoll.xlsx",
+    "spreadsheet",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    { size: 14_336, pages: 2, first_sender: anna, first_date: "2026-10-18T12:32:07Z" },
+  ),
+  documentItem(5103, "Scan_Vorstandssitzung_2019-03.pdf", "pdf", "application/pdf", {
+    size: 2_411_724,
+    pages: 6,
+    text_status: "scanned",
+    mails: 4,
+    first_date: "2019-03-14T09:30:00Z",
+    last_date: "2024-02-02T15:00:00Z",
+    first_sender: miriam,
+  }),
+  documentItem(5104, "Spendenliste_2019.xlsx", "spreadsheet", "application/octet-stream", {
+    text_status: "encrypted",
+    mails: 2,
+    first_sender: jonas,
+  }),
+  documentItem(5105, "IMG_2041.jpg", "image", "image/jpeg", {
+    size: 1_204_224,
+    text_status: "unsupported",
+    mails: 3,
+    first_sender: sofia,
+  }),
+  documentItem(5106, "Unterlagen.zip", "archive", "application/zip", { size: 3_150_002 }),
+  documentItem(5107, null, "email", "message/rfc822", { size: 22_118, first_sender: null }),
+  documentItem(
+    5108,
+    "Kalkulation.ods",
+    "spreadsheet",
+    "application/vnd.oasis.opendocument.spreadsheet",
+    { text_status: "failed" },
+  ),
+  documentItem(5109, "Mitgliederliste.docx", "document", "application/msword", {
+    text_status: "pending",
+  }),
+];
+
+export const documentPage: DocumentPage = {
+  items: documentItems,
+  next_cursor: "documents-page-2",
+  prev_cursor: null,
+};
+
+/** Every document of the archive, as the dashboard counts them by text status. */
+export const documentSummary: DocumentSummary = {
+  total: 79_110,
+  exact: true,
+  kinds: {
+    pdf: 21_904,
+    document: 9_877,
+    spreadsheet: 6_120,
+    presentation: 1_032,
+    text: 4_511,
+    email: 2_208,
+    image: 29_877,
+    archive: 1_604,
+    media: 412,
+    other: 1_565,
+  },
+  // Only the statuses present, as the API sends them.
+  text_status: {
+    text: 41_380,
+    empty: 212,
+    scanned: 6_904,
+    encrypted: 87,
+    unsupported: 30_116,
+    too_large: 14,
+    failed: 391,
+    timeout: 6,
+  } as DocumentSummary["text_status"],
+};
+
+export const documentSummaryFiltered: DocumentSummary = {
+  total: 214,
+  exact: true,
+  kinds: { pdf: 151, spreadsheet: 63 } as DocumentSummary["kinds"],
+  text_status: { text: 177, scanned: 37 } as DocumentSummary["text_status"],
+};
+
+export const documentDetail: DocumentDetail = {
+  id: 5101,
+  name: "Rahmenvereinbarung_2026_final.pdf",
+  mime_type: "application/pdf",
+  kind: "pdf",
+  size: 172_032,
+  sha256: "91ab44c0d2e8f1a37b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f40",
+  pages: 14,
+  text_status: "text",
+  text_error: null,
+  text_truncated: false,
+  extracted_at: "2026-10-20T01:20:00Z",
+  mails: 6,
+  attachments: 7,
+  first_date: "2026-09-28T11:15:00Z",
+  last_date: "2026-10-18T12:32:07Z",
+  first_mail: {
+    id: 183644,
+    date: "2026-09-28T11:15:00Z",
+    subject: "Vertrag Nordstahl: Änderungswünsche Einkauf",
+    sender: lukas,
+    dkim_status: "pass",
+  },
+  names: [
+    { name: "Rahmenvereinbarung_2026_final.pdf", attachments: 4 },
+    { name: "Rahmenvereinbarung 2026.pdf", attachments: 2 },
+    { name: "RV2026_unterschrieben.pdf", attachments: 1 },
+  ],
+  senders: [
+    { person: anna, mails: 3 },
+    { person: lukas, mails: 2 },
+    { person: miriam, mails: 1 },
+  ],
+  sender_count: 3,
+  recipients: [jonas, peter, miriam, anna, lukas, purchasing, billing, thomas, sofia].map(
+    (person, index) => ({ person, mails: Math.max(1, 5 - index) }),
+  ),
+  recipient_count: 14,
+  attachment_id: 901,
+  preview: false,
+};
+
+/** A photo: no text, shown as a preview. */
+export const imageDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5105,
+  name: "IMG_2041.jpg",
+  mime_type: "image/jpeg",
+  kind: "image",
+  size: 1_204_224,
+  sha256: documentItems[4].sha256,
+  pages: null,
+  text_status: "unsupported",
+  extracted_at: "2026-10-20T01:21:00Z",
+  mails: 3,
+  attachments: 3,
+  names: [{ name: "IMG_2041.jpg", attachments: 3 }],
+  senders: [{ person: sofia, mails: 3 }],
+  sender_count: 1,
+  recipients: [{ person: anna, mails: 3 }],
+  recipient_count: 1,
+  attachment_id: 9105,
+  preview: true,
+};
+
+export const documentText: DocumentText = {
+  text: [
+    "RAHMENVEREINBARUNG 2026",
+    "zwischen der Nordlicht GmbH und der Stadtwerke Beispiel AG",
+    "",
+    "§ 1 Gegenstand",
+    "Die Vereinbarung regelt die Lieferung und Wartung der Umspannwerke Nord und Süd.",
+    "",
+    "§ 7 Zahlungen",
+    "Die Spende über 12.500,00 EUR geht auf das Konto DE89 3704 0044 0532 0130 00.",
+  ].join("\n"),
+  truncated: false,
+  text_status: "text",
+};
+
+/** The mails carrying document 5101, oldest first. */
+export const documentMailPage: MailPage = {
+  items: [
+    item(
+      183644,
+      "2026-09-28T11:15:00Z",
+      lukas,
+      [anna],
+      "Vertrag Nordstahl: Änderungswünsche Einkauf",
+      "pass",
+      { has_attachments: true },
+    ),
+    item(
+      184001,
+      "2026-10-09T14:02:00Z",
+      anna,
+      [miriam],
+      "Vertragsentwurf – bitte um Rückmeldung bis Freitag",
+      "pass",
+      { has_attachments: true, thread_id: 184001 },
+    ),
+    item(
+      184102,
+      "2026-10-14T09:20:00Z",
+      lukas,
+      [purchasing, jonas, peter],
+      "WG: Vertrag Lieferant Nordstahl – Unterschrift",
+      "fail",
+      { has_attachments: true },
+    ),
+    item(
+      184133,
+      "2026-10-15T15:48:00Z",
+      miriam,
+      [anna, lukas],
+      "Prüfung Vertragsklauseln §§ 4–7",
+      "no_key",
+      { has_attachments: true, thread_id: 184001 },
+    ),
+    item(
+      184190,
+      "2026-10-17T07:05:00Z",
+      anna,
+      [jonas],
+      "AW: Prüfung Vertragsklauseln §§ 4–7",
+      "pass",
+      { has_attachments: true, thread_id: 184001 },
+    ),
+    item(
+      184221,
+      "2026-10-18T12:32:07Z",
+      anna,
+      [jonas, peter, miriam],
+      "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
+      "pass",
+      { has_attachments: true, thread_id: 184001 },
+    ),
+  ],
+  next_cursor: null,
+  prev_cursor: null,
+  query_terms: [],
 };
