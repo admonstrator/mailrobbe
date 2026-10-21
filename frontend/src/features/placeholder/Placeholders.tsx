@@ -34,15 +34,6 @@ function Placeholder({
   );
 }
 
-export function PersonsPlaceholder() {
-  return (
-    <Placeholder title="Personen">
-      Die Personenübersicht mit Suche, Kennzahlen und Zusammenführung von Adressen folgt mit
-      Meilenstein 5.
-    </Placeholder>
-  );
-}
-
 export function PersonPlaceholder() {
   const { id } = useParams();
   if (!id || !/^\d+$/.test(id)) return <NotFoundPage />;

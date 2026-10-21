@@ -3,12 +3,12 @@ import { Navigate, type RouteObject } from "react-router";
 import { AppShell } from "./components/AppShell";
 import { MailDetailPage } from "./features/mail/MailDetailPage";
 import { MailListPage } from "./features/mails/MailListPage";
+import { PersonsPage } from "./features/persons/PersonsPage";
 import {
   GraphPlaceholder,
   ImportPlaceholder,
   NotFoundPage,
   PersonPlaceholder,
-  PersonsPlaceholder,
 } from "./features/placeholder/Placeholders";
 
 /** One entry per screen, all inside the shell. */
@@ -19,7 +19,7 @@ export const routes: RouteObject[] = [
       { path: "/", element: <Navigate to="/mails" replace /> },
       { path: "/mails", element: <MailListPage /> },
       { path: "/mails/:id", element: <MailDetailPage /> },
-      { path: "/personen", element: <PersonsPlaceholder /> },
+      { path: "/personen", element: <PersonsPage /> },
       { path: "/personen/:id", element: <PersonPlaceholder /> },
       { path: "/karte", element: <GraphPlaceholder /> },
       { path: "/import", element: <ImportPlaceholder /> },
