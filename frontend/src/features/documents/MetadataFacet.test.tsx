@@ -10,7 +10,7 @@ const column = () => screen.getByRole("complementary", { name: "Filter" });
 async function facet(name: string): Promise<HTMLElement> {
   await screen.findByRole("link", { name: "Rahmenvereinbarung_2026_final.pdf" });
   // By its legend: a role query over the whole column is slow on a busy machine.
-  return within(column()).getByText(name, { selector: "legend" }).closest("fieldset")!;
+  return within(column()).getByText(name, { selector: "legend button" }).closest("fieldset")!;
 }
 
 const calls = (all: ApiCall[], path: string) => all.filter((call) => call.url.pathname === path);

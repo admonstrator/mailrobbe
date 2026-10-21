@@ -8,21 +8,36 @@
   display: flex;
   flex: 999 1 560px;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
-  padding: 20px 24px;
+  padding: 12px 20px 24px;
+}
+
+/* Stays below the shell header while the table scrolls, the page's background behind it, edge to
+   edge of the column; its height is --list-bar (useBarHeight). */
+.listBar {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: -12px -20px 0;
+  padding: 12px 20px 8px;
+  background: var(--color-bg);
 }
 
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 12px;
+  gap: 4px 12px;
 }
 
 .title {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -34,6 +49,7 @@
 
 .toolbar {
   display: flex;
+  flex: 1 1 520px;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
@@ -45,7 +61,7 @@
   align-items: center;
   gap: 8px;
   min-width: 220px;
-  height: 36px;
+  height: 34px;
   box-sizing: border-box;
   padding: 0 12px;
   border: 1px solid var(--color-border-strong);
@@ -80,15 +96,16 @@
 .sort {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
-  padding: 7px 10px;
+  padding: 6px 8px;
   background: var(--color-surface);
   font-size: 13px;
 }
 
+/* clip, not hidden: no scroll container, so the table's head can stick to the window. */
 .tableCard {
   gap: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .loading {
@@ -104,6 +121,11 @@
 
   .main {
     padding: 16px;
+  }
+
+  .listBar {
+    margin: -16px -16px 0;
+    padding: 16px 16px 8px;
   }
 
   .search {

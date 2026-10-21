@@ -3,12 +3,14 @@
   flex-direction: column;
 }
 
+/* As high as the mail detail's row of steps, so the side column starts where it sticks. */
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 16px 24px 0;
+  min-height: 30px;
+  padding: 12px 24px 0;
   color: var(--color-muted);
   font-size: 13px;
 }
@@ -24,15 +26,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 20px;
-  padding: 16px 24px 24px;
+  gap: 16px 20px;
+  padding: 12px 24px 24px;
 }
 
 .main {
   display: flex;
   flex: 999 1 560px;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -40,9 +42,30 @@
   display: flex;
   flex: 1 1 300px;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
   max-width: 360px;
+}
+
+.side > * {
+  flex-shrink: 0;
+}
+
+/* Beside the document the column stays in view below the header and the compact bar (48 px)
+   and scrolls on its own, as on the mail detail; the 2 px around it keep focus rings inside its
+   edge. */
+@media (min-width: 960px) {
+  .side {
+    position: sticky;
+    top: calc(var(--sticky-top) + 52px);
+    box-sizing: border-box;
+    max-height: calc(var(--content-height) - 48px - 20px);
+    margin: -2px;
+    padding: 2px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }
 
 .loading {
@@ -56,7 +79,8 @@
 }
 
 .header {
-  gap: 16px;
+  gap: 12px;
+  padding: 16px 22px;
 }
 
 .identity {
@@ -89,9 +113,9 @@
 .facts {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
   margin: 0;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--color-border-subtle);
 }
 
@@ -174,23 +198,26 @@
   color: var(--color-muted);
 }
 
+/* One strip of four figures, divided by hairlines, as on the mail list. */
 .tiles {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 1px;
   margin: 0;
   padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-border-subtle);
   list-style: none;
 }
 
 .tile {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
   min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+  padding: 8px 14px;
   background: var(--color-surface);
 }
 
@@ -205,9 +232,10 @@
 
 .tileValue {
   overflow: hidden;
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

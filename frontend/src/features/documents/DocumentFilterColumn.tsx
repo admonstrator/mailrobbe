@@ -3,6 +3,7 @@ import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { utcDay } from "../../lib/format";
 import { DateField } from "../mails/FilterColumn";
+import { FilterGroup } from "../mails/FilterGroup";
 import { DebouncedInput } from "./DebouncedInput";
 import styles from "./DocumentFilterColumn.module.css";
 import { KindIcon } from "./KindIcon";
@@ -98,8 +99,7 @@ export function DocumentFilterColumn({
         />
       </div>
 
-      <fieldset className={`${styles.group} ${styles.tight}`}>
-        <legend className={styles.legend}>Art</legend>
+      <FilterGroup id="documents.kind" title="Art" active={state.kind.length > 0}>
         {DOCUMENT_KINDS.map((kind: DocumentKind) => (
           <Checkbox
             key={kind}
@@ -113,10 +113,9 @@ export function DocumentFilterColumn({
             {KIND_LABELS[kind]}
           </Checkbox>
         ))}
-      </fieldset>
+      </FilterGroup>
 
-      <fieldset className={`${styles.group} ${styles.tight}`}>
-        <legend className={styles.legend}>Textstatus</legend>
+      <FilterGroup id="documents.status" title="Textstatus" active={state.text_status.length > 0}>
         {shownStatuses.map((status) => (
           <div key={status} className={styles.option}>
             <Checkbox
@@ -138,7 +137,7 @@ export function DocumentFilterColumn({
             )}
           </div>
         ))}
-      </fieldset>
+      </FilterGroup>
 
       <MetadataFacet
         field="author"
@@ -156,8 +155,11 @@ export function DocumentFilterColumn({
         onChange={(program) => change({ program })}
       />
 
-      <fieldset className={styles.group}>
-        <legend className={styles.legend}>Zeitraum</legend>
+      <FilterGroup
+        id="documents.date"
+        title="Zeitraum"
+        active={state.date_from !== null || state.date_to !== null}
+      >
         <div className={styles.dates}>
           <DateField
             id="document-date-from"
@@ -176,7 +178,7 @@ export function DocumentFilterColumn({
             onCommit={(date_to) => change({ date_to })}
           />
         </div>
-      </fieldset>
+      </FilterGroup>
 
       <PersonField
         person={state.person}
@@ -184,8 +186,7 @@ export function DocumentFilterColumn({
         onChange={(person, person_role) => change({ person, person_role })}
       />
 
-      <fieldset className={styles.group}>
-        <legend className={styles.legend}>Weitere</legend>
+      <FilterGroup id="documents.more" title="Weitere" active={state.shared || state.external}>
         <Checkbox checked={state.shared} onChange={(shared) => change({ shared })}>
           In mehreren Mails
         </Checkbox>
@@ -194,7 +195,7 @@ export function DocumentFilterColumn({
             Nur extern ↔ intern
           </Checkbox>
         )}
-      </fieldset>
+      </FilterGroup>
     </aside>
   );
 }
