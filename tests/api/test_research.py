@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import pool, select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from mailrobbe.api import research
+from mailrobbe.api import marks, research
 from mailrobbe.api.deps import EDITOR_HEADER
 from mailrobbe.api.schemas import COLLECTION_PERSONS, PERMALINK_DIGITS
 from mailrobbe.db.models import Mail
@@ -566,7 +566,7 @@ async def test_bulk_errors(
         "invalid_query",
     )
     await call(http, "POST", "/api/mails/bulk", {"ids": ids, "action": "rename"}, 422)
-    monkeypatch.setattr(research, "BULK_LIMIT", 2)
+    monkeypatch.setattr(marks, "BULK_LIMIT", 2)
     message = await error(
         http,
         "POST",
