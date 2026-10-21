@@ -8,11 +8,26 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe import aggregates
+from mailrobbe.enums import AliasTier
 from mailrobbe.importer.finalize import finalize
 from mailrobbe.persons.merge import dismiss_suggestion, merge_persons, unmerge_person
-from mailrobbe.persons.suggestions import MAX_GROUP, refresh_alias_suggestions
+from mailrobbe.persons.suggestions import (
+    HUB_CONTACTS,
+    MAX_GROUP,
+    reason,
+    refresh_alias_suggestions,
+)
 from tests.importer.doubles import fetch
-from tests.persons.helpers import ids, mail, snapshot, store, suggestions, tiers
+from tests.persons.helpers import (
+    Entry,
+    acquainted,
+    ids,
+    mail,
+    snapshot,
+    store,
+    suggestions,
+    tiers,
+)
 
 pytestmark = pytest.mark.db
 
@@ -47,6 +62,7 @@ async def test_a_display_name_both_use_suggests_a_pair(db_session: AsyncSession)
 
 
 async def test_a_local_part_both_have_suggests_a_pair(db_session: AsyncSession) -> None:
+    await store(db_session, acquainted("anna.schmidt@a.example", "anna.schmidt@mail.test"))
     await _receive(
         db_session,
         "Anna Schmidt <anna.schmidt@a.example>",
@@ -65,7 +81,7 @@ async def test_a_local_part_both_have_suggests_a_pair(db_session: AsyncSession) 
     assert await tiers(db_session) == {
         ("anna.schmidt+shop@b.example", "anna.schmidt@a.example"): "uncertain",
         ("anna.schmidt+shop@b.example", "anna.schmidt@mail.test"): "uncertain",
-        ("anna.schmidt@a.example", "anna.schmidt@mail.test"): "certain",  # both signs agree
+        ("anna.schmidt@a.example", "anna.schmidt@mail.test"): "certain",  # with contacts
     }
 
 
@@ -160,6 +176,14 @@ async def test_a_dismissed_pair_is_never_suggested_again(db_session: AsyncSessio
 async def test_a_name_that_fits_both_addresses_of_one_organisation_is_certain(
     db_session: AsyncSession,
 ) -> None:
+    await store(
+        db_session,
+        [
+            *acquainted("max.mustermann@kv-nord.partei.example", "m.mustermann@partei.example"),
+            *acquainted("jana.brandt@nord.co.uk", "jbrandt@sued.co.uk"),
+            *acquainted("olaf.stern@a.example", "os@a.example"),
+        ],
+    )
     await _receive(
         db_session,
         "Max Mustermann <max.mustermann@kv-nord.partei.example>",
@@ -257,3 +281,84 @@ async def test_lists_and_automated_senders_give_no_keys(db_session: AsyncSession
         )
     await refresh_alias_suggestions(db_session)
     assert await suggestions(db_session) == {}
+
+
+async def test_namesakes_without_shared_contacts_stay_uncertain(db_session: AsyncSession) -> None:
+    thomas = [f"Thomas Müller <thomas.mueller@{domain}.example>" for domain in "ab"]
+    anna = ["Anna Schmidt <anna.schmidt@a.example>", "Anna Schmidt <anna.schmidt@b.example>"]
+    jana = ["Jana Brandt <jana.brandt@a.example>", "Jana Brandt <jana.brandt@b.example>"]
+    await store(
+        db_session,
+        [
+            mail("Ute Uhl <ute@u.example>", to=[thomas[0]]),  # each one's own contacts
+            mail("Vera Voss <vera@v.example>", to=[thomas[1]]),
+            mail("Ute Uhl <ute@u.example>", to=anna),  # one in common
+            *acquainted(*jana),  # two in common
+        ],
+    )
+    await finalize(db_session)
+    assert await tiers(db_session) == {
+        ("thomas.mueller@a.example", "thomas.mueller@b.example"): "uncertain",
+        ("anna.schmidt@a.example", "anna.schmidt@b.example"): "uncertain",
+        ("jana.brandt@a.example", "jana.brandt@b.example"): "certain",
+    }
+    name, local_part = (await suggestions(db_session))[
+        "thomas.mueller@a.example", "thomas.mueller@b.example"
+    ]
+    assert (name, local_part) == ("thomas müller", "thomas.mueller")
+    assert reason(name, local_part, AliasTier.UNCERTAIN) == "name_and_local_part_few_contacts"
+
+    # A second contact in common makes the Anna Schmidts certain (a new Message-ID: no duplicate).
+    await store(db_session, [mail("Vera Voss <vera@v.example>", to=anna, message_id="<v@v>")])
+    await finalize(db_session)
+    pair = ("anna.schmidt@a.example", "anna.schmidt@b.example")
+    assert (await tiers(db_session))[pair] == "certain"
+
+
+async def test_hubs_and_automated_senders_are_no_shared_contacts(db_session: AsyncSession) -> None:
+    jana = ["Jana Brandt <jana.brandt@a.example>", "Jana Brandt <jana.brandt@b.example>"]
+    hanna = ["Hanna Hub <hanna.hub@a.example>", "Hanna Hub <hanna.hub@b.example>"]
+    many = [f"p{number}@many.example" for number in range(HUB_CONTACTS)]
+    await store(
+        db_session,
+        [
+            mail(hanna[0], to=[*jana, *many]),  # a hub: in contact with everybody
+            mail("noreply@shop.example", to=jana),  # automated
+            mail("Ute Uhl <ute@u.example>", to=jana),
+            *acquainted(*hanna),  # contacts in common, but one of the two is a hub
+        ],
+    )
+    await finalize(db_session)
+    pair = ("jana.brandt@a.example", "jana.brandt@b.example")
+    assert await tiers(db_session) == {
+        pair: "uncertain",
+        ("hanna.hub@a.example", "hanna.hub@b.example"): "uncertain",
+    }
+    await store(db_session, [mail("Vera Voss <vera@v.example>", to=jana, message_id="<v@v>")])
+    await finalize(db_session)
+    assert (await tiers(db_session))[pair] == "certain"
+
+
+async def test_the_contacts_in_common_are_a_share_of_the_fewer(db_session: AsyncSession) -> None:
+    def own(prefix: str, address: str, count: int) -> list[Entry]:
+        """Mails from the address to contacts of its own (to it, it would look like a list)."""
+        return [mail(address, to=[f"{prefix}{number}@own.example"]) for number in range(count)]
+
+    jana = ["Jana Brandt <jana.brandt@a.example>", "Jana Brandt <jana.brandt@b.example>"]
+    olaf = ["Olaf Stern <olaf.stern@a.example>", "Olaf Stern <olaf.stern@b.example>"]
+    await store(
+        db_session,
+        [
+            *acquainted(*jana),  # 2 of 10 and of 30 contacts: a fifth of the fewer
+            *own("ja", jana[0], 8),
+            *own("jb", jana[1], 28),
+            *acquainted(*olaf),  # 2 of 11 each
+            *own("oa", olaf[0], 9),
+            *own("ob", olaf[1], 9),
+        ],
+    )
+    await finalize(db_session)
+    assert await tiers(db_session) == {
+        ("jana.brandt@a.example", "jana.brandt@b.example"): "certain",
+        ("olaf.stern@a.example", "olaf.stern@b.example"): "uncertain",
+    }

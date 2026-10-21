@@ -247,6 +247,9 @@ describe("alias suggestions", () => {
     expect(router.state.location.search).toBe("?tab=vorschlaege&unsicher=1");
     expect(await screen.findByText("Unsicher: nur der gleiche Name")).toBeTruthy();
     expect(screen.getByText("Unsicher: nur der gleiche Adressteil")).toBeTruthy();
+    expect(
+      screen.getByText("Unsicher: Name und Adressteil gleich, aber zu wenige gemeinsame Kontakte"),
+    ).toBeTruthy();
     expect(screen.getByText("keller@schule-ost.example")).toBeTruthy();
     expect(screen.queryByText("p.hofmann@post.example")).toBeNull();
     expect(screen.queryByRole("button", { name: "Alle sicheren zusammenführen" })).toBeNull();

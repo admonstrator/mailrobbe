@@ -30,7 +30,16 @@ from mailrobbe.persons.merge import (
 )
 from mailrobbe.persons.roots import member_ids, resolve_root
 from tests.importer.doubles import fetch
-from tests.persons.helpers import Entry, ids, mail, snapshot, stats, store, suggestions
+from tests.persons.helpers import (
+    Entry,
+    acquainted,
+    ids,
+    mail,
+    snapshot,
+    stats,
+    store,
+    suggestions,
+)
 
 pytestmark = pytest.mark.db
 
@@ -287,12 +296,17 @@ async def test_undoing_a_merge_after_an_address_was_split_off(db_session: AsyncS
 async def _certain_archive(session: AsyncSession) -> dict[str, int]:
     """Certain suggestions in groups of two and three, uncertain ones, and mails to tell the
     targets: the person with most mails, the lower id on a tie."""
+    anna = [f"anna.schmidt@{d}.example" for d in "abc"]
     entries = [
+        *acquainted(*anna),
+        *acquainted("bert.brandt@d.example", "bert.brandt@e.example"),
+        *acquainted("max.mustermann@kv.partei.example", "m.mustermann@partei.example"),
         *(mail(SENDER, to=[f"Anna Schmidt <anna.schmidt@{d}.example>"]) for d in "abc"),
         mail(SENDER, to=["Anna Schmidt <anna.schmidt@c.example>"]),  # c has most mails
         *(mail(SENDER, to=[f"Bert Brandt <bert.brandt@{d}.example>"]) for d in "de"),  # tie
         mail(SENDER, to=["Max Mustermann <max.mustermann@kv.partei.example>"]),
         mail(SENDER, to=["Max Mustermann <m.mustermann@partei.example>"]),
+        *acquainted("olaf@f.example", "os@g.example"),
         mail(SENDER, to=["Olaf Stern <olaf@f.example>"]),  # uncertain: the name alone
         mail(SENDER, to=["Olaf Stern <os@g.example>"]),
     ]
@@ -347,6 +361,10 @@ async def test_merging_every_certain_suggestion_as_one_batch(db_session: AsyncSe
 async def test_a_group_larger_than_merge_group_is_left_out(db_session: AsyncSession) -> None:
     # Four persons share name and local part, three more another; one alias links the groups.
     entries = [
+        *acquainted(
+            *(f"anna.schmidt@{d}.example" for d in "abcd"),
+            *(f"bert.brandt@{d}.example" for d in "efg"),
+        ),
         *(mail(SENDER, to=[f"Anna Schmidt <anna.schmidt@{d}.example>"]) for d in "abcd"),
         *(mail(SENDER, to=[f"Bert Brandt <bert.brandt@{d}.example>"]) for d in "efg"),
     ]

@@ -8,11 +8,19 @@ a root of kind list or automated (D39), and a shared mailbox, used under the nam
 persons that each have a real share of its mails (shared_mailbox). A key that more than
 MAX_GROUP roots share is too generic and suggests nothing.
 
-Tiers. A pair is certain when two signs agree: it shares a main name and a local part, or its
-main name is held by these two roots alone and each has an address with that name whose local
-part is made from it (made_from_name) at the same registered domain (registered_domain). Every
-other pair sharing a key is uncertain. A pair records the smallest name and local part it shares;
-reason() says from the row why it was suggested.
+Tiers. A pair is certain when the names agree and the two roots share contacts. The names agree
+when the pair shares a main name and a local part, or when its main name is held by these two
+roots alone and each has an address with that name whose local part is made from it
+(made_from_name) at the same registered domain (registered_domain). Namesakes have that too, so
+the pair must also share contacts (share_contacts): the persons each root has edges with, other
+than each other, counting only humans (person.kind NULL) and no hubs. A hub has edges with
+HUB_SHARE of all roots and at least HUB_CONTACTS (person_stats.contacts), as the archive's owner
+does, and shares contacts with everybody; a pair with a hub as one of its roots stays uncertain
+for the same reason. The contacts are read for the roots of the pairs whose names agree only, in
+one query over edge, after the edges and person_stats of the same refresh
+(aggregates.refresh_aggregates): about 0.6 s for 5,000 such pairs among 80,000 persons with 1.6
+million edges. Every other pair sharing a key is uncertain. A pair records the smallest name and
+local part it shares; reason() says from the row why it was suggested.
 
 Dismissed pairs are never suggested; alias_dismissal is read through the roots of its persons,
 so a dismissal still holds after either person was merged into another. Addresses of one root
@@ -31,7 +39,7 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable, Mapping, Set
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from itertools import combinations
 from typing import Any, Literal
@@ -49,7 +57,13 @@ MAX_GROUP = 5  # roots sharing a key; more and it suggests nothing
 SHARED_SHARE = 0.2  # a name with this share of an address's named mails (and at least
 SHARED_MAILS = 2  # this many) is a real user of it; two persons' names make a shared mailbox
 STATS_KEY = "alias_suggestions"  # global_stats: {"rules": RULES} of the latest refresh
-RULES = 2  # of keys and tiers; 1 was D30's, without tiers
+RULES = 3  # of keys and tiers; 1 was D30's without tiers, 2 had tiers without contacts
+# A certain pair shares this many contacts that count, and at least this share of the contacts
+# of the root with fewer (D160): with these, no certain pair of the generated archives is wrong.
+SHARED_CONTACTS = 2
+CONTACT_OVERLAP = 0.2
+HUB_SHARE = 0.1  # a root with edges to this share of all roots, and to at least
+HUB_CONTACTS = 50  # this many, is a hub whose contacts tell nothing about it
 
 # Words of a function or organisation, folded (lowercase, ä as ae, ß as ss). A local part with one
 # of them between separators is a functional mailbox, and a name with one is no person's name.
@@ -106,7 +120,13 @@ _TWO_WORDS = re.compile(r"\S[\s,]+\S")  # what normalize_name needs at least
 _STEMS = re.compile("|".join(ROLE_STEMS))
 _FOLD = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 
-SuggestionReason = Literal["name_and_local_part", "name_fits_addresses", "name", "local_part"]
+SuggestionReason = Literal[
+    "name_and_local_part",
+    "name_fits_addresses",
+    "name_and_local_part_few_contacts",
+    "name",
+    "local_part",
+]
 
 _ROOT = aliased(Person)
 _KEYS = (
@@ -118,6 +138,21 @@ _KEYS = (
 _DISMISSED = text("""
     SELECT coalesce(a.merged_into, a.id), coalesce(b.merged_into, b.id)
     FROM alias_dismissal d JOIN person a ON a.id = d.person_a JOIN person b ON b.id = d.person_b
+""")
+# The contacts of these roots, per root (every edge counts at least one mail), and the roots
+# that never count as one: no humans (D39) and hubs.
+_CONTACTS = text("""
+    SELECT r.id, array_agg(e.other)
+    FROM unnest(CAST(:roots AS bigint[])) AS r (id) CROSS JOIN LATERAL (
+        SELECT person_b AS other FROM edge WHERE person_a = r.id
+        UNION ALL
+        SELECT person_a FROM edge WHERE person_b = r.id
+    ) e
+    GROUP BY r.id
+""")
+_NOT_COUNTED = text("""
+    SELECT id FROM person WHERE merged_into IS NULL AND kind IS NOT NULL
+    UNION SELECT person_id FROM person_stats WHERE contacts >= :hub
 """)
 _FRESH = """
     SELECT * FROM unnest(
@@ -239,12 +274,21 @@ def registered_domain(domain: str) -> str:
     return ".".join(labels[-size:])
 
 
+def share_contacts(shared: int, mine: int, theirs: int) -> bool:
+    """Whether two roots share enough contacts for a certain pair (D160): shared contacts of
+    the ones that count (see the module docstring), of which one root has mine and the other
+    theirs, each without the other root."""
+    return shared >= SHARED_CONTACTS and shared >= CONTACT_OVERLAP * min(mine, theirs)
+
+
 def reason(same_name: str | None, same_local_part: str | None, tier: AliasTier) -> SuggestionReason:
-    """Why a stored suggestion was made: the signs its row records."""
+    """Why a stored suggestion was made: the signs its row records. A pair whose name fits
+    both addresses but that shares too few contacts reads as one of the same name alone."""
+    certain = tier is AliasTier.CERTAIN
     if same_name is not None and same_local_part is not None:
-        return "name_and_local_part"
+        return "name_and_local_part" if certain else "name_and_local_part_few_contacts"
     if same_name is not None:
-        return "name_fits_addresses" if tier is AliasTier.CERTAIN else "name"
+        return "name_fits_addresses" if certain else "name"
     return "local_part"
 
 
@@ -258,9 +302,11 @@ async def refresh_alias_suggestions(db: Executor, persons: Collection[int] | Non
     if persons is not None and not persons:
         return
     await lock_persons(db)
-    addresses = await db.execute(_KEYS)
+    addresses = (await db.execute(_KEYS)).all()
     dismissed = {(min(a, b), max(a, b)) for a, b in await db.execute(_DISMISSED)}
     pairs = suggest(addresses, dismissed)
+    roots = len({root for root, *_ in addresses})
+    await _check_contacts(db, pairs, max(HUB_CONTACTS, HUB_SHARE * roots))
     columns: dict[str, list[Any]] = {
         "person_a": [a for a, _ in pairs],
         "person_b": [b for _, b in pairs],
@@ -297,8 +343,9 @@ def suggest(
     addresses: Iterable[tuple[int, str, Mapping[str, int], PersonKind | None]],
     dismissed: Set[tuple[int, int]],
 ) -> dict[tuple[int, int], Suggestion]:
-    """Every pair of roots that shares a key, with its tier, from the addresses: root, address,
-    display names (name -> mails) and the root's kind."""
+    """Every pair of roots that shares a key, with its tier as the names give it, from the
+    addresses: root, address, display names (name -> mails) and the root's kind. A certain pair
+    still needs the contacts (see refresh_alias_suggestions)."""
     names: defaultdict[str, set[int]] = defaultdict(set)
     local_parts: defaultdict[str, set[int]] = defaultdict(set)
     # (root, main name) -> local part and domain of its addresses with that name
@@ -341,6 +388,29 @@ def suggest(
         )
         for pair, (name, local_part) in shared.items()
     }
+
+
+async def _check_contacts(
+    db: Executor, pairs: dict[tuple[int, int], Suggestion], hub: float
+) -> None:
+    """Make the certain pairs uncertain whose roots include a hub (a root with at least hub
+    contacts) or share too few contacts, reading the contacts of their other roots only."""
+    certain = [pair for pair, found in pairs.items() if found.tier is AliasTier.CERTAIN]
+    if not certain:
+        return
+    left_out = set(await db.scalars(_NOT_COUNTED, {"hub": hub}))
+    roots = {root for pair in certain for root in pair}
+    hubs = roots & left_out  # the roots of suggestions are humans
+    contacts = {
+        root: frozenset(other for other in others if other not in left_out)
+        for root, others in await db.execute(_CONTACTS, {"roots": sorted(roots - hubs)})
+    }
+    none: frozenset[int] = frozenset()
+    for a, b in certain:
+        mine, theirs = contacts.get(a, none), contacts.get(b, none)
+        sizes = len(mine) - (b in mine), len(theirs) - (a in theirs)
+        if a in hubs or b in hubs or not share_contacts(len(mine & theirs), *sizes):
+            pairs[a, b] = replace(pairs[a, b], tier=AliasTier.UNCERTAIN)
 
 
 def _main_name(display_names: Mapping[str, int], persons: Mapping[str, int]) -> str | None:

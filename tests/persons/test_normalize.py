@@ -18,6 +18,7 @@ from mailrobbe.persons.suggestions import (
     reason,
     registered_domain,
     role_address,
+    share_contacts,
     shared_mailbox,
 )
 
@@ -225,9 +226,25 @@ def test_registered_domain(domain: str, expected: str) -> None:
     assert registered_domain(domain) == expected
 
 
+@pytest.mark.parametrize(
+    ("shared", "mine", "theirs", "expected"),
+    [
+        (2, 2, 2, True),
+        (2, 10, 40, True),  # a fifth of the contacts of the one with fewer
+        (2, 11, 11, False),
+        (3, 15, 11, True),
+        (1, 1, 1, False),  # one contact in common is not enough
+        (0, 0, 0, False),
+    ],
+)
+def test_share_contacts(shared: int, mine: int, theirs: int, expected: bool) -> None:
+    assert share_contacts(shared, mine, theirs) is expected
+
+
 def test_reason() -> None:
     certain, uncertain = AliasTier.CERTAIN, AliasTier.UNCERTAIN
     assert reason("anna schmidt", "anna", certain) == "name_and_local_part"
+    assert reason("anna schmidt", "anna", uncertain) == "name_and_local_part_few_contacts"
     assert reason("anna schmidt", None, certain) == "name_fits_addresses"
     assert reason("anna schmidt", None, uncertain) == "name"
     assert reason(None, "anna", uncertain) == "local_part"

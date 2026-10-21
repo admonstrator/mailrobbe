@@ -3072,9 +3072,21 @@ const refOf = (summary: PersonSummary): PersonRef => ({
   name: summary.name,
 });
 
-/** The uncertain suggestions: a name alone, a local part alone. */
+/** The uncertain suggestions: namesakes without shared contacts, a name alone, a local part
+ *  alone. */
 export const uncertainSuggestionPage: SuggestionPage = {
   items: [
+    {
+      first: summary(
+        person(33, "Jonas Weber", "jonas.weber@baeckerei-nord.example"),
+        figures(8, 6),
+      ),
+      second: summary(person(34, "Jonas Weber", "jonas.weber@kanzlei-sued.example"), figures(2, 1)),
+      same_name: "jonas weber",
+      same_local_part: "jonas.weber",
+      tier: "uncertain",
+      reason: "name_and_local_part_few_contacts",
+    },
     {
       first: ps.anna,
       second: summary(person(31, "Anna Keller", "keller@schule-ost.example"), figures(5, 9)),

@@ -35,9 +35,14 @@ export type PersonSort = "mails" | "name" | "recent";
 /** Tier of an alias suggestion (D160): certain when several signs agree. */
 export type AliasTier = "certain" | "uncertain";
 /** Why a suggestion was made: name and local part, a name that fits both addresses of one
- *  organisation (both certain), a name alone, a local part alone (both uncertain). */
+ *  organisation (both certain, with shared contacts), name and local part with too few shared
+ *  contacts, a name alone, a local part alone (all three uncertain). */
 export type SuggestionReason =
-  "name_and_local_part" | "name_fits_addresses" | "name" | "local_part";
+  | "name_and_local_part"
+  | "name_fits_addresses"
+  | "name_and_local_part_few_contacts"
+  | "name"
+  | "local_part";
 export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
 export type SortOrder = "date_desc" | "date_asc";
 /** Review status of a mail (D55); null is unreviewed. */

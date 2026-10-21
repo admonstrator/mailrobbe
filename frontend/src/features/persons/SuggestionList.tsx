@@ -63,8 +63,8 @@ export function SuggestionList({
     <>
       <p className={styles.intro}>
         {uncertain
-          ? "Unsichere Vorschläge: Nur ein Zeichen spricht dafür, der gleiche Name oder der gleiche Adressteil. Bitte einzeln prüfen."
-          : "Sichere Vorschläge: Mehrere Zeichen sprechen dafür, dass es dieselbe Person ist. Zusammengeführt wird nur per Klick, und jede Zusammenführung lässt sich rückgängig machen."}
+          ? "Unsichere Vorschläge: Nur ein Teil spricht dafür, etwa der gleiche Name ohne gemeinsame Kontakte. Gleichnamige sind häufig, bitte einzeln prüfen."
+          : "Sichere Vorschläge: Name und Adressen passen zusammen, und beide schreiben mit denselben Leuten. Zusammengeführt wird nur per Klick, und jede Zusammenführung lässt sich rückgängig machen."}
       </p>
       <div className={styles.toolbar}>
         <label className={styles.switch}>

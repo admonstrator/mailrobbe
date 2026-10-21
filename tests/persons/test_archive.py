@@ -32,14 +32,16 @@ pytestmark = pytest.mark.db
 
 TABLES = ("person_stats", "person_year", "alias_suggestion")
 # Measured on this archive (D160): all 8 pairs of addresses of one generator person are
-# suggested, 7 of them certain, and every one of the 8 suggestions is right (before the tiers
-# there was a ninth, two automated senders of one domain with the same name). The floors leave
-# room for changes of the generator; a certain suggestion must almost never be wrong, since
-# "Alle sicheren zusammenführen" merges them unseen (D162).
+# suggested and every one of the 8 suggestions is right (before the tiers there was a ninth, two
+# automated senders of one domain with the same name). Names make 7 of them certain, contacts 1:
+# the generator draws a person's recipients anew for every mail, so the two addresses of the
+# other 6 share fewer than two contacts. The floors leave room for changes of the generator; a
+# certain suggestion must never be wrong, since "Alle sicheren zusammenführen" merges them
+# unseen (D162).
 RECALL_FLOOR = 0.75
 PRECISION_FLOOR = 0.6
-CERTAIN_RECALL_FLOOR = 0.6
-CERTAIN_PRECISION_FLOOR = 0.85
+CERTAIN_RECALL_FLOOR = 0.1
+CERTAIN_PRECISION_FLOOR = 1.0
 
 
 @pytest.fixture
@@ -184,7 +186,7 @@ async def test_the_tiers_of_the_generated_archive(
         pairs = await _suggested_pairs(archive, tier)
         right = sum(owners.get(a, -1) == owners.get(b, -2) for a, b in pairs)
         found[tier] = (len(pairs), right)
-    assert found == {"certain": (7, 7), "uncertain": (1, 1)}
+    assert found == {"certain": (1, 1), "uncertain": (7, 7)}
 
 
 async def _committed(engine: AsyncEngine, work: Callable[..., Awaitable[Any]], *args: Any) -> Any:

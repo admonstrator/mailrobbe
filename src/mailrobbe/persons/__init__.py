@@ -11,5 +11,5 @@ suggestions, merges.
 
 The refreshes run in the caller's transaction and never commit. aggregates.refresh_aggregates
 calls them in dependency order, after the edges of milestone 6 (graph/edges.py), which the
-person figures count as contacts.
+person figures count as contacts and the suggestions compare as contacts in common (D160).
 """

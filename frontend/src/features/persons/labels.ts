@@ -19,6 +19,8 @@ export function suggestionReasons({ same_name, same_local_part }: Reasons): stri
 export const REASON_TEXTS: Record<SuggestionReason, string> = {
   name_and_local_part: "Sicher: gleicher Name und gleicher Adressteil",
   name_fits_addresses: "Sicher: Name passt zu beiden Adressen, gleiche Organisation",
+  name_and_local_part_few_contacts:
+    "Unsicher: Name und Adressteil gleich, aber zu wenige gemeinsame Kontakte",
   name: "Unsicher: nur der gleiche Name",
   local_part: "Unsicher: nur der gleiche Adressteil",
 };

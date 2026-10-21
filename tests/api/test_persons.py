@@ -96,7 +96,7 @@ def stamp(value: datetime | None) -> str | None:
 def reason(name: str | None, local: str | None, tier: str) -> str:
     """Why a suggestion was made, from its row (D160)."""
     if name is not None and local is not None:
-        return "name_and_local_part"
+        return "name_and_local_part" if tier == "certain" else "name_and_local_part_few_contacts"
     if name is not None:
         return "name_fits_addresses" if tier == "certain" else "name"
     return "local_part"
@@ -313,7 +313,7 @@ async def _seed(url: str) -> Seed:
         (busy, c[2], None, "anna", "uncertain"),
         (other, c[3], None, "otto", "uncertain"),
         (c[4], c[5], "bert muster", "bert", "certain"),
-        (c[6], c[7], None, "carl", "uncertain"),
+        (c[6], c[7], "carl ober", "carl", "uncertain"),  # too few shared contacts
         (c[8], c[9], "dora reich", None, "uncertain"),
         (c[10], c[11], "emil sander", "emil", "certain"),
     ]
@@ -689,7 +689,7 @@ async def test_suggestions_page_in_order(seeded: httpx.AsyncClient, seed: Seed, 
     expected = seed.suggestion_page(tier)
     reasons = {
         "certain": {"name_and_local_part", "name_fits_addresses"},
-        "uncertain": {"name", "local_part"},
+        "uncertain": {"name_and_local_part_few_contacts", "name", "local_part"},
     }
     assert {item["reason"] for item in expected} == reasons[tier]
     found = await pages(seeded, "/api/persons/suggestions", [("tier", tier)], 3)
