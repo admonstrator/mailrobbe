@@ -41,7 +41,7 @@ export const ROLE_LABELS: Record<ParticipationRole, string> = {
 
 export const KIND_LABELS: Record<PersonKind, string> = { list: "Verteiler", automated: "Automat" };
 
-export const NO_SUBJECT = "(ohne Betreff)";
+export const NO_SUBJECT = "(kein Betreff)";
 
 /** "1 Mail", "4.300 Mails". */
 export function mailsText(count: number): string {

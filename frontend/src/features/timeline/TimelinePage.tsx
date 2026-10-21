@@ -5,6 +5,7 @@ import { ApiError } from "../../api/client";
 import {
   useDocument,
   useFirstMentions,
+  useMailDetail,
   useMboxFiles,
   useResearch,
   useTimeline,
@@ -82,6 +83,7 @@ export function TimelinePage() {
   const research = useResearch();
   const mboxFiles = useMboxFiles();
   const filtered = useDocument(state.list.document ?? 0, state.list.document !== null);
+  const threadMail = useMailDetail(state.list.thread ?? 0, state.list.thread !== null);
   const [picked, setPicked] = useState<Map<number, string>>(new Map());
 
   const persons = knownPersons(timeline.data, mentions.data, picked);
@@ -92,6 +94,8 @@ export function TimelinePage() {
     collection: (id) => research.data?.collections.find((other) => other.id === id)?.name,
     document: (id) =>
       filtered.data?.id === id ? (filtered.data.name ?? "(ohne Dateinamen)") : `#${id}`,
+    thread: (id) =>
+      threadMail.data?.id === id ? threadMail.data.subject || NO_SUBJECT : undefined,
   });
 
   /** The name of a chosen person or thread, from the series shown or the person picked. */

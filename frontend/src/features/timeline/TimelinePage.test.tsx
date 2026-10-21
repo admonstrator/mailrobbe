@@ -145,7 +145,7 @@ describe("timeline screen", () => {
     fireEvent.click(segment("Aufschlüsseln", "Threads"));
     await waitFor(() => expect(router.state.location.search).toBe("?split=thread"));
     expect(await lane("Rahmenvertrag Stadtwerke 2024")).toBeTruthy();
-    expect(await lane("(ohne Betreff)")).toBeTruthy();
+    expect(await lane("(kein Betreff)")).toBeTruthy();
 
     fireEvent.click(segment("Zeiteinheit", "Woche"));
     await waitFor(() => expect(router.state.location.search).toBe("?bucket=week&split=thread"));
