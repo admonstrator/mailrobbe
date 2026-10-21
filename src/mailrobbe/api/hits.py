@@ -202,20 +202,26 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
                 for _, words, place in counted
             ]
         )
+    arrays = {
+        index: func.tsvector_to_array(func.to_tsvector(TEXT_SEARCH, words.text))
+        for index, words, _ in counted
+    }
     lexemes = _union(
         [
             select(
                 literal(index, Integer).label("words"),
                 literal(place, Text).label("place"),
                 literal(places[place], Text).label("weight"),
-                func.unnest(
-                    func.tsvector_to_array(func.to_tsvector(TEXT_SEARCH, words.text))
-                ).label("lexeme"),
+                func.unnest(arrays[index]).label("lexeme"),
             )
-            for index, words, place in counted
+            for index, _, place in counted
         ]
     ).subquery("lexemes")
-    found = func.unnest(vector).table_valued("lexeme", "weights", name="found")
+    # vector with these lexemes only (ts_delete removes all others, those left when they are
+    # removed): unnesting it is cheaper than unnesting every lexeme of a long text
+    others = func.tsvector_to_array(func.ts_delete(vector, reduce(func.array_cat, arrays.values())))
+    only = func.ts_delete(vector, others)
+    found = func.unnest(only).table_valued("lexeme", "weights", name="found")
     positions = func.cardinality(func.array_positions(found.c.weights, lexemes.c.weight))
     return (
         select(lexemes.c.place, func.min(func.coalesce(positions, 0)).label("count"))
