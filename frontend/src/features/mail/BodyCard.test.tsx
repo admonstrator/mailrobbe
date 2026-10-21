@@ -89,11 +89,15 @@ describe("body card, text view", () => {
     const text = await screen.findByText(/Ja, Donnerstag 10 Uhr passt\./);
     expect(text.textContent).toBe(INLINE.trimEnd());
     expect(screen.queryByRole("button")).toBeNull();
+    // the quoted lines muted in place, the answers as written
+    expect(screen.getByText("> Können wir den Termin auf Donnerstag legen?").tagName).toBe("SPAN");
+    expect(text.tagName).toBe("DIV");
   });
 
   it("opens a forward that is the whole text", async () => {
     showText(FORWARD, [{ kind: "forward", start: 0, end: 217, lines: 6, folded: false }]);
-    expect(await screen.findByText(/Bitte überweisen Sie den Betrag/)).toBeTruthy();
+    // shown as the content it is, not muted
+    expect((await screen.findByText(/Bitte überweisen Sie den Betrag/)).tagName).toBe("DIV");
     expect(screen.queryByRole("button")).toBeNull();
   });
 

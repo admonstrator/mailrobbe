@@ -123,10 +123,16 @@ const FOLD_LABELS: Record<FoldKind, string> = {
   signature: "Signatur",
 };
 
+/** A stretch of a block's text: the own words, or what is quoted (shown muted). */
+interface Run {
+  quoted: boolean;
+  parts: TextPart[];
+}
+
 interface Block {
   fold: FoldKind | null; // null: shown as written, the own words and what starts open
   lines: number; // of a folded segment
-  parts: TextPart[];
+  runs: Run[];
 }
 
 /** The blocks the text view shows: each segment that starts folded on its own, the segments
@@ -137,30 +143,54 @@ function textBlocks(
   segments: TextSegment[],
   mark: (shown: string) => TextPart[],
 ): Block[] {
+  if (!segments.length) {
+    return [{ fold: null, lines: 0, runs: [{ quoted: false, parts: mark(text.trimEnd()) }] }];
+  }
   // The server counts characters as Python does, in code points; JavaScript counts UTF-16 units,
   // which differ after a character beyond the BMP, such as an emoji.
   const chars = /[\uD800-\uDFFF]/.test(text) ? Array.from(text) : null;
   const slice = (start: number, end: number) =>
     chars ? chars.slice(start, end).join("") : text.slice(start, end);
   const blocks: Block[] = [];
-  const add = (fold: FoldKind | null, lines: number, start: number, end: number) => {
-    const shown = slice(start, end)
-      .replace(/^([ \t]*\r?\n)+/, "")
-      .trimEnd();
-    if (shown) blocks.push({ fold, lines, parts: mark(shown) });
+  const add = (fold: FoldKind | null, lines: number, members: TextSegment[]) => {
+    // Open, only a quote is muted: a forward that is the whole text is the content.
+    const pieces = members.map((segment) => ({
+      quoted: fold !== null || segment.kind === "quote",
+      text: slice(segment.start, segment.end),
+    }));
+    while (pieces.length && !pieces[0].text.trim()) pieces.shift();
+    while (pieces.length && !pieces[pieces.length - 1].text.trim()) pieces.pop();
+    if (!pieces.length) return;
+    pieces[0].text = pieces[0].text.replace(/^([ \t]*\r?\n)+/, "");
+    pieces[pieces.length - 1].text = pieces[pieces.length - 1].text.trimEnd();
+    const runs = pieces.map(({ quoted, text }) => ({ quoted, parts: mark(text) }));
+    blocks.push({ fold, lines, runs });
   };
-  let open: [number, number] | null = null;
+  let open: TextSegment[] = [];
   for (const segment of segments) {
     if (segment.kind !== "text" && segment.folded) {
-      if (open) add(null, 0, ...open);
-      open = null;
-      add(segment.kind, segment.lines, segment.start, segment.end);
+      add(null, 0, open);
+      open = [];
+      add(segment.kind, segment.lines, [segment]);
     } else {
-      open = [open?.[0] ?? segment.start, segment.end];
+      open.push(segment);
     }
   }
-  if (open) add(null, 0, ...open);
-  return segments.length ? blocks : [{ fold: null, lines: 0, parts: mark(text.trimEnd()) }];
+  add(null, 0, open);
+  return blocks;
+}
+
+/** A block's text, its quoted runs muted. */
+function BlockText({ runs }: { runs: Run[] }) {
+  return runs.map((run, index) =>
+    run.quoted ? (
+      <span key={index} className={styles.quoted}>
+        <MarkedParts parts={run.parts} />
+      </span>
+    ) : (
+      <MarkedParts key={index} parts={run.parts} />
+    ),
+  );
 }
 
 /** The text with quotes, originals, forwards and signatures folded as the server's segments say
@@ -175,7 +205,9 @@ function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
   if (data.source === "none" || !data.text.trim()) {
     return <p className={styles.note}>Diese Mail enthält keinen Text.</p>;
   }
-  const hits = blocks.map((block) => markCount(block.parts));
+  const hits = blocks.map((block) =>
+    block.runs.reduce((sum, run) => sum + markCount(run.parts), 0),
+  );
   const total = hits.reduce((sum, count) => sum + count, 0);
   return (
     <>
@@ -186,11 +218,11 @@ function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
           {total > 0 && `${places(total)} markiert`}
         </p>
       )}
-      {blocks.map(({ fold, lines, parts }, index) => {
+      {blocks.map(({ fold, lines, runs }, index) => {
         if (fold === null) {
           return (
             <div key={index} className={styles.text}>
-              <MarkedParts parts={parts} />
+              <BlockText runs={runs} />
             </div>
           );
         }
@@ -209,8 +241,8 @@ function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
               </button>
             </div>
             {open && (
-              <div className={`${styles.text} ${styles.quoted}`}>
-                <MarkedParts parts={parts} />
+              <div className={styles.text}>
+                <BlockText runs={runs} />
               </div>
             )}
           </div>
