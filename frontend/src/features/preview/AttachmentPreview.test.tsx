@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 
 import type { DocumentDetail } from "../../api/types";
-import { attachmentHtml, documentDetail } from "../../test/fixtures";
+import { attachmentHtml, documentDetail, mailDetail } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 import { VIEWER_START_TIMEOUT } from "./PdfPreview";
 
@@ -171,6 +171,34 @@ describe("Word preview", () => {
     else expect(within(alert).queryByText("technical")).toBeNull();
     expect(within(alert).queryByRole("button", { name: "Erneut versuchen" }) !== null).toBe(retry);
     expect(screen.queryByTitle("Vorschau von Protokoll.docx")).toBeNull();
+  });
+});
+
+describe("preview over the mail", () => {
+  it.each([
+    ["pdf", "iframe"],
+    ["html", "iframe"],
+    ["video", "video"],
+  ] as const)("fills the overlay with a %s preview", async (preview, tag) => {
+    renderApp("/mails/184221", (call) =>
+      call.url.pathname === "/api/mails/184221"
+        ? {
+            ...mailDetail,
+            attachments: mailDetail.attachments.map((attachment) =>
+              attachment.id === 901 ? { ...attachment, preview } : attachment,
+            ),
+          }
+        : fixtureApi(call),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Vorschau" }));
+    const dialog = screen.getByRole("dialog", { name: NAME });
+    // the frame fills the overlay, unlike the document page's, which takes the window's height
+    await waitFor(() => expect(dialog.querySelector(tag)?.className).toMatch(/fill/));
+  });
+
+  it("keeps the window's height on the document page", async () => {
+    renderDocument({ preview: "pdf" });
+    expect((await screen.findByTitle(`PDF-Vorschau von ${NAME}`)).className).not.toMatch(/fill/);
   });
 });
 

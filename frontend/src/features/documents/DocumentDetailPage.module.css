@@ -212,7 +212,27 @@
   white-space: nowrap;
 }
 
+/* The compact bar: the name takes the room left, cut on one line. */
+.compactName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compactMeta {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
 @media (max-width: 759px) {
+  .compactMeta {
+    display: none;
+  }
+
   .breadcrumb {
     padding: 16px 16px 0;
   }

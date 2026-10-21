@@ -25,7 +25,15 @@ type PdfState =
 /** A PDF in the isolated viewer (D121): the app reads the bytes from the download endpoint (same
  *  origin, so Basic Auth applies) and hands them to the viewer's frame, which runs on an opaque
  *  origin without network and draws them with pdf.js. */
-export function PdfPreview({ attachmentId, name }: { attachmentId: number; name: string }) {
+export function PdfPreview({
+  attachmentId,
+  name,
+  fill,
+}: {
+  attachmentId: number;
+  name: string;
+  fill?: boolean;
+}) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<PdfState>({ phase: "loading" });
   const [attempt, setAttempt] = useState(0);
@@ -106,7 +114,7 @@ export function PdfPreview({ attachmentId, name }: { attachmentId: number; name:
     <>
       <iframe
         ref={frame}
-        className={cx(styles.frame, styles.pdf)}
+        className={cx(styles.frame, styles.pdf, fill && styles.fill)}
         title={`PDF-Vorschau von ${name}`}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"

@@ -1,12 +1,8 @@
-.card {
-  gap: 10px;
-}
-
 .list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
   padding: 0;
   list-style: none;
 }
@@ -16,18 +12,23 @@
   align-items: flex-start;
   gap: 10px;
   min-width: 0;
-  box-sizing: border-box;
-  padding: 10px 14px;
-  border: 1px solid var(--color-border);
+  padding: 7px 8px;
+  border: 1px solid transparent;
   border-radius: var(--radius-tile);
+  /* The jump from a search hit stops below the compact bar (48 px). */
+  scroll-margin: 64px 0 16px;
 }
 
-.hit {
+.item + .item {
+  border-top-color: var(--color-border-subtle);
+}
+
+.item.hit {
   border-color: var(--color-no-key);
-  scroll-margin: 16px;
 }
 
 .item > svg {
+  flex-shrink: 0;
   margin-top: 1px;
 }
 
@@ -36,11 +37,18 @@
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  font-size: 13px;
 }
 
+/* Two lines at most; the whole name in the title. */
 .name {
+  display: -webkit-box;
+  overflow: hidden;
   font-weight: 500;
+  line-height: 1.35;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .meta {
@@ -69,6 +77,12 @@
   white-space: nowrap;
 }
 
+/* What the file says about itself (D167), as found. */
+.described {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .hitText {
   margin-top: 3px;
   font-size: 12.5px;
@@ -84,8 +98,26 @@
   font-size: 12px;
 }
 
-@media (max-width: 759px) {
-  .list {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* "Vorschau": a link-like button, or a quiet note. */
+.open {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.open:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.downloadOnly {
+  color: var(--color-muted);
+}
+
+.more {
+  align-self: flex-start;
+  margin-left: -4px;
 }

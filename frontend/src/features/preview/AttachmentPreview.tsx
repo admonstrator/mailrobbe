@@ -12,6 +12,8 @@ import { IsolationNote, PreviewError } from "./PreviewParts";
 interface PreviewProps {
   attachmentId: number;
   name: string;
+  /** Frames fill the height of their container, the overlay, instead of the window's. */
+  fill?: boolean;
 }
 
 /** An attachment as the browser shows it (D120), by the kind the API decided (`preview` of an
@@ -31,8 +33,13 @@ export function AttachmentPreview({ kind, ...props }: PreviewProps & { kind: Pre
 }
 
 /** A raster image from the attachment's bytes (D76: served with its type only then); a damaged
- *  one says so instead of showing the browser's broken image. */
-function ImagePreview({ attachmentId, name }: PreviewProps) {
+ *  one says so instead of showing the browser's broken image. With onOpen, a click on it opens
+ *  the large view (D165). */
+export function ImagePreview({
+  attachmentId,
+  name,
+  onOpen,
+}: PreviewProps & { onOpen?: () => void }) {
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
@@ -41,7 +48,7 @@ function ImagePreview({ attachmentId, name }: PreviewProps) {
       </p>
     );
   }
-  return (
+  const image = (
     <img
       src={attachmentContentUrl(attachmentId)}
       alt={`Vorschau von ${name}`}
@@ -49,11 +56,17 @@ function ImagePreview({ attachmentId, name }: PreviewProps) {
       onError={() => setBroken(true)}
     />
   );
+  if (!onOpen) return image;
+  return (
+    <button type="button" className={styles.open} title="Großansicht" onClick={onOpen}>
+      {image}
+    </button>
+  );
 }
 
 /** A DOCX or ODT converted to HTML on the server (D122), in a frame without scripts. The HTML
  *  brings its own policy, which allows nothing from outside. */
-function HtmlPreview({ attachmentId, name }: PreviewProps) {
+function HtmlPreview({ attachmentId, name, fill }: PreviewProps) {
   const html = useAttachmentHtml(attachmentId);
   if (html.isPending) {
     return (
@@ -66,7 +79,7 @@ function HtmlPreview({ attachmentId, name }: PreviewProps) {
   return (
     <>
       <iframe
-        className={cx(styles.frame, styles.html)}
+        className={cx(styles.frame, styles.html, fill && styles.fill)}
         title={`Vorschau von ${name}`}
         sandbox=""
         referrerPolicy="no-referrer"
@@ -78,7 +91,12 @@ function HtmlPreview({ attachmentId, name }: PreviewProps) {
 }
 
 /** Audio or video in the browser's own player (D123), which runs no code of the file. */
-function MediaPreview({ attachmentId, name, kind }: PreviewProps & { kind: "audio" | "video" }) {
+function MediaPreview({
+  attachmentId,
+  name,
+  kind,
+  fill,
+}: PreviewProps & { kind: "audio" | "video" }) {
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
@@ -97,6 +115,6 @@ function MediaPreview({ attachmentId, name, kind }: PreviewProps & { kind: "audi
   return kind === "audio" ? (
     <audio className={styles.audio} {...player} />
   ) : (
-    <video className={styles.video} playsInline {...player} />
+    <video className={cx(styles.video, fill && styles.fill)} playsInline {...player} />
   );
 }
