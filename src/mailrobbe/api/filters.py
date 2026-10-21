@@ -8,7 +8,8 @@ through attachment. The full text words match the mail's own text or the text of
 attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL ORs as bitmaps
 (full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
 mail's own text alone. The entity and amount filters (D86) take the same two forms over the
-mentions of the mail and of its attachments' documents (_mentioned).
+mentions of the mail and of its attachments' documents (_mentioned), the signal filter (D136)
+over the rows the last signals phase stored in mail_signal (_signal).
 
 The order is MAIL_SORT_KEY (mails without a date as the oldest), then id; ix_mail_sort serves it
 in both directions, and keyset conditions compare the same pair. A cursor names the boundary
@@ -75,12 +76,14 @@ from mailrobbe.db.models import (
     Mail,
     MailEntity,
     MailMark,
+    MailSignal,
     MailTag,
     Note,
     Participation,
     Person,
 )
 from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
+from mailrobbe.signals.model import signal_keys
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
 _NO_DATE = literal_column("'-infinity'::timestamp with time zone", TIMESTAMPTZ)
@@ -176,6 +179,8 @@ def mail_conditions(
     where += [_mentions_entity(entity_id) for entity_id in sorted(set(filters.entity))]
     if filters.amount_min is not None or filters.amount_context:
         where.append(_mentions_amount(filters.amount_min, filters.amount_context))
+    # Signals (D136): each listed signal.
+    where += [_signal(key) for key in sorted(set(filters.signal))]
     return where
 
 
@@ -462,6 +467,32 @@ def _mentioned(conditions: Callable[[_Mention], list[ColumnElement[bool]]]) -> C
         func.coalesce(in_text, false()),
         and_(Mail.has_attachments, func.coalesce(in_attachment, false())),
     )
+    return found
+
+
+# Signals (D136) -------------------------------------------------------------------------------
+
+
+def _signal(key: str) -> ColumnElement[bool]:
+    """The signal holds for the mail: the last signals phase stored it in mail_signal. A key the
+    themes know but the phase does not compute (internal signals without internal domains)
+    matches what it stored, nothing.
+
+    Two forms, as for _mentioned. For a set of mails a semi join with the signal's mails
+    (pk_mail_signal by signal, whose statistics tell PostgreSQL how many there are); first_ids's
+    walk looks up each mail's row (ix_mail_signal_mail_id), so it never collects the mails of a
+    common signal, a third of the archive for weekend or night, to fill a page.
+    """
+    if key not in signal_keys():
+        raise FilterError(f"unknown signal: {key}")
+    found = Mail.id.in_(select(MailSignal.mail_id).where(MailSignal.signal == key))
+    held = (
+        select(true())
+        .where(MailSignal.mail_id == Mail.id, MailSignal.signal == key)
+        .limit(1)
+        .scalar_subquery()  # correlated and scalar: run per mail, never hashed in full
+    )
+    _WALK_FORMS[found] = func.coalesce(held, false())
     return found
 
 

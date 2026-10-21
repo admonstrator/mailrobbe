@@ -6,6 +6,7 @@ DKIM keys come from the generator's override table, so nothing queries real DNS.
 """
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from mailrobbe.api.app import create_app
 from mailrobbe.config import Settings
 from mailrobbe.entities.model import scan_version
 from mailrobbe.importer.cli import run_import
+from mailrobbe.signals.model import rules
 from tests.conftest import GeneratedArchive, _temporary_database
 
 
@@ -220,5 +222,176 @@ async def entity_client(
 ) -> AsyncIterator[httpx.AsyncClient]:
     """Client on the archive with entities. Read only."""
     settings = api_settings(entity_database_url, generated_archive, tmp_path / "no-frontend")
+    async for http in _client(settings):
+        yield http
+
+
+# Signals (milestone 12) ----------------------------------------------------------------------
+#
+# Known signals over a copy of the imported archive, written in SQL as the signals phase stores
+# them (D132 to D135), so that the API is tested apart from the phase. Internal is the domain
+# with most persons (SIGNAL_INTERNAL), private are the generator's freemail providers
+# (SIGNAL_FREEMAIL); many recipients are five here, as no generated mail has 25. Originals are
+# numbered by id (k): k=3 gets a forward prefix, k=4 two attached mails, k=5 an unnamed one,
+# k=6 and k=7 a Saturday evening in summer and in winter; the first original carrying a document
+# with text mentions "unter uns" in its own text and "Diskretion" in that document. Forwards
+# going outside are k=3, the first mail from inside to an external recipient and the first from
+# outside to a private one. Before the
+# rows are written, the private address of an open alias suggestion with an internal person is
+# merged into that person; after them, the busiest sender at night is merged into the person of
+# the lowest id, so that the overview has a person merged since the phase. Five persons are
+# silent, that sender among them. The figures are those the rules of the default settings
+# store (signals.model.SignalFigures).
+SIGNAL_FREEMAIL = (
+    r"^(webpost|netzpost|briefkasten|postfach|mailo|inbox|postamt|fernpost)\.(example|test)$"
+)
+SIGNAL_INTERNAL = "SELECT domain FROM person GROUP BY domain ORDER BY count(*) DESC, domain LIMIT 1"
+SIGNAL_COMPUTED_AT = "2026-10-01T12:00:00+00:00"
+SIGNAL_ROWS = [
+    "DELETE FROM mail_signal",  # the import may have run the signals phase already
+    "DELETE FROM person_signal",
+    "DELETE FROM global_stats WHERE key = 'signals'",
+    """CREATE TEMP TABLE m AS SELECT id, row_number() OVER (ORDER BY id) AS k FROM mail
+        WHERE is_duplicate_of IS NULL""",
+    """UPDATE mail SET subject = 'AW: WG: ' || coalesce(subject, '')
+        WHERE id = (SELECT id FROM m WHERE k = 3)""",
+    """INSERT INTO attachment (mail_id, filename, mime_type, size_bytes, position)
+        SELECT id, CASE k WHEN 4 THEN 'Weitergeleitet.eml' END, 'message/rfc822', 2048, 90
+        FROM m WHERE k IN (4, 5)
+        UNION ALL SELECT id, 'Zweite.eml', 'message/rfc822', 1024, 91 FROM m WHERE k = 4""",
+    "UPDATE mail SET has_attachments = true WHERE id IN (SELECT id FROM m WHERE k IN (4, 5))",
+    "UPDATE mail SET date_utc = '2021-07-03 21:30:00+00' WHERE id = (SELECT id FROM m WHERE k = 6)",
+    "UPDATE mail SET date_utc = '2021-01-09 22:15:00+00' WHERE id = (SELECT id FROM m WHERE k = 7)",
+    """INSERT INTO entity (kind, key, label, detail)
+        VALUES ('term', 'verschleierung:unter uns', 'unter uns', 'verschleierung'),
+               ('term', 'verschleierung:diskretion', 'Diskretion', 'verschleierung')
+        ON CONFLICT (kind, key) DO NOTHING""",
+    """CREATE TEMP TABLE t AS SELECT a.mail_id, a.document_id FROM attachment a
+        JOIN m ON m.id = a.mail_id JOIN document d ON d.id = a.document_id
+        WHERE d.text_status = 'text' ORDER BY a.mail_id, a.document_id LIMIT 1""",
+    """INSERT INTO mail_entity (entity_id, mail_id, position, occurrences, context)
+        SELECT e.id, t.mail_id, 0, 1, 0 FROM entity e, t
+        WHERE e.key = 'verschleierung:unter uns'""",
+    """INSERT INTO document_entity (entity_id, document_id, position, occurrences, context)
+        SELECT e.id, t.document_id, 0, 1, 0 FROM entity e, t
+        WHERE e.key = 'verschleierung:diskretion'""",
+    f"""CREATE TEMP TABLE c AS SELECT p.id, CASE
+            WHEN p.domain = i.domain OR p.domain LIKE '%.' || i.domain THEN 'internal'
+            WHEN p.domain ~ :freemail THEN 'private' ELSE 'external' END AS class
+        FROM person p, ({SIGNAL_INTERNAL}) i""",
+    """CREATE TEMP TABLE alias AS SELECT
+            CASE WHEN a.class = 'private' THEN s.person_a ELSE s.person_b END AS id,
+            CASE WHEN a.class = 'private' THEN s.person_b ELSE s.person_a END AS root
+        FROM alias_suggestion s JOIN c a ON a.id = s.person_a JOIN c b ON b.id = s.person_b
+            JOIN person pa ON pa.id = s.person_a JOIN person pb ON pb.id = s.person_b
+        WHERE (a.class, b.class) IN (('internal', 'private'), ('private', 'internal'))
+        ORDER BY greatest(pa.canonical_email COLLATE "C", pb.canonical_email COLLATE "C") DESC
+        LIMIT 1""",
+    "UPDATE person SET merged_into = alias.root FROM alias WHERE person.id = alias.id",
+    """DELETE FROM alias_suggestion
+        WHERE person_a IN (SELECT id FROM alias) OR person_b IN (SELECT id FROM alias)""",
+    # every participant with the class of its address and its root person
+    """CREATE TEMP TABLE pa AS SELECT pa.mail_id, pa.role, c.id, c.class,
+            coalesce(p.merged_into, p.id) AS root
+        FROM participation pa JOIN c ON c.id = pa.person_id JOIN person p ON p.id = c.id""",
+    """INSERT INTO mail_signal (signal, mail_id)
+        SELECT 'private', mail_id FROM pa WHERE class = 'private'
+        UNION SELECT 'internal_to_private', s.mail_id FROM pa s JOIN pa r USING (mail_id)
+            WHERE s.role = 'from' AND r.role <> 'from' AND s.class = 'internal'
+                AND r.class = 'private'
+        UNION SELECT 'private_to_internal', s.mail_id FROM pa s JOIN pa r USING (mail_id)
+            WHERE s.role = 'from' AND r.role <> 'from' AND s.class = 'private'
+                AND r.class = 'internal'
+        UNION SELECT 'private_alias', x.mail_id FROM pa x WHERE x.class = 'private' AND (
+            EXISTS (SELECT 1 FROM pa o WHERE o.root = x.root AND o.class = 'internal')
+            OR EXISTS (SELECT 1 FROM alias_suggestion s JOIN c o
+                ON o.id = CASE WHEN s.person_a = x.root THEN s.person_b ELSE s.person_a END
+                WHERE x.root IN (s.person_a, s.person_b) AND o.class = 'internal'))
+        UNION SELECT 'bcc', mail_id FROM pa WHERE role = 'bcc'
+        UNION SELECT 'many_recipients', mail_id FROM pa WHERE role <> 'from'
+            GROUP BY mail_id HAVING count(DISTINCT id) >= 5
+        UNION SELECT 'forward', id FROM m WHERE k IN (4, 5)
+        UNION SELECT f.signal, x.mail_id FROM (VALUES ('forward'), ('forward_out')) AS f (signal),
+            (SELECT id AS mail_id FROM m WHERE k = 3
+                UNION SELECT min(s.mail_id) FROM pa s JOIN pa r USING (mail_id)
+                WHERE s.role = 'from' AND r.role <> 'from' AND s.class = 'internal'
+                    AND r.class = 'external'
+                UNION SELECT min(s.mail_id) FROM pa s JOIN pa r USING (mail_id)
+                WHERE s.role = 'from' AND r.role <> 'from' AND s.class = 'external'
+                    AND r.class = 'private') x
+        UNION SELECT 'night', id FROM mail
+            WHERE extract(hour FROM timezone('Europe/Berlin', date_utc)) NOT BETWEEN 6 AND 21
+        UNION SELECT 'weekend', id FROM mail
+            WHERE extract(isodow FROM timezone('Europe/Berlin', date_utc)) >= 6
+        UNION SELECT 'term:' || e.detail, x.mail_id FROM (
+                SELECT entity_id, mail_id FROM mail_entity
+                UNION ALL SELECT de.entity_id, a.mail_id FROM document_entity de
+                JOIN attachment a ON a.document_id = de.document_id) x
+            JOIN entity e ON e.id = x.entity_id WHERE e.kind = 'term'""",
+    # per root person the mails it sent with each signal, no duplicates; then the silent ones
+    """INSERT INTO person_signal (signal, person_id, mails)
+        SELECT ms.signal, pa.root, count(DISTINCT ms.mail_id) FROM mail_signal ms
+        JOIN mail ON mail.id = ms.mail_id AND mail.is_duplicate_of IS NULL
+        JOIN pa ON pa.mail_id = ms.mail_id AND pa.role = 'from'
+        GROUP BY ms.signal, pa.root""",
+    """CREATE TEMP TABLE night AS SELECT person_id AS id FROM person_signal
+        WHERE signal = 'night' ORDER BY mails DESC, person_id DESC LIMIT 1""",
+    """INSERT INTO person_signal (signal, person_id, mails, since)
+        SELECT 'silent', id, 50, timestamptz '2021-05-01 00:00+00' FROM night
+        UNION ALL SELECT 'silent', id, (ARRAY[9, 9, 7, 5])[n],
+            (ARRAY[timestamptz '2021-03-01 00:00+00', '2021-04-01 00:00+00',
+                '2020-11-01 00:00+00', '2021-02-01 00:00+00'])[n]
+        FROM (SELECT id, row_number() OVER (ORDER BY id) AS n FROM person
+            WHERE merged_into IS NULL AND kind IS NULL AND id NOT IN (SELECT id FROM night)
+            ORDER BY id LIMIT 4) x""",
+    """INSERT INTO global_stats (key, value) SELECT 'signals', jsonb_build_object(
+        'computed_at', CAST(:computed_at AS text),
+        'rules', CAST(:rules AS jsonb),
+        'mails', (SELECT count(*) FROM mail WHERE is_duplicate_of IS NULL),
+        'signals', (SELECT jsonb_object_agg(k.key, coalesce(n.mails, 0))
+            FROM unnest(CAST(:keys AS text[])) AS k (key) LEFT JOIN (
+                SELECT ms.signal, count(*) AS mails FROM mail_signal ms
+                JOIN mail ON mail.id = ms.mail_id AND mail.is_duplicate_of IS NULL
+                GROUP BY ms.signal) n ON n.signal = k.key),
+        'persons', (SELECT jsonb_object_agg(signal, n) FROM
+            (SELECT signal, count(*) AS n FROM person_signal GROUP BY signal) x))""",
+    # merged since the phase: the busiest sender at night, and its aliases
+    """CREATE TEMP TABLE target AS SELECT min(id) AS id FROM person
+        WHERE merged_into IS NULL AND id NOT IN (SELECT id FROM night)""",
+    """UPDATE person SET merged_into = (SELECT id FROM target)
+        WHERE id IN (SELECT id FROM night) OR merged_into IN (SELECT id FROM night)""",
+    """DELETE FROM alias_suggestion
+        WHERE person_a IN (SELECT id FROM night) OR person_b IN (SELECT id FROM night)""",
+    "ANALYZE",
+]
+
+
+@pytest.fixture(scope="session")
+def signal_database_url(
+    database_server_url: str, imported_database_url: str, generated_archive: GeneratedArchive
+) -> Iterator[str]:
+    """A copy of the imported archive with the signals of SIGNAL_ROWS. Read only."""
+    template = make_url(imported_database_url).database
+    with _temporary_database(database_server_url, template) as url:
+        defaults = rules(api_settings(url, generated_archive, Path("no-frontend")))
+        asyncio.run(
+            _execute(
+                url,
+                SIGNAL_ROWS,
+                freemail=SIGNAL_FREEMAIL,
+                computed_at=SIGNAL_COMPUTED_AT,
+                rules=json.dumps(defaults.snapshot()),
+                keys=list(defaults.keys),
+            )
+        )
+        yield url
+
+
+@pytest.fixture
+async def signal_client(
+    signal_database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Client on the archive with signals, under the default settings. Read only."""
+    settings = api_settings(signal_database_url, generated_archive, tmp_path / "no-frontend")
     async for http in _client(settings):
         yield http
