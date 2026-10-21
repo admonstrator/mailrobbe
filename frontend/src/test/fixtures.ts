@@ -2,10 +2,13 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  CollectionDetail,
+  CollectionInfo,
   Contact,
   ContactPage,
   DkimJob,
   DkimStatus,
+  ExportInfo,
   Graph,
   GraphEdge,
   GraphNode,
@@ -27,7 +30,13 @@ import type {
   MailSummary,
   MailText,
   MboxFileInfo,
+  NotePage,
   ParticipationRole,
+  PermalinkTarget,
+  ResearchOverview,
+  SavedSearch,
+  TagInfo,
+  ThemeInfo,
   PersonFigures,
   PersonMailCounts,
   PersonPage,
@@ -146,6 +155,9 @@ function item(
     size: 48_213,
     mbox_file_id: 4,
     person_role: null,
+    review: null,
+    tags: [],
+    notes: 0,
     ...extra,
   };
 }
@@ -160,7 +172,14 @@ export const mailItems: MailListItem[] = [
     [jonas, peter, miriam],
     "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
     "pass",
-    { has_attachments: true, thread_id: 184001, size: 188_416 },
+    {
+      has_attachments: true,
+      thread_id: 184001,
+      size: 188_416,
+      review: "relevant",
+      tags: [2, 1],
+      notes: 2,
+    },
   ),
   item(
     184190,
@@ -187,7 +206,7 @@ export const mailItems: MailListItem[] = [
     [purchasing, ...Array.from({ length: 11 }, () => anna)],
     "WG: Vertrag Lieferant Nordstahl – Unterschrift",
     "fail",
-    { flagged: true },
+    { flagged: true, review: "seen" },
   ),
   item(
     184077,
@@ -361,7 +380,37 @@ export const mailDetail: MailDetail = {
   thread_size: 4,
   duplicate_of: null,
   duplicates: [],
-  note: { flagged: false, note: "", updated_at: null },
+  research: {
+    mark: {
+      flagged: false,
+      flagged_by: null,
+      flagged_at: null,
+      review: "relevant",
+      review_by: "Lena Vogt",
+      review_at: "2026-10-20T14:02:00Z",
+    },
+    tags: [
+      { id: 2, name: "Spendenaffären", color: "green" },
+      { id: 1, name: "Vertrag Nordstahl", color: "blue" },
+    ],
+    collections: [{ id: 1, name: "Story Nordstahl" }],
+    notes: [
+      {
+        id: 11,
+        body: "Erste Erwähnung der Rahmenvereinbarung, Anlage fehlt.",
+        author: "Lena Vogt",
+        created_at: "2026-10-20T14:05:00Z",
+        updated_at: "2026-10-20T14:05:00Z",
+      },
+      {
+        id: 12,
+        body: "Anlage liegt in Mail 184133, Abgleich mit Rechtsabteilung.",
+        author: null,
+        created_at: "2026-10-21T07:40:00Z",
+        updated_at: "2026-10-21T07:52:00Z",
+      },
+    ],
+  },
 };
 
 export const mailText: MailText = {
@@ -1121,3 +1170,175 @@ export function importErrorPage(search: URLSearchParams): ImportErrorPage {
     kinds,
   };
 }
+
+// Research file (milestone 8) -------------------------------------------------------------------
+
+export const tags: TagInfo[] = [
+  {
+    id: 2,
+    name: "Spendenaffären",
+    color: "green",
+    description: "Spenden, Finanzierung und Geldflüsse.",
+    mails: 37,
+    created_by: null,
+    created_at: "2026-10-20T09:00:00Z",
+  },
+  {
+    id: 1,
+    name: "Vertrag Nordstahl",
+    color: "blue",
+    description: "",
+    mails: 12,
+    created_by: "Lena Vogt",
+    created_at: "2026-10-19T16:30:00Z",
+  },
+];
+
+export const collections: CollectionInfo[] = [
+  {
+    id: 1,
+    name: "Story Nordstahl",
+    description: "Vergabe des Rahmenvertrags an Nordstahl und die Rolle der Einkaufsleitung.",
+    mails: 24,
+    created_by: "Lena Vogt",
+    created_at: "2026-10-19T16:00:00Z",
+    updated_at: "2026-10-21T07:52:00Z",
+  },
+];
+
+export const searches: SavedSearch[] = [
+  {
+    id: 3,
+    name: "Spendenaffären: Bargeld, Stückelung, Strohleute",
+    query: "q=Barspende+or+Barzahlung+or+Bargeld",
+    collection_id: null,
+    created_by: null,
+    created_at: "2026-10-20T09:00:00Z",
+    updated_at: "2026-10-20T09:00:00Z",
+  },
+  {
+    id: 4,
+    name: "Nordstahl an Einkauf",
+    query: "q=from%3Anordstahl&sort=date_asc",
+    collection_id: 1,
+    created_by: "Lena Vogt",
+    created_at: "2026-10-19T16:10:00Z",
+    updated_at: "2026-10-19T16:10:00Z",
+  },
+];
+
+export const research: ResearchOverview = {
+  tags: [tags[1], tags[0]].sort((a, b) => a.name.localeCompare(b.name)),
+  collections,
+  searches,
+  review: { unreviewed: 49_310, seen: 412, relevant: 61, irrelevant: 217 },
+  flagged: 9,
+  notes: 23,
+  starter_missing: 22,
+};
+
+export const themes: ThemeInfo[] = [
+  {
+    key: "spenden",
+    name: "Spendenaffären",
+    color: "green",
+    description: "Spenden, Finanzierung und Geldflüsse.",
+    terms: ["Spende", "Barspende", "Spendenquittung", "in bar"],
+    searches: [
+      {
+        name: "Spendenaffären: Bargeld, Stückelung, Strohleute",
+        query: "q=Barspende+or+Barzahlung+or+Bargeld",
+      },
+    ],
+  },
+  {
+    key: "gewalt",
+    name: "Gewalt",
+    color: "amber",
+    description: "Gewaltaufrufe, Drohungen, Waffen.",
+    terms: ["Waffe", "Drohung", "Feindesliste"],
+    searches: [{ name: "Gewalt: Waffen und Bewaffnung", query: "q=Waffe+or+Munition" }],
+  },
+];
+
+export const collectionDetail: CollectionDetail = {
+  ...collections[0],
+  date_min: "2026-09-02T08:14:00Z",
+  date_max: "2026-10-18T12:32:07Z",
+  missing: 1,
+  persons: [
+    { person: people.anna, mails: 18 },
+    { person: people.lukas, mails: 9 },
+    { person: people.purchasing, mails: 4 },
+  ],
+  searches: [searches[1]],
+};
+
+export const notePage: NotePage = {
+  items: [
+    {
+      ...mailDetail.research.notes[1],
+      mail_sha256: mailDetail.raw_sha256,
+      mail: {
+        id: mailDetail.id,
+        subject: mailDetail.subject,
+        date: mailDetail.date,
+        sender: people.anna,
+      },
+    },
+    {
+      id: 7,
+      body: "Absender taucht nach März nicht mehr auf.",
+      author: "Jan Brehm",
+      created_at: "2026-10-19T11:20:00Z",
+      updated_at: "2026-10-19T11:20:00Z",
+      mail_sha256: "b".repeat(64),
+      mail: { id: null, subject: null, date: null, sender: null },
+    },
+  ],
+  next_cursor: null,
+  total: 2,
+};
+
+export const exports: ExportInfo[] = [
+  {
+    id: 3,
+    label: "Story Nordstahl",
+    mails: 24,
+    include_research: false,
+    created_by: "Lena Vogt",
+    created_at: "2026-10-21T08:10:00Z",
+    manifest_sha256: "4f1c9a0e".repeat(8),
+    downloaded_at: "2026-10-21T08:10:20Z",
+    download_url: "/api/exports/3/download",
+  },
+];
+
+export const permalink: PermalinkTarget = {
+  mail_id: mailDetail.id,
+  raw_sha256: mailDetail.raw_sha256,
+};
+
+const moreTag = (id: number, name: string, color: TagInfo["color"], mails: number): TagInfo => ({
+  ...tags[0],
+  id,
+  name,
+  color,
+  description: "",
+  mails,
+});
+
+/** The research overview with seven tags, more than the filter column lists at first; the mail
+ *  of mailDetail carries neither "Gewalt" (3) nor the others it adds. */
+export const researchWithTags: ResearchOverview = {
+  ...research,
+  tags: [
+    ...tags,
+    moreTag(3, "Gewalt", "amber", 8),
+    moreTag(4, "Rassismus", "red", 5),
+    moreTag(5, "Verschleierung", "violet", 19),
+    moreTag(6, "Für Anwalt", "pink", 4),
+    moreTag(7, "Prüfen", "gray", 41),
+  ].sort((a, b) => a.name.localeCompare(b.name)),
+  collections: [...collections, { ...collections[0], id: 2, name: "Spenden 2024", mails: 61 }],
+};

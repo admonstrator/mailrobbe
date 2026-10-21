@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filterChips } from "./chips";
+import { filterChips, type ChipNames } from "./chips";
 import { DEFAULT_LIST_STATE, type ListState } from "./listState";
 import { invalidTerm, removeTerm } from "./queryText";
 
@@ -36,7 +36,12 @@ describe("invalidTerm", () => {
 });
 
 describe("filterChips", () => {
-  const names = { person: (id: number) => `Person ${id}`, mboxFile: () => "export.mbox" };
+  const names: ChipNames = {
+    person: (id) => `Person ${id}`,
+    mboxFile: () => "export.mbox",
+    tag: (id) => (id === 2 ? { id, name: "Spendenaffären", color: "green" } : undefined),
+    collection: (id) => (id === 1 ? "Story Nordstahl" : undefined),
+  };
   const state: ListState = {
     ...DEFAULT_LIST_STATE,
     q: "subject:Vertrag to:@stadtwerke-beispiel.example",
@@ -87,6 +92,32 @@ describe("filterChips", () => {
     expect(chip.label).toBe("Person: Person 11 · Gesendet");
     expect(chip.next.person).toEqual([]);
     expect(chip.next.person_role).toBeNull();
+  });
+
+  it("names research filters, with the tag's colour and unknown ids by number", () => {
+    const research: ListState = {
+      ...DEFAULT_LIST_STATE,
+      review: ["unreviewed", "relevant"],
+      tag: [2, 12],
+      collection: [1, 3],
+      has_note: true,
+      flagged: true,
+    };
+    const chips = filterChips(research, [], names);
+    expect(chips.map((chip) => [chip.label, chip.color])).toEqual([
+      ["Nur markierte", undefined],
+      ["Mit Notiz", undefined],
+      ["Status: Ungesichtet, Relevant", undefined],
+      ["Schlagwort: Spendenaffären", "green"],
+      ["Schlagwort #12", undefined],
+      ["Akte: Story Nordstahl", undefined],
+      ["Akte #3", undefined],
+    ]);
+    const byId = Object.fromEntries(chips.map((chip) => [chip.id, chip.next]));
+    expect(byId.review.review).toEqual([]);
+    expect(byId["tag-2"].tag).toEqual([12]);
+    expect(byId["collection-3"].collection).toEqual([1]);
+    expect(byId.has_note.has_note).toBe(false);
   });
 
   it("shows q as one chip while its terms are unknown", () => {

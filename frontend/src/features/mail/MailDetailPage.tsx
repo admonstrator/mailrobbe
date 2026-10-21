@@ -18,6 +18,7 @@ import { DkimCard } from "./DkimCard";
 import { HeaderCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
 import { ParticipantsCard } from "./ParticipantsCard";
+import { ResearchCard } from "./ResearchCard";
 import { ThreadCard } from "./ThreadCard";
 
 /** The mail detail (SPEC 5.2). The list's parameters travel in the query string, so Vorherige,
@@ -135,6 +136,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             )}
           </main>
           <aside className={styles.side} aria-label="Zur Mail">
+            <ResearchCard mail={detail.data} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
             <ActionsCard

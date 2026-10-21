@@ -32,6 +32,12 @@ export type PersonRole = "sent" | "received" | "cc";
 export type PersonSort = "mails" | "name" | "recent";
 export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
 export type SortOrder = "date_desc" | "date_asc";
+/** Review status of a mail (D55); null is unreviewed. */
+export type ReviewStatus = "seen" | "relevant" | "irrelevant";
+/** Filter and count keys: the statuses plus "unreviewed" for mails without one. */
+export type ReviewKey = "unreviewed" | ReviewStatus;
+/** Tag colours (D57); lib/research.ts maps them to colour pairs. */
+export type TagColor = "blue" | "teal" | "green" | "amber" | "red" | "pink" | "violet" | "gray";
 
 export type QueryKey =
   | "text"
@@ -60,7 +66,12 @@ export type ErrorCode =
   | "no_job"
   | "mbox_dir_missing"
   | "invalid_option"
-  | "job_failed";
+  | "job_failed"
+  | "duplicate_name"
+  | "invalid_selection"
+  | "empty_selection"
+  | "too_many_mails"
+  | "ambiguous_permalink";
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -86,6 +97,10 @@ export interface MailFilters {
   person?: number[];
   between?: number[]; // exactly two person ids
   person_role?: PersonRole; // role of the one person in `person`
+  review?: ReviewKey[]; // any of these review statuses (D55)
+  tag?: number[]; // carries any of these tags
+  collection?: number[]; // in any of these Akten
+  has_note?: boolean;
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -95,11 +110,6 @@ export interface MailOrderParams extends MailFilters {
 export interface MailListParams extends MailOrderParams {
   cursor?: string;
   limit?: number;
-}
-
-export interface NoteUpdate {
-  flagged: boolean;
-  note: string;
 }
 
 // Mail list -------------------------------------------------------------------------------------
@@ -132,6 +142,9 @@ export interface MailListItem {
   mbox_file_id: number;
   /** With exactly one person filtered for: its first role in the mail, else null. */
   person_role: ParticipationRole | null;
+  review: ReviewStatus | null;
+  tags: number[]; // tag ids, by tag name
+  notes: number;
 }
 
 export interface MailPage {
@@ -255,10 +268,41 @@ export interface ThreadMail {
   dkim_status: DkimStatus | null;
 }
 
-export interface Note {
+/** Bookmark and review status of a mail (D55); *_by null: no editor name was given. */
+export interface Mark {
   flagged: boolean;
-  note: string;
-  updated_at: string | null;
+  flagged_by: string | null;
+  flagged_at: string | null;
+  review: ReviewStatus | null;
+  review_by: string | null;
+  review_at: string | null;
+}
+
+export interface TagRef {
+  id: number;
+  name: string;
+  color: TagColor;
+}
+
+export interface CollectionRef {
+  id: number;
+  name: string;
+}
+
+export interface NoteInfo {
+  id: number;
+  body: string;
+  author: string | null;
+  created_at: string;
+  updated_at: string; // equals created_at until edited
+}
+
+/** The research file's data on one mail, shared by its byte-identical copies (D53). */
+export interface MailResearch {
+  mark: Mark;
+  tags: TagRef[]; // by name
+  collections: CollectionRef[]; // by name
+  notes: NoteInfo[]; // oldest first
 }
 
 export interface MailDetail {
@@ -280,7 +324,7 @@ export interface MailDetail {
   thread_size: number;
   duplicate_of: number | null;
   duplicates: number[];
-  note: Note;
+  research: MailResearch;
 }
 
 // Bodies --------------------------------------------------------------------------------------
@@ -696,4 +740,204 @@ export interface ScanResult {
   replaced: FileProblem[];
   missing: string[];
   unreadable: FileProblem[];
+}
+
+// Research file (milestone 8, D53 to D64) -------------------------------------------------------
+// Writes send the editor's name (lib/editor.ts) as X-Mailrobbe-Editor (D54).
+
+export const NAME_LIMIT = 120;
+export const TAG_NAME_LIMIT = 60;
+export const DESCRIPTION_LIMIT = 4_000;
+export const QUERY_LIMIT = 4_000;
+export const LABEL_LIMIT = 200;
+export const SELECTION_IDS_LIMIT = 1_000;
+export const BULK_LIMIT = 50_000;
+export const EXPORT_LIMIT = 2_000;
+export const PERMALINK_DIGITS = 16;
+
+export type BulkAction =
+  "tag_add" | "tag_remove" | "collection_add" | "collection_remove" | "review" | "flag";
+
+export interface TagInfo extends TagRef {
+  description: string;
+  mails: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface TagCreate {
+  name: string;
+  color?: TagColor;
+  description?: string;
+}
+
+/** Fields left out stay as they are. */
+export interface TagUpdate {
+  name?: string;
+  color?: TagColor;
+  description?: string;
+}
+
+export interface CollectionInfo extends CollectionRef {
+  description: string;
+  mails: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CollectionCreate {
+  name: string;
+  description?: string;
+}
+
+export interface CollectionUpdate {
+  name?: string;
+  description?: string;
+}
+
+export interface SavedSearch {
+  id: number;
+  name: string;
+  query: string; // query string of /mails, without cursor and page
+  collection_id: number | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedSearchCreate {
+  name: string;
+  query: string;
+  collection_id?: number | null;
+}
+
+/** Fields left out stay as they are; collection_id null detaches it from its Akte. */
+export interface SavedSearchUpdate {
+  name?: string;
+  query?: string;
+  collection_id?: number | null;
+}
+
+export interface ResearchOverview {
+  tags: TagInfo[]; // by name
+  collections: CollectionInfo[]; // last changed first
+  searches: SavedSearch[]; // by name
+  review: Record<ReviewKey, number>;
+  flagged: number;
+  notes: number;
+  starter_missing: number; // tags and searches of the themes not created yet (D64)
+}
+
+export interface ThemeSearchInfo {
+  name: string;
+  query: string;
+}
+
+/** A research theme of themes.toml (D64). */
+export interface ThemeInfo {
+  key: string;
+  name: string;
+  color: TagColor;
+  description: string;
+  terms: string[];
+  searches: ThemeSearchInfo[];
+}
+
+export interface CollectionPerson {
+  person: PersonRef;
+  mails: number;
+}
+
+export interface CollectionDetail extends CollectionInfo {
+  date_min: string | null;
+  date_max: string | null;
+  missing: number; // contents in no mail of the archive (any more)
+  persons: CollectionPerson[];
+  searches: SavedSearch[];
+}
+
+/** Fields left out stay as they are; review null makes the mail unreviewed again. */
+export interface MarkUpdate {
+  flagged?: boolean;
+  review?: ReviewStatus | null;
+}
+
+/** Tags or Akten to add to and remove from one mail. */
+export interface LinkChange {
+  add?: number[];
+  remove?: number[];
+}
+
+export interface NoteCreate {
+  body: string;
+}
+
+export interface NoteEdit {
+  body: string;
+}
+
+export interface NoteListParams {
+  q?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
+export interface NoteMail {
+  id: number | null; // null: not in the archive (any more)
+  subject: string | null;
+  date: string | null;
+  sender: PersonRef | null;
+}
+
+export interface NoteItem extends NoteInfo {
+  mail_sha256: string;
+  mail: NoteMail;
+}
+
+export interface NotePage {
+  items: NoteItem[]; // newest first
+  next_cursor: string | null;
+  total: number;
+}
+
+/** Exactly one of ids and filters. */
+export interface MailSelection {
+  ids?: number[] | null;
+  filters?: MailFilters | null;
+}
+
+export interface BulkRequest extends MailSelection {
+  action: BulkAction;
+  tag_id?: number | null;
+  collection_id?: number | null;
+  review?: ReviewStatus | null;
+  flagged?: boolean | null;
+}
+
+export interface BulkResult {
+  mails: number;
+  changed: number;
+}
+
+export interface PermalinkTarget {
+  mail_id: number;
+  raw_sha256: string;
+}
+
+export interface ExportRequest extends MailSelection {
+  include_research?: boolean;
+  label?: string;
+}
+
+export interface ExportInfo {
+  id: number;
+  label: string;
+  mails: number;
+  include_research: boolean;
+  created_by: string | null;
+  created_at: string;
+  manifest_sha256: string | null; // of the ZIP's SHA256SUMS at the first complete download
+  downloaded_at: string | null;
+  download_url: string;
 }

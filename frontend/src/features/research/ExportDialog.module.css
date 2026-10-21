@@ -1,0 +1,39 @@
+.summary {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.limit {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-size: 13px;
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.option input {
+  margin: 3px 0 0;
+}
+
+.option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.optionLabel {
+  font-size: 14px;
+  font-weight: 500;
+}

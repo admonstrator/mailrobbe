@@ -45,6 +45,7 @@ from mailrobbe.api.filters import (
     internal_domains,
     mail_conditions,
     order,
+    resolve_contents,
 )
 from mailrobbe.api.query import DKIM_KEYS, QueryError, parse_query
 from mailrobbe.api.schemas import (
@@ -62,7 +63,7 @@ from mailrobbe.api.schemas import (
     QueryTerm,
 )
 from mailrobbe.config import Settings
-from mailrobbe.db.models import Mail, MailNote, MboxFile, Participation, Person
+from mailrobbe.db.models import Mail, MailMark, MailTag, MboxFile, Note, Participation, Person, Tag
 from mailrobbe.enums import DkimStatus, ParticipationRole
 from mailrobbe.persons.roots import member_ids
 
@@ -88,9 +89,24 @@ CSV_HEADER = (
     "MBOX-Datei",
     "Offset",
 )
-_BOM = "\ufeff"  # spreadsheet programs then read the file as UTF-8
+CSV_BOM = "\ufeff"  # spreadsheet programs then read the file as UTF-8
 # Cells a spreadsheet would read as a formula get a leading apostrophe.
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+# The research data of each row of a page (D53), read by its content's SHA-256 through the
+# indexes on mail_tag and note: tag ids by name, and the number of notes.
+_TAGS = func.array(
+    select(MailTag.tag_id)
+    .join(Tag, Tag.id == MailTag.tag_id)
+    .where(MailTag.mail_sha256 == Mail.raw_sha256)
+    .order_by(func.lower(Tag.name), Tag.id)
+    .scalar_subquery(),
+    type_=ARRAY(BigInteger),
+).label("tags")
+_NOTES = (
+    select(func.count()).where(Note.mail_sha256 == Mail.raw_sha256).scalar_subquery().label("notes")
+)
 
 
 def _terms(q: str) -> list[QueryTerm]:
@@ -142,9 +158,12 @@ async def list_mails(
             Mail.is_duplicate_of,
             Mail.byte_length,
             Mail.mbox_file_id,
-            func.coalesce(MailNote.flagged, False).label("flagged"),
+            func.coalesce(MailMark.flagged, False).label("flagged"),
+            MailMark.review,
+            _TAGS,
+            _NOTES,
         )
-        .outerjoin(MailNote, MailNote.mail_id == Mail.id)
+        .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
         .where(Mail.id == any_(literal(ids, ARRAY(BigInteger))))
     )
     found = {row.id: row for row in await session.execute(statement)}
@@ -227,6 +246,9 @@ def _item(
         size=row.byte_length,
         mbox_file_id=row.mbox_file_id,
         person_role=min(roles, key=_ROLE_ORDER.__getitem__, default=None),
+        review=row.review,
+        tags=row.tags,
+        notes=row.notes,
     )
 
 
@@ -249,7 +271,7 @@ async def summary(
             date_min=figures.date_min,
             date_max=figures.date_max,
         )
-    where = _where(filters, terms, settings)
+    where = await resolve_contents(session, _where(filters, terms, settings))
     await _count_budget(session, settings)
     row = await _unless_canceled(session, _aggregate(where))
     if row is not None:
@@ -344,6 +366,7 @@ async def neighbors(
     if found is None:
         raise api_error(404, "not_found", f"no mail with id {mail_id}")
     date_utc = found.date_utc
+    where = await resolve_contents(session, where)
 
     async def neighbour(reverse: bool) -> int | None:
         ids = await first_ids(
@@ -434,7 +457,7 @@ async def _csv_chunks(
     session may be gone while the response streams."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
-    buffer.write(_BOM)
+    buffer.write(CSV_BOM)
     writer.writerow(CSV_HEADER)
     async with sessionmaker() as session:
         result = await session.stream(statement.execution_options(yield_per=CSV_BATCH))
@@ -452,18 +475,18 @@ def _csv_row(row: _Row) -> list[str]:
         str(mail_id),
         "" if date_utc is None else date_utc.isoformat(),
         "unchecked" if status is None else status.value,
-        _cell(name),
-        _cell(email),
-        _cell(recipients),
-        _cell(subject),
+        csv_cell(name),
+        csv_cell(email),
+        csv_cell(recipients),
+        csv_cell(subject),
         "ja" if attached else "nein",
-        _cell(message_id),
-        _cell(path),
+        csv_cell(message_id),
+        csv_cell(path),
         str(offset),
     ]
 
 
-def _cell(value: str | None) -> str:
+def csv_cell(value: str | None) -> str:
     """Text for a CSV cell; one a spreadsheet would take for a formula gets a leading '."""
     text = value or ""
     return "'" + text if text.startswith(_FORMULA_START) else text
