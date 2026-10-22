@@ -67,8 +67,8 @@ function LiveRun({ job }: { job: AiJob }) {
             {" · "}
           </>
         )}
-        {`${formatNumber(progress.done)} Dokumente gelesen`}
-        {progress.no_text > 0 && ` · ${formatNumber(progress.no_text)} ohne Schrift`}
+        {`${formatNumber(progress.done + progress.no_text)} Dokumente gelesen`}
+        {progress.no_text > 0 && `, davon ${formatNumber(progress.no_text)} ohne Schrift`}
         {progress.failed > 0 && ` · ${formatNumber(progress.failed)} fehlgeschlagen`}
         {` · ${formatNumber(progress.queued)} noch vorgemerkt`}
       </p>
@@ -107,8 +107,8 @@ function LastRun({ job }: { job: AiJob }) {
   const ended = job.status === "running" ? "abgebrochen" : STATUS_TEXTS[job.status];
   return (
     <p className={styles.muted}>
-      {`Letzter Lauf ${ended} am ${formatDateTime(when)}: ${formatNumber(progress.done)} Dokumente gelesen`}
-      {progress.no_text > 0 && `, ${formatNumber(progress.no_text)} ohne Schrift`}
+      {`Letzter Lauf ${ended} am ${formatDateTime(when)}: ${formatNumber(progress.done + progress.no_text)} Dokumente gelesen`}
+      {progress.no_text > 0 && `, davon ${formatNumber(progress.no_text)} ohne Schrift`}
       {progress.failed > 0 && `, ${formatNumber(progress.failed)} fehlgeschlagen`}
       {"."}
       {job.message && job.status === "failed" && (
