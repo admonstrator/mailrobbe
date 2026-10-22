@@ -430,7 +430,7 @@ function Fold({
           <>
             <span aria-hidden="true">{" · "}</span>
             <Link to={blockPath(block.hash)} className={styles.blockLink}>
-              {paragraph && paragraph.mails > 0 ? `in ${mailsText(paragraph.mails)}` : "zum Block"}
+              {standing && standing.mails > 0 ? `in ${mailsText(standing.mails)}` : "zum Block"}
             </Link>
           </>
         )}

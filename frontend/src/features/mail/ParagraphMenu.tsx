@@ -103,9 +103,9 @@ function ParagraphMenu({
           >
             {choice.label}
           </button>
-          {paragraph.mails > 0 && (
+          {standing.mails > 0 && (
             <Link to={blockPath(paragraph.hash)} className={styles.link}>
-              {`In ${mailsText(paragraph.mails)}`}
+              {`In ${mailsText(standing.mails)}`}
             </Link>
           )}
           <span className={styles.note}>

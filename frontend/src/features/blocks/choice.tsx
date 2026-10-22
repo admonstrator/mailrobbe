@@ -10,11 +10,13 @@ import { getEditor } from "../../lib/editor";
 export const PENDING_TEXT = "wirkt beim nächsten Lauf";
 
 /** Where a paragraph stands: what the next run applies, whether that differs from what the
- *  last run applied, and whether it is a standard block the team can take back again. */
+ *  last run applied, whether marking it brings a detected block back, and the mails holding it
+ *  as far as counted. */
 export interface BlockStanding {
   expected: boolean;
   pending: boolean;
   back: boolean; // standard now or detected: "Wieder als Standardblock" rather than marking it
+  mails: number;
 }
 
 /** A block as the API answers it: the team's choice, else detection (D225). */
@@ -23,17 +25,19 @@ export function blockStanding(block: BlockInfo): BlockStanding {
     expected: block.override ?? block.detected,
     pending: block.pending,
     back: block.detected,
+    mails: block.mails,
   };
 }
 
 /** A paragraph as the text view lists it; it does not tell whether detection found it, so a
  *  standard one counts as found. */
 export function paragraphStanding(paragraph: TextParagraph): BlockStanding {
-  const { override, standard } = paragraph;
+  const { override, standard, mails } = paragraph;
   return {
     expected: override ?? standard,
     pending: override !== null && override !== standard,
     back: standard,
+    mails,
   };
 }
 

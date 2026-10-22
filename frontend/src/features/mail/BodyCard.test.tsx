@@ -248,6 +248,8 @@ describe("body card, standard blocks", () => {
     fireEvent.click(handle);
     const menu = screen.getByRole("group", { name: "Absatz" });
     expect(within(menu).getByText("Wirkt beim nächsten Lauf.")).toBeTruthy();
+    // no run counted it, so there is no block page to lead to yet
+    expect(within(menu).queryByRole("link")).toBeNull();
     fireEvent.click(within(menu).getByRole("button", { name: "Als Standardblock markieren" }));
 
     const dialog = screen.getByRole("dialog", { name: "Name für Notizen und Änderungen" });
@@ -261,6 +263,10 @@ describe("body card, standard blocks", () => {
       [`/api/blocks/${OWN_HASH}/override`, { standard: true, sample: OWN }],
     ]);
     expect(put[0].headers.get("X-Mailrobbe-Editor")).toBe("Lena%20Vogt");
+    // the answer counted it: the choice has a page now
+    expect(within(menu).getByRole("link", { name: "In 1 Mail" }).getAttribute("href")).toBe(
+      `/ausgeblendet/bloecke/${OWN_HASH}`,
+    );
 
     // taking it back again needs no second question
     fireEvent.click(within(menu).getByRole("button", { name: "Kein Standardblock" }));
