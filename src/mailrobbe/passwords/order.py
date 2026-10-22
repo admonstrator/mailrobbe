@@ -4,7 +4,8 @@ ordered_candidates gathers the passwords to try on a locked document, in the tie
 sets and deduplicated (each password in its nearest tier only), skipping those already tried
 (password_tried_until). The tiers, in order:
 
-    manual        typed in by hand for every locked document (no mail, no document, an editor)
+    manual        typed in by hand for every locked document (no mail, no document; the editor
+                  when the request named one, D54)
     mail          found in a mail that carries the document
     thread        found in a mail of the same thread
     contacts      found in a mail with a shared participant, 30 days before or after
@@ -44,7 +45,7 @@ _TIERS: tuple[tuple[str, str], ...] = (
         PasswordTier.MANUAL.value,
         """
         SELECT pf.password_id, min(pf.id) AS finding_id FROM password_finding pf
-        WHERE pf.editor IS NOT NULL AND pf.mail_id IS NULL AND pf.document_id IS NULL
+        WHERE pf.mail_id IS NULL AND pf.document_id IS NULL
         GROUP BY pf.password_id
         """,
     ),

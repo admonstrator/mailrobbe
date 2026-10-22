@@ -76,6 +76,8 @@ def opens(data: bytes, filename: str | None, mime_type: str, password: str) -> b
             return is_encrypted_ole(data) and bool(decrypt_ooxml(data, password))
         if kind == "archive":
             return packed.opens_archive(data, filename, mime_type, password)
+    except MemoryError:  # the child's limit: main answers it
+        raise
     except Exception:  # Encrypted for a wrong password, anything else for a broken file
         return False
     return False
@@ -128,6 +130,8 @@ def _pdf_reader(data: bytes, password: str) -> Any:
             return None
     except NotImplementedError:  # a security handler pypdf does not know
         return None
+    except MemoryError:  # the child's limit: main answers it
+        raise
     except Exception as error:
         raise Damaged(reason(error)) from None
     return reader
@@ -171,6 +175,8 @@ async def try_passwords(
     }
     budget = seconds + limits.timeout
     code, output, problem = await _run(header, data, budget, limits.memory)
+    if problem is None and code == _MEMORY_EXIT:
+        problem = f"memory limit of {limits.memory // 1024**2} MiB exceeded"
     if problem is not None or code != 0:
         return Tried(None, len(values), error=problem or f"child ended with {code}")
     answer = json.loads(output)
@@ -255,9 +261,9 @@ def main(argv: list[str]) -> int:
 
     timeout, memory, size = float(argv[0]), int(argv[1]), int(argv[2])
     confine(timeout, memory, file_size=size + 1024**2)
-    header = json.loads(sys.stdin.buffer.readline())
-    data = sys.stdin.buffer.read()
     try:
+        header = json.loads(sys.stdin.buffer.readline())
+        data = sys.stdin.buffer.read()
         if header["op"] == "decrypt":
             result = _decrypt_answer(header, data)
         else:
@@ -297,6 +303,8 @@ def _decrypt_answer(header: dict[str, Any], data: bytes) -> bytes:
         return b"failed\nthe password does not open the document"
     except Damaged as error:
         return f"failed\ndamaged document: {one_line(str(error)) or 'unreadable'}".encode()
+    except MemoryError:  # the child's limit: main answers it
+        raise
     except Exception as error:
         return f"failed\ndamaged document: {reason(error)}".encode()
     return b"ok\n" + plain

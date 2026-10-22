@@ -35,13 +35,15 @@ _KEYWORDS = (
 )
 # A keyword, an optional "ist"/"lautet"/":"/"=" (or two, "lautet:"), then the candidate up to
 # white space or quotes; after such a word the candidate may stand on the next line. The keyword
-# stands at a word boundary; "pass" does not fire inside "passen" (\b after it).
+# stands at a word boundary; "pass" does not fire inside "passen" (\b after it). A word longer
+# than PASSWORD_MAX_LENGTH is no candidate, not even its beginning.
 _KEYWORD = "|".join(sorted(_KEYWORDS, key=len, reverse=True))
+_CHARACTER = r"[^\s\"'»«„“”‚‘’`()\[\]<>]"  # noqa: RUF001 - of a password, up to these quotes
 _CANDIDATE = re.compile(
     rf"\b(?:{_KEYWORD})\b"
     r"[ \t]*(?:(?:(?:ist|lautet|=|:)[ \t]*){1,2}(?:\n[ \t]*)?)?"
     r"[\"'»«„“”‚‘’`(\[]?"  # noqa: RUF001 - German quotation marks a sender may wrap a password in
-    r"(?P<value>[^\s\"'»«„“”‚‘’`()\[\]<>]{1,%d})" % PASSWORD_MAX_LENGTH,  # noqa: RUF001
+    rf"(?P<value>{_CHARACTER}{{1,{PASSWORD_MAX_LENGTH}}})(?!{_CHARACTER})",
     re.IGNORECASE,
 )
 _TRAILING = ".,;:"  # sentence punctuation; a form without it is tried too (D207: a try is cheap)
@@ -54,7 +56,8 @@ class Candidate:
 
 
 def candidates(text: str) -> Iterator[Candidate]:
-    """Each distinct password candidate of a text, with its surrounding line, first seen first."""
+    """Each distinct password candidate of a text, with the line(s) it stands in, first seen
+    first."""
     if not text:
         return
     lines = text.splitlines()
@@ -62,16 +65,18 @@ def candidates(text: str) -> Iterator[Candidate]:
     seen: set[str] = set()
     for match in _CANDIDATE.finditer(joined):
         raw = match.group("value")
-        context = _context(joined, match.start())
+        context = _context(joined, match.start(), match.end())
         for value in (raw, raw.rstrip(_TRAILING)):
-            if value and len(value) <= PASSWORD_MAX_LENGTH and value not in seen:
+            # a word has a letter or a digit: "Kennwort:" or "das Passwort, das" holds none
+            if any(c.isalnum() for c in value) and value not in seen:
                 seen.add(value)
                 yield Candidate(value, context)
 
 
-def _context(text: str, at: int) -> str:
-    """The line holding position `at`, trimmed, at most 300 characters."""
-    start = text.rfind("\n", 0, at) + 1
-    end = text.find("\n", at)
-    line = text[start : end if end != -1 else len(text)].strip()
-    return line if len(line) <= 300 else line[:297] + "..."
+def _context(text: str, start: int, end: int) -> str:
+    """The line(s) from `start` to `end` (a keyword, its candidate on the next line), trimmed, at
+    most 300 characters."""
+    first = text.rfind("\n", 0, start) + 1
+    last = text.find("\n", end)
+    lines = text[first : last if last != -1 else len(text)].strip()
+    return lines if len(lines) <= 300 else lines[:297] + "..."
