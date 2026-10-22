@@ -1,7 +1,335 @@
+/* The toolbar sticks below the shell's header, --bar-height high, and the table's header below
+   it. */
 .page {
+  --bar-height: 56px;
+
   display: flex;
   flex-direction: column;
   gap: 16px;
   min-width: 0;
   padding: 20px 24px 24px;
+}
+
+.lead {
+  max-width: 80ch;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* The figures of the last run as one compact strip, divided by thin lines. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  list-style: none;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 16px;
+  box-shadow: -1px 0 var(--color-border-subtle);
+}
+
+.tileLabel,
+.tileSub {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tileValue {
+  overflow: hidden;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending {
+  margin: 0;
+  border: 1px solid var(--color-no-key);
+  border-radius: var(--radius-card);
+  padding: 8px 12px;
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-size: 13px;
+}
+
+.toolbar {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  height: var(--bar-height);
+  margin: -10px 0 -16px;
+  background: var(--color-bg);
+}
+
+/* The two tabs as one control of two segments; the gap shows the line between them. */
+.segments {
+  display: inline-flex;
+  gap: 1px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--color-border-strong);
+}
+
+.segment {
+  border: 0;
+  padding: 7px 14px;
+  background: var(--color-surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segment:hover {
+  background: var(--color-hover);
+}
+
+.segment.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+.search {
+  display: flex;
+  flex: 0 1 420px;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.search:focus-within {
+  border-color: var(--color-accent);
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  outline: none;
+}
+
+.sort {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 7px 8px;
+  background: var(--color-surface);
+  font-size: 13px;
+}
+
+.total {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.tableCard {
+  gap: 0;
+  padding: 0;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+}
+
+/* No scroll container on wide screens, so the table header can stick below the toolbar. */
+.scroll {
+  min-width: 0;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+.table th {
+  position: sticky;
+  top: calc(var(--sticky-top) + var(--bar-height));
+  z-index: 2;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  box-shadow: inset 0 -1px var(--color-border);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table th:first-child {
+  border-top-left-radius: var(--radius-card);
+}
+
+.table th:last-child {
+  border-top-right-radius: var(--radius-card);
+}
+
+.table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 14px;
+  vertical-align: top;
+}
+
+.table tbody tr {
+  cursor: pointer;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover td {
+  background: var(--color-hover);
+}
+
+.table th.num,
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.blockCell {
+  width: 70%;
+}
+
+/* The sample's first lines, at most two of them shown. */
+.sample,
+.sample:hover {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.sample:hover {
+  text-decoration: underline;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pendingBadge {
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tile {
+    box-shadow:
+      -1px 0 var(--color-border-subtle),
+      0 -1px var(--color-border-subtle);
+  }
+
+  .scroll {
+    overflow-x: auto;
+  }
+
+  .table th {
+    position: static;
+  }
+}
+
+@media (max-width: 759px) {
+  .page {
+    --bar-height: 0px;
+
+    padding: 16px;
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .search {
+    flex: 1 1 100%;
+  }
+
+  .toolbar {
+    position: static;
+    height: auto;
+    margin: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table {
+    transition: none;
+  }
 }

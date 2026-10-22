@@ -218,7 +218,7 @@ async def mail_body(
         return await asyncio.to_thread(body.mail_headers, message)
     if view == "raw":
         return await asyncio.to_thread(body.mail_raw, message)
-    return await asyncio.to_thread(body.mail_text, message)
+    return await body.text_view(session, message)  # standard blocks cut out (D227)
 
 
 @router.get("/mails/{mail_id}/eml")
