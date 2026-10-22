@@ -1,8 +1,9 @@
-"""A stand-in for `mailrobbe import`, `mailrobbe dkim` and `mailrobbe dkim-keys` in the
-dashboard's tests.
+"""A stand-in for `mailrobbe import`, `mailrobbe dkim`, `mailrobbe dkim-keys` and `mailrobbe map`
+in the dashboard's tests.
 
     python fake_run.py BEHAVIOUR KIND --origin ORIGIN [--workers N] [--status S...] [--jobs N]
     python fake_run.py BEHAVIOUR dkim-keys --origin ORIGIN TASK [--name N]... [--domain D]...
+    python fake_run.py BEHAVIOUR map --origin ORIGIN download --region R --detail D [--bbox B]
 
 Tests put (sys.executable, this file, BEHAVIOUR) into api.processes.CLI. Like the real commands,
 it takes the advisory lock of its kind, records its run with jobs.begin_job (options from its
@@ -30,6 +31,7 @@ from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine
 from mailrobbe.dkim.keys.model import DkimKeysOptions
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus
+from mailrobbe.places.tiles import map_options, source_setting
 
 EXIT_STATUS = 3
 REPORT_SECONDS = 0.1
@@ -38,6 +40,11 @@ REPORT_SECONDS = 0.1
 def _options(kind: JobKind, args: argparse.Namespace, settings: Settings) -> BaseModel:
     if kind is JobKind.IMPORT:
         return jobs.ImportOptions.from_settings(settings, args.workers)
+    if kind is JobKind.MAP:
+        bbox = None if args.bbox is None else [float(part) for part in args.bbox.split(",")]
+        source = source_setting(settings.map_source)
+        assert source is not None, "the API starts no map run while the map is off"
+        return map_options(args.region, args.detail, bbox, source)
     if kind is JobKind.DKIM_KEYS:
         return DkimKeysOptions(
             task=args.task,
@@ -59,9 +66,12 @@ async def main(argv: Sequence[str]) -> int:
     parser.add_argument("--workers", type=int)
     parser.add_argument("--jobs", type=int)
     parser.add_argument("--status", nargs="+")
-    parser.add_argument("task", nargs="?")  # dkim-keys
+    parser.add_argument("task", nargs="?")  # dkim-keys, map
     parser.add_argument("--name", action="append")
     parser.add_argument("--domain", action="append")
+    parser.add_argument("--region")  # map
+    parser.add_argument("--detail")
+    parser.add_argument("--bbox")
     args = parser.parse_args(rest)
     kind = JobKind(kind_name.replace("-", "_"))
     if behaviour == "exit":
