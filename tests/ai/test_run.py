@@ -1057,6 +1057,7 @@ async def test_recordings_are_transcribed_and_searchable(archive: Archive, datab
         "check": "done",
         "ocr": "skipped",
         "transcribe": "done",
+        "summarize": "skipped",
         "entities": "done",
         "signals": "done",
     }
@@ -1095,6 +1096,7 @@ async def test_a_stopped_transcription_goes_on_after_the_last_piece(
         "check": "done",
         "ocr": "skipped",
         "transcribe": "stopped",
+        "summarize": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }
@@ -1223,6 +1225,7 @@ async def test_model_files_that_cannot_be_had_stop_the_run_before_any_task(
         "check": "failed",
         "ocr": "waiting",
         "transcribe": "skipped",
+        "summarize": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }
@@ -1269,6 +1272,7 @@ async def test_a_run_for_one_recording_leaves_the_queue_waiting(
         "check": "done",
         "ocr": "skipped",
         "transcribe": "done",
+        "summarize": "skipped",
         "entities": "skipped",  # no text changed
         "signals": "skipped",
     }
@@ -1290,7 +1294,8 @@ async def test_ocr_and_transcription_in_one_run(archive: Archive, database: str)
         "2 documents read (0 without text), 0 failed, 1 pages, 0.7 minutes of recordings, "
         "2 documents with a new text"
     )
-    assert set(steps(job).values()) == {"done"}
+    assert set(steps(job).values()) == {"done", "skipped"}  # summarize: none waits
+    assert steps(job)["summarize"] == "skipped"
     assert progress_of(job).queued == 2
 
 

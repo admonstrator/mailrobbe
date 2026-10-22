@@ -1227,7 +1227,15 @@ async def test_a_measured_speed_estimates_the_recordings(dashboard: Dashboard, w
 
 async def test_recordings_are_queued_for_the_transcriber(dashboard: Dashboard, work: Work) -> None:
     queued = await queue(dashboard, {"work_list": "media", "engine": "vision"})
-    assert queued == {"queued": 3, "raised": 0, "unreadable": 0, "logos": 0, "run": None}
+    assert queued == {
+        "queued": 3,
+        "raised": 0,
+        "unreadable": 0,
+        "logos": 0,
+        "run": None,
+        "short": 0,
+        "estimate": None,
+    }
     listed = await tasks(dashboard)
     assert {(task["kind"], task["engine"], task["status"]) for task in listed} == {
         ("transcribe", "auto", "waiting")  # the engine is OCR's
