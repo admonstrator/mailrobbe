@@ -1,0 +1,96 @@
+/* Folded, a card is its heading row alone. */
+.card:has(> .head:only-child) {
+  padding-block: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+/* The heading keeps its line; the summary beside it is cut first. */
+.title {
+  flex: 0 0 auto;
+  max-width: 100%;
+  margin: 0;
+}
+
+.main {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.side {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The heading is the button; the chevron before it points down while open. */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% + 4px);
+  margin: -2px;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  color: var(--color-accent-hover);
+}
+
+.chevron {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  margin: 0 2px;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--transition-fast);
+}
+
+.toggle[aria-expanded="false"] .chevron {
+  transform: rotate(-45deg);
+}
+
+.summary {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* The body takes part in the card's own layout, so a folding card keeps its gaps. */
+.body {
+  display: contents;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

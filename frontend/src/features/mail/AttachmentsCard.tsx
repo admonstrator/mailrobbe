@@ -1,15 +1,16 @@
-import { useId, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { attachmentContentUrl } from "../../api/client";
 import type { AttachmentHit, AttachmentInfo, DocumentKind, MetadataSummary } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { Highlighted, type SearchMarks } from "../../components/Highlighted";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatDate, formatNumber } from "../../lib/format";
 import { KindIcon } from "../documents/KindIcon";
 import {
+  KIND_LABELS,
   kindFromMimeType,
   membersStatusNote,
   pagesText,
@@ -77,13 +78,25 @@ function holdsHit(attachment: AttachmentInfo, hitById: Map<number, AttachmentHit
   return hitById.has(attachment.id) || (attachment.members ?? []).some(({ id }) => hitById.has(id));
 }
 
-/** The attachments in the side column (D18, D75, D166): metadata, the download read from the
- *  MBOX file (D76), the preview over the page (D120, D165), and the document each one is, with
- *  the other mails that carry it; those holding a search word of the mail list's query marked,
- *  with the place (D79). A long list shows its first ATTACHMENTS_SHOWN. Each says whether it
- *  needs a password or was opened with one (D233); a container lists the documents it holds
- *  below it (D231). A photo with a position shows it on a small map (D249), one photo at a
- *  time: the first, or the one chosen. */
+/** The id of the attachment list, which the header's count scrolls to, and its fold. */
+export const ATTACHMENTS_CARD_ID = "mail-attachments";
+export const ATTACHMENTS_FOLD = "mail.attachments";
+
+/** Folded: the total size and the first names. */
+function foldedSummary(attachments: AttachmentInfo[]): string {
+  const size = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+  const names = attachments.map((attachment) => attachment.filename || "(ohne Namen)");
+  return [formatBytes(size), names.join(", ")].join(" · ");
+}
+
+/** The attachments below the mail's text, one row each as a mail program lists them (D18, D75,
+ *  D166): kind, name, pages and size, the metadata line of D167, preview over the page (D120,
+ *  D165), the download read from the MBOX file (D76) and the document each one is, with the other
+ *  mails that carry it; those holding a search word of the mail list's query marked, with the
+ *  place (D79). A long list shows its first ATTACHMENTS_SHOWN. Each says whether it needs a
+ *  password or was opened with one (D233); a container lists the documents it holds below it
+ *  (D231). A photo with a position shows it on a small map (D249), one photo at a time: the
+ *  first, or the one chosen. The list folds like every block of the page. */
 export function AttachmentsCard({
   attachments,
   hits = [],
@@ -93,7 +106,6 @@ export function AttachmentsCard({
   hits?: AttachmentHit[];
   marks?: SearchMarks;
 }) {
-  const titleId = useId();
   const [all, setAll] = useState(false);
   // One preview at a time, over the page.
   const [open, setOpen] = useState<AttachmentInfo | null>(null);
@@ -108,10 +120,14 @@ export function AttachmentsCard({
   const mapped = positioned.find((attachment) => attachment.id === chosen) ?? positioned[0];
 
   return (
-    <Card variant="side" aria-labelledby={titleId}>
-      <CardTitle variant="caps" id={titleId}>
-        Anhänge ({formatNumber(attachments.length)})
-      </CardTitle>
+    <FoldCard
+      id={ATTACHMENTS_FOLD}
+      elementId={ATTACHMENTS_CARD_ID}
+      variant="main"
+      className={styles.card}
+      title={`Anhänge (${formatNumber(attachments.length)})`}
+      summary={foldedSummary(attachments)}
+    >
       <ul className={styles.list}>
         {shown.map((attachment) => {
           const kind = attachment.kind ?? kindFromMimeType(attachment.mime_type);
@@ -132,9 +148,7 @@ export function AttachmentsCard({
                   <Highlighted text={name} marks={hit?.in_name ? marks : undefined} />
                 </span>
                 <span className={styles.meta}>
-                  <span className={styles.mime} title={attachment.mime_type}>
-                    {attachment.mime_type}
-                  </span>
+                  <span title={attachment.mime_type}>{KIND_LABELS[kind]}</span>
                   {attachment.pages !== null && ` · ${pagesText(attachment.pages)}`}
                   {` · ${formatBytes(attachment.size)} · `}
                   {attachment.sha256 ? (
@@ -150,45 +164,6 @@ export function AttachmentsCard({
                   </span>
                 )}
                 {hit && <span className={styles.hitText}>{hitText(hit, marks)}</span>}
-                <span className={styles.links}>
-                  <a
-                    href={attachmentContentUrl(attachment.id)}
-                    download
-                    aria-label={`${name} herunterladen`}
-                  >
-                    Herunterladen
-                  </a>
-                  {preview ? (
-                    <button
-                      type="button"
-                      className={styles.open}
-                      aria-haspopup="dialog"
-                      onClick={() => setOpen(attachment)}
-                    >
-                      Vorschau
-                    </button>
-                  ) : (
-                    <span className={styles.downloadOnly}>nur Download</span>
-                  )}
-                  {attachment.document_id !== null && (
-                    <Link
-                      to={documentPath(attachment.document_id)}
-                      title="Wer hat dieses Dokument wann an wen geschickt"
-                    >
-                      {documentLinkText(attachment.document_mails)}
-                    </Link>
-                  )}
-                  {position && attachment !== mapped && (
-                    <button
-                      type="button"
-                      className={styles.open}
-                      aria-label={`Aufnahmeort von ${name} zeigen`}
-                      onClick={() => setChosen(attachment.id)}
-                    >
-                      Aufnahmeort zeigen
-                    </button>
-                  )}
-                </span>
                 {position && attachment === mapped && (
                   <span className={styles.position}>
                     <PhotoPosition documentId={attachment.document_id} position={position} />
@@ -202,6 +177,45 @@ export function AttachmentsCard({
                   marks={marks}
                 />
               </div>
+              <span className={styles.links}>
+                <a
+                  href={attachmentContentUrl(attachment.id)}
+                  download
+                  aria-label={`${name} herunterladen`}
+                >
+                  Herunterladen
+                </a>
+                {preview ? (
+                  <button
+                    type="button"
+                    className={styles.open}
+                    aria-haspopup="dialog"
+                    onClick={() => setOpen(attachment)}
+                  >
+                    Vorschau
+                  </button>
+                ) : (
+                  <span className={styles.downloadOnly}>nur Download</span>
+                )}
+                {attachment.document_id !== null && (
+                  <Link
+                    to={documentPath(attachment.document_id)}
+                    title="Wer hat dieses Dokument wann an wen geschickt"
+                  >
+                    {documentLinkText(attachment.document_mails)}
+                  </Link>
+                )}
+                {position && attachment !== mapped && (
+                  <button
+                    type="button"
+                    className={styles.open}
+                    aria-label={`Aufnahmeort von ${name} zeigen`}
+                    onClick={() => setChosen(attachment.id)}
+                  >
+                    Aufnahmeort zeigen
+                  </button>
+                )}
+              </span>
             </li>
           );
         })}
@@ -220,16 +234,18 @@ export function AttachmentsCard({
           onClose={() => setOpen(null)}
         />
       )}
-    </Card>
+    </FoldCard>
   );
 }
 
 /** The quiet labels after the size: the protection (D233), and the text status where it says
- *  more than the protection does. */
+ *  more than the protection does and more than the kind already tells. */
 function Notes({ attachment }: { attachment: AttachmentInfo }) {
   const { protection } = attachment;
+  // "Nicht unterstützt" only says that no text is read from pictures, sound and the like.
   const note =
-    protection && attachment.text_status === "encrypted"
+    (protection && attachment.text_status === "encrypted") ||
+    attachment.text_status === "unsupported"
       ? null
       : statusNote(attachment.text_status);
   return (

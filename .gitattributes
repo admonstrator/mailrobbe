@@ -1,0 +1,3 @@
+# Text files keep LF on every checkout, so a Windows clone builds the same image
+# (a CRLF entrypoint script would stop the container from starting).
+* text=auto eol=lf

@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useMailSignals } from "../../api/queries";
 import type { PersonRef, SignalReason } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
@@ -14,16 +14,23 @@ import { entityMailsHref } from "../entities/urlState";
 import { formatLocalTime, signalMailsHref, signalName } from "../signals/labels";
 import styles from "./SignalsCard.module.css";
 
+/** Folded: "keine", "1 Signal", "3 Signale". */
+function signalsSummary(count: number): string {
+  if (count === 0) return "keine";
+  return count === 1 ? "1 Signal" : `${formatNumber(count)} Signale`;
+}
+
 /** "Warum fällt diese Mail auf" (D137): each signal of the mail with what makes it hold, and a
  *  link to the mails with the same signal. It rates nothing, and says so. */
 export function SignalsCard({ mailId }: { mailId: number }) {
   const signals = useMailSignals(mailId);
 
   return (
-    <Card variant="side" aria-labelledby="mail-signals-title">
-      <CardTitle id="mail-signals-title" variant="caps">
-        Warum fällt diese Mail auf
-      </CardTitle>
+    <FoldCard
+      id="mail.signals"
+      title="Warum fällt diese Mail auf"
+      summary={signals.data && signalsSummary(signals.data.signals.length)}
+    >
       {signals.isPending ? (
         <Spinner label="Signale werden geladen" />
       ) : signals.isError ? (
@@ -50,7 +57,7 @@ export function SignalsCard({ mailId }: { mailId: number }) {
           </p>
         </>
       )}
-    </Card>
+    </FoldCard>
   );
 }
 

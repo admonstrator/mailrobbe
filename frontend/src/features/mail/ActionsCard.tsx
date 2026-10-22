@@ -2,7 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router";
 
 import type { MailDetail } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { personName } from "../../lib/person";
 import styles from "./ActionsCard.module.css";
 
@@ -19,8 +19,12 @@ export function ActionsCard({ mail, onShowRaw }: { mail: MailDetail; onShowRaw: 
   );
 
   return (
-    <Card variant="side">
-      <CardTitle variant="caps">Aktionen</CardTitle>
+    <FoldCard
+      id="mail.actions"
+      defaultOpen={false}
+      title="Aktionen"
+      summary="EML, PDF, Bild, Rohmail"
+    >
       <a href={`/api/mails/${mail.id}/eml`} className={styles.action} download>
         Als EML herunterladen
       </a>
@@ -59,6 +63,6 @@ export function ActionsCard({ mail, onShowRaw }: { mail: MailDetail; onShowRaw: 
           <SocialDialog mailId={mail.id} onClose={() => setSharing(false)} />
         </Suspense>
       )}
-    </Card>
+    </FoldCard>
   );
 }

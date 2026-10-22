@@ -2,7 +2,7 @@ import { Link } from "react-router";
 
 import { useMailPage } from "../../api/queries";
 import type { CalendarAttendee, CalendarEventInfo, MailListItem } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -194,14 +194,19 @@ export function EventCard({
 }) {
   if (events.length === 0) return null;
   return (
-    <Card aria-labelledby="mail-events-title">
-      <CardTitle id="mail-events-title">
-        {events.length === 1 ? "Termin" : `Termine (${formatNumber(events.length)})`}
-      </CardTitle>
+    <FoldCard
+      id="mail.events"
+      variant="main"
+      title={events.length === 1 ? "Termin" : `Termine (${formatNumber(events.length)})`}
+      summary={events
+        .map((event) => event.summary)
+        .filter(Boolean)
+        .join(" · ")}
+    >
       {events.map((event) => (
         <EventBlock key={event.id} event={event} mailId={mailId} mailHref={mailHref} />
       ))}
-    </Card>
+    </FoldCard>
   );
 }
 

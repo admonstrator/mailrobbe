@@ -3,20 +3,10 @@
   padding: 14px 22px;
 }
 
-.head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
 .sub {
+  margin: 0;
   color: var(--color-muted);
   font-size: 12px;
-}
-
-.recheck {
-  margin-left: auto;
 }
 
 .note {

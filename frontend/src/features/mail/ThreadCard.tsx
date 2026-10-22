@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 
 import type { MailDetail, ThreadMail } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { DkimDot } from "../../components/DkimDot";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
@@ -50,8 +50,7 @@ export function ThreadCard({
 }) {
   const more = mail.thread_size - mail.thread.length;
   return (
-    <Card variant="side">
-      <CardTitle variant="caps">Thread ({formatNumber(mail.thread_size)} Mails)</CardTitle>
+    <FoldCard id="mail.thread" title={`Thread (${formatNumber(mail.thread_size)} Mails)`}>
       <ol className={styles.list}>
         {mail.thread.map((member) => {
           const current = member.id === mail.id;
@@ -78,6 +77,6 @@ export function ThreadCard({
           <Link to={timelinePath({ thread: mail.thread_id })}>Thread in der Zeitachse</Link>
         </p>
       )}
-    </Card>
+    </FoldCard>
   );
 }
