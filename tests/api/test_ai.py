@@ -4,11 +4,12 @@ stopped as a child process, and what documents and hit lines say about machine m
 
 Each test works on its own copy of the imported archive, prepared as a known set of work: three
 PDFs made scans (2 pages, 3 pages, pages unknown), the other scans and every other image put out
-of the work lists' way, and three images of 200 KB, one of them in more than LOGO_MAILS mails.
+of the work lists' way, three images of 200 KB, one of them in more than LOGO_MAILS mails, and
+three recordings (90 s, 30 s, length unknown), the other recordings put out of the way too.
 Results are stored through ai.store, as a run stores them; the run is tests/api/fake_run.py in
 place of `mailrobbe ai` (processes.CLI), as in test_imports.py. The service check is replaced
 (api.ai.check_service), or asks the fake service of tests/ai/fakes.py, so nothing asks a real
-service.
+service; the transcriber's files are those of the FakeAudio of tests/ai/fakes.py (D291).
 """
 
 from collections.abc import AsyncIterator
@@ -21,13 +22,23 @@ import pytest
 from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from mailrobbe.ai.model import LOGO_MAILS, PRIORITY_SINGLE, OcrPage, Service, ServiceCheck
-from mailrobbe.ai.store import store_ocr_result
+from mailrobbe.ai.audio import parakeet
+from mailrobbe.ai.model import (
+    LOGO_MAILS,
+    PRIORITY_SINGLE,
+    TRANSCRIBE_MODEL,
+    OcrPage,
+    Service,
+    ServiceCheck,
+    TranscriptSegment,
+    transcribe_threads,
+)
+from mailrobbe.ai.store import store_ocr_result, store_transcript_result
 from mailrobbe.api import ai as ai_api
-from mailrobbe.api.schemas import AI_RULE_SECONDS
+from mailrobbe.api.schemas import AI_RULE_SECONDS, AI_RULE_SECONDS_PER_MINUTE
 from mailrobbe.config import Settings
 from mailrobbe.enums import JobKind
-from tests.ai.fakes import fake_service
+from tests.ai.fakes import MODEL_TOTAL, FakeAudio, fake_service
 from tests.api.conftest import api_settings
 from tests.api.test_imports import Dashboard, error_code, fake, holding, post, reaped, serve, until
 from tests.api.test_mails import Params, get, rows
@@ -58,6 +69,21 @@ PREPARE = [
     f"""UPDATE document d SET size_bytes = 200000,
         mails = CASE i.n WHEN 3 THEN {LOGO_MAILS + 10} ELSE 1 END
         FROM images i WHERE i.id = d.id""",
+    # recordings, each carried by an original mail: the archive's few, made up to three from
+    # other files; the other recordings out of the media list's way
+    """CREATE TEMP TABLE recordings AS
+        SELECT id, row_number() OVER (ORDER BY media DESC, id) AS n FROM (
+            SELECT d.id, d.kind = 'media' AS media FROM document d
+            WHERE d.kind NOT IN ('pdf', 'image') AND d.sha256 IS NOT NULL
+              AND EXISTS (SELECT 1 FROM attachment a JOIN mail m ON m.id = a.mail_id
+                          WHERE a.document_id = d.id AND m.is_duplicate_of IS NULL)
+            ORDER BY d.kind = 'media' DESC, d.id LIMIT 3) chosen""",
+    """UPDATE document d SET text_status = 'failed'
+        WHERE d.kind = 'media' AND d.id NOT IN (SELECT id FROM recordings)""",
+    """UPDATE document d SET kind = 'media', text_status = 'unsupported', extracted_text = NULL,
+        text_origin = 'extracted', mails = 4 - r.n,
+        duration = CASE r.n WHEN 1 THEN 90 WHEN 2 THEN 30 END
+        FROM recordings r WHERE r.id = d.id""",
 ]
 
 
@@ -66,6 +92,7 @@ class Work:
     scans: list[int]  # document ids: 2 pages, 3 pages, pages unknown
     images: list[int]  # the last one a logo
     text: int  # a PDF with a text read from its file
+    recordings: list[int]  # 90 s, 30 s, length unknown; in 3, 2 and 1 mails
 
 
 @pytest.fixture
@@ -79,6 +106,9 @@ async def work(mutable_database_url: str) -> Work:
         images = list(
             (await connection.execute(text("SELECT id FROM images ORDER BY n"))).scalars()
         )
+        recordings = list(
+            (await connection.execute(text("SELECT id FROM recordings ORDER BY n"))).scalars()
+        )
         own = await connection.scalar(
             text(
                 "SELECT min(id) FROM document WHERE kind = 'pdf' AND text_status = 'text' "
@@ -88,7 +118,16 @@ async def work(mutable_database_url: str) -> Work:
         await connection.commit()
     await engine.dispose()
     assert len(scans) == 3 and len(images) == 3 and own is not None
-    return Work(scans, images, own)
+    assert len(recordings) == 3
+    return Work(scans, images, own, recordings)
+
+
+@pytest.fixture(autouse=True)
+def model_files(monkeypatch: pytest.MonkeyPatch) -> FakeAudio:
+    """The transcriber's files: 1000 bytes still missing."""
+    audio = FakeAudio({}, missing=1000)
+    monkeypatch.setattr(parakeet, "model_state", audio.model_state)
+    return audio
 
 
 def ai_settings(url: str, archive: GeneratedArchive, tmp_path: Path, **extra: Any) -> Settings:
@@ -566,6 +605,7 @@ async def test_hit_lines_say_when_the_text_is_machine_made(
     listed = await get(dashboard.client, "/api/mails", [("q", WORD)])
     item = next(item for item in listed["items"] if item["id"] == mail)
     assert (item["attachment_match"], item["attachment_machine"]) == (True, True)
+    assert item["attachment_transcript"] is False  # recognised, not transcribed
     hits = await get(dashboard.client, f"/api/mails/{mail}/hits", [("q", WORD)])
     [hit] = hits["attachments"]
     assert (hit["in_text"], hit["machine"]) == (True, True)
@@ -592,10 +632,11 @@ async def test_a_run_starts_with_the_defaults_and_stops(
     dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake(monkeypatch, "wait")
-    body = {"engine": "tesseract", "max_pages": 7}
+    body = {"engine": "tesseract", "max_pages": 7, "max_minutes": 30}
     job = await post(dashboard.client, "/api/ai/run", body, 202)
     assert (job["kind"], job["origin"], job["alive"]) == ("ai", "ui", True)
     assert (job["options"]["ocr_engine"], job["options"]["max_pages"]) == ("tesseract", 7)
+    assert job["options"]["max_minutes"] == 30
     assert job["options"]["vision_model"] == "vision-test"
     # an import waits for it, and the dashboard shows it
     start = await error_code(dashboard.client, "/api/import/start", {}, 409)
@@ -610,7 +651,8 @@ async def test_a_run_starts_with_the_defaults_and_stops(
 
     await until(ended)
     # the next start takes the latest run's choice (D49)
-    assert (await status(dashboard))["defaults"]["max_pages"] == 7
+    defaults = (await status(dashboard))["defaults"]
+    assert (defaults["max_pages"], defaults["max_minutes"]) == (7, 30)
     assert await error_code(dashboard.client, "/api/ai/run/stop", {}, 409) == "no_job"
 
 
@@ -653,3 +695,308 @@ async def test_a_run_waits_for_an_import(
     control = {"engine": "vision", "vision_model": "a\x00b"}
     assert await error_code(dashboard.client, "/api/ai/run", control, 400) == "invalid_option"
     assert (await status(dashboard))["job"] is None
+
+
+# Transcripts (D290 to D296) ---------------------------------------------------------------------
+
+SPOKEN = "Zauberworttranskript"  # a word no generated text holds
+
+
+def said(start: float, end: float, words: str, uncertain: bool = False) -> TranscriptSegment:
+    return TranscriptSegment(start=start, end=end, text=words, confidence=0.7, uncertain=uncertain)
+
+
+async def transcribe(
+    url: str,
+    document_id: int,
+    segments: list[TranscriptSegment],
+    *,
+    duration: float | None = 90.0,
+    audio: bool = True,
+) -> int:
+    """A transcript of the document's content, stored as a run stores it."""
+    async with session_on(url) as session:
+        stored = await store_transcript_result(
+            session,
+            sha256=await sha256(url, document_id),
+            segments=segments,
+            duration=duration,
+            transcribed=duration or 0.0,
+            audio=audio,
+            options={"max_minutes": 180, "threads": 4, "uncertain": 0.5},
+            seconds=12.0,
+            job_id=None,
+        )
+    return stored.result_id
+
+
+async def test_status_shows_the_transcriber_and_the_recordings(
+    dashboard: Dashboard, work: Work
+) -> None:
+    found = await status(dashboard)
+    assert found["transcription"] == {
+        "available": found["transcription"]["available"],  # the libraries installed here
+        "model": TRANSCRIBE_MODEL,
+        "ready": False,
+        "missing_bytes": 1000,
+        "total_bytes": MODEL_TOTAL,
+        "threads": transcribe_threads(Settings()),
+        "max_minutes": 180,
+    }
+    media = work_list(found, "media")
+    sizes = await rows(
+        dashboard.url,
+        "SELECT sum(size_bytes) FROM document WHERE id = ANY(:ids)",
+        ids=work.recordings,
+    )
+    assert (media["documents"], media["bytes"], media["engine"]) == (3, sizes[0][0], "parakeet")
+    # 90 s and 30 s known, the third counts AI_RULE_MINUTES
+    assert (media["minutes"], media["without_minutes"], media["pages"]) == (2.0, 1, 0)
+    assert media["estimates"] == [
+        {
+            "engine": "parakeet",
+            "model": TRANSCRIBE_MODEL,
+            "seconds": 3 * AI_RULE_SECONDS_PER_MINUTE,
+            "estimated": True,
+            "seconds_per_page": 0.0,
+            "seconds_per_minute": AI_RULE_SECONDS_PER_MINUTE,
+        }
+    ]
+    assert found["queue"]["transcribe"]["waiting"] == 0
+
+
+async def test_a_measured_speed_estimates_the_recordings(dashboard: Dashboard, work: Work) -> None:
+    await rows(
+        dashboard.url,
+        """INSERT INTO ai_calibration (kind, engine, model, unit, seconds_per_unit, samples)
+           VALUES ('transcribe', 'parakeet', :model, 'minute', 4.0, 600)""",
+        model=TRANSCRIBE_MODEL,
+    )
+    [estimate] = work_list(await status(dashboard), "media")["estimates"]
+    # still estimated: one length is not known
+    assert (estimate["seconds"], estimate["estimated"]) == (12.0, True)
+    assert estimate["seconds_per_minute"] == 4.0
+    # a recording longer than max_minutes counts with max_minutes only
+    await rows(
+        dashboard.url, "UPDATE document SET duration = 12000 WHERE id = :id", id=work.recordings[2]
+    )
+    media = work_list(await status(dashboard), "media")
+    assert (media["minutes"], media["without_minutes"]) == (202.0, 0)
+    [estimate] = media["estimates"]
+    assert (estimate["seconds"], estimate["estimated"]) == ((120 + 180 * 60) / 60 * 4.0, False)
+
+
+async def test_recordings_are_queued_for_the_transcriber(dashboard: Dashboard, work: Work) -> None:
+    queued = await queue(dashboard, {"work_list": "media", "engine": "vision"})
+    assert queued == {"queued": 3, "raised": 0, "unreadable": 0, "logos": 0, "run": None}
+    listed = await tasks(dashboard)
+    assert {(task["kind"], task["engine"], task["status"]) for task in listed} == {
+        ("transcribe", "auto", "waiting")  # the engine is OCR's
+    }
+    durations = {task["document"]["id"]: task["document"]["duration"] for task in listed}
+    assert durations == dict(zip(work.recordings, [90.0, 30.0, None], strict=True))
+    assert {task["seconds_read"] for task in listed} == {0.0}
+    assert {task["pages_read"] for task in listed} == {0}
+    assert (await status(dashboard))["queue"]["transcribe"]["waiting"] == 3
+
+    # each document gets what fits it, unless kind names one
+    mixed = {"document_ids": [work.recordings[0], work.scans[0]], "single": True}
+    assert (await queue(dashboard, mixed))["queued"] == 1  # the scan; the recording is raised
+    only = {"document_ids": [work.recordings[1], work.scans[1]], "kind": "transcribe"}
+    assert (await queue(dashboard, only))["unreadable"] == 1
+    ocr = {"document_ids": [work.recordings[2], work.scans[2]], "kind": "ocr"}
+    assert (await queue(dashboard, ocr))["queued"] == 1
+    by_kind = {(task["kind"], task["document"]["id"]) for task in await tasks(dashboard)}
+    assert by_kind == {
+        *(("transcribe", recording) for recording in work.recordings),
+        ("ocr", work.scans[0]),
+        ("ocr", work.scans[2]),
+    }
+
+
+async def test_the_document_list_queues_recordings_too(dashboard: Dashboard, work: Work) -> None:
+    summary = await get(dashboard.client, "/api/documents/summary", [("kind", "media")])
+    assert summary["ocr_readable"] == 3  # what "Für KI vormerken" queues: the recordings
+    queued = await queue(dashboard, {"filters": {"kind": ["media", "pdf"]}, "kind": "transcribe"})
+    assert (queued["queued"], queued["unreadable"]) == (3, 0)
+    both = await queue(dashboard, {"filters": {"kind": ["media", "pdf"]}})
+    assert (both["queued"], both["raised"]) == (3, 3)  # the scans for OCR
+
+
+async def test_a_recording_starts_a_run_of_its_own(
+    dashboard: Dashboard, work: Work, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "wait")
+    body = {"document_ids": [work.recordings[0]], "single": True, "start": True}
+    assert (await queue(dashboard, body))["run"] == "started"
+    job = (await status(dashboard))["job"]
+    assert job["options"]["documents"] == [work.recordings[0]]
+    assert job["options"]["max_minutes"] == 180  # the defaults'
+    detail = await get(
+        dashboard.client, f"/api/mails/{await carrier(dashboard.url, work.recordings[0])}"
+    )
+    states = {item["document_id"]: item["transcript"] for item in detail["attachments"]}
+    assert states[work.recordings[0]] == "queued"
+    await post(dashboard.client, "/api/ai/run/stop", {})
+    await reaped(dashboard)
+
+
+async def test_a_task_shows_the_seconds_read_so_far(dashboard: Dashboard, work: Work) -> None:
+    await queue(dashboard, {"document_ids": [work.recordings[0]]})
+    partial = (
+        '{"segments": [{"start": 1.0, "end": 8.0, "text": "Hallo"}], "until": 42.5, '
+        '"duration": 90.0}'
+    )
+    await rows(
+        dashboard.url,
+        "UPDATE ai_task SET status = 'running', partial = CAST(:p AS jsonb)",
+        p=partial,
+    )
+    [task] = await tasks(dashboard)
+    assert (task["status"], task["seconds_read"], task["pages_read"]) == ("running", 42.5, 0)
+    detail = await get(dashboard.client, f"/api/documents/{work.recordings[0]}")
+    assert detail["ai"] is None  # no OCR
+    assert detail["transcript"] == {
+        "result": None,
+        "task": {"id": task["id"], "status": "running", "seconds_read": 42.5},
+    }
+    assert (detail["transcribable"], detail["ocr_readable"], detail["duration"]) == (
+        True,
+        False,
+        90.0,
+    )
+
+
+async def test_a_transcript_on_the_document_page_and_in_the_results(
+    dashboard: Dashboard, work: Work
+) -> None:
+    lines = [said(12.0, 20.5, f"Der {SPOKEN} liegt bereit.", True), said(1.0, 8.0, "Guten Tag")]
+    result = await transcribe(dashboard.url, work.recordings[0], lines)
+    text_of = f"Guten Tag\nDer {SPOKEN} liegt bereit."
+    [item] = (await get(dashboard.client, "/api/ai/results"))["items"]
+    assert (item["id"], item["kind"], item["engine"], item["model"]) == (
+        result,
+        "transcribe",
+        "parakeet",
+        TRANSCRIBE_MODEL,
+    )
+    assert (item["pages_read"], item["pages_text"], item["uncertain"], item["failed"]) == (
+        0,
+        0,
+        [],
+        [],
+    )
+    assert (item["segments"], item["uncertain_segments"]) == (2, 1)
+    assert (item["duration"], item["transcribed"], item["characters"]) == (
+        90.0,
+        90.0,
+        len(text_of),
+    )
+    assert item["document"]["duration"] == 90.0
+
+    detail = await get(dashboard.client, f"/api/documents/{work.recordings[0]}")
+    assert (detail["text_origin"], detail["text_status"], detail["duration"]) == (
+        "transcript",
+        "text",
+        90.0,
+    )
+    assert (detail["transcribable"], detail["ai"]) == (True, None)
+    expected = {
+        "id": result,
+        "model": TRANSCRIBE_MODEL,
+        "created_at": item["created_at"],
+        "duration": 90.0,
+        "transcribed": 90.0,
+        "segments": 2,
+        "uncertain": 1,
+        "characters": len(text_of),
+        "audio": True,
+    }
+    assert detail["transcript"] == {"result": expected, "task": None}
+    view = await get(dashboard.client, f"/api/documents/{work.recordings[0]}/transcript")
+    assert view["result"] == expected
+    assert [(line["start"], line["text"], line["uncertain"]) for line in view["segments"]] == [
+        (1.0, "Guten Tag", False),
+        (12.0, f"Der {SPOKEN} liegt bereit.", True),
+    ]
+    text_view = await get(dashboard.client, f"/api/documents/{work.recordings[0]}/text")
+    assert SPOKEN in str(text_view)
+
+    # without a transcript: 404, also for a scan
+    for document_id in (work.recordings[1], work.scans[0], 2**40):
+        path = f"/api/documents/{document_id}/transcript"
+        await get(dashboard.client, path, status=404)
+    response = await dashboard.client.get(f"/api/documents/{work.recordings[1]}/transcript")
+    assert response.json()["detail"]["code"] == "not_found"
+
+
+async def test_a_recording_without_sound_is_read_without_a_text(
+    dashboard: Dashboard, work: Work
+) -> None:
+    await transcribe(dashboard.url, work.recordings[2], [], duration=4.0, audio=False)
+    detail = await get(dashboard.client, f"/api/documents/{work.recordings[2]}")
+    assert (detail["text_origin"], detail["text_status"], detail["duration"]) == (
+        "extracted",
+        "unsupported",
+        4.0,
+    )
+    result = detail["transcript"]["result"]
+    assert (result["audio"], result["characters"], result["segments"]) == (False, 0, 0)
+    # off the work list
+    assert work_list(await status(dashboard), "media")["documents"] == 2
+
+
+async def test_the_mail_says_where_the_transcription_of_its_recordings_stands(
+    dashboard: Dashboard, work: Work
+) -> None:
+    await transcribe(dashboard.url, work.recordings[0], [said(0.0, 2.0, "Hallo")])
+    await transcribe(dashboard.url, work.recordings[1], [], duration=30.0)
+    expected = {
+        work.recordings[0]: ("transcribed", 90.0),
+        work.recordings[1]: ("no_text", 30.0),
+        work.recordings[2]: ("transcribable", None),
+    }
+    for recording, state in expected.items():
+        detail = await get(
+            dashboard.client, f"/api/mails/{await carrier(dashboard.url, recording)}"
+        )
+        found = {
+            item["document_id"]: (item["transcript"], item["duration"])
+            for item in detail["attachments"]
+        }
+        assert found[recording] == state
+        # an attachment the transcriber does not read has no state
+        others = [item for item in detail["attachments"] if item["document_id"] != recording]
+        for item in others:
+            if item["document_id"] not in expected:
+                assert item["transcript"] is None
+
+
+async def test_hit_lines_say_a_transcript_is_machine_made(dashboard: Dashboard, work: Work) -> None:
+    await transcribe(dashboard.url, work.recordings[0], [said(1.0, 4.0, f"{SPOKEN} gesagt")])
+    mail = await carrier(dashboard.url, work.recordings[0])
+    listed = await get(dashboard.client, "/api/mails", [("q", SPOKEN)])
+    item = next(item for item in listed["items"] if item["id"] == mail)
+    assert (item["attachment_match"], item["attachment_machine"]) == (True, True)
+    assert item["attachment_transcript"] is True  # "maschinell transkribiert"
+    hits = await get(dashboard.client, f"/api/mails/{mail}/hits", [("q", SPOKEN)])
+    [hit] = hits["attachments"]
+    assert (hit["in_text"], hit["machine"]) == (True, True)
+    searched = await get(dashboard.client, "/api/documents", [("q", SPOKEN)])
+    assert [(row["id"], row["text_origin"]) for row in searched["items"]] == [
+        (work.recordings[0], "transcript")
+    ]
+    filtered = await get(dashboard.client, "/api/documents", [("text_origin", "transcript")])
+    assert [row["id"] for row in filtered["items"]] == [work.recordings[0]]
+
+
+async def test_a_transcription_without_a_vision_service(
+    work: Work, mutable_database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+) -> None:
+    async with serve(ai_settings(mutable_database_url, generated_archive, tmp_path)) as served:
+        media = {"work_list": "media"}  # as the AI page queues the list: no engine
+        assert (await post(served.client, "/api/ai/tasks", media))["queued"] == 3
+        body = {"work_list": "media", "engine": "vision", "kind": "transcribe"}
+        assert (await post(served.client, "/api/ai/tasks", body))["raised"] == 3
+        scans = {"work_list": "scanned", "engine": "vision"}
+        assert await error_code(served.client, "/api/ai/tasks", scans, 400) == "invalid_option"

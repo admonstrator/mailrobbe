@@ -8,14 +8,19 @@ Routes: GET /api/ai/status, /api/ai/tasks, /api/ai/results, /api/ai/send-log; PO
 The status is polled every 2 s while a run is alive (D48), so it shows the services as the
 settings name them without asking them; asking a service and running its real test (a picture
 with a known word, D180) is the check, which may take up to MAILROBBE_AI_TIMEOUT and runs in a
-thread. The work lists and their estimates (D188) read document rows of the few kinds OCR reads
-(text status scanned, or images), which their indexes find; an estimate is the pages times the
-measured seconds per page of the engine and model (ai_calibration), else the rule of thumb of
-AI_RULE_SECONDS, marked estimated.
+thread. The work lists and their estimates (D188) read document rows of the few kinds OCR and
+the transcriber read (text status scanned, images, recordings), which their indexes find; an
+estimate is the pages times the measured seconds per page of the engine and model
+(ai_calibration), else the rule of thumb of AI_RULE_SECONDS, marked estimated. For recordings
+(D295) it is their minutes, AI_RULE_MINUTES for one whose length no transcription found yet,
+times the transcriber's measured seconds per minute, else AI_RULE_SECONDS_PER_MINUTE; estimated
+when a rule of thumb entered. The transcriber's state looks at its files (model_state) and at
+its libraries, without loading either.
 
-Queuing (D186) goes through ai.queue, results are discarded through ai.store, the one place
-writing ai_result and the AI texts of documents (D185); a selection from the document list's
-filters is resolved by the list's own conditions (documents.document_conditions). The run is
+Queuing (D186, D295) goes through ai.queue, which gives each document what fits it unless the
+request names a kind; results are discarded through ai.store, the one place writing ai_result
+and the AI texts of documents (D185); a selection from the document list's filters is resolved
+by the list's own conditions (documents.document_conditions). The run is
 `mailrobbe ai --origin ui run` started as a child process like the dashboard's other runs
 (processes.py, D46): it refuses to start while an import, a DKIM run, a key run or another AI run
 is alive, and an import refuses while it lives (processes.excluded).
@@ -33,13 +38,27 @@ from typing import Annotated
 
 import fastapi
 from fastapi import APIRouter, Query
-from sqlalchemy import ColumnElement, Integer, Text, any_, func, literal, select, text
+from sqlalchemy import (
+    ColumnElement,
+    Float,
+    Integer,
+    Text,
+    any_,
+    case,
+    false,
+    func,
+    literal,
+    select,
+    text,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe import jobs
 from mailrobbe.ai import queue, services, store
+from mailrobbe.ai.audio import parakeet
 from mailrobbe.ai.model import (
+    TRANSCRIBE_MODEL,
     AiOptions,
     Capability,
     ForbiddenService,
@@ -50,6 +69,8 @@ from mailrobbe.ai.model import (
     configured_services,
     locality,
     refusal,
+    transcribe_threads,
+    transcriber_available,
 )
 from mailrobbe.ai.queue import WORK_LISTS
 from mailrobbe.api import processes
@@ -59,7 +80,9 @@ from mailrobbe.api.filters import FilterError, internal_domains
 from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _start, _stop, _valid, ai_job
 from mailrobbe.api.schemas import (
     AI_QUEUE_LIMIT,
+    AI_RULE_MINUTES,
     AI_RULE_SECONDS,
+    AI_RULE_SECONDS_PER_MINUTE,
     AiChanged,
     AiDocumentRef,
     AiEstimate,
@@ -80,6 +103,7 @@ from mailrobbe.api.schemas import (
     AiTaskItem,
     AiTaskPage,
     AiTaskParams,
+    AiTranscriptionInfo,
     AiWorkList,
     AiWorkListInfo,
     DocumentFilters,
@@ -94,7 +118,7 @@ ResultId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
 JobId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
 
 # The options of the latest run that the next start from the AI page takes over (D49).
-DEFAULT_KEYS = ("ocr_engine", "vision_model", "max_pages")
+DEFAULT_KEYS = ("ocr_engine", "vision_model", "max_pages", "max_minutes")
 
 
 # Status ----------------------------------------------------------------------------------------
@@ -110,6 +134,7 @@ async def ai_status(session: Session, settings: AppSettings) -> AiStatus:
     work_lists = [
         await _work_list(session, key, defaults, vision, seconds) for key in ("scanned", "images")
     ]
+    work_lists.append(await _media_list(session, defaults))
     sent = await session.scalar(select(AiSendLog.id).limit(1))
     return AiStatus(
         enabled=True,
@@ -125,6 +150,7 @@ async def ai_status(session: Session, settings: AppSettings) -> AiStatus:
         remote_used=sent is not None or any(service.locality == "remote" for service in services),
         job=None if row is None else await ai_job(session, settings, row),
         defaults=defaults,
+        transcription=await asyncio.to_thread(_transcription, settings),
     )
 
 
@@ -239,6 +265,64 @@ async def _work_list(
     )
 
 
+_SECONDS_PER_MINUTE = text("""
+    SELECT seconds_per_unit FROM ai_calibration
+    WHERE kind = 'transcribe' AND engine = 'parakeet' AND model = :model AND unit = 'minute'
+""")
+
+
+async def _media_list(session: AsyncSession, defaults: AiOptions) -> AiWorkListInfo:
+    """The work list of recordings (D295) with its one estimate, the transcriber's, for at most
+    max_minutes of the defaults per recording."""
+    statement = text(f"""
+        SELECT count(*) AS documents, COALESCE(sum(d.size_bytes), 0) AS bytes,
+            COALESCE(sum(d.duration), 0) AS seconds,
+            -- LEAST skips a NULL: an unknown length counts by the rule of thumb instead
+            COALESCE(sum(LEAST(d.duration, :max_seconds)) FILTER (WHERE d.duration IS NOT NULL),
+                0) AS read_seconds,
+            count(*) FILTER (WHERE d.duration IS NULL) AS without_minutes
+        FROM document d WHERE {WORK_LISTS["media"]}
+    """)
+    row = (await session.execute(statement, {"max_seconds": defaults.max_minutes * 60.0})).one()
+    measured = await session.scalar(_SECONDS_PER_MINUTE, {"model": TRANSCRIBE_MODEL})
+    per_minute = AI_RULE_SECONDS_PER_MINUTE if measured is None else float(measured)
+    minutes = float(row.read_seconds) / 60 + AI_RULE_MINUTES * row.without_minutes
+    return AiWorkListInfo(
+        key="media",
+        documents=row.documents,
+        pages=0,
+        without_pages=0,
+        bytes=int(row.bytes),
+        estimates=[
+            AiEstimate(
+                engine="parakeet",
+                model=TRANSCRIBE_MODEL,
+                seconds=minutes * per_minute,
+                estimated=measured is None or row.without_minutes > 0,
+                seconds_per_page=0.0,
+                seconds_per_minute=per_minute,
+            )
+        ],
+        engine="parakeet",
+        minutes=float(row.seconds) / 60,
+        without_minutes=row.without_minutes,
+    )
+
+
+def _transcription(settings: Settings) -> AiTranscriptionInfo:
+    """The transcriber's libraries and files (D290, D291); blocking, since it looks at files."""
+    state = parakeet.model_state(settings.ai_model_dir)
+    return AiTranscriptionInfo(
+        available=transcriber_available(),
+        model=TRANSCRIBE_MODEL,
+        ready=state.ready,
+        missing_bytes=state.missing_bytes,
+        total_bytes=state.total_bytes,
+        threads=transcribe_threads(settings),
+        max_minutes=settings.ai_transcribe_max_minutes,
+    )
+
+
 # Services --------------------------------------------------------------------------------------
 
 
@@ -270,17 +354,19 @@ async def enqueue(
         )
     if request.start and request.document_ids is None:
         raise api_error(400, "invalid_selection", "start needs document_ids")
-    if request.engine == "vision" and not await _vision_usable(settings):
+    ocr = request.kind in (None, AiTaskKind.OCR)
+    if ocr and request.engine == "vision" and not await _vision_usable(settings):
         raise api_error(400, "invalid_option", "no usable vision service is configured")
     if request.work_list is not None:
         ids = await queue.work_list_ids(session, request.work_list)
     elif request.filters is not None:
-        ids = await readable_ids(session, settings, request.filters)
+        ids = await readable_ids(session, settings, request.filters, request.kind)
     else:
         ids = list(request.document_ids or [])
     queued = await queue.enqueue(
         session,
         ids,
+        kind=request.kind,
         engine=request.engine,
         editor=editor,
         single=request.single,
@@ -308,7 +394,9 @@ async def _start_for(
         return "running"
     latest = await jobs.latest_job(session, JobKind.AI)
     _, defaults = await asyncio.to_thread(_settings_view, settings, latest)
-    arguments = _run_arguments(defaults.ocr_engine, defaults.vision_model, defaults.max_pages)
+    arguments = _run_arguments(
+        defaults.ocr_engine, defaults.vision_model, defaults.max_pages, defaults.max_minutes
+    )
     arguments += [f"--document={document_id}" for document_id in document_ids]
     environment = processes.child_environment(settings)
     try:
@@ -327,18 +415,34 @@ async def _vision_usable(settings: Settings) -> bool:
     return _usable_vision(services)
 
 
+# What the document list's filters queue of each kind (D295), as conditions on document.
+_READABLE_BY_KIND = {
+    AiTaskKind.OCR: text(
+        f"EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {queue.OCR_READABLE})"
+    ),
+    AiTaskKind.TRANSCRIBE: text(
+        f"EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {queue.TRANSCRIBABLE})"
+    ),
+}
+
+
 async def readable_ids(
-    session: AsyncSession, settings: Settings, filters: DocumentFilters
+    session: AsyncSession,
+    settings: Settings,
+    filters: DocumentFilters,
+    kind: AiTaskKind | None = None,
 ) -> list[int]:
-    """The documents of the document list's filters that OCR can read, most mails first; 400
-    too_many_documents above AI_QUEUE_LIMIT."""
+    """The documents of the document list's filters that OCR or the transcriber can read (only
+    the one of kind, when given), most mails first; 400 too_many_documents above
+    AI_QUEUE_LIMIT."""
     try:
         where = document_conditions(filters, internal_domains(settings.internal_domains))
     except FilterError as error:
         raise api_error(400, "invalid_filter", str(error)) from error
+    readable = READABLE if kind is None else _READABLE_BY_KIND.get(kind, false())
     statement = (
         select(Document.id)
-        .where(*where, READABLE)
+        .where(*where, readable)
         .order_by(Document.mails.desc(), Document.id)
         .limit(AI_QUEUE_LIMIT + 1)
     )
@@ -362,9 +466,16 @@ async def tasks(params: Annotated[AiTaskParams, Query()], session: Session) -> A
         where.append(task.id < _decode_cursor(params.cursor, "task"))
     pages = func.coalesce(func.jsonb_array_length(task.partial["pages"]), 0).label("pages_read")
     total = task.partial["pages_total"].astext.cast(Integer).label("pages_total")
+    heard = case(
+        (
+            task.kind == AiTaskKind.TRANSCRIBE,
+            func.coalesce(task.partial["until"].astext.cast(Float), 0.0),
+        ),
+        else_=None,
+    ).label("seconds_read")
     found = list(
         await session.execute(
-            select(task, pages, total)
+            select(task, pages, total, heard)
             .where(*where)
             .order_by(task.id.desc())
             .limit(params.limit + 1)
@@ -391,8 +502,9 @@ async def tasks(params: Annotated[AiTaskParams, Query()], session: Session) -> A
                 pages_read=pages_read,
                 pages_total=pages_total,
                 result_id=row.result_id,
+                seconds_read=seconds_read,
             )
-            for row, pages_read, pages_total in found
+            for row, pages_read, pages_total, seconds_read in found
         ],
         next_cursor=_encode_cursor("task", found[-1][0].id) if more else None,
     )
@@ -468,6 +580,10 @@ async def results(params: Annotated[AiResultParams, Query()], session: Session) 
                 job_id=row.job_id,
                 discarded_by=row.discarded_by,
                 discarded_at=row.discarded_at,
+                duration=row.duration,
+                transcribed=row.transcribed,
+                segments=row.segments,
+                uncertain_segments=row.uncertain_segments,
             )
             for row in found
         ],
@@ -540,15 +656,27 @@ async def start_run(
     model = defaults.vision_model if request.vision_model is None else request.vision_model
     if any(not char.isprintable() for char in model):
         raise api_error(400, "invalid_option", "the vision model's name has control characters")
-    arguments = _run_arguments(engine, model, request.max_pages or defaults.max_pages)
+    arguments = _run_arguments(
+        engine,
+        model,
+        request.max_pages or defaults.max_pages,
+        request.max_minutes or defaults.max_minutes,
+    )
     environment = processes.child_environment(settings)
     job = await _start(session, settings, runs, JobKind.AI, arguments, environment)
     return await ai_job(session, settings, job)
 
 
-def _run_arguments(engine: OcrEngineChoice, model: str, max_pages: int) -> list[str]:
+def _run_arguments(
+    engine: OcrEngineChoice, model: str, max_pages: int, max_minutes: int
+) -> list[str]:
     """The arguments of `mailrobbe ai run` for these options."""
-    arguments = ["run", f"--engine={engine}", f"--max-pages={max_pages}"]
+    arguments = [
+        "run",
+        f"--engine={engine}",
+        f"--max-pages={max_pages}",
+        f"--max-minutes={max_minutes}",
+    ]
     if model.strip():
         arguments.append(f"--vision-model={model.strip()}")
     return arguments
@@ -567,12 +695,19 @@ async def document_refs(session: AsyncSession, contents: Sequence[str]) -> dict[
     if not contents:
         return {}
     found = await session.execute(
-        select(Document.id, Document.name, Document.kind, Document.pages, Document.sha256).where(
-            Document.sha256 == any_(literal(sorted(set(contents)), ARRAY(Text)))
-        )
+        select(
+            Document.id,
+            Document.name,
+            Document.kind,
+            Document.pages,
+            Document.duration,
+            Document.sha256,
+        ).where(Document.sha256 == any_(literal(sorted(set(contents)), ARRAY(Text))))
     )
     return {
-        row.sha256: AiDocumentRef(id=row.id, name=row.name, kind=row.kind, pages=row.pages)
+        row.sha256: AiDocumentRef(
+            id=row.id, name=row.name, kind=row.kind, pages=row.pages, duration=row.duration
+        )
         for row in found
     }
 
