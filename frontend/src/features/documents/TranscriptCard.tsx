@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link } from "react-router";
 
 import { useEnqueueAi } from "../../api/queries";
@@ -18,6 +18,11 @@ import { Transcript } from "../preview/Transcript";
 import { DiscardDialog } from "./DocumentOcr";
 import styles from "./TranscriptCard.module.css";
 
+// The picture and its preview come in a chunk of their own (D298), as in the mail detail.
+const SocialDialog = lazy(() =>
+  import("../social/SocialDialog").then(({ SocialDialog }) => ({ default: SocialDialog })),
+);
+
 /** "Transkription läuft · 1:05 von 3:12 transkribiert", "Für die Transkription vorgemerkt". */
 function taskText(task: DocumentTranscriptTask, duration: number | null | undefined): string {
   const read =
@@ -32,7 +37,8 @@ function taskText(task: DocumentTranscriptTask, duration: number | null | undefi
  *  the transcriber did ("Maschinell transkribiert", model, date, length, how far it read), the
  *  lines with their times, which play the page's player from there, an open task ("vorgemerkt",
  *  "läuft" with the seconds read, the page asks again until it ends), and "Transkribieren",
- *  "Neu transkribieren" and "Verwerfen". */
+ *  "Neu transkribieren", "Verwerfen" and "Als Bild teilen" (D298, headed by the first mail
+ *  carrying the recording). */
 export function TranscriptCard({
   document,
   player,
@@ -42,7 +48,7 @@ export function TranscriptCard({
 }) {
   const result = document.transcript?.result ?? null;
   const task = document.transcript?.task ?? null;
-  const [dialog, setDialog] = useState<"again" | "discard" | null>(null);
+  const [dialog, setDialog] = useState<"again" | "discard" | "share" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const enqueue = useEnqueueAi();
 
@@ -103,6 +109,11 @@ export function TranscriptCard({
             )}
             {result && (
               <>
+                {result.characters > 0 && (
+                  <Button size="sm" onClick={() => setDialog("share")}>
+                    Als Bild teilen
+                  </Button>
+                )}
                 <Button size="sm" onClick={() => setDialog("again")}>
                   Neu transkribieren
                 </Button>
@@ -139,6 +150,15 @@ export function TranscriptCard({
             </Button>
           </div>
         </Dialog>
+      )}
+      {dialog === "share" && (
+        <Suspense fallback={null}>
+          <SocialDialog
+            target={{ document: document.id }}
+            duration={result?.duration ?? document.duration}
+            onClose={() => setDialog(null)}
+          />
+        </Suspense>
       )}
       {dialog === "discard" && result && (
         <DiscardDialog

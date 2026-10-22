@@ -2,7 +2,7 @@
 // the editor's name on writes (D54), and contract errors as ApiError.
 
 import { EDITOR_HEADER, editorHeader, getEditor } from "../lib/editor";
-import type { ApiErrorDetail, ErrorCode, SocialParams } from "./types";
+import type { ApiErrorDetail, ErrorCode, TranscriptSocialParams } from "./types";
 
 type ParamValue = string | number | boolean | null | undefined | readonly (string | number)[];
 /** A parameter object such as MailListParams. */
@@ -134,16 +134,28 @@ export function attachmentMediaUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/media`;
 }
 
-/** The query of a social media image (D214): every switch is written out, since the API blacks
- *  out by default and buildQuery would drop a false one. */
-export function socialQuery(params: SocialParams): Record<string, string | readonly string[]> {
-  const query: Record<string, string | readonly string[]> = {};
+/** What a social media picture shows: one mail (D214), or a transcribed recording headed by the
+ *  mail it came with, the mail detail's attachment or else the first mail carrying it (D298). */
+export type SocialTarget = { mail: number } | { document: number; attachment?: number };
+
+/** The query of a social media picture: every switch is written out, since the API blacks out
+ *  by default and buildQuery would drop a false one. */
+export function socialQuery(
+  target: SocialTarget,
+  params: TranscriptSocialParams,
+): Record<string, string | number | readonly string[]> {
+  const query: Record<string, string | number | readonly string[]> = {};
   if (params.shape) query.shape = params.shape;
   for (const key of SOCIAL_SWITCHES) {
     const value = params[key];
     if (value !== undefined) query[key] = value ? "true" : "false";
   }
   if (params.terms?.length) query.terms = params.terms;
+  if ("document" in target) {
+    if (target.attachment !== undefined) query.attachment = target.attachment;
+    if (params.start !== undefined) query.start = params.start;
+    if (params.end !== undefined) query.end = params.end;
+  }
   return query;
 }
 
@@ -157,9 +169,16 @@ const SOCIAL_SWITCHES = [
   "checksum",
 ] as const;
 
-/** The PNG of one mail for social media (D214), drawn for this request. */
-export function socialImageUrl(mailId: number, params: SocialParams): string {
-  return withQuery(`/api/mails/${mailId}/social.png`, socialQuery(params));
+/** The card of a social media picture: GET it for the figures, with .png for the picture. */
+export function socialPath(target: SocialTarget): string {
+  return "mail" in target
+    ? `/api/mails/${target.mail}/social`
+    : `/api/documents/${target.document}/social`;
+}
+
+/** The PNG of a social media picture, drawn for this request. */
+export function socialImageUrl(target: SocialTarget, params: TranscriptSocialParams): string {
+  return withQuery(`${socialPath(target)}.png`, socialQuery(target, params));
 }
 
 /** The PDF viewer's page (D121): pdf.js on an opaque origin, given the PDF by postMessage. */

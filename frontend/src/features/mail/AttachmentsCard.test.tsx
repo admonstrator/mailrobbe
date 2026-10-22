@@ -557,6 +557,34 @@ describe("transcription from a mail's attachments (D296)", () => {
     play.mockRestore();
   });
 
+  it("share a spoken transcript as a picture headed by this mail (D298)", async () => {
+    renderApp("/mails/184221", (call) => {
+      if (call.url.pathname === "/api/documents/5160/transcript") return transcriptView;
+      return withAttachments([
+        pdf,
+        heard,
+        { ...heard, id: 961, filename: "Rauschen.mp3", transcript: "no_text" },
+      ])(call);
+    });
+    const card = await attachmentsCard();
+    fireEvent.click(within(item(card, "Rauschen.mp3")).getByRole("button", { name: "Vorschau" }));
+    const silent = screen.getByRole("dialog", { name: "Rauschen.mp3" });
+    expect(within(silent).queryByRole("button", { name: "Als Bild teilen" })).toBeNull();
+    fireEvent.click(within(silent).getByRole("button", { name: "Schließen" }));
+
+    fireEvent.click(
+      within(item(card, "Sprachnachricht_Vorstand.ogg")).getByRole("button", { name: "Vorschau" }),
+    );
+    const overlay = screen.getByRole("dialog", { name: "Sprachnachricht_Vorstand.ogg" });
+    fireEvent.click(within(overlay).getByRole("button", { name: "Als Bild teilen" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Transkript als Bild für Soziale Medien",
+    });
+    expect(
+      within(dialog).getByRole("img", { name: "Vorschau des Bildes" }).getAttribute("src"),
+    ).toBe("/api/documents/5160/social.png?shape=portrait&attachment=960");
+  });
+
   it("show a recording without a transcript as before", async () => {
     const { calls } = renderApp("/mails/184221", withAttachments([pdf, voice]));
     const card = await attachmentsCard();

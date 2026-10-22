@@ -80,6 +80,16 @@ export function formatClock(seconds: number): string {
   return `${Math.floor(whole / 3600)}:${two(minutes)}:${two(whole % 60)}`;
 }
 
+/** A time typed as formatClock writes it (m:ss, h:mm:ss; the first part may be any number, as in
+ *  90:00) or as plain seconds, in seconds; null for anything else. */
+export function parseClock(text: string): number | null {
+  const parts = text.trim().split(":");
+  if (parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  const values = parts.map(Number);
+  if (values.slice(1).some((value) => value >= 60)) return null;
+  return values.reduce((total, value) => total * 60 + value, 0);
+}
+
 type Parts = Record<Intl.DateTimeFormatPartTypes, string>;
 
 function partsOf(format: Intl.DateTimeFormat, date: Date): Parts {

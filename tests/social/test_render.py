@@ -5,14 +5,25 @@ format, its size and that it holds no metadata of its own.
 """
 
 import io
+from typing import Any
 
 import pytest
 from PIL import Image
 
+from mailrobbe.ai.model import TranscriptSegment
 from mailrobbe.export.records import ExportMail
-from mailrobbe.social.model import SHAPES, CardOptions, CardShape
+from mailrobbe.social.model import SHAPES, CardOptions, CardShape, RedactionKind
 from mailrobbe.social.redact import BLOCK
-from mailrobbe.social.render import CUT, WATERMARK, plan, render_card
+from mailrobbe.social.render import (
+    CUT,
+    TRANSCRIPT_CUT,
+    WATERMARK,
+    CardPlan,
+    draw,
+    plan,
+    plan_transcript,
+    render_card,
+)
 from tests.social.conftest import (
     IBAN,
     RECIPIENT,
@@ -123,3 +134,72 @@ def test_the_same_mail_gives_the_same_bytes(mail: ExportMail, raw: bytes) -> Non
     assert first.png == second.png
     other = render_card(mail, raw, CardOptions(checksum=False))
     assert other.png != first.png
+
+
+# A transcribed recording (D298) ----------------------------------------------------------------
+
+SPOKEN = [
+    TranscriptSegment(start=0.4, end=3.2, text="Hallo Jürgen, hier ist Anna."),
+    TranscriptSegment(start=4.0, end=12.1, text="Die Spende bringe ich am Freitag bar vorbei."),
+    TranscriptSegment(start=13.0, end=19.6, text="Ruf mich an, Tel. 030 1234567.", uncertain=True),
+    TranscriptSegment(start=21.0, end=25.8, text="Sag Herrn Weiß noch nichts davon."),
+]
+
+
+def transcript_card(excerpt: tuple[float, float] | None = None, **chosen: Any) -> CardPlan:
+    mail = export_mail(message())
+    options = CardOptions(**chosen)
+    return plan_transcript(
+        mail, "Sprachnachricht Petrova.ogg", 215_400, 31.0, SPOKEN, options, excerpt
+    )
+
+
+def test_a_transcript_shows_its_lines_with_their_times_blacked_out() -> None:
+    drawn = transcript_card()
+    assert drawn.recording is not None
+    assert [line.time for line in drawn.body if line.time] == ["0:00", "0:04", "0:13", "0:21"]
+    shown = "\n".join([*(line.text for line in drawn.body), *drawn.recording.note])
+    for gone in ("Jürgen", "Anna", "Weiß", "Petrova", "1234567"):
+        assert gone not in shown
+    assert "Die Spende bringe ich am Freitag bar vorbei." in shown
+    assert drawn.redaction.counts[RedactionKind.PARTICIPANT] >= 4
+
+
+def test_a_transcript_says_it_is_machine_made_and_how_long_it_is() -> None:
+    drawn = transcript_card()
+    assert drawn.recording is not None
+    assert drawn.recording.length == "0:31"
+    assert drawn.recording.note == [
+        "Sprachnachricht ████.ogg · 210,4 KB · maschinell transkribiert · grau: unsicher erkannt"
+    ]
+    assert [line.quoted for line in drawn.body] == [False, False, True, False]  # uncertain grey
+    # the speech is drawn from the lines' times, as parts of the length
+    assert drawn.recording.speech[0] == pytest.approx((0.4 / 31, 3.2 / 31))
+
+
+def test_an_excerpt_keeps_the_lines_spoken_in_it() -> None:
+    drawn = transcript_card((13.0, 21.0))
+    assert [line.time for line in drawn.body if line.time] == ["0:13"]
+    assert drawn.recording is not None
+    assert drawn.recording.excerpt == pytest.approx((13 / 31, 21 / 31))
+    assert "Ausschnitt 0:13 bis 0:21" in drawn.recording.note[0]
+    empty = transcript_card((26.0, 31.0))
+    assert [line.text for line in empty.body] == ["(in diesem Ausschnitt wird nichts gesagt)"]
+
+
+def test_a_long_transcript_is_cut_to_the_format() -> None:
+    mail = export_mail(message())
+    many = [
+        TranscriptSegment(start=n * 5.0, end=n * 5.0 + 4, text=f"Satz Nummer {n}.")
+        for n in range(200)
+    ]
+    drawn = plan_transcript(mail, "a.ogg", 1, None, many, CardOptions(shape=CardShape.WIDE))
+    assert drawn.truncated
+    assert drawn.body[-1].text == TRANSCRIPT_CUT
+    assert drawn.recording is not None and drawn.recording.length == "16:39"  # the last line's end
+
+
+@pytest.mark.parametrize("shape", list(CardShape))
+def test_a_transcripts_png_has_the_format_asked_for(shape: CardShape) -> None:
+    image = Image.open(io.BytesIO(draw(transcript_card(shape=shape))))
+    assert image.size == SHAPES[shape]

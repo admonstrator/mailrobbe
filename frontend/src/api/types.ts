@@ -1391,6 +1391,13 @@ export interface SocialParams {
   checksum?: boolean; // the first 16 digits of the mail's SHA-256 in the footer
 }
 
+/** The picture of a transcribed recording (D298), with the mail it came with. */
+export interface TranscriptSocialParams extends SocialParams {
+  attachment?: number; // the mail detail's attachment; none: the first mail carrying it
+  start?: number; // seconds: lines still spoken after it
+  end?: number; // seconds: lines begun before it
+}
+
 export interface SocialRedaction {
   places: number;
   kind: RedactionKind;

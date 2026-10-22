@@ -6,6 +6,11 @@ seal, the text, the attachments and a footer with what was blacked out and the m
 (D61). No real client, service or organisation is imitated:
 the look says "this is a mail" and nothing about where it was read.
 
+A transcribed recording (D298) gets the same window with a player strip in place of the mail's
+text: the recording's length and its speech drawn from the times of the transcript's lines (no
+sound is decoded for it), the attachment's name with "maschinell transkribiert", and the lines
+with their times below. plan_transcript() prepares it, draw() draws both kinds.
+
 plan() prepares what the card shows: every text through the Redactor of redact.py, wrapped to
 the lines that fit the chosen format, and the places counted. draw() turns a plan into PNG
 bytes. Nothing else reaches the picture, so what a published image can hold is what plan()
@@ -15,8 +20,10 @@ The fonts are the DejaVu faces the PDF ships (export/fonts), regular and bold, s
 looks the same on every machine; the PNG carries no metadata of its own.
 """
 
+import hashlib
 import io
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
@@ -25,6 +32,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from mailrobbe import quotes
+from mailrobbe.ai.model import TranscriptSegment
 from mailrobbe.api import body
 from mailrobbe.enums import DkimStatus, ParticipationRole
 from mailrobbe.export import records
@@ -46,6 +54,8 @@ MUTED: RGB = (91, 98, 112)
 DOT: RGB = (214, 217, 224)
 AVATAR: RGB = (205, 210, 219)
 QUOTE_RULE: RGB = (214, 217, 224)
+ACCENT: RGB = (29, 91, 214)  # SPEC 7: the player's button, a transcript line's time
+WAVE: RGB = (176, 186, 204)  # the speech of a recording outside the chosen excerpt
 REDACTED: RGB = (22, 24, 29)  # the bars, black wherever they stand
 DKIM_COLORS: dict[DkimStatus, RGB] = {
     DkimStatus.PASS: (22, 163, 74),
@@ -97,6 +107,14 @@ RECIPIENTS = 3  # recipients named per line; the rest counted
 TEXT_LIMIT = 20_000  # characters read before wrapping; no format shows more
 CHECKSUM_DIGITS = 16  # the permalink's digits (D61)
 CUT = "… Text gekürzt"
+TRANSCRIPT_CUT = "… Transkript gekürzt"
+STRIP = 96  # the player strip of a recording
+NOTE_SIZE = 18  # the line below it: name, size, "maschinell transkribiert"
+NOTE_LINES = 2
+TIME_COLUMN = 78  # a transcript line's time, left of its text
+BAR_STEP = 8  # pixels per bar of the speech
+# What a recording takes above its lines: the strip and the note below it.
+RECORDING = STRIP + GAP + NOTE_LINES * round(NOTE_SIZE * 1.35) + GAP
 WATERMARK = "Exportiert aus Mailrobbe (by admon.me)"  # in the window's bar (D214)
 _RUNS = re.compile(f"({BLOCK}+)")  # a line split into its bars and the text between them
 
@@ -106,8 +124,19 @@ class Line:
     """One line of the body as it is drawn."""
 
     text: str
-    quoted: bool = False  # grey, as a mail client shows quoted text
+    quoted: bool = False  # grey, as a mail client shows quoted text; a transcript's uncertain
     rule: bool = True  # the bar beside a quoted line; a note of Mailrobbe's own has none
+    time: str | None = None  # a transcript line's start (m:ss), on its first row only
+
+
+@dataclass(frozen=True, slots=True)
+class Recording:
+    """The player strip of a transcript's card (D298), drawn from the transcript alone."""
+
+    length: str  # m:ss, h:mm:ss beyond an hour
+    note: list[str]  # name and size of the attachment, "maschinell transkribiert", ...
+    speech: tuple[tuple[float, float], ...]  # the lines' times as fractions of the length
+    excerpt: tuple[float, float] | None = None  # the chosen part as fractions; None: all of it
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +161,7 @@ class CardPlan:
     checksum: str = ""
     truncated: bool = False
     redaction: Redaction = field(default_factory=Redaction)
+    recording: Recording | None = None  # a transcript's card: its strip above the lines
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,55 +180,158 @@ def _font(path: Path, size: int) -> ImageFont.FreeTypeFont:
 def plan(mail: ExportMail, message: bytes, options: CardOptions) -> CardPlan:
     """What the card of this mail shows under these options: every text blacked out by the one
     rule of redact.py, wrapped to the format and cut where it no longer fits."""
-    width, height = SHAPES[options.shape]
-    hide = redactor(mail, options)
-    inner = width - 2 * MARGIN - 2 * PAD
-    subject_font = _font(BOLD, SUBJECT_SIZE)
+    head = _head(mail, options)
+    width = _inner(SHAPES[options.shape][0])
+    names, more, named = _attachments(mail, head.hide)
+    lines, said = _body(mail, message, head.hide, options, width, _font(REGULAR, TEXT_SIZE))
+    return _finish(
+        mail,
+        options,
+        head,
+        lines,
+        below=CHIP_HEIGHT + GAP if names else 0,  # the attachments below the text
+        cut=CUT,
+        redaction=named + said,
+        attachments=names,
+        more_attachments=more,
+    )
+
+
+def plan_transcript(
+    mail: ExportMail,
+    filename: str | None,
+    size: int,
+    duration: float | None,
+    segments: Sequence[TranscriptSegment],
+    options: CardOptions,
+    excerpt: tuple[float, float] | None = None,
+) -> CardPlan:
+    """The card of a transcribed recording that came with this mail (D298): the mail's head, the
+    player strip and the lines of the transcript with their times, every line blacked out by the
+    same rule as a mail's text. excerpt (seconds from, to) keeps the lines spoken in it."""
+    head = _head(mail, options)
+    width = _inner(SHAPES[options.shape][0]) - TIME_COLUMN
     text_font = _font(REGULAR, TEXT_SIZE)
+    name, redaction = _redact(head.hide, filename or "(ohne Namen)")
+    length = duration or max((segment.end for segment in segments), default=0.0)
+    shown = [
+        segment
+        for segment in segments
+        if excerpt is None or (segment.end > excerpt[0] and segment.start < excerpt[1])
+    ]
+    lines: list[Line] = []
+    for segment in shown:
+        said, done = _redact(head.hide, " ".join(segment.text.split()))
+        redaction += done
+        for row, piece in enumerate(_wrap(said, text_font, width) or [""]):
+            time = _clock(segment.start) if row == 0 else None
+            lines.append(Line(piece, quoted=segment.uncertain, rule=False, time=time))
+    if not lines:
+        lines = [Line("(in diesem Ausschnitt wird nichts gesagt)", quoted=True, rule=False)]
 
-    redaction = Redaction()
-    subject, done = _redact(hide, mail.subject or "(ohne Betreff)")
-    redaction += done
-    sender, address, initial, done = _sender(mail, hide, options)
-    redaction += done
-    recipients, done = _recipients(mail, hide)
-    redaction += done
-    names, more, done = _attachments(mail, hide)
-    redaction += done
-    lines, done = _body(mail, message, hide, options, inner, text_font)
-    redaction += done
+    notes = [f"{name} · {_size(size)}", "maschinell transkribiert"]
+    if excerpt is not None:
+        notes.append(f"Ausschnitt {_clock(excerpt[0])} bis {_clock(min(excerpt[1], length))}")
+    if any(segment.uncertain for segment in shown):
+        notes.append("grau: unsicher erkannt")
+    inner = _inner(SHAPES[options.shape][0])
+    recording = Recording(
+        length=_clock(length),
+        note=_wrap(" · ".join(notes), _font(REGULAR, NOTE_SIZE), inner, NOTE_LINES),
+        speech=tuple(
+            (_fraction(segment.start, length), _fraction(segment.end, length))
+            for segment in segments
+        ),
+        excerpt=None
+        if excerpt is None
+        else (_fraction(excerpt[0], length), _fraction(excerpt[1], length)),
+    )
+    return _finish(
+        mail,
+        options,
+        head,
+        lines,
+        below=RECORDING,
+        cut=TRANSCRIPT_CUT,
+        redaction=redaction,
+        recording=recording,
+    )
 
-    # The room the text has: the window below the header, without the attachments and the
-    # footer. draw() places both the same way.
-    headline = _wrap(subject, subject_font, inner, SUBJECT_LINES)
-    chips = CHIP_HEIGHT + GAP if names else 0
-    room = height - 2 * MARGIN - FOOT - _body_top(len(headline)) - chips - GAP
+
+@dataclass(frozen=True, slots=True)
+class _Head:
+    """What every card shows of its mail above the text, blacked out by the card's rule."""
+
+    hide: Redactor
+    subject: list[str]
+    sender: str
+    address: str
+    recipients: str
+    initial: str | None
+    redaction: Redaction
+
+
+def _head(mail: ExportMail, options: CardOptions) -> _Head:
+    hide = redactor(mail, options)
+    subject, first = _redact(hide, mail.subject or "(ohne Betreff)")
+    sender, address, initial, second = _sender(mail, hide, options)
+    recipients, third = _recipients(mail, hide)
+    width = _inner(SHAPES[options.shape][0])
+    return _Head(
+        hide=hide,
+        subject=_wrap(subject, _font(BOLD, SUBJECT_SIZE), width, SUBJECT_LINES),
+        sender=sender,
+        address=address,
+        recipients=recipients,
+        initial=initial,
+        redaction=first + second + third,
+    )
+
+
+def _finish(
+    mail: ExportMail,
+    options: CardOptions,
+    head: _Head,
+    lines: list[Line],
+    *,
+    below: int,
+    cut: str,
+    redaction: Redaction,
+    attachments: list[str] | None = None,
+    more_attachments: int = 0,
+    recording: Recording | None = None,
+) -> CardPlan:
+    """The plan of a card: its lines cut to the room the window leaves them. below: what else
+    stands in the text's room (a mail's attachments, a recording's strip); draw() places it the
+    same way."""
+    width, height = SHAPES[options.shape]
+    room = height - 2 * MARGIN - FOOT - _body_top(len(head.subject)) - below - GAP
     fits = max(0, room // round(TEXT_SIZE * LINE))
     truncated = len(lines) > fits
     if truncated:
-        lines = lines[: max(0, fits - 1)]
-        lines.append(Line(CUT, quoted=True, rule=False))
-
+        lines = [*lines[: max(0, fits - 1)], Line(cut, quoted=True, rule=False)]
+    redaction = head.redaction + redaction
     places = redaction.places
     blacked = f"{places} Stelle{'' if places == 1 else 'n'} geschwärzt"
     return CardPlan(
         width=width,
         height=height,
-        subject=headline,
-        sender=sender,
-        address=address,
-        recipients=recipients,
+        subject=head.subject,
+        sender=head.sender,
+        address=head.address,
+        recipients=head.recipients,
         date=_date(mail.date),
         dkim=_dkim_text(mail.dkim_status) if options.dkim else None,
         dkim_color=DKIM_COLORS.get(mail.dkim_status or DkimStatus.UNSIGNED, MUTED),
-        initial=initial,
+        initial=head.initial,
         body=lines,
-        attachments=names,
-        more_attachments=more,
+        attachments=attachments or [],
+        more_attachments=more_attachments,
         footer=blacked if places else "nichts geschwärzt",
         checksum=mail.raw_sha256[:CHECKSUM_DIGITS] if options.checksum else "",
         truncated=truncated,
         redaction=redaction,
+        recording=recording,
     )
 
 
@@ -264,15 +397,19 @@ def draw(card: CardPlan) -> bytes:
     y = top + _body_top(len(card.subject))
     pen.line((x, y - PAD // 2, right - PAD, y - PAD // 2), fill=BORDER, width=1)
 
+    if card.recording:
+        _recording(pen, x, y, right - PAD, card.recording)
+        y += RECORDING
+
     text_font = _font(REGULAR, TEXT_SIZE)
     step = round(TEXT_SIZE * LINE)
     for line in card.body:
-        if line.quoted:
-            if line.rule:
-                pen.line((x, y + 4, x, y + step - 2), fill=QUOTE_RULE, width=3)
-            _line(pen, x + 14, y, line.text, text_font, MUTED)
-        else:
-            _line(pen, x, y, line.text, text_font, INK)
+        at = x + (TIME_COLUMN if card.recording else 14 if line.quoted else 0)
+        if line.time:
+            pen.text((x, y + 2), line.time, font=meta_font, fill=ACCENT)
+        if line.quoted and line.rule:
+            pen.line((x, y + 4, x, y + step - 2), fill=QUOTE_RULE, width=3)
+        _line(pen, at, y, line.text, text_font, MUTED if line.quoted else INK)
         y += step
 
     chip_font = _font(REGULAR, META_SIZE)
@@ -429,6 +566,23 @@ def _wrap(
     return lines
 
 
+def _inner(width: int) -> int:
+    """The width of the window's text at a picture's width."""
+    return width - 2 * MARGIN - 2 * PAD
+
+
+def _clock(seconds: float) -> str:
+    """A time in a recording as the document page writes it (D296): m:ss, h:mm:ss beyond an
+    hour."""
+    hours, rest = divmod(int(seconds), 3600)
+    minutes, whole = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{whole:02d}" if hours else f"{minutes}:{whole:02d}"
+
+
+def _fraction(seconds: float, length: float) -> float:
+    return min(1.0, max(0.0, seconds / length)) if length > 0 else 0.0
+
+
 def _body_top(subject_lines: int) -> int:
     """Where the body starts below the window's top edge, for the plan and the drawing alike."""
     headline = round(subject_lines * SUBJECT_SIZE * 1.3)
@@ -475,6 +629,36 @@ def _line(
             continue
         pen.text((at, y), piece, font=font, fill=REDACTED if piece[0] == BLOCK else color)
         at += font.getlength(piece)
+
+
+def _recording(pen: ImageDraw.ImageDraw, x: int, y: int, right: int, recording: Recording) -> None:
+    """The player strip: the button, the speech as bars where the transcript has lines (dots in
+    the pauses, the chosen excerpt in the accent colour), the length, and the note below."""
+    pen.rounded_rectangle((x, y, right, y + STRIP), radius=20, fill=CHROME, outline=BORDER)
+    middle = y + STRIP // 2
+    button = x + 52
+    pen.ellipse((button - 28, middle - 28, button + 28, middle + 28), fill=ACCENT)
+    pen.polygon(
+        [(button - 9, middle - 14), (button - 9, middle + 14), (button + 15, middle)], fill=SURFACE
+    )
+    first, last = x + 100, right - 96
+    bars = max(1, (last - first) // BAR_STEP)
+    for n in range(bars):
+        at = (n + 0.5) / bars
+        speaking = any(start <= at <= end for start, end in recording.speech)
+        level = hashlib.sha256(str(n).encode()).digest()[0] / 255  # the same bars every time
+        half = 6 + level * 26 if speaking else 2
+        chosen = recording.excerpt is None or recording.excerpt[0] <= at <= recording.excerpt[1]
+        color = ACCENT if recording.excerpt is not None and chosen else WAVE
+        left = first + n * BAR_STEP
+        pen.rounded_rectangle((left, middle - half, left + 4, middle + half), radius=2, fill=color)
+    meta = _font(REGULAR, META_SIZE)
+    pen.text((right - 24, middle), recording.length, font=meta, fill=MUTED, anchor="rm")
+    note_font = _font(REGULAR, NOTE_SIZE)
+    row = y + STRIP + GAP
+    for text in recording.note:
+        _line(pen, x, row, text, note_font, MUTED)
+        row += round(NOTE_SIZE * 1.35)
 
 
 def _avatar(pen: ImageDraw.ImageDraw, box: tuple[int, int, int, int], initial: str | None) -> None:

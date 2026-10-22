@@ -987,11 +987,18 @@ async def document_text(document_id: DocumentId, session: Session) -> DocumentTe
 async def document_transcript_lines(document_id: DocumentId, session: Session) -> TranscriptView:
     """The valid transcript of the document's content with its lines in time order (D296)."""
     sha256 = await session.scalar(select(Document.sha256).where(Document.id == document_id))
-    row = None
-    if sha256 is not None:
-        row = (await session.execute(_TRANSCRIPT, {"sha256": sha256})).first()
-    if row is None:
+    found = await transcript_of(session, sha256) if sha256 is not None else None
+    if found is None:
         raise api_error(404, "not_found", f"document {document_id} has no transcript")
+    return found
+
+
+async def transcript_of(session: AsyncSession, sha256: str) -> TranscriptView | None:
+    """The valid transcript of a content with its lines in time order; None without one. The
+    picture of a transcript (api/social.py, D298) reads it too."""
+    row = (await session.execute(_TRANSCRIPT, {"sha256": sha256})).first()
+    if row is None:
+        return None
     lines = [TranscriptSegment.model_validate(line) for line in row.pages]
     return TranscriptView(
         result=_transcript_result(row), segments=sorted(lines, key=lambda line: line.start)

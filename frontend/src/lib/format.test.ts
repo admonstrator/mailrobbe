@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatBytes,
   formatClock,
+  parseClock,
   formatDate,
   formatDateTime,
   formatDateTimeLong,
@@ -119,5 +120,22 @@ describe("dates", () => {
     expect(formatRelative("2026-07-01T10:00:00Z", now)).toBe("vor 3 Monaten");
     expect(formatRelative("2024-05-01T10:00:00Z", now)).toBe("vor 2 Jahren");
     expect(formatRelative("2026-10-21T10:00:00Z", now)).toBe("morgen");
+  });
+});
+
+describe("parseClock", () => {
+  it("reads a time as formatClock writes it, or plain seconds", () => {
+    expect(parseClock("0:13")).toBe(13);
+    expect(parseClock(" 1:05 ")).toBe(65);
+    expect(parseClock("1:02:03")).toBe(3723);
+    expect(parseClock("90:00")).toBe(5400);
+    expect(parseClock("75")).toBe(75);
+    expect(formatClock(parseClock(formatClock(3723.4))!)).toBe("1:02:03");
+  });
+
+  it("refuses anything else", () => {
+    for (const typed of ["", "1:75", "1:60:00", "abc", "1,5", "-3", "1:2:3:4", "1::2"]) {
+      expect(parseClock(typed)).toBeNull();
+    }
   });
 });

@@ -134,6 +134,7 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   }
   if (/^\/api\/mails\/\d+\/neighbors$/.test(path)) return fx.neighbors;
   if (/^\/api\/mails\/\d+\/social$/.test(path)) return fx.socialCard;
+  if (/^\/api\/documents\/\d+\/social$/.test(path)) return fx.socialCard;
   if (/^\/api\/mails\/\d+\/hits$/.test(path)) {
     return (url.searchParams.get("q") ?? "").includes("Haftung") ? fx.mailHits : fx.noHits;
   }
