@@ -31,11 +31,10 @@ export function SearchHitsCard({
   onShowText: () => void;
 }) {
   // A container's documents are attachments of the mail too (D231), listed below it.
-  const names = new Map(
-    attachments
-      .flatMap((a) => [a, ...(a.members ?? [])])
-      .map((a) => [a.id, a.path || a.filename || "(ohne Namen)"]),
-  );
+  const all = attachments.flatMap((a) => [a, ...(a.members ?? [])]);
+  const names = new Map(all.map((a) => [a.id, a.path || a.filename || "(ohne Namen)"]));
+  // Attachments whose text is their recording's transcript (D296).
+  const heard = new Set(all.filter((a) => a.transcript === "transcribed").map((a) => a.id));
   const words = hits.words.map((word) => `„${word}“`).join(", ");
 
   /** "im Anhang Protokoll.txt (2)", "in den Anhängen a.pdf, b.pdf (5)": each name a jump. */
@@ -60,7 +59,7 @@ export function SearchHitsCard({
           {key === "text" && hit.machine && (
             <>
               {" "}
-              <MachineMark />
+              <MachineMark transcript={heard.has(hit.attachment_id)} />
             </>
           )}
         </span>

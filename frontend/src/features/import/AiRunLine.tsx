@@ -4,6 +4,7 @@ import type { AiJob } from "../../api/types";
 import { Card } from "../../components/Card";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { minutesText } from "../ai/labels";
 import styles from "./AiRunLine.module.css";
 import { StepList } from "./StepList";
 
@@ -16,6 +17,7 @@ export function AiRunLine({ run }: { run: AiJob | null | undefined }) {
     ocr && ocr.done > 0
       ? ` · ${formatNumber(ocr.done)}${ocr.total !== null ? ` von ${formatNumber(ocr.total)}` : ""} Seiten`
       : "";
+  const minutes = run.progress.minutes ?? 0;
   return (
     <Card className={styles.card} aria-label="KI-Lauf">
       <p className={styles.line}>
@@ -23,6 +25,7 @@ export function AiRunLine({ run }: { run: AiJob | null | undefined }) {
         <span>
           <strong>{run.stop_requested ? "KI-Lauf wird angehalten …" : "KI-Lauf läuft"}</strong>
           {pages}
+          {minutes > 0 && ` · ${minutesText(minutes)} transkribiert`}
           {" · Ein Import kann erst danach starten. "}
           <Link to="/ki">Zur Seite „KI“</Link>
         </span>

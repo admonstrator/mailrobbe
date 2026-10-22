@@ -1,0 +1,67 @@
+/* The transcript of a recording on its document page (D296). */
+
+.card {
+  gap: 12px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.count {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+/* What the transcriber did and can do, as the text recognition's bar (DocumentOcr). */
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  background: var(--color-hover);
+}
+
+.line {
+  margin: 0;
+  font-size: 13px;
+}
+
+.note,
+.text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.note {
+  color: var(--color-muted);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions:empty {
+  display: none;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}

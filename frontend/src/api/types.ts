@@ -262,6 +262,8 @@ export interface MailListItem {
   hits: MailHitCounts | null;
   /** The text of an attachment holding a counted word was recognised by an AI run (D189). */
   attachment_machine?: boolean;
+  /** That machine made text is a recording's transcript (D296); attachment_machine is true too. */
+  attachment_transcript?: boolean;
 }
 
 export interface MailPage {

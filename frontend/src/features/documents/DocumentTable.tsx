@@ -109,7 +109,9 @@ export function DocumentTable({
                     )}
                     {doc.protection && <ProtectionMark protection={doc.protection} />}
                     {doc.contained && <ContainedMark />}
-                    {doc.text_origin && doc.text_origin !== "extracted" && <MachineMark short />}
+                    {doc.text_origin && doc.text_origin !== "extracted" && (
+                      <MachineMark short transcript={doc.text_origin === "transcript"} />
+                    )}
                     <StatusLabel status={doc.text_status} />
                   </span>
                   {doc.snippet && (
