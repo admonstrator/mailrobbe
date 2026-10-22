@@ -4,7 +4,8 @@ Every finder of extract adds what it finds here. A finder that claims a span kee
 after it out of that span: one span of text gives one entity of the most specific kind (an IBAN
 is not also an account or a phone, a URL's digits are no phone, an amount's number is no date).
 Occurrences of one kind and key become one Found: its label and position those of the first
-occurrence in the text, its context the union of its occurrences' contexts.
+occurrence in the text, its spans the ranges of all of them, its context the union of its
+occurrences' contexts.
 """
 
 from dataclasses import dataclass, field
@@ -30,7 +31,7 @@ class _Entry:
     detail: str | None
     occurrences: int = 1
     context: EntityContext = NO_CONTEXT
-    spans: list[tuple[int, int]] = field(default_factory=list)  # CONTEXT_KINDS only
+    spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 class Occurrences:
@@ -80,8 +81,7 @@ class Occurrences:
             entry.occurrences += 1
             if start < entry.position:  # finders of one kind may not run in text order
                 entry.position, entry.label = start, label
-        if kind in CONTEXT_KINDS:
-            entry.spans.append((start, end))
+        entry.spans.append((start, end))
 
     def contextual(self) -> list[_Entry]:
         """The entries whose occurrences carry contexts (context.mark sets them)."""
@@ -100,6 +100,7 @@ class Occurrences:
                 label=entry.label,
                 position=entry.position,
                 occurrences=entry.occurrences,
+                spans=tuple(entry.spans),
                 context=entry.context,
                 value=entry.value,
                 currency=entry.currency,

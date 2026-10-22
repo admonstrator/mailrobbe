@@ -132,6 +132,7 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
     return (url.searchParams.get("q") ?? "").includes("subject:") ? fx.filteredPage : fx.mailPage;
   }
   if (/^\/api\/mails\/\d+\/neighbors$/.test(path)) return fx.neighbors;
+  if (/^\/api\/mails\/\d+\/social$/.test(path)) return fx.socialCard;
   if (/^\/api\/mails\/\d+\/hits$/.test(path)) {
     return (url.searchParams.get("q") ?? "").includes("Haftung") ? fx.mailHits : fx.noHits;
   }

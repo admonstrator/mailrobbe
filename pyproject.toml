@@ -14,6 +14,7 @@ dependencies = [
     "fpdf2>=2.8.9",
     "gmpy2>=2.2",
     "mammoth>=1.13.0",
+    "pillow>=11.0",  # the social media image (D214); fpdf2 brings it anyway
     "msoffcrypto-tool>=5.4",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",

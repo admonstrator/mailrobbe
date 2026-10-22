@@ -8,6 +8,11 @@
   box-shadow: var(--shadow-popover);
 }
 
+.wide {
+  width: min(980px, calc(100vw - 32px));
+  max-height: min(820px, calc(100vh - 64px));
+}
+
 .dialog::backdrop {
   background: rgb(22 24 29 / 30%);
 }
