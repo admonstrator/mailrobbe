@@ -192,6 +192,7 @@ async def test_status_shows_the_service_the_work_lists_and_their_estimates(
         "seconds": 6 * AI_RULE_SECONDS["tesseract"],
         "estimated": True,
         "seconds_per_page": AI_RULE_SECONDS["tesseract"],
+        "seconds_per_minute": None,
     }
     assert estimates["vision"]["seconds"] == 6 * AI_RULE_SECONDS["vision"]
     images = work_list(found, "images")  # the logo is left out (D186)

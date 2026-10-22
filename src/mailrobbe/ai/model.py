@@ -1,10 +1,12 @@
-"""What the AI modules hand each other (D180 to D189): services, OCR pages, run options and figures.
+"""What the AI modules hand each other (D180 to D189, D290 to D297): services, OCR pages,
+transcript segments, run options and figures.
 
-The contract between ai.services, ai.ocr, ai.run, ai.store and api/ai.py; nothing here does I/O
-except locality's name lookup.
+The contract between ai.services, ai.ocr, ai.audio, ai.run, ai.store and api/ai.py; nothing here
+does I/O except locality's name lookup.
 """
 
 import ipaddress
+import os
 import socket
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -24,6 +26,10 @@ Protocol = Literal["openai", "ollama"]
 Locality = Literal["local", "remote"]
 OcrEngine = Literal["tesseract", "vision"]
 OcrEngineChoice = Literal["auto", "tesseract", "vision"]  # ai_task.engine, MAILROBBE_AI_OCR_ENGINE
+# What reads a selection: the OCR engines and the transcriber (D290). Transcribe tasks keep the
+# engine "auto" in ai_task, since there is only the one.
+AiEngine = Literal["tesseract", "vision", "parakeet"]
+TRANSCRIBE_MODEL = "parakeet-tdt-0.6b-v3"  # ai_result.model of a transcript (D290)
 
 AI_TASK_ATTEMPTS = 3  # attempts of a task before it fails (D184)
 PRIORITY_SINGLE = 100  # queued for one document from its page: before everything else (D186)
@@ -33,7 +39,10 @@ IMAGE_MIN_BYTES = 100 * 1024  # smaller images are not on the work list "Bilder"
 NO_TEXT_MARK = "[kein Text]"  # the vision prompt's answer for a page without writing
 PAGE_SEPARATOR = "\n\f\n"  # between the pages of a recognised text
 # The steps of an AI run (job.steps, D187), in order.
-AI_STEPS = ("check", "ocr", "entities", "signals")  # entities computes its figures at its end
+AI_STEPS = ("check", "ocr", "transcribe", "entities", "signals")  # entities computes its figures
+# Transcription (D292, D293): pieces of speech the transcriber reads at once, lines of a transcript
+PIECE_SECONDS = 25.0  # longest piece, cut at a pause where there is one
+SEGMENT_SECONDS = 15.0  # longest line of a transcript; a line ends at a sentence's end or a pause
 
 
 class ForbiddenService(ValueError):
@@ -210,10 +219,39 @@ def result_engine(pages: Sequence[OcrPage]) -> str:
     return engines.pop() if len(engines) == 1 else "mixed"
 
 
+class TranscriptSegment(BaseModel):
+    """One line of a transcript (ai_result.pages of kind transcribe, D293): a sentence or what
+    was said up to a pause, at most SEGMENT_SECONDS long."""
+
+    start: float  # seconds from the recording's start
+    end: float
+    text: str
+    confidence: float | None = None  # mean probability of its tokens, 0 to 1
+    uncertain: bool = False  # confidence below MAILROBBE_AI_TRANSCRIBE_UNCERTAIN
+
+
+class TranscriptPartial(BaseModel):
+    """ai_task.partial of a transcribe task: the lines read so far, kept across a stop."""
+
+    segments: list[TranscriptSegment] = []
+    until: float = 0.0  # seconds of the recording read; the next run goes on from here
+    duration: float | None = None  # of the recording, once decoded
+
+
+def transcript_text(segments: Sequence[TranscriptSegment]) -> tuple[str, bool]:
+    """The text of a transcript, one line per segment in time order, and whether it was cut at
+    DOCUMENT_TEXT_LIMIT (D294); timestamps stay in the segments."""
+    lines = [segment.text.strip() for segment in sorted(segments, key=lambda s: s.start)]
+    joined = "\n".join(line for line in lines if line)
+    if len(joined) > DOCUMENT_TEXT_LIMIT:
+        return joined[:DOCUMENT_TEXT_LIMIT], True
+    return joined, False
+
+
 class AiOptions(BaseModel):
     """What an AI run works with (job.options of kind ai); the dashboard's defaults (D49)."""
 
-    kinds: list[AiTaskKind] = [AiTaskKind.OCR]
+    kinds: list[AiTaskKind] = [AiTaskKind.OCR, AiTaskKind.TRANSCRIBE]
     ocr_engine: OcrEngineChoice = "auto"  # for tasks queued with "auto"
     vision_model: str = ""  # overrides MAILROBBE_AI_VISION_MODEL for this run when set
     max_pages: int = 50
@@ -224,6 +262,9 @@ class AiOptions(BaseModel):
     documents: list[int] = []  # only the tasks of these documents (one started from its page)
     vision_url: str = ""  # display_url of the vision service, "" without one
     vision_remote: bool = False
+    max_minutes: int = 180  # of a recording per document and pass (D292)
+    transcribe_threads: int = 4  # CPU threads of the transcriber
+    transcribe_uncertain: float = 0.5  # lines below this mean token probability are uncertain
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AiOptions":
@@ -244,7 +285,17 @@ class AiOptions(BaseModel):
             tesseract_workers=max(1, min(4, settings.import_workers)),
             vision_url=vision.display_url if vision else "",
             vision_remote=remote,
+            max_minutes=settings.ai_transcribe_max_minutes,
+            transcribe_threads=transcribe_threads(settings),
+            transcribe_uncertain=settings.ai_transcribe_uncertain,
         )
+
+
+def transcribe_threads(settings: Settings) -> int:
+    """MAILROBBE_AI_TRANSCRIBE_THREADS, or for 0 the CPUs up to four."""
+    if settings.ai_transcribe_threads > 0:
+        return settings.ai_transcribe_threads
+    return max(1, min(4, os.cpu_count() or 1))
 
 
 class AiProgress(RunProgress):
@@ -257,4 +308,7 @@ class AiProgress(RunProgress):
     tokens_in: int = 0
     tokens_out: int = 0
     current: str | None = None  # the file name of the document in work
+    minutes: float = 0.0  # of recordings transcribed by this run
+    position: float | None = None  # seconds reached in the recording in work
+    duration: float | None = None  # of the recording in work, once decoded
     unreachable_since: datetime | None = None  # a service did not answer since then (D184)

@@ -357,6 +357,7 @@ class _Run:
         try:
             await self._check()
             await self._ocr()
+            await self._transcribe()
             code = EXIT_OK
             self.summary.status, self.summary.message = JobStatus.DONE, self._line()
         except _Ended as ended:
@@ -893,6 +894,11 @@ class _Run:
     def _failed(self) -> None:
         self.summary.failed += 1
         self.progress.failed += 1
+
+    # transcribe --------------------------------------------------------------------------------
+
+    async def _transcribe(self) -> None:
+        self.job.steps.skip("transcribe")  # milestone 16: the transcribe tasks (D295)
 
     # entities and signals ----------------------------------------------------------------------
 

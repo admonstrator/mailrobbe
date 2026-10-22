@@ -88,6 +88,12 @@ services:
       MAILROBBE_AI_OCR_MAX_PAGES: ${MAILROBBE_AI_OCR_MAX_PAGES:-}
       MAILROBBE_AI_OCR_LANGUAGES: ${MAILROBBE_AI_OCR_LANGUAGES:-}
       MAILROBBE_AI_OCR_UNCERTAIN: ${MAILROBBE_AI_OCR_UNCERTAIN:-}
+      # Transcription (D290, D291): Parakeet runs in this container on the CPU; its files (about
+      # 670 MB) are downloaded into the volume models by the first run that transcribes.
+      MAILROBBE_AI_MODEL_DIR: /data/models
+      MAILROBBE_AI_TRANSCRIBE_MAX_MINUTES: ${MAILROBBE_AI_TRANSCRIBE_MAX_MINUTES:-}
+      MAILROBBE_AI_TRANSCRIBE_THREADS: ${MAILROBBE_AI_TRANSCRIBE_THREADS:-}
+      MAILROBBE_AI_TRANSCRIBE_UNCERTAIN: ${MAILROBBE_AI_TRANSCRIBE_UNCERTAIN:-}
     # host.docker.internal on Linux too (Docker Desktop has it already); there the service must
     # listen on the Docker bridge, Ollama for example with OLLAMA_HOST=0.0.0.0.
     extra_hosts:
@@ -98,6 +104,7 @@ services:
       # A volume of its own by default; a host path (MAILROBBE_MAP_HOST_DIR=./data/maps) keeps
       # the up to 10 GB outside Docker Desktop's disk.
       - ${MAILROBBE_MAP_HOST_DIR:-maps}:/data/maps
+      - models:/data/models
     ports:
       - "127.0.0.1:${MAILROBBE_PORT:-8000}:8000"
     depends_on:
@@ -126,3 +133,4 @@ volumes:
   pgdata:
   previews:
   maps:
+  models:

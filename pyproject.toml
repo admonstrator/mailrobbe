@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.0",
     "asyncpg>=0.32.0",
+    "av>=19.0",  # decodes recordings for the transcription (D292), FFmpeg's libraries as wheels
     "cryptography>=50.0.2",
     "dkimpy>=1.1.8",
     "dnspython>=2.9.0",
@@ -16,6 +17,9 @@ dependencies = [
     "mammoth>=1.13.0",
     "pillow>=11.0",  # the social media image (D214); fpdf2 brings it anyway
     "msoffcrypto-tool>=5.4",
+    "numpy>=2.3",  # samples of the transcription
+    "onnx-asr>=0.12.0",  # Parakeet and Silero VAD on ONNX Runtime (D290)
+    "onnxruntime>=1.31.0",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "pypdf>=6.19.0",
@@ -63,7 +67,7 @@ module = ["dkim", "dkim.*", "gmpy2"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["mammoth", "mammoth.*", "msoffcrypto", "msoffcrypto.*"]
+module = ["mammoth", "mammoth.*", "msoffcrypto", "msoffcrypto.*", "onnxruntime", "onnxruntime.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

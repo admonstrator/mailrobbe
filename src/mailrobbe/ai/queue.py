@@ -26,7 +26,7 @@ from mailrobbe.ai.model import (
 )
 from mailrobbe.enums import AiTaskKind, AiTaskStatus
 
-WorkList = Literal["scanned", "images"]
+WorkList = Literal["scanned", "images", "media"]
 
 # Documents OCR can read (module docstring), as a condition on document d.
 OCR_READABLE = (
@@ -34,9 +34,20 @@ OCR_READABLE = (
     "AND (d.text_status = 'scanned' OR (d.kind = 'image' AND d.text_status IN "
     "('unsupported', 'empty')))))"
 )
-# The work lists of the AI page (D186): what is still without a valid OCR result.
+# Recordings the transcriber can read (D292, D294), as a condition on document d: audio and
+# video with a SHA-256 and no text of their own, or one an earlier transcription filled.
+TRANSCRIBABLE = (
+    "d.sha256 IS NOT NULL AND d.kind = 'media' AND (d.text_origin = 'transcript' OR "
+    "(d.text_origin = 'extracted' AND d.text_status IN ('unsupported', 'empty')))"
+)
+# The work lists of the AI page (D186): what is still without a valid OCR result, or for media
+# without a valid transcript (D295).
 _UNREAD = (
     "NOT EXISTS (SELECT 1 FROM ai_result r WHERE r.kind = 'ocr' AND r.state = 'valid' "
+    "AND r.target_sha256 = d.sha256)"
+)
+_UNHEARD = (
+    "NOT EXISTS (SELECT 1 FROM ai_result r WHERE r.kind = 'transcribe' AND r.state = 'valid' "
     "AND r.target_sha256 = d.sha256)"
 )
 WORK_LISTS: dict[WorkList, str] = {
@@ -46,6 +57,7 @@ WORK_LISTS: dict[WorkList, str] = {
         f"AND d.text_status IN ('unsupported', 'empty') AND d.size_bytes >= {IMAGE_MIN_BYTES} "
         f"AND d.mails <= {LOGO_MAILS} AND {_UNREAD}"
     ),
+    "media": f"{TRANSCRIBABLE} AND {_UNHEARD}",
 }
 _FILED = """
     EXISTS (

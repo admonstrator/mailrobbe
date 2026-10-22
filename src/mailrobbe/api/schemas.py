@@ -55,6 +55,8 @@ does.
     GET  /api/documents/summary?DocumentFilters  DocumentSummary
     GET  /api/documents/{id}                     DocumentDetail (D75)
     GET  /api/documents/{id}/text                DocumentText
+    GET  /api/documents/{id}/transcript          TranscriptView: the lines with their times (D296);
+                                                 404 not_found without a valid transcript
     GET  /api/documents/metadata-values?MetadataValueParams  MetadataValues: authors or
                                                  programs of the filtered documents (D167)
     GET  /api/attachments/{id}/content           the attachment's bytes as a download (D76)
@@ -242,6 +244,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field
 
 from mailrobbe.ai.model import (
+    AiEngine,
     AiOptions,
     AiProgress,
     Capability,
@@ -249,6 +252,7 @@ from mailrobbe.ai.model import (
     OcrEngine,
     OcrEngineChoice,
     Protocol,
+    TranscriptSegment,
 )
 from mailrobbe.dkim.keys.model import (
     DkimKeysOptions,
@@ -750,6 +754,9 @@ class MetadataSummary(BaseModel):
 # nothing has yet; a task is open; its text was recognised; it was read and holds no writing.
 # None: OCR has nothing to do with it (a text of its own, no SHA-256, no document yet).
 AttachmentOcr = Literal["readable", "queued", "recognised", "no_text"]
+# The same for a recording's transcript (D296): the transcriber can read it and nothing has yet;
+# a task is open; it was transcribed; it was read and nobody speaks (or it has no sound).
+AttachmentTranscript = Literal["transcribable", "queued", "transcribed", "no_text"]
 
 
 class AttachmentInfo(BaseModel):
@@ -774,6 +781,8 @@ class AttachmentInfo(BaseModel):
     members_status: DocumentMembersStatus | None = None
     members: list["AttachmentInfo"] = []
     ocr: AttachmentOcr | None = None  # the text recognition of its document (D280)
+    transcript: AttachmentTranscript | None = None  # the transcription of its recording (D296)
+    duration: float | None = None  # seconds of its recording, once transcribed (D293)
 
 
 class ThreadMail(BaseModel):
@@ -2048,6 +2057,10 @@ class DocumentDetail(BaseModel):
     text_origin: TextOrigin = TextOrigin.EXTRACTED  # D185
     ai: "DocumentAi | None" = None  # its OCR result and open task (D189); None without either
     ocr_readable: bool = False  # OCR can read it (ai.queue.OCR_READABLE): "Text erkennen"
+    duration: float | None = None  # seconds of a recording, once transcribed (D293)
+    # its transcript's result and open task (D296); None without either
+    transcript: "DocumentTranscript | None" = None
+    transcribable: bool = False  # the transcriber can read it (ai.queue.TRANSCRIBABLE)
 
 
 class DocumentText(BaseModel):
@@ -3022,12 +3035,16 @@ class MapDownloadRequest(BaseModel):
 # without asking them, and the check asks one and runs its real test. The queue holds a
 # selection, never the whole archive (D186); a run of kind ai works it through (D187).
 
-AiWorkList = Literal["scanned", "images"]  # ai.queue.WorkList
-AiPhase = Literal["check", "ocr", "entities", "signals"]  # ai.model.AI_STEPS
+AiWorkList = Literal["scanned", "images", "media"]  # ai.queue.WorkList
+AiPhase = Literal["check", "ocr", "transcribe", "entities", "signals"]  # ai.model.AI_STEPS
 AI_QUEUE_LIMIT = 50_000  # documents one request may queue (D186)
 AI_PAGE_SIZE = 50  # default page of the task, result and send log lists
 # Seconds per page without a measurement (D188); an image counts as one page.
 AI_RULE_SECONDS: dict[OcrEngine, float] = {"tesseract": 4.0, "vision": 40.0}
+# The transcriber's seconds per minute of a recording without a measurement, and the minutes a
+# recording counts whose length is not known before a transcription decoded it (D188, D295).
+AI_RULE_SECONDS_PER_MINUTE = 6.0
+AI_RULE_MINUTES = 1.0
 
 
 class AiServiceInfo(BaseModel):
@@ -3045,16 +3062,18 @@ class AiServiceInfo(BaseModel):
 class AiEstimate(BaseModel):
     """How long a selection takes with one engine (D188)."""
 
-    engine: OcrEngine
-    model: str  # the vision model; "" for Tesseract
+    engine: AiEngine
+    model: str  # the vision model; "" for Tesseract; TRANSCRIBE_MODEL for the transcriber
     seconds: float
     # True: by the rule of thumb (AI_RULE_SECONDS), "geschätzt"; False: from ai_calibration
     estimated: bool
-    seconds_per_page: float
+    seconds_per_page: float  # 0 for the transcriber
+    seconds_per_minute: float | None = None  # the transcriber's, per minute of a recording
 
 
 class AiWorkListInfo(BaseModel):
-    """A work list of the AI page (D186): what is still without a valid OCR result."""
+    """A work list of the AI page (D186): what is still without a valid OCR result, or for
+    "media" without a valid transcript (D295)."""
 
     key: AiWorkList
     documents: int
@@ -3064,7 +3083,9 @@ class AiWorkListInfo(BaseModel):
     # One per engine at hand (Tesseract always, the vision model when one is usable), for at
     # most max_pages of the defaults per document.
     estimates: list[AiEstimate]
-    engine: OcrEngine  # the engine "auto" takes for this list (D182)
+    engine: AiEngine  # the engine "auto" takes for this list (D182); parakeet for media
+    minutes: float = 0.0  # media: minutes of the recordings whose length is known
+    without_minutes: int = 0  # media: recordings of unknown length, AI_RULE_MINUTES each
 
 
 class AiJob(JobInfo):
@@ -3094,10 +3115,25 @@ class AiStatus(BaseModel):
     remote_used: bool
     job: AiJob | None  # the latest AI run; None before the first
     defaults: AiOptions  # the options of the latest run, or the settings' before the first (D49)
+    transcription: "AiTranscriptionInfo | None" = None  # the transcriber (D290, D291)
+
+
+class AiTranscriptionInfo(BaseModel):
+    """The transcriber in the server's container (D290, D291): Parakeet and its files."""
+
+    available: bool  # its libraries (onnx-asr, ONNX Runtime, PyAV) are installed
+    model: str  # TRANSCRIBE_MODEL
+    ready: bool  # the files are in MAILROBBE_AI_MODEL_DIR
+    missing_bytes: int  # what the next run that transcribes downloads first
+    total_bytes: int
+    threads: int  # MAILROBBE_AI_TRANSCRIBE_THREADS as the run uses it
+    max_minutes: int  # MAILROBBE_AI_TRANSCRIBE_MAX_MINUTES
 
 
 class AiQueueRequest(BaseModel):
-    """What to queue for OCR: exactly one of work_list, document_ids and filters (D186)."""
+    """What to queue: exactly one of work_list, document_ids and filters (D186). Each document
+    gets what fits it, OCR for a scan or picture and a transcription for a recording (D295),
+    unless kind names one."""
 
     work_list: AiWorkList | None = None
     document_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)
@@ -3107,6 +3143,7 @@ class AiQueueRequest(BaseModel):
     single: bool = False  # one document from its page: first in the queue, a logo too
     # With document_ids: start a run reading only these documents at once (D280).
     start: bool = False
+    kind: AiTaskKind | None = None  # only this kind of task; None: what fits each document
 
 
 # What start did (D280): a run for these documents began; an AI run is alive already and takes
@@ -3120,7 +3157,8 @@ class AiQueued(BaseModel):
 
     queued: int  # new tasks
     raised: int  # already open: priority and engine updated
-    unreadable: int  # not readable by OCR: a text of its own, no SHA-256, unknown id
+    unreadable: int  # neither OCR nor the transcriber reads it: a text of its own, no SHA-256,
+    # unknown id
     logos: int  # images in more than LOGO_MAILS mails, left out
     run: AiQueuedRun | None = None  # with start, None without
 
@@ -3132,6 +3170,7 @@ class AiDocumentRef(BaseModel):
     name: str | None
     kind: DocumentKind | None
     pages: int | None
+    duration: float | None = None  # seconds of a recording, once known (D293)
 
 
 class AiTaskParams(BaseModel):
@@ -3156,6 +3195,7 @@ class AiTaskItem(BaseModel):
     pages_read: int  # pages of ai_task.partial, kept across a stop (D187)
     pages_total: int | None
     result_id: int | None
+    seconds_read: float | None = None  # transcribe: seconds of the recording read so far
 
 
 class AiTaskPage(BaseModel):
@@ -3202,6 +3242,11 @@ class AiResultItem(BaseModel):
     job_id: int | None
     discarded_by: str | None
     discarded_at: datetime | None
+    # A transcript's (D293); pages_* are 0 for it
+    duration: float | None = None
+    transcribed: float | None = None  # seconds read
+    segments: int = 0
+    uncertain_segments: int = 0
 
 
 class AiResultPage(BaseModel):
@@ -3239,6 +3284,7 @@ class AiRunRequest(BaseModel):
     engine: OcrEngineChoice | None = None  # for tasks queued with auto
     vision_model: str | None = Field(default=None, max_length=200)
     max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    max_minutes: int | None = Field(default=None, ge=1, le=10_000)  # per recording (D292)
 
 
 class DocumentAiResult(BaseModel):
@@ -3271,5 +3317,40 @@ class DocumentAi(BaseModel):
     task: DocumentAiTask | None
 
 
+class DocumentTranscriptResult(BaseModel):
+    """The valid transcript of a document's content (D296), as its card names it."""
+
+    id: int
+    model: str  # TRANSCRIBE_MODEL
+    created_at: datetime
+    duration: float | None  # seconds of the recording; None when not known
+    transcribed: float | None  # seconds read: less than duration when cut at max_minutes
+    segments: int
+    uncertain: int  # lines marked uncertain
+    characters: int  # of its text; 0: nobody speaks
+    audio: bool  # False: the file has no sound at all (ai_result.options "audio")
+
+
+class DocumentTranscriptTask(BaseModel):
+    """The open transcribe task of a document's content: vorgemerkt or läuft."""
+
+    id: int
+    status: AiTaskStatus  # waiting or running
+    seconds_read: float  # kept across a stop (TranscriptPartial.until)
+
+
+class DocumentTranscript(BaseModel):
+    result: DocumentTranscriptResult | None
+    task: DocumentTranscriptTask | None
+
+
+class TranscriptView(BaseModel):
+    """A document's valid transcript with its lines (D296)."""
+
+    result: DocumentTranscriptResult
+    segments: list[TranscriptSegment]  # in time order
+
+
 ImportStatus.model_rebuild()
 DocumentDetail.model_rebuild()
+AiStatus.model_rebuild()

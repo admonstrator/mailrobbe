@@ -3,13 +3,13 @@
 
 import { ApiError } from "../../api/client";
 import type {
+  AiEngine,
   AiEstimate,
   AiQueued,
   AiResultState,
   AiTaskStatus,
   AiWorkList,
   DocumentAiResult,
-  OcrEngine,
   OcrEngineChoice,
 } from "../../api/types";
 import { formatDate, formatNumber, formatRemaining } from "../../lib/format";
@@ -54,12 +54,14 @@ export const RESULT_STATE_LABELS: Record<AiResultState, string> = {
 export const WORK_LIST_TITLES: Record<AiWorkList, string> = {
   scanned: "Gescannte PDFs",
   images: "Bilder ab 100 KB",
+  media: "Sprachnachrichten und Videos",
 };
 
 export const WORK_LIST_HINTS: Record<AiWorkList, string> = {
   scanned: "PDFs, deren Seiten nur Bilder sind, ohne Textebene; noch ohne erkannten Text.",
   images:
     "Fotos und Bilder ab 100 KB in höchstens 50 Mails; kleinere und Logos aus Signaturen bleiben außen vor.",
+  media: "Aufnahmen und Videos mit Ton, noch ohne Transkript.",
 };
 
 /** The engine of a result as a reader knows it: Tesseract, the model's name, or both. */
@@ -100,7 +102,7 @@ export function estimateText(estimate: AiEstimate): string {
 export function estimateFor(
   estimates: AiEstimate[],
   choice: OcrEngineChoice,
-  auto: OcrEngine,
+  auto: AiEngine,
 ): AiEstimate | undefined {
   const engine = choice === "auto" ? auto : choice;
   return estimates.find((estimate) => estimate.engine === engine);

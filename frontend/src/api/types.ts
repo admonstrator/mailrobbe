@@ -396,6 +396,9 @@ export type PreviewKind = "image" | "pdf" | "html" | "audio" | "video";
 /** Where the text recognition stands for an attachment's document (D280); null: OCR has
  *  nothing to do with it. */
 export type AttachmentOcr = "readable" | "queued" | "recognised" | "no_text";
+/** The same for a recording's transcript (D296); null: the transcriber has nothing to do with
+ *  it. no_text: read, and nobody speaks (or it has no sound). */
+export type AttachmentTranscript = "transcribable" | "queued" | "transcribed" | "no_text";
 
 export interface AttachmentInfo {
   id: number;
@@ -418,6 +421,8 @@ export interface AttachmentInfo {
    *  documents, in the container's order (D231); null and [] for any other attachment. */
   members_status?: DocumentMembersStatus | null;
   ocr?: AttachmentOcr | null; // the text recognition of its document (D280)
+  transcript?: AttachmentTranscript | null; // the transcription of its recording (D296)
+  duration?: number | null; // seconds of its recording, once transcribed (D293)
   members?: AttachmentInfo[];
 }
 
@@ -1644,6 +1649,9 @@ export interface DocumentDetail {
   text_origin?: TextOrigin; // D185
   ai?: DocumentAi | null; // its OCR result and open task (D189)
   ocr_readable?: boolean; // OCR can read it: "Text erkennen"
+  duration?: number | null; // seconds of a recording, once transcribed (D293)
+  transcript?: DocumentTranscript | null; // its transcript and open task (D296)
+  transcribable?: boolean; // the transcriber can read it: "Transkribieren"
 }
 
 export type DocumentMetadataStatus =
@@ -2733,12 +2741,14 @@ export type AiCapability = "vision";
 export type AiProtocol = "openai" | "ollama";
 export type AiLocality = "local" | "remote";
 export type OcrEngine = "tesseract" | "vision";
+/** What reads a selection: the OCR engines and the transcriber (D290). */
+export type AiEngine = OcrEngine | "parakeet";
 export type OcrEngineChoice = "auto" | "tesseract" | "vision";
 export type AiTaskKind = "ocr" | "transcribe" | "summarize";
 export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelled";
 export type AiResultState = "valid" | "replaced" | "discarded";
-export type AiWorkList = "scanned" | "images";
-export type AiPhase = "check" | "ocr" | "entities" | "signals";
+export type AiWorkList = "scanned" | "images" | "media";
+export type AiPhase = "check" | "ocr" | "transcribe" | "entities" | "signals";
 
 export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
 export const AI_PAGE_SIZE = 50;
@@ -2778,11 +2788,12 @@ export interface ServiceCheck {
 }
 
 export interface AiEstimate {
-  engine: OcrEngine;
-  model: string; // "" for Tesseract
+  engine: AiEngine;
+  model: string; // "" for Tesseract, the transcription model for parakeet
   seconds: number;
   estimated: boolean; // true: by the rule of thumb, "geschätzt"
-  seconds_per_page: number;
+  seconds_per_page: number; // 0 for the transcriber
+  seconds_per_minute?: number | null; // the transcriber's, per minute of a recording
 }
 
 export interface AiWorkListInfo {
@@ -2791,8 +2802,10 @@ export interface AiWorkListInfo {
   pages: number; // pages known; an image counts as one
   without_pages: number; // documents whose pages are not known
   bytes: number;
-  estimates: AiEstimate[]; // Tesseract always, the vision model when usable
-  engine: OcrEngine; // the engine "auto" takes for this list
+  estimates: AiEstimate[]; // Tesseract always, the vision model when usable; media: parakeet
+  engine: AiEngine; // the engine "auto" takes for this list
+  minutes?: number; // media: minutes of the recordings whose length is known
+  without_minutes?: number; // media: recordings of unknown length, one minute each
 }
 
 /** What an AI run works with (job.options of kind ai); the defaults of a start. */
@@ -2808,6 +2821,9 @@ export interface AiOptions {
   documents: number[]; // only these documents' tasks (D280); empty: the whole queue
   vision_url: string; // "" without one
   vision_remote: boolean;
+  max_minutes?: number; // of a recording per document and pass (D292)
+  transcribe_threads?: number;
+  transcribe_uncertain?: number; // lines below this mean token probability are uncertain
 }
 
 /** Live figures of an AI run; its pages are the ocr step's. */
@@ -2820,6 +2836,9 @@ export interface AiProgress extends RunProgress {
   tokens_out: number;
   current: string | null; // the file name in work
   unreachable_since: string | null; // a service did not answer since then (D184)
+  minutes?: number; // of recordings transcribed by this run
+  position?: number | null; // seconds reached in the recording in work
+  duration?: number | null; // of the recording in work, once decoded
 }
 
 /** A run of `mailrobbe ai run` (D187). */
@@ -2844,6 +2863,18 @@ export interface AiStatus {
   remote_used: boolean; // "Gesendet" is shown
   job: AiJob | null;
   defaults: AiOptions;
+  transcription?: AiTranscriptionInfo | null; // the transcriber (D290, D291)
+}
+
+/** The transcriber in the server's container (D290, D291): Parakeet and its files. */
+export interface AiTranscriptionInfo {
+  available: boolean; // its libraries are installed
+  model: string;
+  ready: boolean; // the files are in the model directory
+  missing_bytes: number; // downloaded first by the next run that transcribes
+  total_bytes: number;
+  threads: number;
+  max_minutes: number;
 }
 
 /** Exactly one of work_list, document_ids and filters (D186). */
@@ -2855,6 +2886,7 @@ export interface AiQueueRequest {
   include_logos?: boolean;
   single?: boolean; // one document from its page: first in the queue
   start?: boolean; // with document_ids: a run for just these documents at once (D280)
+  kind?: AiTaskKind; // only this kind; left out: OCR or transcription, what fits each document
 }
 
 /** What start did (D280): a run began; an AI run lives already and takes them next; another
@@ -2874,6 +2906,7 @@ export interface AiDocumentRef {
   name: string | null;
   kind: DocumentKind | null;
   pages: number | null;
+  duration?: number | null; // seconds of a recording, once known
 }
 
 export interface AiTaskParams {
@@ -2898,6 +2931,7 @@ export interface AiTaskItem {
   pages_read: number;
   pages_total: number | null;
   result_id: number | null;
+  seconds_read?: number | null; // transcribe: seconds of the recording read so far
 }
 
 export interface AiTaskPage {
@@ -2941,6 +2975,10 @@ export interface AiResultItem {
   job_id: number | null;
   discarded_by: string | null;
   discarded_at: string | null;
+  duration?: number | null; // a transcript's; pages_* are 0 for it
+  transcribed?: number | null; // seconds read
+  segments?: number;
+  uncertain_segments?: number;
 }
 
 export interface AiResultPage {
@@ -2973,6 +3011,7 @@ export interface AiRunRequest {
   engine?: OcrEngineChoice;
   vision_model?: string;
   max_pages?: number;
+  max_minutes?: number; // per recording (D292)
 }
 
 export interface DocumentAiResult {
@@ -2999,4 +3038,43 @@ export interface DocumentAiTask {
 export interface DocumentAi {
   result: DocumentAiResult | null;
   task: DocumentAiTask | null;
+}
+
+/** The valid transcript of a document's content (D296). */
+export interface DocumentTranscriptResult {
+  id: number;
+  model: string;
+  created_at: string;
+  duration: number | null; // seconds of the recording
+  transcribed: number | null; // seconds read: less than duration when cut at max_minutes
+  segments: number;
+  uncertain: number; // lines marked uncertain
+  characters: number; // 0: nobody speaks
+  audio: boolean; // false: the file has no sound at all
+}
+
+export interface DocumentTranscriptTask {
+  id: number;
+  status: AiTaskStatus; // waiting or running
+  seconds_read: number;
+}
+
+export interface DocumentTranscript {
+  result: DocumentTranscriptResult | null;
+  task: DocumentTranscriptTask | null;
+}
+
+/** One line of a transcript (ai.model.TranscriptSegment), times in seconds. */
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+  confidence: number | null; // mean token probability, 0 to 1
+  uncertain: boolean;
+}
+
+/** GET /api/documents/{id}/transcript (D296). */
+export interface TranscriptView {
+  result: DocumentTranscriptResult;
+  segments: TranscriptSegment[]; // in time order
 }
