@@ -71,8 +71,9 @@ async def _metadata(engine: AsyncEngine) -> dict[str, dict[str, Any]]:
                 "SELECT name, metadata_status::text AS status, metadata_version AS version, "
                 "metadata_error AS error, metadata_fields AS fields, metadata_author AS author, "
                 "metadata_modified_by AS modified_by, metadata_program AS program, "
-                "metadata_device AS device, metadata_created AS created, metadata_gps AS gps "
-                "FROM document"
+                "metadata_device AS device, metadata_created AS created, metadata_gps AS gps, "
+                "metadata_latitude AS latitude, metadata_longitude AS longitude, "
+                "metadata_gps_time AS gps_time FROM document"
             )
         )
         return {row.name: dict(row._mapping) for row in rows}
@@ -121,6 +122,9 @@ async def test_metadata_is_read_once_then_again_by_a_newer_reader(
         True,
     )
     assert photo["created"] == datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC)
+    assert (photo["latitude"], photo["longitude"]) == (52.5200833, 13.41)  # D241
+    assert photo["gps_time"] == datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC)
+    assert (pdf["latitude"], pdf["longitude"], pdf["gps_time"]) == (None, None, None)
     assert (docx["status"], docx["author"], docx["modified_by"], docx["program"]) == (
         "found",
         "Peter Hofmann",

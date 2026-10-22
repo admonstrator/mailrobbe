@@ -92,6 +92,8 @@ def test_a_jpeg_gives_its_exif_gps_and_xmp(endian: str) -> None:
     assert summary.device == "Canon EOS R6"  # the make once: the model names it
     assert summary.created == datetime(2024, 5, 6, 10, 9, 10, tzinfo=TWO)
     assert summary.gps is True
+    assert (summary.latitude, summary.longitude) == (52.5200833, 13.41)
+    assert summary.gps_time == datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC)
 
 
 def test_south_west_and_below_sea_level_are_negative() -> None:

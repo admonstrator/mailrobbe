@@ -127,12 +127,16 @@ _STORE_METADATA = text("""
         metadata_fields = CAST(u.fields AS jsonb), metadata_error = u.error,
         metadata_author = u.author, metadata_modified_by = u.modified_by,
         metadata_program = u.program, metadata_device = u.device, metadata_created = u.created,
-        metadata_gps = u.gps, metadata_version = :version
+        metadata_gps = u.gps, metadata_latitude = u.latitude, metadata_longitude = u.longitude,
+        metadata_gps_time = u.gps_time, metadata_version = :version
     FROM unnest(CAST(:ids AS bigint[]), CAST(:statuses AS text[]), CAST(:fields AS text[]),
                 CAST(:errors AS text[]), CAST(:authors AS text[]), CAST(:modified_by AS text[]),
                 CAST(:programs AS text[]), CAST(:devices AS text[]),
-                CAST(:created AS timestamptz[]), CAST(:gps AS boolean[]))
-        AS u(id, status, fields, error, author, modified_by, program, device, created, gps)
+                CAST(:created AS timestamptz[]), CAST(:gps AS boolean[]),
+                CAST(:latitudes AS float8[]), CAST(:longitudes AS float8[]),
+                CAST(:gps_times AS timestamptz[]))
+        AS u(id, status, fields, error, author, modified_by, program, device, created, gps,
+             latitude, longitude, gps_time)
     WHERE d.id = u.id
 """)
 
@@ -762,6 +766,9 @@ def _metadata_parameters(metas: Sequence[_Meta]) -> dict[str, Any]:
         "devices": [summary.device for summary in summaries],
         "created": [summary.created for summary in summaries],
         "gps": [summary.gps for summary in summaries],
+        "latitudes": [summary.latitude for summary in summaries],
+        "longitudes": [summary.longitude for summary in summaries],
+        "gps_times": [summary.gps_time for summary in summaries],
     }
 
 
