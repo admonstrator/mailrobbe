@@ -6,6 +6,11 @@ Registered before the detail router, so /api/mails/summary is not taken for a ma
 Counts of a filtered list run under a statement timeout (MAILROBBE_API_COUNT_TIMEOUT) inside a
 savepoint, so a count that runs out of time falls back to a bounded one and leaves the session
 usable; the unfiltered figures come from global_stats.
+
+Hidden mails (D222): a filtered count counts the matches a hide rule hides beside the others,
+in the same pass (VISIBLE as a column instead of a condition). Without filters the archive's
+figures less the hidden ones: the stored figures of the hide rules (hiding.model) and a lookup
+of the few mails the team keeps visible, so the first page stays a few cheap queries.
 """
 
 import csv
@@ -41,6 +46,7 @@ from mailrobbe import aggregates
 from mailrobbe.api import events, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.filters import (
+    VISIBLE,
     Cursor,
     CursorError,
     FilterError,
@@ -82,6 +88,7 @@ from mailrobbe.db.models import (
     Tag,
 )
 from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.hiding import model as hiding
 from mailrobbe.persons.labels import attach_labels, label_text, labelled_persons
 from mailrobbe.persons.roots import member_ids
 from mailrobbe.signals.model import rules
@@ -91,7 +98,9 @@ router = APIRouter(prefix="/api", tags=["mails"])
 _Row = Row[*tuple[Any, ...]]
 
 _ROLE_ORDER = {role: index for index, role in enumerate(ParticipationRole)}
-_NO_FILTERS = MailFilters().model_dump(exclude={"q"})
+# The archive's figures answer a summary without filters, with or without the hidden mails.
+_UNFILTERED = {"q", "include_hidden"}
+_NO_FILTERS = MailFilters().model_dump(exclude=_UNFILTERED)
 _QUERY_CANCELED = "57014"  # SQLSTATE of a statement stopped by statement_timeout
 CSV_BATCH = 1000  # rows per fetch from the server-side cursor and per chunk sent
 CSV_FILENAME = "mailrobbe-mails.csv"
@@ -321,22 +330,18 @@ async def summary(
     filters: Annotated[MailFilters, Query()], session: Session, settings: AppSettings
 ) -> MailSummary:
     terms = _terms(filters.q)
-    if not terms and filters.model_dump(exclude={"q"}) == _NO_FILTERS:
-        figures = await aggregates.current_global_stats(session, settings.stats_max_age)
-        return MailSummary(
-            total=figures.mails,
-            exact=True,
-            dkim=_dkim_counts(figures.dkim),
-            persons=figures.persons,
-            domains=figures.domains,
-            date_min=figures.date_min,
-            date_max=figures.date_max,
-        )
-    where = await resolve_contents(session, _where(filters, terms, settings))
+    if not terms and filters.model_dump(exclude=_UNFILTERED) == _NO_FILTERS:
+        return await _archive_summary(session, settings, filters.include_hidden)
+    where = _where(filters, terms, settings)
+    # The hidden mails are counted beside the others: VISIBLE moves from the conditions into the
+    # count, so the hidden matches cost no second pass (D222).
+    counted = [condition for condition in where if condition is not VISIBLE]
+    shown = hiding.shown() if len(counted) < len(where) else None
+    where = await resolve_contents(session, counted)
     await _count_budget(session, settings)
-    row = await _unless_canceled(session, _aggregate(where))
+    row = await _unless_canceled(session, _aggregate(where, shown))
     if row is not None:
-        total, *counts, date_min, date_max, persons, domains = row
+        total, *counts, date_min, date_max, persons, domains, hidden = row
         return MailSummary(
             total=total,
             exact=True,
@@ -345,7 +350,10 @@ async def summary(
             domains=domains,
             date_min=date_min,
             date_max=date_max,
+            hidden=None if shown is None else hidden,
         )
+    if shown is not None:
+        where.append(shown)
     bounded = select(Mail.id).where(*where).limit(COUNT_LIMIT + 1).subquery()
     row = await _unless_canceled(session, select(func.count()).select_from(bounded))
     total = None if row is None else min(row[0], COUNT_LIMIT)
@@ -360,15 +368,49 @@ async def summary(
     )
 
 
-def _aggregate(where: Sequence[ColumnElement[bool]]) -> Executable:
-    """Count, DKIM counts (DKIM_KEYS order), date range, distinct persons and their domains."""
-    matched = select(Mail.id, Mail.dkim_status, Mail.date_utc).where(*where).cte("matched")
+async def _archive_summary(
+    session: AsyncSession, settings: Settings, include_hidden: bool
+) -> MailSummary:
+    """The archive's figures (global_stats), without include_hidden less the mails a hide rule
+    hides; persons, domains and dates stay the archive's (D222)."""
+    figures = await aggregates.current_global_stats(session, settings.stats_max_age)
+    dkim = _dkim_counts(figures.dkim)
+    hidden: dict[DkimKey, int] = {}
+    if not include_hidden:
+        matched = await hiding.current_figures(session, figures.updated_at)
+        kept = await hiding.kept_counts(session) if matched.mails else {}
+        hidden = {key: matched.dkim.get(key, 0) - kept.get(key, 0) for key in dkim}
+    return MailSummary(
+        total=figures.mails - sum(hidden.values()),
+        exact=True,
+        dkim={key: count - hidden.get(key, 0) for key, count in dkim.items()},
+        persons=figures.persons,
+        domains=figures.domains,
+        date_min=figures.date_min,
+        date_max=figures.date_max,
+        hidden=None if include_hidden else sum(hidden.values()),
+    )
+
+
+def _aggregate(
+    where: Sequence[ColumnElement[bool]], shown: ColumnElement[bool] | None = None
+) -> Executable:
+    """Count, DKIM counts (DKIM_KEYS order), date range, distinct persons and their domains of
+    the mails shown, then the hidden ones; shown None: every match is shown."""
+    visible = true() if shown is None else shown
+    matched = (
+        select(Mail.id, Mail.dkim_status, Mail.date_utc, visible.label("shown"))
+        .where(*where)
+        .cte("matched")
+    )
+    shown_mail = matched.c.shown
     # Distinct participating addresses first (a hash aggregate down to a few thousand rows),
     # then their persons and domains.
     people = (
         select(Participation.person_id)
         .distinct()
         .join(matched, matched.c.id == Participation.mail_id)
+        .where(shown_mail)
         .cte("people")
     )
 
@@ -380,17 +422,18 @@ def _aggregate(where: Sequence[ColumnElement[bool]]) -> Executable:
 
     status = matched.c.dkim_status
     return select(
-        func.count(),
+        func.count().filter(shown_mail),
         *(
             func.count().filter(
-                status.is_(None) if key == "unchecked" else status == DkimStatus(key)
+                shown_mail, status.is_(None) if key == "unchecked" else status == DkimStatus(key)
             )
             for key in DKIM_KEYS
         ),
-        func.min(matched.c.date_utc),
-        func.max(matched.c.date_utc),
+        func.min(matched.c.date_utc).filter(shown_mail),
+        func.max(matched.c.date_utc).filter(shown_mail),
         distinct_count(func.coalesce(Person.merged_into, Person.id)),
         distinct_count(Person.domain.expression),
+        func.count().filter(~shown_mail),
     ).select_from(matched)
 
 
@@ -589,3 +632,46 @@ def _take(buffer: io.StringIO) -> str:
     buffer.seek(0)
     buffer.truncate()
     return text
+
+
+# List items for other views: the examples of a hide rule's preview (D223) ----------------------
+
+
+async def _rows(session: AsyncSession, ids: list[int]) -> list[_Row]:
+    """The columns of a list item of each mail, in the order of ids, as list_mails reads them;
+    ids that are gone are left out."""
+    statement = (
+        select(
+            Mail.id,
+            Mail.date_utc,
+            Mail.subject,
+            Mail.dkim_status,
+            Mail.has_attachments,
+            Mail.thread_id,
+            Mail.is_duplicate_of,
+            Mail.byte_length,
+            Mail.mbox_file_id,
+            func.coalesce(MailMark.flagged, False).label("flagged"),
+            MailMark.review,
+            _TAGS,
+            _NOTES,
+        )
+        .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
+        .where(Mail.id == any_(literal(ids, ARRAY(BigInteger))))
+    )
+    found = {row.id: row for row in await session.execute(statement)}
+    return [found[mail_id] for mail_id in ids if mail_id in found]
+
+
+async def mail_items(session: AsyncSession, ids: list[int]) -> list[MailListItem]:
+    """These mails as the list shows them, in this order, without search hits; labels are set
+    by the caller's attach_labels."""
+    rows = await _rows(session, ids)
+    people = await _participants(session, ids)
+    items = [_item(row, people.get(row.id, [])) for row in rows]
+    near_counts = await near.near_counts(session, ids)
+    event_kinds = await events.event_kinds(session, ids)
+    for item in items:
+        item.near_count = near_counts.get(item.id, 0)
+        item.event = event_kinds.get(item.id)
+    return items

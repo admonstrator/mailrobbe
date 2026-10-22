@@ -619,7 +619,7 @@ async def test_filtered_summary_counts_exactly(
         "domains": figures.domains,
         "date_min": stamp(figures.date_min),
         "date_max": stamp(figures.date_max),
-        "hidden": None,
+        "hidden": 0,  # no hide rule: none of the matches is hidden (D222)
     }
     assert len(summary["dkim"]) == 7
 

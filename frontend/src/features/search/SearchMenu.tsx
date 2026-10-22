@@ -23,6 +23,7 @@ export function SearchMenu({
   exclude,
   save,
   onLeave,
+  newRule,
 }: {
   options: Options;
   /** The options act on the list shown; otherwise they wait for the next search. */
@@ -33,6 +34,8 @@ export function SearchMenu({
   save: (() => void) | null;
   /** A saved search was opened. */
   onLeave: () => void;
+  /** Opens the dialog of a new hide rule (D223). */
+  newRule?: () => void;
 }) {
   return (
     <div className={styles.menu}>
@@ -56,7 +59,7 @@ export function SearchMenu({
           <p className={styles.text}>Wirkt auf die Wörter der Suche, nicht auf from:, has: usw.</p>
           <SearchOptions options={options} change={change} />
           <ExcludeField exclude={exclude} />
-          <HiddenMails options={options} change={change} onLeave={onLeave} />
+          <HiddenMails options={options} change={change} onLeave={onLeave} newRule={newRule} />
         </div>
         <div className={styles.column}>
           <section aria-labelledby="search-menu-saved">
@@ -137,10 +140,12 @@ function HiddenMails({
   options,
   change,
   onLeave,
+  newRule,
 }: {
   options: Options;
   change: (patch: Partial<Options>) => void;
   onLeave: () => void;
+  newRule?: () => void;
 }) {
   return (
     <section aria-labelledby="search-menu-hidden" className={styles.exclude}>
@@ -159,6 +164,11 @@ function HiddenMails({
           Regeln verwalten
         </Link>
       </p>
+      {newRule && (
+        <Button variant="outline" size="sm" className={styles.save} onClick={newRule}>
+          Regel anlegen
+        </Button>
+      )}
     </section>
   );
 }

@@ -833,6 +833,7 @@ class MailDetail(BaseModel):
     near_size: int = 0
     events: list[CalendarEventInfo] = []  # its calendar events in mail order (D155)
     hidden: MailHiding | None = None  # an enabled hide rule matches it (D222)
+    list_id: str | None = None  # its List-Id, as a hide rule names it (D221)
 
 
 # Bodies, read on demand from the MBOX file -------------------------------------------------

@@ -78,6 +78,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* "1.234 ausgeblendet · zeigen" (D223): the link in the line of the figures. */
+.hits .showHidden {
+  padding: 0;
+  font-size: 13px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
