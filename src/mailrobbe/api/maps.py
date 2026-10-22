@@ -19,6 +19,7 @@ from typing import get_args
 from fastapi import APIRouter, Response
 from fastapi.responses import FileResponse
 from pydantic import TypeAdapter
+from sqlalchemy import func, select
 
 from mailrobbe import jobs
 from mailrobbe.api import processes
@@ -37,6 +38,7 @@ from mailrobbe.api.schemas import (
 from mailrobbe.config import Settings
 from mailrobbe.db.models import Job
 from mailrobbe.enums import JobKind
+from mailrobbe.jobs import MAP_LOCK_KEY
 from mailrobbe.places.gazetteer import label_towns
 from mailrobbe.places.model import (
     MAX_ZOOMS,
@@ -181,13 +183,15 @@ async def stop_download(_: NoOptions, session: Session) -> MapJob:
 
 @router.delete("/map/detail", status_code=204)
 async def delete_detail(session: Session, settings: AppSettings, runs: Runs) -> Response:
-    """The detail map and a stopped download's files; 409 while a map download is alive."""
+    """The detail map and a stopped download's files; 409 while a map download is alive. The
+    run's advisory lock is held for the transaction, so no download starts meanwhile."""
     if runs.map_lock.locked() or runs.children_of((JobKind.MAP,)):
         raise api_error(409, "job_running", "a map download started here has not ended")
     async with runs.map_lock:
-        if await jobs.job_alive(session, JobKind.MAP):
+        if not await session.scalar(select(func.pg_try_advisory_xact_lock(MAP_LOCK_KEY))):
             raise api_error(409, "job_running", "a mailrobbe map run is alive")
         removed = await asyncio.to_thread(delete_maps, settings.map_dir)
+        await session.commit()  # releases the lock
     if removed:
         log.info("removed %s from %s", ", ".join(removed), settings.map_dir)
     return Response(status_code=204)
