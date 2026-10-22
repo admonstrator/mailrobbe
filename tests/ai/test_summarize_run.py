@@ -382,6 +382,7 @@ async def test_a_run_summarises_a_mail_and_a_short_one(archive: Any, database: s
     assert {key: step.status for key, step in found_steps.items()} == {
         "check": "done",
         "ocr": "skipped",
+        "transcribe": "skipped",
         "summarize": "done",
         "entities": "skipped",
         "signals": "skipped",
