@@ -27,7 +27,7 @@ Die Rohmails bleiben unverändert in den MBOX-Dateien, die read-only eingebunden
 | Ist diese Mail echt?                                   | DKIM-Ergebnis je Signatur im Mail-Detail, Filter `dkim:pass` und `dkim:fail`                         |
 | Wer steckt hinter mehreren Adressen?                   | Alias-Vorschläge unter Personen, sichere getrennt von unsicheren; jede Zusammenführung lässt sich rückgängig machen |
 | Wer wusste was wann?                                   | Zeitachse (`/zeitachse`): Verlauf, Ausreißer, Verstummen, erste Erwähnung je Person                 |
-| Wo wurden Fotos gemacht, welche Orte fallen?         | Orte (`/orte`): Fotos nach ihren GPS-Daten, Orte aus den Texten und Termine auf einer Karte          |
+| Wo wurden Fotos gemacht, welche Orte fallen?           | Orte (`/orte`): Fotos nach ihren GPS-Daten, Orte aus den Texten und Termine auf einer Karte          |
 | Wer hat dieses Dokument wann an wen geschickt?         | Anhänge (`/anhaenge`) und die Seite des Dokuments                                                    |
 | Welche Beträge, Konten und Namen tauchen auf?          | Entitäten (`/entitaeten`) und die Facetten neben der Mailliste, Filter nach Betrag und Bargeld/Spende/Quittung |
 | Welche Mails sollte ich zuerst lesen?                  | Signale (`/auffaelligkeiten`): private Adressen, Bcc, Weiterleitungen nach außen, Nacht, Wortfelder, Verstummen |
