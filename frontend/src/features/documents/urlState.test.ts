@@ -27,6 +27,7 @@ const full: DocumentListState = {
   name: "liste",
   kind: ["pdf", "spreadsheet"],
   text_status: ["scanned", "encrypted"],
+  protection: ["locked", "open"],
   date_from: "2019-01-01",
   date_to: "2019-12-31",
   person: 11,
@@ -53,12 +54,14 @@ describe("document list state in the URL", () => {
     const params = documentListSearch(full);
     expect(params.getAll("kind")).toEqual(["pdf", "spreadsheet"]);
     expect(params.getAll("text_status")).toEqual(["scanned", "encrypted"]);
+    expect(params.getAll("protection")).toEqual(["locked", "open"]);
     expect(params.get("shared")).toBe("true");
     expect([...new Set(params.keys())]).toEqual([
       "q",
       "name",
       "kind",
       "text_status",
+      "protection",
       "date_from",
       "date_to",
       "person",
@@ -82,6 +85,9 @@ describe("document list state in the URL", () => {
         "kind=pdf",
         "kind=pdf",
         "text_status=ok",
+        "protection=unknown",
+        "protection=open",
+        "protection=locked",
         "date_from=2019-02-30",
         "person=abc",
         "person_role=sent",
@@ -91,7 +97,11 @@ describe("document list state in the URL", () => {
         "limit=0",
       ].join("&"),
     );
-    expect(state).toEqual({ ...DEFAULT_DOCUMENT_LIST_STATE, kind: ["pdf", "spreadsheet"] });
+    expect(state).toEqual({
+      ...DEFAULT_DOCUMENT_LIST_STATE,
+      kind: ["pdf", "spreadsheet"],
+      protection: ["locked", "open"],
+    });
   });
 
   it("keeps a role only together with a person", () => {
@@ -132,6 +142,8 @@ describe("document list state in the URL", () => {
     expect(facetFilters(filters, "kind")).not.toHaveProperty("kind");
     expect(facetFilters(filters, "kind").text_status).toEqual(["scanned", "encrypted"]);
     expect(facetFilters(filters, "text_status")).not.toHaveProperty("text_status");
+    expect(facetFilters(filters, "text_status").protection).toEqual(["locked", "open"]);
+    expect(facetFilters(filters, "protection")).not.toHaveProperty("protection");
     expect(facetFilters({}, "kind")).toEqual({});
     expect(facetFilters(filters, "author")).not.toHaveProperty("author");
     expect(facetFilters(filters, "author").program).toEqual(["Microsoft Word"]);

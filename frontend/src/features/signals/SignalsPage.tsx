@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 
+import { withQuery } from "../../api/client";
 import { useSignals } from "../../api/queries";
 import type { SignalGroup, SignalInfo, SignalOverview, SilentPerson } from "../../api/types";
 import { Button } from "../../components/Button";
@@ -31,7 +32,7 @@ import styles from "./SignalsPage.module.css";
 
 /** The groups of mail signals with a card of their own, in display order; word fields and
  *  persons follow. */
-const MAIL_GROUPS: readonly SignalGroup[] = ["addresses", "recipients", "time"];
+const MAIL_GROUPS: readonly SignalGroup[] = ["addresses", "recipients", "time", "attachments"];
 
 /** The overview "Signale" (D137): what signals are and how to search with them, the rules'
  *  settings and when the last signals phase ran, then every signal with its rule, figures,
@@ -162,6 +163,16 @@ function Overview({ overview, target }: { overview: SignalOverview; target: stri
             {group === "time" && (
               <p className={styles.groupNote}>
                 {`Ortszeit ${overview.settings.timezone}: Auch eine im Ausland geschriebene Mail zeigt die Stunde dieser Zone.`}
+              </p>
+            )}
+            {group === "attachments" && (
+              <p className={styles.groupNote}>
+                Welche Kennwörter gefunden wurden und was sie geöffnet haben, zeigen die Anhänge mit
+                dem Filter{" "}
+                <Link to={withQuery("/anhaenge", { protection: ["locked", "open"] })}>
+                  „Verschlüsselt“
+                </Link>
+                .
               </p>
             )}
           </SignalGroupCard>

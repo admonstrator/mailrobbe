@@ -186,6 +186,53 @@ class DocumentMetadataStatus(StrEnum):
     FAILED = "failed"  # damaged, encrypted, or the reader failed; metadata_error says why
 
 
+class DocumentProtection(StrEnum):
+    """document.protection (milestone 19, D233): whether a document needs a password.
+
+    NULL: it needs none. A document whose text extraction finds it encrypted, and a container
+    with entries that need a password, are locked until a password opens them (D235, D236)."""
+
+    LOCKED = "locked"  # needs a password Mailrobbe does not know
+    OPEN = "open"  # opened with a password from the archive or typed in (document_password)
+
+
+class DocumentMembersStatus(StrEnum):
+    """document.members_status (D231): where the unpacking of a container stands; NULL for a
+    document that is no container, and for a container that waits for the archives step (new,
+    opened with a password, D236)."""
+
+    DONE = "done"  # unpacked within the limits; document_member lists every entry
+    LOCKED = "locked"  # entries need a password not known yet; the others are unpacked
+    TOO_DEEP = "too_deep"  # found only inside another container: listed there, not unpacked
+    UNSUPPORTED = "unsupported"  # a format not unpacked (RAR, tar, gzip, D239)
+    FAILED = "failed"  # damaged, or the unpacking failed; members_error says why
+    UNREADABLE = "unreadable"  # its MBOX file is missing or changed; tried again next import
+
+
+class DocumentMemberStatus(StrEnum):
+    """document_member.status (D231): what became of one entry of a container."""
+
+    DOCUMENT = "document"  # unpacked: member_id is its document
+    LOCKED = "locked"  # needs a password not known yet
+    TOO_LARGE = "too_large"  # beyond the size limit of the container (MAILROBBE_ARCHIVE_MAX_SIZE)
+    TOO_MANY = "too_many"  # beyond the entry limit (MAILROBBE_ARCHIVE_MAX_MEMBERS)
+    FAILED = "failed"  # damaged entry; error says why
+
+
+class PasswordTier(StrEnum):
+    """document_password.tier (D235): where the password that opened a document was found, in
+    the order the passwords step tries them."""
+
+    MANUAL = "manual"  # typed in by hand for every locked document
+    MAIL = "mail"  # in a mail carrying the document
+    THREAD = "thread"  # in a mail of the same thread
+    CONTACTS = "contacts"  # in a mail between the same persons, 30 days before or after
+    ATTACHMENTS = "attachments"  # in the text of an attachment of those mails
+    OPENED = "opened"  # it opened another document before
+    ARCHIVE = "archive"  # anywhere else in the archive
+    TYPED = "typed"  # typed in by hand on the document's page
+
+
 class PlaceStatus(StrEnum):
     """entity.place_status and calendar_event.place_status (D242, D243): what the places step
     found for a place entity or an invitation's location; NULL until it looked."""
@@ -286,4 +333,7 @@ class SignalKind(StrEnum):
     FORWARD_OUT = "forward_out"  # a forwarded mail going outside
     NIGHT = "night"  # sent at night, local time (MAILROBBE_TIMEZONE)
     WEEKEND = "weekend"  # sent on a Saturday or Sunday, local time
+    ENCRYPTED_ATTACHMENT = "encrypted_attachment"  # an attachment needs a password (D238)
+    PASSWORD_SEPARATE = "password_separate"  # the password of an attachment came in another mail
+    ENCRYPTED_MAIL = "encrypted_mail"  # the mail itself is encrypted (PGP or S/MIME)
     SILENT = "silent"  # persons only: no mail since a month after steady activity (D134)

@@ -111,6 +111,8 @@ import type {
   MetadataValues,
   NoteInfo,
   NotePage,
+  PasswordTry,
+  PasswordTryResult,
   PermalinkTarget,
   PersonEvents,
   PersonLabelUpdate,
@@ -945,6 +947,31 @@ export function useMetadataValues(params: MetadataValueParams, enabled = true) {
       apiGet<MetadataValues>("/api/documents/metadata-values", params, signal),
     placeholderData: keepPreviousData,
     enabled,
+  });
+}
+
+/** Tries a typed-in password (D237) on one locked document, or with document null on every
+ *  locked one, which can take a minute. What it opens is extracted at once, so everything about
+ *  documents is loaded again, and the mail details, whose attachments show the protection, when
+ *  shown again. A document opened meanwhile (not_locked) is loaded again to show how it stands. */
+export function useTryPassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ document, password }: { document: number | null; password: string }) =>
+      apiPost<PasswordTryResult>(
+        document === null ? "/api/documents/passwords" : `/api/documents/${document}/password`,
+        { password } satisfies PasswordTry,
+      ),
+    onSuccess: (result) => {
+      if (result.opened.length === 0) return;
+      void queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+      void queryClient.invalidateQueries({ queryKey: ["mail"], refetchType: "none" });
+    },
+    onError: (error, { document }) => {
+      if (document !== null && error instanceof ApiError && error.code === "not_locked") {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.document(document) });
+      }
+    },
   });
 }
 

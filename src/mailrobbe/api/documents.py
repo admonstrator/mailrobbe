@@ -40,7 +40,13 @@ found as typed rather than as German stems.
 
 Downloads read the bytes from the MBOX file on request (attachments.content, D76) and are never
 cached: a download as application/octet-stream with a sandboxing policy, apart from raster
-images by their first bytes, which the document page shows in an <img>.
+images by their first bytes, which the document page shows in an <img>. An opened document
+(D236) is decrypted on request with decrypted=true, in a process of its own
+(attachments.protected.decrypt), and the plain bytes are never stored (D209).
+
+The protection and the containers (milestone 19) come from api/protected.py: the list's filter
+and marks, the page's password with where it was found, a container's entries and the
+containers a document was found in.
 """
 
 import asyncio
@@ -107,6 +113,13 @@ from mailrobbe.api.mails import (
     _unless_canceled,
 )
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
+from mailrobbe.api.protected import (
+    contained_documents,
+    container_members,
+    containers_of,
+    found_password,
+    password_trial,
+)
 from mailrobbe.api.query import QueryError, parse_query
 from mailrobbe.api.schemas import (
     COUNT_LIMIT,
@@ -142,6 +155,7 @@ from mailrobbe.attachments.content import (
     document_sources,
     read_attachment,
 )
+from mailrobbe.attachments.protected import DecryptFailed, decrypt
 from mailrobbe.db.models import (
     FIRST_DATE_SORT_KEY,
     TEXT_SEARCH_CONFIG,
@@ -153,7 +167,12 @@ from mailrobbe.db.models import (
     Participation,
     Person,
 )
-from mailrobbe.enums import DocumentKind, DocumentTextStatus, ParticipationRole
+from mailrobbe.enums import (
+    DocumentKind,
+    DocumentProtection,
+    DocumentTextStatus,
+    ParticipationRole,
+)
 from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
 from mailrobbe.preview.kinds import preview_kind
@@ -201,6 +220,7 @@ _ITEM_COLUMNS = (
     Document.first_date,
     Document.last_date,
     Document.first_mail_id,
+    Document.protection,
 )
 
 
@@ -227,6 +247,8 @@ def document_conditions(
         where.append(Document.text_status.in_(sorted(set(filters.text_status))))
     if filters.shared:
         where.append(Document.mails >= 2)
+    if filters.protection:
+        where.append(Document.protection.in_(sorted(set(filters.protection))))
     if filters.author:
         where.append(Document.metadata_author.in_(sorted(set(filters.author))))
     if filters.program:
@@ -358,6 +380,7 @@ async def list_documents(
     snippets = await _snippets(
         session, literal_pattern(search_words(params.q)), [row.id for row in rows]
     )
+    contained = await contained_documents(session, [row.id for row in rows])
 
     def at(row: Any, before: bool) -> str:
         return _Cursor(scope, before, (row.key, row.id)).encode()
@@ -392,6 +415,8 @@ async def list_documents(
                 last_date=row.last_date,
                 first_sender=senders.get(row.first_mail_id),
                 snippet=snippets.get(row.id),
+                protection=row.protection,
+                contained=row.id in contained,
             )
             for row in rows
         ],
@@ -690,23 +715,27 @@ async def summary(
     where = _where(filters, settings.internal_domains)
     await _count_budget(session, settings)
     counts = (
-        select(Document.kind, Document.text_status, func.count())
+        select(Document.kind, Document.text_status, Document.protection, func.count())
         .where(*where)
-        .group_by(Document.kind, Document.text_status)
+        .group_by(Document.kind, Document.text_status, Document.protection)
     )
     rows = await _all_unless_canceled(session, counts)
     if rows is not None:
         kinds = dict.fromkeys(DocumentKind, 0)
         statuses = dict.fromkeys(DocumentTextStatus, 0)
-        for kind, status, count in rows:
+        protections = dict.fromkeys(DocumentProtection, 0)
+        for kind, status, protection, count in rows:
             if kind is not None:
                 kinds[kind] += count
             statuses[status] += count
+            if protection is not None:
+                protections[protection] += count
         return DocumentSummary(
             total=sum(statuses.values()),
             exact=True,
             kinds=kinds,
             text_status=statuses,
+            protection=protections,
             authors=await _metadata_values(session, where, Document.metadata_author),
             programs=await _metadata_values(session, where, Document.metadata_program),
         )
@@ -787,6 +816,11 @@ _DETAIL_COLUMNS = (
     Document.metadata_device,
     Document.metadata_created,
     Document.metadata_gps,
+    Document.protection,
+    Document.password_tries,
+    Document.password_tried_at,
+    Document.members_status,
+    Document.members_error,
     Document.metadata_latitude,
     Document.metadata_longitude,
 )
@@ -804,6 +838,8 @@ async def document_detail(
     if document is None or source is None:
         raise _not_found(document_id)
     senders, sender_count, recipients, recipient_count = await _persons(session, document_id)
+    locked = document.protection == DocumentProtection.LOCKED
+    opened = document.protection == DocumentProtection.OPEN
     detail = DocumentDetail(
         id=document.id,
         name=document.name,
@@ -827,7 +863,9 @@ async def document_detail(
         recipients=recipients,
         recipient_count=recipient_count,
         attachment_id=source.attachment_id,
-        preview=preview_kind(
+        preview=None  # nothing shows a locked one; an opened one is decrypted on request (D209)
+        if locked
+        else preview_kind(
             document.kind,
             document.name,
             document.mime_type,
@@ -836,6 +874,13 @@ async def document_detail(
             max_size=settings.preview_max_size,
         ),
         metadata=_metadata(document),
+        protection=document.protection,
+        password_trial=password_trial(document),
+        password_tries=document.password_tries,
+        password_tried_at=document.password_tried_at,
+        password=await found_password(session, document_id) if opened else None,
+        members=await container_members(session, document),
+        containers=await containers_of(session, document_id),
     )
     await attach_labels(session, detail)
     return detail
@@ -978,11 +1023,16 @@ async def mail_persons(
 
 @router.get("/attachments/{attachment_id}/content")
 async def attachment_content(
-    attachment_id: AttachmentId, session: Session, settings: AppSettings
+    attachment_id: AttachmentId,
+    session: Session,
+    settings: AppSettings,
+    decrypted: Annotated[bool, Query()] = False,
 ) -> Response:
     source = await attachment_source(session, attachment_id)
     if source is None:
         raise api_error(404, "not_found", f"no attachment with id {attachment_id}")
+    if decrypted and source.password is None:
+        raise api_error(409, "not_locked", f"attachment {attachment_id} has no password found")
     await session.commit()  # the file may be slow to read; hold no connection meanwhile
     try:
         data = await asyncio.to_thread(read_attachment, settings.mbox_dir, source)
@@ -992,6 +1042,19 @@ async def attachment_content(
     except AttachmentChanged as error:
         log.warning("attachment %d: %s", attachment_id, error)
         raise api_error(409, "source_changed", str(error)) from None
+    if decrypted and source.password is not None:
+        try:
+            data = await decrypt(
+                data,
+                source.filename,
+                source.mime_type,
+                source.password,
+                timeout=settings.preview_timeout,
+                memory=int(settings.preview_memory),
+            )
+        except DecryptFailed as error:
+            log.warning("attachment %d: cannot decrypt: %s", attachment_id, error)
+            raise api_error(422, "decrypt_failed", str(error)) from None
     name = source.filename or f"attachment-{attachment_id}"
     headers = {**CONTENT_HEADERS, "Content-Disposition": content_disposition(name)}
     return Response(data, media_type=content_type(data), headers=headers)

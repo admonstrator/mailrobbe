@@ -41,6 +41,7 @@ from mailrobbe.db.models import (
     DkimResult,
     DnsCache,
     Document,
+    DocumentPassword,
     Mail,
     MailMark,
     MailSignal,
@@ -48,6 +49,8 @@ from mailrobbe.db.models import (
     MboxFile,
     Note,
     Participation,
+    Password,
+    PasswordFinding,
     Person,
     Tag,
 )
@@ -60,6 +63,7 @@ from mailrobbe.enums import (
     DocumentMetadataStatus,
     KeyOrigin,
     ParticipationRole,
+    PasswordTier,
 )
 from mailrobbe.persons.labels import label_text, shown_labels
 from mailrobbe.signals.model import SignalRules, signal_keys
@@ -112,6 +116,18 @@ class AttachmentMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class AttachmentPassword:
+    """The password that opened an attachment's document (D236) and where it was found (D208);
+    written only by an export that includes the passwords."""
+
+    value: str
+    tier: PasswordTier
+    found_by: str | None  # the editor who typed it in (tier typed)
+    mail_id: int | None  # the mail it was found in
+    context: str  # the line(s) around it; "" for one typed in
+
+
+@dataclass(frozen=True, slots=True)
 class ExportMail:
     id: int
     raw_sha256: str
@@ -133,6 +149,8 @@ class ExportMail:
     labels: dict[int, PersonLabel] = field(default_factory=dict)
     # Attachment id -> its metadata; attachments without a document yet are left out.
     attachment_metadata: dict[int, AttachmentMetadata] = field(default_factory=dict)
+    # Attachment id -> the password that opened it; only opened attachments (D236).
+    attachment_passwords: dict[int, AttachmentPassword] = field(default_factory=dict)
 
     def signal_names(self, signal_rules: SignalRules) -> list[str]:
         """The German names of its signals, as the mail list's CSV names them."""
@@ -286,9 +304,10 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
             Document.metadata_status,
             Document.metadata_error,
             Document.metadata_fields,
+            Document.protection,
         )
         .outerjoin(Document, Document.id == Attachment.document_id)
-        .where(Attachment.mail_id == any_(ids))
+        .where(Attachment.mail_id == any_(ids), Attachment.container_id.is_(None))  # D231
         .order_by(Attachment.mail_id, Attachment.id)
     )
     for row in attachments:
@@ -299,12 +318,32 @@ async def _complete(session: AsyncSession, rows: Sequence[_Row]) -> list[ExportM
                 mime_type=row.mime_type,
                 size=row.size_bytes,
                 sha256=row.sha256,
+                protection=row.protection,
             )
         )
         if row.metadata_status is not None:
             found[row.mail_id].attachment_metadata[row.id] = AttachmentMetadata(
                 row.metadata_status, row.metadata_error, row.metadata_fields or {}
             )
+    passwords = await session.execute(
+        select(
+            Attachment.mail_id,
+            Attachment.id,
+            Password.value,
+            DocumentPassword.tier,
+            DocumentPassword.found_by,
+            PasswordFinding.mail_id.label("found_in"),
+            PasswordFinding.context,
+        )
+        .join(DocumentPassword, DocumentPassword.document_id == Attachment.document_id)
+        .join(Password, Password.id == DocumentPassword.password_id)
+        .outerjoin(PasswordFinding, PasswordFinding.id == DocumentPassword.finding_id)
+        .where(Attachment.mail_id == any_(ids), Attachment.container_id.is_(None))
+    )
+    for row in passwords:
+        found[row.mail_id].attachment_passwords[row.id] = AttachmentPassword(
+            row.value, row.tier, row.found_by, row.found_in, row.context or ""
+        )
     # signal_keys() is the display order of SignalRules.keys whatever the settings, so no
     # settings are needed here; a key of a theme removed since goes last.
     order = {key: index for index, key in enumerate(signal_keys())}

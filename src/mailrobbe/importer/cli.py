@@ -1,21 +1,22 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction, metadata, calendar, near duplicates, hide rules, paragraphs, entities, places,
-signals and topics.
+archives, text extraction, passwords, metadata, calendar, near duplicates, hide rules,
+paragraphs, entities, places, signals and topics.
 
-The run records itself in `job` (D47) with its phases scan, headers (only when older files need
-it, D52), import, finalize, attachments (only when documents wait for their text, D72, or for
-their metadata, D167, which has a step of its own), calendar (only when mails wait for a look,
-D154), near (fingerprints when mails wait for one, groups always, D153), hidden (always, D221),
-paragraphs (the split when mails wait for it, the standard blocks always, D224, D225), entities
-(only when texts wait for their scan, D84), places (only when place entities or invitations wait
-for a point, or the lists changed, D242, D243), signals (always, D135) and topics (only when the
-archive changed since they were computed, D146), and reports its figures (ImportFigures) every
-few seconds, with one step per phase and per part of the finalize and the topics (STEPS, D110).
-It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their
-batch, the files pause, the global figures count what is stored, and the finalize and every
-later phase are left to the next run; during the attachments, calendar, near, paragraphs,
-entities, places and signals phases, what is stored so far stays, and the topics stay as last
-computed.
+The run records itself in `job` (D47) with its phases scan, headers (only when older files need it,
+D52), import, finalize, attachments (with the steps archives, when containers wait to be unpacked,
+D231; attachments, when documents wait for their text, D72; passwords, when a locked document could
+be opened, D235; metadata, when documents wait for their metadata, D167), calendar (only when mails
+wait for a look, D154), near (fingerprints when mails wait for one, groups always, D153), hidden
+(always, D221), paragraphs (the split when mails wait for it, the standard blocks always, D224,
+D225), entities (only when texts wait for their scan, D84), places (only when place entities or
+invitations wait for a point, or the lists changed, D242, D243), signals (always, D135) and topics
+(only when the archive changed since they were computed, D146), and reports its figures
+(ImportFigures) every few seconds, with one step per phase and per part of the finalize and the
+topics (STEPS, D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the
+workers store their batch, the files pause, the global figures count what is stored, and the
+finalize and every later phase are left to the next run; during the attachments, calendar, near,
+paragraphs, entities, places and signals phases, what is stored so far stays, and the topics stay
+as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error, the signals phase failed (a time zone PostgreSQL does not know, D133) or the
@@ -36,7 +37,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from mailrobbe.aggregates import refresh_global_stats
-from mailrobbe.attachments import phase
+from mailrobbe.attachments import containers, phase
 from mailrobbe.attachments.extract import extract_document
 from mailrobbe.blocks import phase as blocks
 from mailrobbe.config import Settings, get_settings
@@ -57,6 +58,7 @@ from mailrobbe.importer.scan import ScanReport, find_mbox_files, scan
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
 from mailrobbe.jobs import ImportOptions, application_name
 from mailrobbe.near import phase as near
+from mailrobbe.passwords import phase as passwords
 from mailrobbe.places import phase as places
 from mailrobbe.signals import phase as signals
 from mailrobbe.signals.model import rules as signal_rules
@@ -71,7 +73,9 @@ STEPS = (
     "headers",
     "import",
     *finalize.STEPS,
+    "archives",
     "attachments",
+    "passwords",
     "metadata",
     "calendar",
     *near.STEPS,
@@ -204,11 +208,15 @@ async def _import(
             result.edges.changed,
             result.edges.pairs,
         )
+    if not stop.is_set():
+        await _unpack_containers(sessionmaker, settings, mbox_dir, workers, job)
     extracted = 0
     if not stop.is_set():
         extracted = await _extract_texts(
             sessionmaker, settings, mbox_dir, workers, job, figures, extract
         )
+    if not stop.is_set():
+        await _open_protected(sessionmaker, settings, mbox_dir, workers, job)
     if not stop.is_set():
         await _collect_metadata(sessionmaker, settings, mbox_dir, workers, job, figures)
     if not stop.is_set():
@@ -301,6 +309,44 @@ async def _import_files(
             await figures.report(session)  # the bytes of the last batches
     figures.step = None
     return outcomes
+
+
+async def _unpack_containers(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    mbox_dir: Path,
+    workers: int,
+    job: JobRun,
+) -> None:
+    """The archives step (D231), when containers wait to be unpacked."""
+    async with sessionmaker() as session:
+        waiting = await containers.waiting_containers(session)
+    if not waiting:
+        job.steps.skip("archives")
+        return
+    job.set_phase("attachments")  # the step belongs to the attachments phase (jobs.ImportPhase)
+    with job.steps.step("archives", unit="documents", total=len(waiting)) as step:
+        await containers.unpack_containers(
+            sessionmaker, settings, mbox_dir, waiting, workers, job.stop, step
+        )
+
+
+async def _open_protected(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    mbox_dir: Path,
+    workers: int,
+    job: JobRun,
+) -> None:
+    """The passwords step (D235), when a locked document could be opened."""
+    async with sessionmaker() as session:
+        waiting = await passwords.waiting(session)
+    if not waiting:
+        job.steps.skip("passwords")
+        return
+    job.set_phase("attachments")
+    with job.steps.step("passwords", unit="documents", total=waiting) as step:
+        await passwords.run_passwords(sessionmaker, settings, mbox_dir, workers, job.stop, step)
 
 
 async def _extract_texts(

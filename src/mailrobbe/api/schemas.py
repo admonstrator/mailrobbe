@@ -159,6 +159,20 @@ segments and its paragraphs; writes take the editor from X-Mailrobbe-Editor (D54
     PUT    /api/blocks/{hash}/override           BlockOverrideUpdate -> BlockInfo (D225);
                                                  400 invalid_block
 
+Milestone 19 (D230 to D239): protected and packed attachments. AttachmentInfo has a container's
+members and the protection, DocumentFilters and DocumentSummary the protection, DocumentDetail the
+password with where it was found, the container's entries and the containers holding it,
+ExportRequest include_passwords; writes take the editor from X-Mailrobbe-Editor (D54):
+
+    POST /api/documents/{id}/password            PasswordTry -> PasswordTryResult: a typed-in
+                                                 password tried on one locked document (D237);
+                                                 409 not_locked
+    POST /api/documents/passwords                PasswordTry -> PasswordTryResult: on every
+                                                 locked document
+    GET  /api/attachments/{id}/content?decrypted=true  the opened document's bytes decrypted,
+                                                 made for the download and never stored (D209);
+                                                 409 not_locked, 422 decrypt_failed
+
 Places (milestone 20, D240 to D249). The map's filters are PlaceParams: the mail filters, which
 a mail carrying the photo, mentioning the place or carrying the invitation must meet, and the
 photo's capture time and device. MailFilters has photo_area, MetadataSummary the position:
@@ -211,7 +225,10 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMembersStatus,
+    DocumentMemberStatus,
     DocumentMetadataStatus,
+    DocumentProtection,
     DocumentTextStatus,
     EntityKind,
     ImportErrorKind,
@@ -223,6 +240,7 @@ from mailrobbe.enums import (
     LookupOutcome,
     MboxStatus,
     ParticipationRole,
+    PasswordTier,
     PersonKind,
     ReviewStatus,
 )
@@ -333,6 +351,8 @@ ErrorCode = Literal[
     "invalid_rule",  # 400: a hide rule without any criterion, or one that cannot be used (D221)
     "invalid_block",  # 400: a sample that is no paragraph of this hash, or none where needed
     "page_too_far",  # 400: a jump to a page did not answer within the count budget (D193)
+    "not_locked",  # 409: the document is not locked, or (decrypted) has no password found yet
+    "decrypt_failed",  # 422: the found password did not decrypt it; message says why
     "map_off",  # 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
 ]
 
@@ -692,6 +712,13 @@ class AttachmentInfo(BaseModel):
     document_mails: int | None = None  # mails carrying the document, duplicates not counted
     preview: PreviewKind | None = None  # how the browser shows it (D120); None: download only
     metadata: MetadataSummary | None = None  # what the file says about itself (D167)
+    # Locked: it needs a password; open: one was found (D233). None: not protected.
+    protection: DocumentProtection | None = None
+    path: str | None = None  # a member's path inside its container (D231); None otherwise
+    # A container (ZIP, 7z, attached mail): whether it was unpacked, and its entries that became
+    # documents, in the container's order (D231); None and [] for any other attachment.
+    members_status: DocumentMembersStatus | None = None
+    members: list["AttachmentInfo"] = []
 
 
 class ThreadMail(BaseModel):
@@ -1671,6 +1698,7 @@ class ExportRequest(MailSelection):
     """An export of the selected mails, oldest first (D62)."""
 
     include_research: bool = False  # notes, tags, status and Akten in PDFs and manifest
+    include_passwords: bool = False  # the passwords that opened attachments (D208)
     label: str = Field(
         default="", max_length=LABEL_LIMIT
     )  # e.g. the Akte's name, for the export log
@@ -1681,6 +1709,7 @@ class ExportInfo(BaseModel):
     label: str
     mails: int
     include_research: bool
+    include_passwords: bool = False
     created_by: str | None
     created_at: datetime
     # SHA-256 of the ZIP's SHA256SUMS (which lists every other file) at the first complete
@@ -1699,6 +1728,7 @@ DocumentSort = Literal["recent", "oldest", "mails", "size"]  # first seen, newes
 DOCUMENT_NAMES_LIMIT = 20  # file names listed in DocumentDetail
 DOCUMENT_PERSONS_LIMIT = 10  # senders and recipients listed in DocumentDetail
 SNIPPET_LENGTH = 240  # characters of DocumentListItem.snippet
+PASSWORD_LENGTH = 128  # characters of a typed-in password (passwords.candidates)
 
 
 class DocumentFilters(BaseModel):
@@ -1722,6 +1752,7 @@ class DocumentFilters(BaseModel):
     # and .software as stored); empty: all.
     author: list[str] = []
     program: list[str] = []
+    protection: list[DocumentProtection] = []  # any of these (D233); empty: all
 
 
 class DocumentListParams(DocumentFilters):
@@ -1750,6 +1781,8 @@ class DocumentListItem(BaseModel):
     # With full text words in q: the extracted text around the first place one of them occurs
     # literally, at most SNIPPET_LENGTH characters; None otherwise or when none occurs as typed.
     snippet: str | None = None
+    protection: DocumentProtection | None = None  # D233
+    contained: bool = False  # it was found inside a container (D231)
 
 
 class DocumentPage(BaseModel):
@@ -1778,6 +1811,7 @@ class DocumentSummary(BaseModel):
     # METADATA_VALUES_LIMIT each; None: ran out of time.
     authors: list[MetadataValueCount] | None = None
     programs: list[MetadataValueCount] | None = None
+    protection: dict[DocumentProtection, int] | None = None  # every protection, 0 if none (D233)
 
 
 class DocumentNameCount(BaseModel):
@@ -1809,6 +1843,74 @@ class DocumentMetadata(BaseModel):
     summary: MetadataSummary | None  # the values the list filters by; None without fields
 
 
+# Protected and packed attachments (milestone 19, D230 to D239) ------------------------------
+
+
+class DocumentRef(BaseModel):
+    id: int
+    name: str | None
+
+
+class PasswordFinding(BaseModel):
+    """Where a password stands (D208): in a mail, in a document's text, or typed in by hand."""
+
+    id: int
+    context: str  # the line(s) around it, as written
+    mail: ThreadMail | None  # the mail it was found in
+    recipients: list[PersonRef] = []  # that mail's To, at most RECIPIENT_PREVIEW
+    document: DocumentRef | None = None  # the document whose text holds it
+    editor: str | None = None  # typed in by hand by this editor (D237)
+    created_at: datetime
+
+
+class DocumentPassword(BaseModel):
+    """The password that opened a document (D236), in plain text as evidence (D208)."""
+
+    value: str
+    tier: PasswordTier  # where it was found, nearest first (D235)
+    found_at: datetime
+    found_by: str | None  # the editor who typed it in (tier typed)
+    finding: PasswordFinding | None  # where it was found; None when that is not known
+
+
+class DocumentMember(BaseModel):
+    """One entry of a container (D231)."""
+
+    position: int
+    path: str
+    size: int | None  # unpacked, as declared or read
+    status: DocumentMemberStatus  # document: it became a member document
+    error: str | None  # English, technical
+    document_id: int | None  # the member document, once finalize assigned it
+    kind: DocumentKind | None = None
+    text_status: DocumentTextStatus | None = None
+    protection: DocumentProtection | None = None
+
+
+class DocumentMembers(BaseModel):
+    status: DocumentMembersStatus | None  # None: not unpacked yet (the next import's archives)
+    error: str | None  # English, technical: why it failed, or the entries not listed
+    entries: list[DocumentMember]  # in the container's order
+
+
+class DocumentContainerRef(BaseModel):
+    document_id: int  # the container document
+    name: str | None
+    path: str  # where the document sits in it
+
+
+class PasswordTry(BaseModel):
+    # as typed; white space around it is left out (passwords hold none, D234)
+    password: str = Field(min_length=1, max_length=PASSWORD_LENGTH, pattern=r"\S")
+
+
+class PasswordTryResult(BaseModel):
+    tried: int  # locked documents the password was tried on
+    opened: list[int]  # the documents it opened, now open with their text; a container is
+    # unpacked by the next import, an opened document's metadata read by it too
+    errors: int = 0  # documents that could not be read or tried (missing MBOX file, damage)
+
+
 class DocumentDetail(BaseModel):
     id: int
     name: str | None
@@ -1834,6 +1936,16 @@ class DocumentDetail(BaseModel):
     attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
     preview: PreviewKind | None  # how the browser shows it (D120); None: download only
     metadata: DocumentMetadata  # what the file says about itself (D167)
+    # Protection (D233 to D237). password_trial: a password can be tried on it (PDF, OOXML, ZIP,
+    # 7z; not ODF, D239). password_tries: passwords tried on it by the imports, last at
+    # password_tried_at. password: the one that opened it, with where it was found.
+    protection: DocumentProtection | None = None
+    password_trial: bool = False
+    password_tries: int = 0
+    password_tried_at: datetime | None = None
+    password: DocumentPassword | None = None
+    members: DocumentMembers | None = None  # a container's entries (D231); None otherwise
+    containers: list[DocumentContainerRef] = []  # where it was found inside (D231)
 
 
 class DocumentText(BaseModel):
@@ -2369,7 +2481,7 @@ class TopicClusters(BaseModel):
 # per research theme (signals.model). Figures count the mails that are no duplicates, as of the
 # last signals phase of an import (D135); filters and facets read mail_signal as it is.
 
-SignalGroup = Literal["addresses", "recipients", "time", "wording", "persons"]
+SignalGroup = Literal["addresses", "recipients", "time", "attachments", "wording", "persons"]
 SIGNAL_SENDERS = 5  # senders listed per signal in SignalOverview
 SILENT_LISTED = 50  # persons fallen silent listed in SignalOverview
 SIGNAL_DOMAINS = 10  # sender domains offered as a help for MAILROBBE_INTERNAL_DOMAINS
@@ -2449,6 +2561,9 @@ class SignalReason(BaseModel):
     forward_prefix: str | None  # forward, forward_out: the subject's prefix as written ("WG")
     forwarded_mail: str | None  # forward, forward_out: an attached mail's file name ("" unnamed)
     terms: list[EntityRef]  # term signals: the theme's terms found in the mail or attachments
+    # encrypted_attachment: the mail's protected documents; password_separate: the documents of
+    # other mails its password opened (D238); empty otherwise.
+    documents: list[DocumentRef] = []
 
 
 class MailSignals(BaseModel):

@@ -900,7 +900,7 @@ async def test_the_export_of_a_mail_with_a_reconstructed_key(
         retired.key_sha256,
         [retired.evidence_id],
     )
-    table = archive.csv()[8:]
+    table = archive.csv()[9:]
     column = table[0].index("Mail-ID")
     csv_row = next(row for row in table[1:] if row[column] == str(third.mail_id))
     assert any("Herkunft des Schlüssels: rekonstruiert" in cell for cell in csv_row)

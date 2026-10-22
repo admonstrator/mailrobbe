@@ -89,6 +89,14 @@ describe("the card Metadaten of a document", () => {
     expect(within(card).getByRole("region", { name: "Autor" })).toBeTruthy();
   });
 
+  it("calls an encrypted file encrypted, not damaged", async () => {
+    const error = "encrypted: the information dictionary needs a password";
+    renderApp("/anhaenge/5101", withMetadata({ ...documentDetail.metadata, error }));
+    const card = await metadataCard();
+    expect(within(card).getByText(/Die Datei ist verschlüsselt; aufgeführt ist/)).toBeTruthy();
+    expect(within(card).queryByText(/beschädigt/)).toBeNull();
+  });
+
   it("names a failure", async () => {
     const error = "encrypted: needs a password";
     renderApp("/anhaenge/5101", withMetadata({ ...NOTHING, status: "failed", error }));

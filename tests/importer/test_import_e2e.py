@@ -53,7 +53,8 @@ class Imported:
     errors: dict[tuple[str, int], set[str]] = field(repr=False)  # (file, offset) -> kinds
     signatures: dict[int, list[str]] = field(repr=False)  # mail id -> dkim_result statuses
     job: dict[str, Any] = field(repr=False)  # the run's job row
-    # mail id -> its attachments by position, with their document's kind and text status
+    # mail id -> its own attachments (not containers' members, D231) by position, with their
+    # document's kind and text status
     attachments: dict[int, list[dict[str, Any]]] = field(repr=False)
     # mail id -> its calendar events by (method, uid, sequence), with their point (D243)
     events: dict[int, dict[tuple[Any, ...], dict[str, Any]]] = field(repr=False)
@@ -86,7 +87,8 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
         mails = {
             (row.path, row.byte_offset): row._asdict()
             for row in await rows(
-                "SELECT m.*, f.path, (SELECT count(*) FROM attachment a WHERE a.mail_id = m.id) "
+                "SELECT m.*, f.path, (SELECT count(*) FROM attachment a WHERE a.mail_id = m.id "
+                "AND a.container_id IS NULL) "
                 "AS attachments FROM mail m JOIN mbox_file f ON f.id = m.mbox_file_id"
             )
         }
@@ -110,7 +112,8 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
         for row in await rows(
             "SELECT a.*, d.kind::text AS kind, d.text_status::text AS status, "
             "d.metadata_latitude AS latitude, d.metadata_longitude AS longitude FROM attachment a "
-            "JOIN document d ON d.id = a.document_id ORDER BY a.mail_id, a.position"
+            "JOIN document d ON d.id = a.document_id WHERE a.container_id IS NULL "
+            "ORDER BY a.mail_id, a.position"
         ):
             attachments[row.mail_id].append(row._asdict())
         events: dict[int, dict[tuple[Any, ...], dict[str, Any]]] = defaultdict(dict)

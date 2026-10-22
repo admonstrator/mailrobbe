@@ -75,7 +75,13 @@ from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
 from mailrobbe.dkim.keys.store import load_candidates
 from mailrobbe.dkim.override import key_name
-from mailrobbe.enums import DkimReason, DkimStatus, DocumentMetadataStatus, ParticipationRole
+from mailrobbe.enums import (
+    DkimReason,
+    DkimStatus,
+    DocumentMetadataStatus,
+    DocumentProtection,
+    ParticipationRole,
+)
 from mailrobbe.mbox import read_verified
 from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
@@ -532,10 +538,13 @@ async def _attachments(
     session: AsyncSession, mail_id: int, preview_max_size: int
 ) -> list[AttachmentInfo]:
     """The mail's attachments, each with its document (D75) once finalize assigned it, and the
-    preview the browser can show (D120)."""
+    preview the browser can show (D120); a container's entries that became documents under it
+    (D231), in its order."""
     rows = await session.execute(
         select(
             Attachment.id,
+            Attachment.container_id,
+            Attachment.path,
             Attachment.filename,
             Attachment.mime_type,
             Attachment.size_bytes,
@@ -552,12 +561,14 @@ async def _attachments(
             Document.metadata_device,
             Document.metadata_created,
             Document.metadata_gps,
+            Document.protection,
+            Document.members_status,
             Document.metadata_latitude,
             Document.metadata_longitude,
         )
         .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == mail_id)
-        .order_by(Attachment.id)
+        .order_by(Attachment.container_id.is_not(None), Attachment.position, Attachment.id)
     )
 
     def metadata(row: Any) -> MetadataSummary | None:
@@ -575,8 +586,9 @@ async def _attachments(
         found = row.metadata_status == DocumentMetadataStatus.FOUND
         return summary if found and summary != MetadataSummary() else None
 
-    return [
-        AttachmentInfo(
+    def info(row: Any) -> AttachmentInfo:
+        locked = row.protection == DocumentProtection.LOCKED
+        return AttachmentInfo(
             id=row.id,
             filename=row.filename,
             mime_type=row.mime_type,
@@ -587,7 +599,9 @@ async def _attachments(
             text_status=row.text_status,
             pages=row.pages,
             document_mails=row.mails,
-            preview=preview_kind(
+            preview=None  # nothing shows a locked one (D209)
+            if locked
+            else preview_kind(
                 row.kind,
                 row.filename,
                 row.mime_type,
@@ -596,9 +610,21 @@ async def _attachments(
                 max_size=preview_max_size,
             ),
             metadata=metadata(row),
+            protection=row.protection,
+            path=row.path,
+            members_status=row.members_status,
         )
-        for row in rows
-    ]
+
+    infos: dict[int, AttachmentInfo] = {}
+    top: list[AttachmentInfo] = []
+    for row in rows:  # containers before their members
+        infos[row.id] = info(row)
+        container = infos.get(row.container_id) if row.container_id is not None else None
+        if row.container_id is None:
+            top.append(infos[row.id])
+        elif container is not None:
+            container.members.append(infos[row.id])
+    return top
 
 
 async def _thread(

@@ -11,6 +11,11 @@ RUN npm run build
 
 FROM python:3.12-slim
 
+# 7-Zip unpacks ZIP (also with AES) and 7z attachments and tries their passwords (D230).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends 7zip \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \

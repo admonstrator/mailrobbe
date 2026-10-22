@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { AttachmentInfo } from "../../api/types";
 import { mailDetail } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
-import { ATTACHMENTS_SHOWN } from "./AttachmentsCard";
+import { ATTACHMENTS_SHOWN, MEMBERS_SHOWN } from "./AttachmentsCard";
 
 async function attachmentsCard(): Promise<HTMLElement> {
   const heading = await screen.findByRole("heading", { name: /^Anhänge \(\d+\)$/ });
@@ -211,5 +211,163 @@ describe("attachments of a mail", () => {
     fireEvent.click(within(card).getByRole("button", { name: "alle 40 anzeigen" }));
     expect(within(card).getAllByRole("listitem")).toHaveLength(40);
     expect(within(card).queryByRole("button", { name: /^alle/ })).toBeNull();
+  });
+});
+
+describe("protected and packed attachments of a mail (D231, D233)", () => {
+  const zip: AttachmentInfo = {
+    ...sheet,
+    id: 905,
+    filename: "Unterlagen.zip",
+    mime_type: "application/zip",
+    document_id: 5106,
+    kind: "archive",
+    text_status: "unsupported",
+    pages: null,
+    protection: null,
+    members_status: "done",
+    members: Array.from({ length: MEMBERS_SHOWN + 2 }, (_, index) => ({
+      ...sheet,
+      id: 950 + index,
+      filename: `Beleg_${index}.pdf`,
+      path: `Belege/Beleg_${index}.pdf`,
+      mime_type: "application/pdf",
+      document_id: 5200 + index,
+      kind: "pdf" as const,
+      size: 20_480,
+      members_status: null,
+      members: [],
+    })),
+  };
+
+  it("say whether they need a password or were opened with one", async () => {
+    renderApp(
+      "/mails/184221",
+      withAttachments([
+        { ...pdf, protection: "open" },
+        { ...sheet, protection: "locked", text_status: "encrypted", preview: "html" },
+      ]),
+    );
+    const card = await attachmentsCard();
+    const opened = item(card, "Rahmenvereinbarung_2026_final.pdf");
+    const openedNote = within(opened).getByText("Geöffnet");
+    expect(openedNote.getAttribute("title")).toBe(
+      "Verschlüsselt, mit einem gefundenen Kennwort geöffnet",
+    );
+    const locked = item(card, "Aenderungsprotokoll.xlsx");
+    expect(within(locked).getByText("Kennwort unbekannt").getAttribute("title")).toBe(
+      "Verschlüsselt, das Kennwort ist nicht bekannt",
+    );
+    // The protection says it already; and nothing previews a locked file.
+    expect(within(locked).queryByText("Verschlüsselt")).toBeNull();
+    expect(within(locked).queryByRole("button", { name: "Vorschau" })).toBeNull();
+    expect(within(locked).getByText("nur Download")).toBeTruthy();
+  });
+
+  it("preview an opened PDF decrypted", async () => {
+    const { calls } = renderApp("/mails/184221", withAttachments([{ ...pdf, protection: "open" }]));
+    const card = await attachmentsCard();
+    fireEvent.click(
+      within(item(card, "Rahmenvereinbarung_2026_final.pdf")).getByRole("button", {
+        name: "Vorschau",
+      }),
+    );
+    const overlay = screen.getByRole("dialog", { name: "Rahmenvereinbarung_2026_final.pdf" });
+    await within(overlay).findByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf");
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.pathname === "/api/attachments/901/content"),
+      ).toHaveLength(1),
+    );
+    const read = calls.find((call) => call.url.pathname === "/api/attachments/901/content")!;
+    expect(read.url.searchParams.get("decrypted")).toBe("true");
+  });
+
+  it("list a container's documents below it, the first few and the rest on request", async () => {
+    renderApp("/mails/184221", withAttachments([pdf, zip]));
+    const card = await attachmentsCard();
+    const container = item(card, "Unterlagen.zip");
+    const members = within(container).getByRole("list", { name: "Inhalt von Unterlagen.zip" });
+    expect(within(members).getAllByRole("listitem")).toHaveLength(MEMBERS_SHOWN);
+    const first = within(members).getByRole("link", { name: "Belege/Beleg_0.pdf" });
+    expect(first.getAttribute("href")).toBe("/anhaenge/5200");
+    expect(first.closest("li")!.textContent).toBe("Belege/Beleg_0.pdf20 KB");
+    // Unpacked: nothing to say about it.
+    expect(within(container).queryByText(/ausgepackt|Kennwort/)).toBeNull();
+
+    fireEvent.click(
+      within(container).getByRole("button", {
+        name: `alle ${MEMBERS_SHOWN + 2} Einträge anzeigen`,
+      }),
+    );
+    expect(within(members).getAllByRole("listitem")).toHaveLength(MEMBERS_SHOWN + 2);
+    // The mail's own attachments are counted, not the documents inside them.
+    expect(within(card).getByRole("heading").textContent).toBe("Anhänge (2)");
+  });
+
+  it("say when a container is not unpacked yet or some entries need a password", async () => {
+    renderApp(
+      "/mails/184221",
+      withAttachments([
+        { ...pdf, members_status: null, members: [] },
+        { ...zip, members_status: null, members: [] },
+        {
+          ...zip,
+          id: 906,
+          filename: "Gehaelter.7z",
+          protection: "locked",
+          members_status: "locked",
+          members: zip.members!.slice(0, 1),
+        },
+      ]),
+    );
+    const card = await attachmentsCard();
+    expect(
+      within(item(card, "Unterlagen.zip")).getByText(
+        "Noch nicht ausgepackt, das geschieht beim nächsten Import.",
+      ),
+    ).toBeTruthy();
+    const sevenZip = item(card, "Gehaelter.7z");
+    expect(
+      within(sevenZip).getByText("Einträge brauchen ein Kennwort, das noch nicht bekannt ist."),
+    ).toBeTruthy();
+    expect(within(sevenZip).getByRole("link", { name: "Belege/Beleg_0.pdf" })).toBeTruthy();
+    // Any other attachment says nothing about unpacking.
+    expect(
+      within(item(card, "Rahmenvereinbarung_2026_final.pdf")).queryByText(/ausgepackt/),
+    ).toBeNull();
+  });
+
+  it("show a document inside a container that holds a search word, wherever it stands", async () => {
+    const many = Array.from({ length: ATTACHMENTS_SHOWN }, (_, index): AttachmentInfo => ({
+      ...sheet,
+      id: 1000 + index,
+      filename: `Anlage_${index}.xlsx`,
+    }));
+    renderApp(`/mails/184221?${new URLSearchParams({ q: "Haftung" })}`, (call) => {
+      if (call.url.pathname === "/api/mails/184221") {
+        return { ...mailDetail, attachments: [...many, zip] };
+      }
+      if (call.url.pathname === "/api/mails/184221/hits") {
+        return {
+          words: ["haftung"],
+          stems: [],
+          in_mail: false,
+          attachments: [{ attachment_id: 956, in_name: false, snippet: "die Haftung" }],
+        };
+      }
+      return fixtureApi(call);
+    });
+    const card = await attachmentsCard();
+    const hit = await within(card).findByRole("link", { name: "Belege/Beleg_6.pdf" });
+    const member = hit.closest("li")!;
+    expect(member.id).toBe("anhang-956");
+    expect(member.textContent).toContain("…die Haftung…");
+    // Beyond the first eight attachments and the first five entries, listed for the hit.
+    expect(within(card).getAllByRole("listitem")).toHaveLength(
+      ATTACHMENTS_SHOWN + 1 + MEMBERS_SHOWN + 1,
+    );
+    // The search hits name it by its path.
+    expect(await screen.findByRole("button", { name: "Belege/Beleg_6.pdf" })).toBeTruthy();
   });
 });

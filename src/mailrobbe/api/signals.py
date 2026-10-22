@@ -45,6 +45,7 @@ from mailrobbe.api.schemas import (
     SIGNAL_DOMAINS,
     SIGNAL_SENDERS,
     SILENT_LISTED,
+    DocumentRef,
     DomainCount,
     EntityRef,
     MailFilters,
@@ -63,15 +64,24 @@ from mailrobbe.api.schemas import (
 from mailrobbe.db.models import (
     AliasSuggestion,
     Attachment,
+    Document,
+    DocumentPassword,
     Entity,
     Mail,
     MailSignal,
     Participation,
+    PasswordFinding,
     Person,
     PersonSignal,
 )
 from mailrobbe.entities.mentions import mentions
-from mailrobbe.enums import EntityKind, ParticipationRole, SignalKind
+from mailrobbe.enums import (
+    DocumentTextStatus,
+    EntityKind,
+    ParticipationRole,
+    PasswordTier,
+    SignalKind,
+)
 from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT, member_ids, resolve_root
 from mailrobbe.signals.model import (
@@ -253,6 +263,7 @@ class _Facts:
     attached: str | None  # the file name of the first attached mail
     local_time: str | None
     terms: dict[str, list[EntityRef]]  # by theme key
+    documents: dict[str, list[DocumentRef]]  # by signal key (D238)
 
 
 @router.get("/mails/{mail_id}/signals")
@@ -286,6 +297,7 @@ async def mail_signals(mail_id: MailId, session: Session, settings: AppSettings)
                 else None
             ),
             terms=await _terms_found(session, mail_id, keys),
+            documents=await _documents_found(session, mail_id, stored),
         )
         reasons = [_reason(key, signal_rules, facts) for key in keys]
     figures = await read_figures(session)
@@ -343,6 +355,7 @@ def _reason(key: str, signal_rules: SignalRules, facts: _Facts) -> SignalReason:
         forward_prefix=facts.prefix if forward else None,
         forwarded_mail=facts.attached if forward else None,
         terms=[] if theme is None else facts.terms.get(theme, []),
+        documents=facts.documents.get(key, []),
     )
 
 
@@ -406,10 +419,15 @@ async def _alias_roots(
 
 
 async def _attached_mail(session: AsyncSession, mail_id: int) -> str | None:
-    """The file name of the mail's first attached mail, "" when unnamed; None without one."""
+    """The file name of the mail's first attached mail, "" when unnamed; None without one. A
+    mail inside a container is not the mail's own (D231)."""
     found = await session.execute(
         select(Attachment.filename)
-        .where(Attachment.mail_id == mail_id, Attachment.mime_type == FORWARD_MIME_TYPE)
+        .where(
+            Attachment.mail_id == mail_id,
+            Attachment.mime_type == FORWARD_MIME_TYPE,
+            Attachment.container_id.is_(None),
+        )
         .order_by(Attachment.position, Attachment.id)
         .limit(1)
     )
@@ -455,6 +473,42 @@ async def _terms_found(
     found: dict[str, list[EntityRef]] = {}
     for row in sorted(rows, key=lambda row: (row.label, row.id)):
         found.setdefault(row.detail, []).append(_ref(row))
+    return found
+
+
+async def _documents_found(
+    session: AsyncSession, mail_id: int, stored: Collection[str]
+) -> dict[str, list[DocumentRef]]:
+    """The documents of the concealment signals (D238), by id: the mail's protected documents
+    (encrypted_attachment), and the documents of other mails a password found in it opened
+    (password_separate), as signals.phase finds them."""
+    statements = {}
+    if SignalKind.ENCRYPTED_ATTACHMENT in stored:
+        statements[SignalKind.ENCRYPTED_ATTACHMENT] = (
+            select(Document.id, Document.name)
+            .join(Attachment, Attachment.document_id == Document.id)
+            .where(
+                Attachment.mail_id == mail_id,
+                or_(
+                    Document.protection.is_not(None),
+                    Document.text_status == DocumentTextStatus.ENCRYPTED,
+                ),
+            )
+        )
+    if SignalKind.PASSWORD_SEPARATE in stored:
+        statements[SignalKind.PASSWORD_SEPARATE] = (
+            select(Document.id, Document.name)
+            .join(DocumentPassword, DocumentPassword.document_id == Document.id)
+            .join(PasswordFinding, PasswordFinding.id == DocumentPassword.finding_id)
+            .where(
+                PasswordFinding.mail_id == mail_id,
+                DocumentPassword.tier.in_([PasswordTier.THREAD, PasswordTier.CONTACTS]),
+            )
+        )
+    found: dict[str, list[DocumentRef]] = {}
+    for key, statement in statements.items():
+        rows = await session.execute(statement.distinct().order_by(Document.id))
+        found[key] = [DocumentRef(id=row.id, name=row.name) for row in rows]
     return found
 
 

@@ -29,7 +29,12 @@ export function SearchHitsCard({
   attachments: AttachmentInfo[];
   onShowText: () => void;
 }) {
-  const names = new Map(attachments.map((a) => [a.id, a.filename || "(ohne Namen)"]));
+  // A container's documents are attachments of the mail too (D231), listed below it.
+  const names = new Map(
+    attachments
+      .flatMap((a) => [a, ...(a.members ?? [])])
+      .map((a) => [a.id, a.path || a.filename || "(ohne Namen)"]),
+  );
   const words = hits.words.map((word) => `„${word}“`).join(", ");
 
   /** "im Anhang Protokoll.txt (2)", "in den Anhängen a.pdf, b.pdf (5)": each name a jump. */

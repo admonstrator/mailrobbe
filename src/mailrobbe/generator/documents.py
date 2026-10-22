@@ -19,7 +19,14 @@ invented bank codes, no real institutions). Every distinct document with text ho
 word, "Dokmarke" and a code from its seed, so a test can search for it. Forms: PDFs with a text
 layer, scans (images only), PDFs encrypted with a user password, damaged (truncated) PDFs, DOCX,
 XLSX (amounts as numbers, IBANs as text), PPTX, ODT, CSV, plain text (some empty), iCalendar,
-vCard and ZIP archives of a few documents.
+vCard and ZIP archives of a few documents (a few holding another ZIP, depth 2 of D231), some of
+them with their entries encrypted (zip_protected).
+
+Protected documents (pdf_encrypted, zip_protected; D233) carry their password in their spec; the
+planner decides where it is written in the archive (generator.protection). They never circulate:
+not passed on again, not attached again to a reply, not carried by a forward, so the mail that
+brought one is its only carrier besides its duplicates and the tier its password is found by
+(D235) is known in advance.
 
 Pictures and recordings circulate like documents (D125): PNGs and JPEGs of their own (a few cut
 short, so no browser shows them), and recordings as people send them (voice messages, phone
@@ -30,7 +37,8 @@ filler_truth() states what the extraction makes of them.
 
 DocumentTruth (model.py) is what manifest.jsonl lists for each attachment of a mail, in the
 order importer.parse.mime_parts finds them: SHA-256, file name, kind, expected text status,
-marker, pages, the preview the API offers and the media type its endpoint sends.
+marker, pages, the preview the API offers and the media type its endpoint sends; for a protected
+document its password and tier, for a ZIP its entries (MemberTruth).
 """
 
 import binascii
@@ -45,8 +53,10 @@ from email.message import Message
 from email.parser import BytesParser
 from email.policy import compat32
 
+from mailrobbe.attachments.kinds import classify
 from mailrobbe.enums import DocumentKind, DocumentTextStatus
 from mailrobbe.generator import fileformats as ff
+from mailrobbe.generator import protection
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.fileformats import Block, Para, Table
 from mailrobbe.generator.model import (
@@ -54,6 +64,7 @@ from mailrobbe.generator.model import (
     DocumentSpec,
     DocumentTruth,
     EventTruth,
+    MemberTruth,
     PhotoGps,
     stage_rng,
 )
@@ -73,6 +84,10 @@ RENAME_SHARE = 0.12  # of those, passed on under another file name
 AGAIN_SHARE = 0.5  # replies with attachments to a mail with documents: they are those again
 OCTET_SHARE = 0.06  # new documents declared as application/octet-stream
 ENCRYPTED_SHARE = 0.05  # text PDFs with a user password
+PROTECTED_ZIP_SHARE = 0.5  # new "Unterlagen.zip" archives with their entries encrypted
+NESTED_ZIP_SHARE = 0.15  # ZIP archives holding another ZIP (depth 2, D231)
+PROTECT_NEW_SHARE = 0.18  # new document attachments of people made protected on top
+PROTECT_PDF_FRACTION = 0.4  # of those, a protected PDF; the rest a protected ZIP
 DAMAGED_SHARE = 0.04  # text PDFs cut short
 DAMAGED_PICTURE_SHARE = 0.05  # pictures cut short
 EMPTY_TEXT_SHARE = 0.15  # notes files without any text
@@ -87,6 +102,7 @@ OUTING_PHOTOS = (2, 6)
 NO_FIX_EVERY = 10
 OUT_OF_RANGE = 4
 _TEXT_SIZE_CAP = 200_000  # text formats are written, not padded: their size is their content
+_PROTECTED_ZIP_CAP = 3 * 1024**2  # the encryption runs byte by byte in Python
 _CACHE_BYTES = 96 * 1024**2  # built documents kept per process
 
 # Template file names of the plan (vocabulary.ATTACHMENT_TYPES and the planner's own) -> the
@@ -195,6 +211,7 @@ _KINDS = {
     "ics": DocumentKind.TEXT,
     "vcf": DocumentKind.TEXT,
     "zip": DocumentKind.ARCHIVE,
+    "zip_protected": DocumentKind.ARCHIVE,  # its member names stay readable: status text
     **dict.fromkeys((*PICTURE_TYPES, *_DAMAGED_PICTURES), DocumentKind.IMAGE),
     **dict.fromkeys(RECORDING_FORMS, DocumentKind.MEDIA),
 }
@@ -208,11 +225,26 @@ _STATUSES = {
     ),
 }
 _TEXT_FORMS = frozenset({"csv", "txt", "txt_empty", "ics", "vcf"})
+PROTECTED_FORMS = frozenset({"pdf_encrypted", "zip_protected"})
+# Document forms that a new people-attachment may be turned into a protected document.
+_PROTECTABLE = frozenset({"pdf", "pdf_encrypted", "docx", "odt", "xlsx", "pptx", "csv", "zip"})
+_CONTAINERS = (".zip", ".eml")  # entries that are containers themselves (depth 2)
+
+
+def _zip_name(filename: str) -> str:
+    """The file name of a protected ZIP made from another document's planned name."""
+    stem = filename.rpartition(".")[0] or filename
+    return f"{stem}.zip"
 
 
 def document_seed(seed: int, key: str) -> int:
     digest = hashlib.blake2b(f"{seed}:document:{key}".encode(), digest_size=8).digest()
     return int.from_bytes(digest, "big")
+
+
+def is_protected(spec: AttachmentSpec) -> bool:
+    """Whether the attachment carries a protected document (D233)."""
+    return spec.document is not None and spec.document.form in PROTECTED_FORMS
 
 
 def marker(seed: int) -> str:
@@ -228,16 +260,21 @@ class DocumentPool:
     """Turns planned attachments into documents, new or circulating (bounded state).
 
     Its decisions come from a random stream of their own, so the rest of the plan is the same
-    with or without documents.
+    with or without documents; which ZIPs are protected and the passwords from another one, so
+    the documents are the same with or without them. `protected` collects the protected
+    documents made since the planner last took them (generator.protection).
     """
 
     def __init__(self, seed: int) -> None:
         self._seed = seed
         self._rng = stage_rng(seed, "plan-documents")
+        self._protect_rng = stage_rng(seed, "plan-documents-protected")
         self._recent: deque[AttachmentSpec] = deque(maxlen=RECENT_DOCUMENTS)
         self._shared: dict[str, AttachmentSpec] = {}  # bounded: senders times years
         self._count = 0
         self._inline = 0
+        self._passwords: set[str] = set()  # bounded by the protected documents
+        self.protected: list[AttachmentSpec] = []
         # The photos' positions come from a stream of their own, so the documents stay the same.
         self._photos = stage_rng(seed, "plan-photos")
         self._outing: _Outing | None = None
@@ -294,23 +331,51 @@ class DocumentPool:
             form = "txt_empty"
         elif form in PICTURE_TYPES and rng.random() < DAMAGED_PICTURE_SHARE:
             form = f"{form}_damaged"
+        elif form == "zip" and self._protect_rng.random() < PROTECTED_ZIP_SHARE:
+            form = "zip_protected"
         mime_type = "application/octet-stream" if rng.random() < OCTET_SHARE else spec.mime_type
+        # A share of the new document attachments of people are protected, so protected documents
+        # and encrypted ZIPs reliably occur: a password-protected PDF, or a ZIP with its entries
+        # encrypted (D233). The decision draws from the protection stream.
+        if (
+            circulate
+            and shared is None
+            and form in _PROTECTABLE
+            and self._protect_rng.random() < PROTECT_NEW_SHARE
+        ):
+            if (
+                form in ("pdf", "pdf_encrypted")
+                and self._protect_rng.random() < PROTECT_PDF_FRACTION
+            ):
+                form = "pdf_encrypted"
+            else:
+                form, mime_type = "zip_protected", "application/zip"
+                spec = replace(spec, filename=_zip_name(spec.filename))
         seed = document_seed(self._seed, str(self._count))
         self._count += 1
         size = min(spec.size, _TEXT_SIZE_CAP) if form in _TEXT_FORMS else spec.size
-        made = replace(
-            spec,
-            mime_type=mime_type,
-            size=size,
-            document=DocumentSpec(
-                seed, form, theme, when, self._gps(when) if form == "jpeg" else None
-            ),
-        )
-        if shared is not None:
+        if form == "zip_protected":
+            size = min(size, _PROTECTED_ZIP_CAP)
+        password = None
+        if form in PROTECTED_FORMS:
+            password = protection.password(self._protect_rng, self._passwords)
+        gps = self._gps(when) if form == "jpeg" else None
+        document = DocumentSpec(seed, form, theme, when, gps, password)
+        made = replace(spec, mime_type=mime_type, size=size, document=document)
+        if password is not None:  # never passed on (module docstring)
+            self.protected.append(made)
+        elif shared is not None:
             self._shared[shared] = made
         elif circulate:
             self._recent.append(made)
         return made
+
+    def take_protected(self) -> list[AttachmentSpec]:
+        """The protected documents made since the last call (the planner plants their passwords
+        once the carrying mail is built); empties the list."""
+        taken = self.protected
+        self.protected = []
+        return taken
 
     def _gps(self, when: datetime) -> PhotoGps | None:
         """The EXIF of a new photo, for GPS_SHARE of them: the next of the current outing, or
@@ -358,7 +423,9 @@ class DocumentPool:
         configured one)."""
         documents = tuple(a for a in parent if a.document is not None and not a.inline)
         if documents and self._rng.random() < AGAIN_SHARE:
-            return (*(a for a in own if a.inline), *documents)
+            documents = tuple(a for a in documents if not is_protected(a))
+            if documents:  # a protected document is never attached again
+                return (*(a for a in own if a.inline), *documents)
         return own
 
 
@@ -429,6 +496,9 @@ class Built:
     pages: int | None
     media_type: str | None  # what a preview endpoint sends for a picture or recording
     position: tuple[float, float] | None  # a photo's, as the metadata step stores it
+    password: str | None = None  # a protected document's, and its tier (DocumentSpec)
+    tier: str | None = None
+    members: tuple[MemberTruth, ...] | None = None  # a ZIP's entries
 
     def truth(self, filename: str, mime_type: str) -> DocumentTruth:
         """The truth of an attachment carrying this document under that name and type."""
@@ -443,12 +513,15 @@ class Built:
             self.size,
             preview,
             media_type,
+            self.password,
+            self.tier,
+            None if self.members is None else tuple(m.as_json() for m in self.members),
             *(self.position or (None, None)),
         )
 
 
 def _preview(
-    kind: DocumentKind, filename: str, mime_type: str, size: int, media_type: str | None
+    kind: DocumentKind, filename: str | None, mime_type: str, size: int, media_type: str | None
 ) -> tuple[str | None, str | None]:
     """The preview the API offers under the default settings (preview_kind decides it), and
     the type its endpoint sends for an image, audio or video preview."""
@@ -457,6 +530,18 @@ def _preview(
         kind, filename, mime_type, size, hashed=hashed, max_size=PREVIEW_MAX_SIZE
     )
     return preview, media_type if preview in ("image", "audio", "video") else None
+
+
+def classify_kind(filename: str | None, mime_type: str, data: bytes) -> DocumentKind:
+    """The kind the extraction gives these bytes (attachments.kinds.classify)."""
+    return classify(filename, mime_type, data[:4096]).kind
+
+
+def preview_of(
+    kind: DocumentKind, filename: str | None, mime_type: str, size: int
+) -> tuple[str | None, str | None]:
+    """The preview the API offers for an attachment of this kind, name, type and size."""
+    return _preview(kind, filename, mime_type, size, None)
 
 
 class _Cache:
@@ -495,7 +580,7 @@ def build(spec: AttachmentSpec) -> Built:
 
 
 def _build(spec: DocumentSpec, size: int) -> Built:
-    data, pages = document_bytes(spec, size)
+    data, pages, members = _document(spec, size)
     status = _STATUSES.get(spec.form, DocumentTextStatus.TEXT)
     if spec.form in ("pdf_encrypted", "pdf_damaged"):
         pages = None  # the extraction cannot count them
@@ -508,6 +593,9 @@ def _build(spec: DocumentSpec, size: int) -> Built:
         marker=marker(spec.seed) if status is DocumentTextStatus.TEXT else None,
         pages=pages,
         media_type=_media_type(spec.form),
+        password=spec.password,
+        tier=spec.tier,
+        members=members,
         position=photo_position(spec.gps) if spec.form == "jpeg" else None,
     )
 
@@ -643,60 +731,76 @@ def _clean_base64(part: Message) -> bool:
 def document_bytes(spec: DocumentSpec, size: int) -> tuple[bytes, int | None]:
     """The bytes of a document of about `size` bytes (text forms: as long as their content),
     and its pages, sheets or slides (None where it has none)."""
+    data, pages, _ = _document(spec, size)
+    return data, pages
+
+
+def _document(
+    spec: DocumentSpec, size: int
+) -> tuple[bytes, int | None, tuple[MemberTruth, ...] | None]:
+    """document_bytes, and the entries of a ZIP."""
     rng = random.Random(f"document:{spec.seed}")
     form = spec.form
     if form in RECORDING_FORMS:
-        return ff.fixture(f"{form}-{rng.randint(1, RECORDING_FORMS[form][1])}.{form}"), None
+        fixture = ff.fixture(f"{form}-{rng.randint(1, RECORDING_FORMS[form][1])}.{form}")
+        return fixture, None, None
     if form.removesuffix("_damaged") == "png":
-        return ff.png(rng, size, damaged=form != "png"), None
+        return ff.png(rng, size, damaged=form != "png"), None, None
     if form.removesuffix("_damaged") == "jpeg":
         exif = b"" if spec.gps is None else ff.exif_segment(spec.gps)
-        return ff.jpeg(rng, size, damaged=form != "jpeg", exif=exif), None
+        return ff.jpeg(rng, size, damaged=form != "jpeg", exif=exif), None, None
     if form == "pdf_scan":
         count = rng.randint(1, 2) if spec.theme == "plan" else rng.randint(1, 5)
         share = max(size - 1500 * count, 2000) // count
-        return ff.pdf([], rng, images=[share] * count), count
+        return ff.pdf([], rng, images=[share] * count), count, None
     content = _Content(spec, rng, size)
     title, author, when = content.title, content.author, content.when
     if form in ("pdf", "pdf_encrypted", "pdf_damaged"):
         pages = content.pdf_pages()
-        data = ff.pdf(pages, rng, size=size, password=_password(rng, form))
+        password = _protect_password(spec) if form == "pdf_encrypted" else None
+        data = ff.pdf(pages, rng, size=size, password=password)
         if form == "pdf_damaged":
             data = data[: int(len(data) * rng.uniform(0.35, 0.9))]
-        return data, len(pages)
+        return data, len(pages), None
     if form == "docx":
         data = ff.docx(
             content.blocks(), title=title, author=author, when=when, header=content.org,
             footer=content.footer, size=size, rng=rng,
         )  # fmt: skip
-        return data, None
+        return data, None, None
     if form == "odt":
         return ff.odt(content.blocks(), title=title, author=author, when=when, size=size,
-                      rng=rng), None  # fmt: skip
+                      rng=rng), None, None  # fmt: skip
     if form == "xlsx":
         sheets = content.sheets()
         data = ff.xlsx(sheets, title=title, author=author, when=when, size=size, rng=rng)
-        return data, len(sheets)
+        return data, len(sheets), None
     if form == "pptx":
         slides = content.slides()
         data = ff.pptx(slides, title=title, author=author, when=when, size=size, rng=rng)
-        return data, len(slides)
+        return data, len(slides), None
     if form == "csv":
-        return content.csv(size), None
+        return content.csv(size), None, None
     if form in ("txt", "txt_empty"):
-        return content.notes(empty=form == "txt_empty"), None
+        return content.notes(empty=form == "txt_empty"), None, None
     if form == "ics":
-        return content.calendar(), None
+        return content.calendar(), None, None
     if form == "vcf":
-        return content.vcard(), None
-    if form == "zip":
-        return content.archive(size), None
+        return content.vcard(), None, None
+    if form in ("zip", "zip_protected"):
+        password = _protect_password(spec) if form == "zip_protected" else None
+        data, members = content.archive(size, password)
+        return data, None, members
     raise ValueError(f"unknown document form {form!r}")
 
 
-def _password(rng: random.Random, form: str) -> str | None:
-    if form != "pdf_encrypted":
-        return None
+def _protect_password(spec: DocumentSpec) -> str:
+    """A protected document's password: the one the plan wrote, or a deterministic fallback for
+    a document built without one (never in the pipeline, where every protected document gets a
+    planted or nowhere-written password; D235)."""
+    if spec.password is not None:
+        return spec.password
+    rng = random.Random(f"password:{spec.seed}")
     return "".join(rng.choice("abcdefghkmnpqrstuvwxyz23456789") for _ in range(10))
 
 
@@ -1156,9 +1260,12 @@ class _Content:
         ]  # fmt: skip
         return ("\r\n".join(_fold(line) for line in lines) + "\r\n").encode()
 
-    def archive(self, size: int) -> bytes:
-        """A folder named with the marker (the extraction lists member names), a few documents
-        and a photo that brings the archive to about `size` bytes."""
+    def archive(
+        self, size: int, password: str | None = None
+    ) -> tuple[bytes, tuple[MemberTruth, ...]]:
+        """A folder named with the marker (the extraction lists member names), a few documents,
+        rarely a ZIP of further documents (depth 2), and a photo that brings the archive to
+        about `size` bytes; with a password every entry is encrypted. Its bytes and entries."""
         rng = self.rng
         folder = f"{rng.choice(('Unterlagen', 'Ablage', 'Sitzung', 'Projekt'))} {self.marker}/"
         members: list[tuple[str, bytes, bool]] = [(folder, b"", False)]
@@ -1168,8 +1275,31 @@ class _Content:
             inner = DocumentSpec(seed, form, theme, self.spec.when)
             data, _ = document_bytes(inner, rng.randint(6_000, 60_000))
             members.append((f"{folder}{_MEMBER_NAMES[theme]}_{number + 1}.{form}", data, True))
+        nested = random.Random(f"nested:{self.spec.seed}")  # the draws above stay as they were
+        if nested.random() < NESTED_ZIP_SHARE:
+            inside: list[tuple[str, bytes, bool]] = []
+            for number in range(nested.randint(1, 2)):
+                form, theme = nested.choice(_ARCHIVE_MEMBERS)
+                seed = document_seed(self.spec.seed, f"nested{number}")
+                inner = DocumentSpec(seed, form, theme, self.spec.when)
+                data, _ = document_bytes(inner, nested.randint(4_000, 30_000))
+                inside.append((f"{_MEMBER_NAMES[theme]}_{number + 1}.{form}", data, True))
+            name = nested.choice(("Anlagen", "Belege", "Alte_Unterlagen"))
+            members.append((f"{folder}{name}.zip", ff.zip_bytes(inside, self.when), True))
         photo = ff.Picture(f"{folder}Fotos/IMG_{rng.randint(1000, 9999)}.jpg", size, rng)
-        return ff.zip_bytes(members, self.when, photo)
+        headers = random.Random(f"zip:{self.spec.seed}")
+        data, files = ff.zip_archive(members, self.when, photo, password=password, rng=headers)
+        truths = tuple(
+            MemberTruth(
+                path,
+                hashlib.sha256(content).hexdigest(),
+                len(content),
+                password is not None,
+                path.lower().endswith(_CONTAINERS),
+            )
+            for path, content in files
+        )
+        return data, truths
 
 
 def _csv_amount(value: float, separator: str) -> str:

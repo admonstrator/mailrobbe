@@ -143,11 +143,18 @@ def test_lists_and_automated_mails(gen_plan: list[PlannedMail], gen_population: 
 def test_cc_chains_grow_and_bcc_only_from_insiders(
     gen_plan: list[PlannedMail], gen_population: Population
 ) -> None:
-    internal = {d.name for d in gen_population.domains if d.internal}
+    # An insider is an internal person, by any of their mailboxes: an insider may write from a
+    # private freemail account, whose domain is not internal.
+    insiders = {
+        mailbox[0].email
+        for person in gen_population.persons
+        if person.internal
+        for mailbox in person.mailboxes
+    }
     grown = 0
     for mail in gen_plan:
         if mail.bcc:
-            assert mail.sender.domain in internal
+            assert mail.sender.email in insiders
         if mail.quoted is not None and mail.kind is MailKind.REPLY:
             before = {a.email for a in (*mail.quoted.to, *mail.quoted.cc)}
             after = {a.email for a in (*mail.to, *mail.cc)}

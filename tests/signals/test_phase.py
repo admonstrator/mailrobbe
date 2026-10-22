@@ -94,7 +94,8 @@ def mail(id: int, sender: int, *signals: str, **values: Any) -> Mail:
     return Mail(id, sender, signals=frozenset(signals), **values)
 
 
-PDF, ATTACHED_MAIL = "application/pdf", "Message/RFC822"
+PDF, ATTACHED_MAIL, SMIME = "application/pdf", "Message/RFC822", "Application/PKCS7-MIME"
+ZIP = "application/zip"
 MAILS = (
     mail(1, 1, to=(6,), entities=(4,)),
     mail(2, 1, "private", "internal_to_private", to=(5,)),
@@ -154,6 +155,13 @@ MAILS = (
     mail(42, 14, "private", to=(6,), cc=(8,), date="2024-05-15 10:00"),
     mail(43, 13, to=(6,), cc=(8,), date="2024-01-15 10:00", duplicate_of=38),
     mail(44, 1, to=(6,), date="2024-12-02 10:00"),  # the archive's last month
+    # Concealment (D238): document 2 is locked, 3 opened by a password found in mail 47, of
+    # tier thread; mail 49's S/MIME part lies inside its ZIP (_MEMBER), so it is not its own.
+    mail(45, 1, "encrypted_attachment", to=(6,), attachments=((PDF, 2),)),
+    mail(46, 6, "encrypted_attachment", to=(1,), attachments=((PDF, 3),)),
+    mail(47, 6, "password_separate", to=(1,), subject="Re: Angebot"),
+    mail(48, 1, "encrypted_mail", to=(6,), attachments=((SMIME, None),)),
+    mail(49, 1, to=(6,), attachments=((ZIP, None),)),
 )
 # Per signal and root person: the mails it sent with it (D135).
 SENDERS = {
@@ -169,6 +177,9 @@ SENDERS = {
     "weekend": {1: 2},
     "term:spenden": {1: 2},  # mail 30 is automated, its sender is not
     "term:gewalt": {6: 1},
+    "encrypted_attachment": {1: 1, 6: 1},
+    "password_separate": {6: 1},
+    "encrypted_mail": {1: 1},
 }
 SILENT = {13: (5, datetime(2024, 6, 1, tzinfo=UTC))}
 
@@ -195,6 +206,23 @@ _PARTICIPATION = """
 _ATTACHMENT = """
     INSERT INTO attachment (mail_id, mime_type, size_bytes, position, document_id)
     VALUES (:mail, :mime_type, 100, :position, :document)"""
+_PROTECTED = (
+    """
+    INSERT INTO document (id, sha256, mime_type, size_bytes, text_status, protection)
+    OVERRIDING SYSTEM VALUE VALUES
+        (2, 'locked', 'application/pdf', 100, 'encrypted', 'locked'),
+        (3, 'opened', 'application/pdf', 100, 'text', 'open')""",
+    "INSERT INTO password (id, value) OVERRIDING SYSTEM VALUE VALUES (1, 'Hafen-2019')",
+    """
+    INSERT INTO password_finding (id, password_id, mail_id, context) OVERRIDING SYSTEM VALUE
+    VALUES (1, 1, 47, 'Kennwort: Hafen-2019')""",
+    "INSERT INTO document_password (document_id, password_id, finding_id, tier) "
+    "VALUES (3, 1, 1, 'thread')",
+)
+_MEMBER = """
+    INSERT INTO attachment (mail_id, mime_type, size_bytes, position, container_id, path)
+    SELECT 49, 'application/pkcs7-mime', 100, 0, id, 'Ordner/smime.p7m' FROM attachment
+    WHERE mail_id = 49"""
 
 
 def _archive() -> list[Statement]:
@@ -213,6 +241,7 @@ def _archive() -> list[Statement]:
     for entity_id, kind, key, detail in ENTITIES:
         add(_ENTITY, id=entity_id, kind=kind, key=key, detail=detail)
     add(_DOCUMENT)
+    add(_PROTECTED[0])
     for entity_id in DOCUMENT_ENTITIES:
         add("INSERT INTO document_entity VALUES (:entity, 1, 1, 0, 0)", entity=entity_id)
     for one in sorted(MAILS, key=lambda one: one.duplicate_of is not None):
@@ -239,6 +268,8 @@ def _archive() -> list[Statement]:
                 entity=entity_id,
                 mail=one.id,
             )
+    for statement in (*_PROTECTED[1:], _MEMBER):
+        add(statement)
     add("ANALYZE")
     return statements
 

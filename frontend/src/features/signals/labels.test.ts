@@ -61,6 +61,7 @@ describe("signal names", () => {
       "Adressen",
       "Empfänger und Weiterleitungen",
       "Uhrzeit",
+      "Anhänge",
       "Wortfelder",
       "Personen",
     ]);

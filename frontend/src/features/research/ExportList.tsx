@@ -67,6 +67,7 @@ function ExportRow({ item }: { item: ExportInfo }) {
           <span className={styles.badge}>
             {item.include_research ? "mit Rechercheangaben" : "ohne Rechercheangaben"}
           </span>
+          {item.include_passwords && <span className={styles.badge}>mit Kennwörtern</span>}
         </span>
         <span className={styles.itemSub}>
           Export {item.id} · {mailCount(item.mails)} · {formatDateTime(item.created_at)}

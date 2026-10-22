@@ -1,7 +1,15 @@
 // German texts about documents (D70 to D77): kinds, text statuses and what they mean, sorts, and
-// the small counts the screens put beside a document.
+// the small counts the screens put beside a document; protection and containers (D230 to D239).
 
-import type { DocumentKind, DocumentSort, DocumentTextStatus } from "../../api/types";
+import type {
+  DocumentKind,
+  DocumentMembersStatus,
+  DocumentMemberStatus,
+  DocumentProtection,
+  DocumentSort,
+  DocumentTextStatus,
+  PasswordTier,
+} from "../../api/types";
 import { formatNumber } from "../../lib/format";
 
 /** Every kind, in the order of the filter column. */
@@ -78,7 +86,7 @@ export const TEXT_STATUS_TEXTS: Record<DocumentTextStatus, string> = {
   scanned:
     "Ein gescanntes PDF: Die Seiten sind Bilder ohne Textebene. Die Volltextsuche findet es deshalb nicht, nur über den Dateinamen; eine spätere Texterkennung (OCR) kann es lesen.",
   encrypted:
-    "Die Datei ist mit einem Passwort geschützt. Ohne das Passwort lässt sich ihr Text nicht lesen.",
+    "Die Datei ist mit einem Kennwort geschützt. Ohne das Kennwort lässt sich ihr Text nicht lesen.",
   unsupported:
     "Aus diesem Format liest Mailrobbe keinen Text (etwa Bilder, Audio, Video oder alte Office-Formate). Gefunden wird es über den Dateinamen.",
   too_large:
@@ -142,4 +150,110 @@ export function kindFromMimeType(mimeType: string): DocumentKind {
   if (/zip|compressed|tar|rar|7z/.test(type)) return "archive";
   if (type.startsWith("text/")) return "text";
   return "other";
+}
+
+// Protected and packed attachments (D230 to D239) -----------------------------------------------
+
+/** Both protections, in the order of the filter column. */
+export const PROTECTIONS: readonly DocumentProtection[] = ["locked", "open"];
+
+/** The filter column's labels, under the heading "Verschlüsselt". */
+export const PROTECTION_FILTER_LABELS: Record<DocumentProtection, string> = {
+  locked: "Kennwort unbekannt",
+  open: "geöffnet",
+};
+
+/** What the mark of a protected document says beside its name. */
+export const PROTECTION_TITLES: Record<DocumentProtection, string> = {
+  locked: "Verschlüsselt, das Kennwort ist nicht bekannt",
+  open: "Verschlüsselt, mit einem gefundenen Kennwort geöffnet",
+};
+
+/** The short label of a protected attachment or container entry. */
+export const PROTECTION_NOTES: Record<DocumentProtection, string> = {
+  locked: "Kennwort unbekannt",
+  open: "Geöffnet",
+};
+
+/** The mark of a document found inside a container (D231), and its title. */
+export const CONTAINED_NOTE = "ausgepackt";
+export const CONTAINED_TITLE = "Aus einem Archiv oder einer angehängten Mail ausgepackt";
+
+/** What became of one entry of a container (D231). */
+export const MEMBER_STATUS_LABELS: Record<DocumentMemberStatus, string> = {
+  document: "Dokument",
+  locked: "Kennwort unbekannt",
+  too_large: "Zu groß",
+  too_many: "Zu viele Einträge",
+  failed: "Fehler",
+};
+
+/** How the unpacking of a container stands, for its card on the document page; null when there
+ *  is nothing to say. opened: it was opened with a password (D236). */
+export function membersStatusText(
+  status: DocumentMembersStatus | null,
+  opened: boolean,
+): string | null {
+  switch (status) {
+    case null:
+      return opened
+        ? "Mit dem Kennwort geöffnet; der nächste Import packt den Inhalt aus."
+        : "Noch nicht ausgepackt. Das geschieht beim nächsten Import.";
+    case "done":
+      return null;
+    case "locked":
+      return "Einträge brauchen ein Kennwort, das noch nicht bekannt ist; was sich ohne lesen ließ, ist ausgepackt.";
+    case "too_deep":
+      return "Die Datei steckt selbst in einem Archiv oder einer angehängten Mail. Mailrobbe packt nur zwei Ebenen aus; ihr Inhalt bleibt verpackt.";
+    case "unsupported":
+      return "Dieses Format packt Mailrobbe nicht aus (etwa RAR, tar oder gzip), nur ZIP, 7z und angehängte Mails.";
+    case "failed":
+      return "Das Auspacken ist fehlgeschlagen.";
+    case "unreadable":
+      return "Die MBOX-Datei fehlt oder hat sich geändert. Der nächste Import versucht es erneut.";
+  }
+}
+
+/** The short note under a container among a mail's attachments; null when it is unpacked. */
+export function membersStatusNote(status: DocumentMembersStatus | null): string | null {
+  switch (status) {
+    case null:
+      return "Noch nicht ausgepackt, das geschieht beim nächsten Import.";
+    case "done":
+      return null;
+    case "locked":
+      return "Einträge brauchen ein Kennwort, das noch nicht bekannt ist.";
+    case "too_deep":
+      return "Nicht ausgepackt: steckt in einem anderen Archiv.";
+    case "unsupported":
+      return "Dieses Format wird nicht ausgepackt.";
+    case "failed":
+      return "Das Auspacken ist fehlgeschlagen.";
+    case "unreadable":
+      return "Nicht lesbar: Die MBOX-Datei fehlt oder hat sich geändert.";
+  }
+}
+
+/** Where the password that opened a document came from (D235), nearest first; those typed in
+ *  by hand name the editor (D237). */
+export function passwordOrigin(tier: PasswordTier, editor: string | null): string {
+  const by = editor ? ` von ${editor}` : " (ohne Namen)";
+  switch (tier) {
+    case "manual":
+      return `Von Hand eingegeben${by} und an allen verschlüsselten Dateien probiert`;
+    case "typed":
+      return `Auf dieser Seite eingegeben${by}`;
+    case "mail":
+      return "Gefunden in derselben Mail";
+    case "thread":
+      return "Gefunden in einer Mail desselben Verlaufs";
+    case "contacts":
+      return "Gefunden in einer Mail zwischen denselben Personen, bis 30 Tage davor oder danach";
+    case "attachments":
+      return "Gefunden im Text eines Anhangs aus demselben Verlauf oder zwischen denselben Personen";
+    case "opened":
+      return "Hat schon eine andere Datei geöffnet";
+    case "archive":
+      return "Gefunden anderswo im Archiv";
+  }
 }

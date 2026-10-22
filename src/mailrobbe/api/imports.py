@@ -249,7 +249,7 @@ _SIZES = text("""
 """)
 _DNS_CACHE = text("SELECT status::text, count(*) FROM dns_cache GROUP BY status")
 # Live, both cheap: attachment rows by an index-only scan, documents by ix_document_text_status.
-_ATTACHMENTS = text("SELECT count(*) FROM attachment")
+_ATTACHMENTS = text("SELECT count(*) FROM attachment WHERE container_id IS NULL")  # D231
 _DOCUMENTS = text("SELECT text_status::text, count(*) FROM document GROUP BY text_status")
 
 

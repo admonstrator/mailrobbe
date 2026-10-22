@@ -123,6 +123,8 @@ export type ErrorCode =
   | "invalid_rule" // 400: a hide rule without any criterion, or one that cannot be used (D221)
   | "invalid_block" // 400: a sample that is no paragraph of this hash, or none where needed
   | "page_too_far" // 400: a jump to a page did not answer within the count budget (D193)
+  | "not_locked" // 409: the document is not locked, or (decrypted) has no password found yet
+  | "decrypt_failed" // 422: the found password did not decrypt it; message says why
   | "map_off"; // 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
@@ -402,6 +404,13 @@ export interface AttachmentInfo {
   document_mails: number | null; // mails carrying the document, duplicates not counted
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
   metadata: MetadataSummary | null; // what the file says about itself (D167)
+  /** Locked: it needs a password; open: one was found (D233); null: not protected. */
+  protection?: DocumentProtection | null;
+  path?: string | null; // a member's path inside its container (D231)
+  /** A container (ZIP, 7z, attached mail): whether it was unpacked, and its entries that became
+   *  documents, in the container's order (D231); null and [] for any other attachment. */
+  members_status?: DocumentMembersStatus | null;
+  members?: AttachmentInfo[];
 }
 
 /** The few metadata fields of a document shown next to an attachment (D167), as found in the
@@ -1326,6 +1335,7 @@ export interface PermalinkTarget {
 
 export interface ExportRequest extends MailSelection {
   include_research?: boolean;
+  include_passwords?: boolean; // the passwords that opened attachments (D208)
   label?: string;
 }
 
@@ -1334,6 +1344,7 @@ export interface ExportInfo {
   label: string;
   mails: number;
   include_research: boolean;
+  include_passwords?: boolean;
   created_by: string | null;
   created_at: string;
   manifest_sha256: string | null; // of the ZIP's SHA256SUMS at the first complete download
@@ -1370,6 +1381,100 @@ export type DocumentTextStatus =
   | "unreadable"; // the MBOX file is missing or changed; tried again at the next import
 export type DocumentSort = "recent" | "oldest" | "mails" | "size";
 
+// Protected and packed attachments (milestone 19, D230 to D239) ----------------------------------
+
+/** document.protection (D233): locked needs a password, open was opened with one. */
+export type DocumentProtection = "locked" | "open";
+/** How the unpacking of a container stands (D231); null: waits for the next import. */
+export type DocumentMembersStatus =
+  | "done"
+  | "locked" // entries need a password not known yet; the others are unpacked
+  | "too_deep" // found only inside another container: listed there, not unpacked
+  | "unsupported" // a format not unpacked (RAR, tar, gzip, D239)
+  | "failed"
+  | "unreadable"; // its MBOX file is missing or changed; tried again at the next import
+/** What became of one entry of a container (D231). */
+export type DocumentMemberStatus =
+  | "document" // it became a member document
+  | "locked" // needs a password not known yet
+  | "too_large" // past MAILROBBE_ARCHIVE_MAX_SIZE unpacked
+  | "too_many" // past MAILROBBE_ARCHIVE_MAX_MEMBERS entries
+  | "failed";
+/** Where the password that opened a document was found, nearest first (D235). */
+export type PasswordTier =
+  | "manual" // typed in by hand for every locked document
+  | "mail" // the mail carrying the document
+  | "thread" // a mail of the same thread
+  | "contacts" // a mail between the same persons, 30 days before or after
+  | "attachments" // the text of a document attached to one of those mails
+  | "opened" // it opened another document
+  | "archive" // any other mail or document of the archive
+  | "typed"; // typed in on this document's page (POST /api/documents/{id}/password)
+export const PASSWORD_LENGTH = 128;
+
+export interface DocumentRef {
+  id: number;
+  name: string | null;
+}
+
+/** Where a password stands (D208): in a mail, in a document's text, or typed in by hand. */
+export interface PasswordFinding {
+  id: number;
+  context: string; // the line(s) around it, as written
+  mail: ThreadMail | null; // the mail it was found in
+  recipients: PersonRef[]; // that mail's To, at most RECIPIENT_PREVIEW
+  document: DocumentRef | null; // the document whose text holds it
+  editor: string | null; // typed in by hand by this editor (D237)
+  created_at: string;
+}
+
+/** The password that opened a document (D236), in plain text as evidence (D208). */
+export interface DocumentPassword {
+  value: string;
+  tier: PasswordTier;
+  found_at: string;
+  found_by: string | null; // the editor who typed it in (tier typed)
+  finding: PasswordFinding | null; // null when where it was found is not known
+}
+
+/** One entry of a container (D231). */
+export interface DocumentMember {
+  position: number;
+  path: string;
+  size: number | null; // unpacked, as declared or read
+  status: DocumentMemberStatus;
+  error: string | null; // English, technical
+  document_id: number | null; // the member document, once assigned
+  kind: DocumentKind | null;
+  text_status: DocumentTextStatus | null;
+  protection: DocumentProtection | null;
+}
+
+export interface DocumentMembers {
+  status: DocumentMembersStatus | null; // null: not unpacked yet (the next import)
+  error: string | null; // English, technical
+  entries: DocumentMember[]; // in the container's order
+}
+
+export interface DocumentContainerRef {
+  document_id: number; // the container document
+  name: string | null;
+  path: string; // where the document sits in it
+}
+
+/** POST /api/documents/{id}/password and /api/documents/passwords (D237). */
+export interface PasswordTry {
+  password: string; // 1 to PASSWORD_LENGTH characters
+}
+
+export interface PasswordTryResult {
+  tried: number; // locked documents the password was tried on
+  /** The documents it opened, now open with their text; a container is unpacked by the next
+   *  import, an opened document's metadata read by it too. */
+  opened: number[];
+  errors: number; // documents that could not be read or tried
+}
+
 /** Filters of the document list (D74). Mail conditions hold for one carrying mail. */
 export interface DocumentFilters {
   q?: string; // full text over content and file names
@@ -1385,6 +1490,7 @@ export interface DocumentFilters {
   /** What the file says about itself (D167): any of these values, exact. */
   author?: string[];
   program?: string[]; // MetadataSummary.software as stored
+  protection?: DocumentProtection[]; // any of these (D233)
 }
 
 export interface DocumentListParams extends DocumentFilters {
@@ -1410,6 +1516,8 @@ export interface DocumentListItem {
   last_date: string | null;
   first_sender: PersonRef | null;
   snippet: string | null; // with full text words in q: text around the first literal match
+  protection?: DocumentProtection | null; // D233
+  contained?: boolean; // it was found inside a container (D231)
 }
 
 export interface DocumentPage {
@@ -1435,6 +1543,7 @@ export interface DocumentSummary {
    *  time. */
   authors: MetadataValueCount[] | null;
   programs: MetadataValueCount[] | null;
+  protection?: Partial<Record<DocumentProtection, number>> | null; // every one present (D233)
 }
 
 export interface DocumentNameCount {
@@ -1472,6 +1581,16 @@ export interface DocumentDetail {
   attachment_id: number; // GET /api/attachments/{id}/content reads it
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
   metadata: DocumentMetadata; // what the file says about itself (D167)
+  /** Protection (D233 to D237). password_trial: a password can be tried on it (PDF, OOXML,
+   *  ZIP, 7z; not ODF, D239). password_tries: passwords the imports tried on it, last at
+   *  password_tried_at. password: the one that opened it, with where it was found. */
+  protection?: DocumentProtection | null;
+  password_trial?: boolean;
+  password_tries?: number;
+  password_tried_at?: string | null;
+  password?: DocumentPassword | null;
+  members?: DocumentMembers | null; // a container's entries (D231); null otherwise
+  containers?: DocumentContainerRef[]; // where it was found inside (D231)
 }
 
 export type DocumentMetadataStatus =
@@ -2053,11 +2172,15 @@ export const MAIL_SIGNAL_KINDS = [
   "forward_out",
   "night",
   "weekend",
+  "encrypted_attachment",
+  "password_separate",
+  "encrypted_mail",
 ] as const;
 export type MailSignalKind = (typeof MAIL_SIGNAL_KINDS)[number];
 /** A signal of a mail: a kind, or the word field of a research theme ("term:<theme key>"). */
 export type SignalKey = MailSignalKind | `term:${string}`;
-export type SignalGroup = "addresses" | "recipients" | "time" | "wording" | "persons";
+export type SignalGroup =
+  "addresses" | "recipients" | "time" | "attachments" | "wording" | "persons";
 
 export interface SignalSettings {
   internal_domains: string[]; // MAILROBBE_INTERNAL_DOMAINS; empty: internal signals are off
@@ -2115,6 +2238,9 @@ export interface SignalReason {
   forward_prefix: string | null; // forward, forward_out: "WG"
   forwarded_mail: string | null; // forward, forward_out: an attached mail's file name
   terms: EntityRef[]; // term signals: the theme's terms found
+  /** encrypted_attachment: the mail's protected documents; password_separate: the documents of
+   *  other mails its password opened (D238). */
+  documents?: DocumentRef[];
 }
 
 export interface MailSignals {
