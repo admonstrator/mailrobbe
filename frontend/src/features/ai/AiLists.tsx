@@ -432,7 +432,7 @@ function SummaryRow({
         {result.remote && <span className={cx(styles.place, styles.remote)}>Internet</span>}
       </td>
       <td className={styles.num} title="Abschnitte">
-        {`${formatNumber(result.pages_read - failed)} von ${formatNumber(total)}`}
+        {total > 0 ? `${formatNumber(result.pages_read - failed)} von ${formatNumber(total)}` : "–"}
       </td>
       <td className={styles.num}>
         {result.characters > 0 ? formatNumber(result.characters) : "–"}
