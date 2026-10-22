@@ -1,5 +1,6 @@
 """Talking to AI services over HTTP with the standard library (D180): two protocols, the model
-lists, one chat request with a picture, and the real test of a service.
+lists, one chat request with a picture or with a text and an answer schema (D300, D304), and the
+real test of a service.
 
 OpenAI-compatible (LM Studio, llama.cpp, vLLM, Ollama's /v1, services on the internet): the URL
 is the base including /v1; a base without a version (http://host:1234) is accepted too, its
@@ -14,6 +15,11 @@ Ollama: `GET /api/tags` lists the models, `POST /api/show` tells whether one has
 options temperature 0, num_ctx and num_predict, and keep_alive so a run does not reload the model
 for every page. detect_protocol asks /api/tags unless the settings name the protocol: JSON with
 `models` is Ollama, anything else OpenAI-compatible.
+
+A text request (chat_text, the summaries of ai.summarize) sends a system and a user message and
+asks for an answer by a JSON schema: `response_format` with `json_schema` (strict) for the
+OpenAI-compatible protocol, asked again once without it when the service refuses the field;
+Ollama's `format` with num_ctx set to the context the model was loaded with.
 
 A service on this machine or a private network is asked without a proxy, whatever the
 environment's proxy settings say (Docker Desktop's proxy would not reach host.docker.internal);
@@ -41,6 +47,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from mailrobbe.ai.model import (
+    SUMMARY_ANSWER_TOKENS,
     ForbiddenService,
     Protocol,
     Service,
@@ -58,6 +65,14 @@ KEEP_ALIVE = "10m"  # Ollama keeps the model loaded between the pages of a run
 # The real test (D180): a word no model knows by heart, and a German line around it.
 TEST_WORD = "ROBBE-7342"
 TEST_LINE = "Prüfung der Texterkennung: Größe, Maße und Übergänge"
+# The text a text model summarises in its test (D300): the word is the project's name, which a
+# summary names.
+TEST_HEAD = ("Art: E-Mail", "Betreff: Neues Archivprojekt")
+TEST_TEXT = (
+    f"Liebe Kolleginnen und Kollegen, unser neues Archivprojekt heißt {TEST_WORD}. Es beginnt "
+    "am 3. November in Bremen und soll bis Ende März abgeschlossen sein. Wer mitarbeiten "
+    "möchte, meldet sich bitte bis Freitag bei Anna Berger."
+)
 _FONTS = Path(__file__).parent.parent / "export" / "fonts"
 _DETAIL = 200  # characters of an answer or error body in a message
 
@@ -312,7 +327,10 @@ def _openai_chat(
     }
     if locality(service.url) == "local":
         payload["chat_template_kwargs"] = {"enable_thinking": False}
-    answer = _openai(service, "chat/completions", timeout, payload)
+    return _openai_answer(_openai(service, "chat/completions", timeout, payload))
+
+
+def _openai_answer(answer: Any) -> ChatAnswer:
     try:
         choice = answer["choices"][0]
         message = choice["message"]
@@ -339,14 +357,23 @@ def _ollama_chat(
         "options": {"temperature": 0, "num_ctx": NUM_CTX, "num_predict": max_tokens},
         "keep_alive": KEEP_ALIVE,
     }
+    return _ollama_answer(_ollama_post(service, payload, timeout))
+
+
+def _ollama_post(service: Service, payload: dict[str, Any], timeout: float) -> Any:
+    """POST /api/chat; asked again without `think` when Ollama refuses it for a model without
+    thinking."""
     url = f"{service.url}/api/chat"
     try:
-        answer = _request(service, url, timeout, payload)
+        return _request(service, url, timeout, payload)
     except _HttpStatus as error:
         if error.status != 400 or "think" not in error.body.lower():
             raise
-        del payload["think"]  # an Ollama that refuses the field for a model without thinking
-        answer = _request(service, url, timeout, payload)
+        del payload["think"]
+        return _request(service, url, timeout, payload)
+
+
+def _ollama_answer(answer: Any) -> ChatAnswer:
     try:
         text = answer["message"].get("content") or ""
         finish = answer.get("done_reason")
@@ -359,12 +386,85 @@ def _ollama_chat(
     return ChatAnswer(text, finish if isinstance(finish, str) else None, tokens_in, tokens_out)
 
 
+# One chat request with a text (D300)
+
+
+def chat_text(
+    service: Service,
+    protocol: Protocol,
+    *,
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    max_tokens: int,
+    timeout: float,
+    context_tokens: int,
+) -> ChatAnswer:
+    """The model's answer to a system and a user message, asked for as JSON by schema (module
+    docstring); raises Unreachable, ModelMissing, AnswerError. The caller checks the answer: one
+    cut at max_tokens (finish "length") is never a valid one (D184, D304)."""
+    model = service.model
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    try:
+        if protocol == "ollama":
+            payload: dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "think": False,
+                "format": schema,
+                "options": {"temperature": 0, "num_ctx": context_tokens, "num_predict": max_tokens},
+                "keep_alive": KEEP_ALIVE,
+            }
+            return _ollama_answer(_ollama_post(service, payload, timeout))
+        return _openai_text(service, model, messages, schema, max_tokens, timeout)
+    except _HttpStatus as error:
+        if _model_missing(error):
+            raise ModelMissing(
+                f"model {model!r} is not offered by {service.display_url} ({error})"
+            ) from None
+        raise
+
+
+def _openai_text(
+    service: Service,
+    model: str,
+    messages: list[dict[str, str]],
+    schema: dict[str, Any],
+    max_tokens: int,
+    timeout: float,
+) -> ChatAnswer:
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "stream": False,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "summary", "strict": True, "schema": schema},
+        },
+    }
+    if locality(service.url) == "local":
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    try:
+        answer = _openai(service, "chat/completions", timeout, payload)
+    except _HttpStatus as error:
+        body = error.body.lower()
+        if error.status not in (400, 422) or not ("response_format" in body or "schema" in body):
+            raise
+        del payload["response_format"]  # a service without structured answers: the parser reads
+        answer = _openai(service, "chat/completions", timeout, payload)
+    return _openai_answer(answer)
+
+
 # The check of the AI page and `mailrobbe ai check`
 
 
 def check_service(service: Service, settings: Settings, *, test: bool = True) -> ServiceCheck:
     """What the service is and offers, and with `test` whether its model reads a picture with a
-    known word back (D180); never raises. Nothing is asked when the settings refuse it."""
+    known word back (D180) or, for text, answers a short text by the summary's JSON schema
+    naming that word (D300); never raises. Nothing is asked when the settings refuse it."""
     try:
         where = locality(service.url)
     except ForbiddenService:
@@ -399,7 +499,9 @@ def check_service(service: Service, settings: Settings, *, test: bool = True) ->
     if check.model_found is False:
         check.error = f"model {service.model!r} is not offered by {service.display_url}"
         return check
-    if test:
+    if test and service.capability == "text":
+        _test_text(service, settings, check)
+    elif test:
         _test_vision(service, settings, check)
     return check
 
@@ -435,6 +537,48 @@ def _test_vision(service: Service, settings: Settings, check: ServiceCheck) -> N
     else:
         shown = answer[:_DETAIL] if answer else "no text"
         check.test, check.test_detail = "failed", f"{TEST_WORD} not read back: {shown}"
+
+
+def _test_text(service: Service, settings: Settings, check: ServiceCheck) -> None:
+    """Has the text model summarise TEST_TEXT as a run would (the summary prompts, the answer
+    schema, the configured context) and records whether the answer reads by the schema and names
+    TEST_WORD in its summary or its tags."""
+    from mailrobbe.ai.prompts import load_prompts
+    from mailrobbe.ai.summarize import answer, prompt  # they build on this module
+    from mailrobbe.themes import load_themes
+
+    assert check.protocol is not None
+    themes = load_themes()
+    started = time.monotonic()
+    try:
+        found = chat_text(
+            service,
+            check.protocol,
+            system=prompt.system_prompt(load_prompts().summarize, prompt.Vocabulary(themes, ())),
+            user=prompt.user_message("", prompt.material(TEST_HEAD, TEST_TEXT)),
+            schema=answer.answer_schema([theme.key for theme in themes]),
+            max_tokens=SUMMARY_ANSWER_TOKENS,
+            timeout=settings.ai_timeout,
+            context_tokens=settings.ai_context_tokens,
+        )
+        if found.finish == "length":
+            raise AnswerError(f"cut at the length limit of {SUMMARY_ANSWER_TOKENS} tokens")
+        read = answer.read_answer(found.text)
+    except ModelMissing as error:
+        check.model_found = False
+        check.test, check.test_detail, check.error = "failed", str(error), str(error)
+        return
+    except ServiceError as error:
+        check.test, check.test_detail, check.error = "failed", str(error), str(error)
+        return
+    finally:
+        check.seconds = round(time.monotonic() - started, 2)
+    said = " ".join([read.summary, *read.tags])
+    if _plain(TEST_WORD) in _plain(said):
+        check.test, check.test_detail = "passed", f"summarised: {' '.join(said.split())[:_DETAIL]}"
+    else:
+        shown = " ".join(said.split())[:_DETAIL] or "an empty summary"
+        check.test, check.test_detail = "failed", f"{TEST_WORD} not named: {shown}"
 
 
 def _plain(text: str) -> str:
