@@ -1,12 +1,15 @@
-"""The AI queue (D186): what someone selected becomes ai_task rows; the run takes them from here.
+"""The AI queue (D186, D295): what someone selected becomes ai_task rows; the run takes them from
+here.
 
 Only a selection is queued, never the whole archive. A document can be read by OCR when it has a
 SHA-256 (D18) and no text of its own: a scanned PDF, an image, or one an earlier OCR filled
-(read again with another engine). Each kind and content has at most one open task; queuing it
+(read again with another engine); the transcriber reads a recording (kind media) with a SHA-256
+and no text of its own, or one an earlier transcription filled. Queuing gives each document what
+fits it, or only the kind asked for. Each kind and content has at most one open task; queuing it
 again raises its priority instead. Higher priorities come first, then the documents carried by
 more mails (D70): one document queued from its page (PRIORITY_SINGLE), then what a mail in an
 Akte or reviewed relevant carries (PRIORITY_FILED). Images in more than LOGO_MAILS mails are
-almost always logos of signatures and are left out unless chosen one by one or asked for.
+almost always logos of signatures and are left out of OCR unless chosen one by one or asked for.
 All functions run in the caller's transaction.
 """
 
@@ -67,21 +70,27 @@ _FILED = """
                OR EXISTS (SELECT 1 FROM mail_mark k
                           WHERE k.mail_sha256 = m.raw_sha256 AND k.review = 'relevant')))
 """
+# The documents among ids that OCR (when :ocr) or the transcriber (when :transcribe) reads, with
+# the kind of task each gets; the two conditions never hold for the same document.
 _CANDIDATES = text(f"""
     SELECT d.id, d.sha256, d.kind = 'image' AND d.mails > {LOGO_MAILS} AS logo,
+        CASE WHEN {OCR_READABLE} THEN 'ocr' ELSE 'transcribe' END AS kind,
         CASE WHEN :single THEN {PRIORITY_SINGLE}
              WHEN {_FILED} THEN {PRIORITY_FILED} ELSE 0 END AS priority
     FROM document d
-    WHERE d.id = ANY(CAST(:ids AS bigint[])) AND {OCR_READABLE}
+    WHERE d.id = ANY(CAST(:ids AS bigint[]))
+      AND ((CAST(:ocr AS boolean) AND {OCR_READABLE})
+           OR (CAST(:transcribe AS boolean) AND {TRANSCRIBABLE}))
 """)
 _RAISE = text("""
     UPDATE ai_task SET priority = GREATEST(priority, :priority), engine = :engine
-    WHERE kind = 'ocr' AND target_sha256 = :sha256 AND status IN ('waiting', 'running')
+    WHERE kind = CAST(:kind AS ai_task_kind) AND target_sha256 = :sha256
+      AND status IN ('waiting', 'running')
     RETURNING id
 """)
 _INSERT = text("""
     INSERT INTO ai_task (kind, target_sha256, engine, priority, queued_by)
-    VALUES ('ocr', :sha256, :engine, :priority, :editor)
+    VALUES (CAST(:kind AS ai_task_kind), :sha256, :engine, :priority, :editor)
 """)
 _RETRY = text("""
     UPDATE ai_task t SET status = 'waiting', attempts = 0, error = NULL, finished_at = NULL,
@@ -106,33 +115,46 @@ _COUNTS = text("""
 
 @dataclass(frozen=True, slots=True)
 class Queued:
-    """What enqueue_ocr did with the documents it was given."""
+    """What enqueue did with the documents it was given."""
 
     queued: int  # new tasks
     raised: int  # already open: priority and engine updated
-    unreadable: int  # not readable by OCR (a text of its own, no SHA-256, unknown id)
+    unreadable: int  # read by neither (a text of its own, no SHA-256, unknown id)
     logos: int  # images in more than LOGO_MAILS mails, left out
 
 
-async def enqueue_ocr(
+async def enqueue(
     session: AsyncSession,
     document_ids: Sequence[int],
     *,
+    kind: AiTaskKind | None = None,
     engine: OcrEngineChoice = "auto",
     editor: str | None = None,
     single: bool = False,
     include_logos: bool = False,
 ) -> Queued:
-    """Queue OCR for these documents (module docstring); single is one document from its page,
-    which also takes a logo."""
+    """Queue what fits each of these documents, or only tasks of kind (module docstring);
+    single is one document from its page, which also takes a logo. engine is that of the OCR
+    tasks; a transcribe task keeps "auto", since there is only the one transcriber (D290)."""
     ids = sorted(set(document_ids))
-    rows = (await session.execute(_CANDIDATES, {"ids": ids, "single": single})).all()
+    selection = {
+        "ids": ids,
+        "single": single,
+        "ocr": kind in (None, AiTaskKind.OCR),
+        "transcribe": kind in (None, AiTaskKind.TRANSCRIBE),
+    }
+    rows = (await session.execute(_CANDIDATES, selection)).all()
     queued = raised = logos = 0
     for row in rows:
         if row.logo and not (single or include_logos):
             logos += 1
             continue
-        parameters = {"sha256": row.sha256, "engine": engine, "priority": row.priority}
+        parameters = {
+            "kind": row.kind,
+            "sha256": row.sha256,
+            "engine": engine if row.kind == AiTaskKind.OCR else "auto",
+            "priority": row.priority,
+        }
         if (await session.execute(_RAISE, parameters)).first() is not None:
             raised += 1
             continue

@@ -1,5 +1,6 @@
-"""The AI run (D181, D182, D184 to D188) on a small imported archive: scanned PDFs and a photo,
-read through engine doubles, and once through the real Tesseract."""
+"""The AI run (D181, D182, D184 to D188, D290 to D295) on a small imported archive: scanned PDFs,
+a photo and recordings, read through engine doubles (the transcriber's in tests/ai/fakes.py),
+and once through the real Tesseract."""
 
 import asyncio
 import io
@@ -21,6 +22,7 @@ from mailrobbe import jobrun, jobs, migrate
 from mailrobbe.ai import run as ai_run
 from mailrobbe.ai.model import (
     PAGE_SEPARATOR,
+    TRANSCRIBE_MODEL,
     AiOptions,
     AiProgress,
     OcrPage,
@@ -29,13 +31,14 @@ from mailrobbe.ai.model import (
     locality,
 )
 from mailrobbe.ai.prompts import load_prompts
-from mailrobbe.ai.queue import enqueue_ocr
+from mailrobbe.ai.queue import enqueue
 from mailrobbe.ai.run import EngineErrors, Engines, run_ai
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import JobKind
 from mailrobbe.importer.cli import run_import
-from tests.ai.fakes import fake_service
+from tests.ai.fakes import DecodeError, FakeAudio, Line, Recording, fake_service
+from tests.ai.fakes import ModelMissing as ModelFilesMissing
 from tests.attachments.doubles import attachment_mail, digest
 from tests.conftest import _temporary_database
 from tests.importer.doubles import SEPARATOR
@@ -77,15 +80,58 @@ def letter() -> bytes:
     return buffer.getvalue()
 
 
+def recording(head: bytes, label: str) -> bytes:
+    """Bytes the import takes for a recording by their first bytes; what they hold is the fake
+    decoder's (RECORDINGS)."""
+    return head + label.encode() * 40
+
+
+SPOKEN = "Kassenbericht"  # a word only the voice message says
 FILES = {
     "Scan.pdf": scan("Seite eins", "Seite zwei", "Seite drei"),
     "Flyer.pdf": scan("Flyer"),
     "Foto.jpg": photo(),
     "Brief.pdf": letter(),
+    "Sprachnachricht.ogg": recording(b"OggS", "Sprachnachricht"),
+    "Rauschen.mp3": recording(b"ID3", "Rauschen"),
+    "Stumm.mp4": recording(b"\x00\x00\x00\x18ftypmp42", "Stumm"),
+    "Kaputt.m4a": recording(b"\x00\x00\x00\x18ftypM4A ", "Kaputt"),
+    "Rede.ogg": recording(b"OggS", "Rede"),
 }
-MIMES = {".pdf": "application/pdf", ".jpg": "image/jpeg"}
-MAILS = [["Scan.pdf"], ["Flyer.pdf"], ["Flyer.pdf", "Foto.jpg"], ["Brief.pdf"]]
+MIMES = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".ogg": "audio/ogg",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".m4a": "audio/mp4",
+}
+MAILS = [
+    ["Scan.pdf"],
+    ["Flyer.pdf"],
+    ["Flyer.pdf", "Foto.jpg"],
+    ["Brief.pdf"],
+    ["Sprachnachricht.ogg"],
+    ["Sprachnachricht.ogg", "Rauschen.mp3"],
+    ["Stumm.mp4", "Kaputt.m4a"],
+    ["Rede.ogg"],
+]
 NAMES = {digest(data): name for name, data in FILES.items()}
+VOICE = (
+    Line(1.0, 8.0, "Guten Tag, hier spricht Bergmann."),
+    Line(9.5, 20.0, f"Der {SPOKEN} liegt im Büro.", confidence=0.4),
+    Line(25.0, 40.0, "Bis Freitag."),
+)
+RECORDINGS = {
+    digest(FILES[name]): found
+    for name, found in {
+        "Sprachnachricht.ogg": Recording(42.0, VOICE),
+        "Rauschen.mp3": Recording(12.0, known=False),  # a tone: nobody speaks
+        "Stumm.mp4": Recording(5.0, audio=False),  # a video without a sound track
+        "Kaputt.m4a": Recording(3.0),
+        "Rede.ogg": Recording(150.0, tuple(Line(s, s + 10, f"Satz {s:.0f}") for s in (10, 70))),
+    }.items()
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +200,7 @@ async def queue(url: str, *names: str, engine: Any = "auto", single: bool = Fals
     database = create_engine(url)
     try:
         async with create_sessionmaker(database).begin() as session:
-            queued = await enqueue_ocr(session, ids, engine=engine, single=single)
+            queued = await enqueue(session, ids, engine=engine, single=single)
     finally:
         await database.dispose()
     assert queued.queued == len(names)
@@ -243,6 +289,7 @@ class Fake:
     check_result: dict[str, Any] = field(default_factory=dict)
     renders: list[tuple[str, str, int, int]] = field(default_factory=list)
     reads: list[tuple[str, str, int]] = field(default_factory=list)  # engine, name, number
+    audio: FakeAudio = field(default_factory=lambda: FakeAudio(RECORDINGS, names=NAMES))
 
     def engines(self) -> Engines:
         return Engines(
@@ -252,8 +299,15 @@ class Fake:
             vision=self.vision,
             check=self.check,
             prompts=Prompts,
+            **self.audio.engines(),
             errors=EngineErrors(
-                Unreachable, ModelMissing, AnswerError, RenderError, TesseractMissing
+                Unreachable,
+                ModelMissing,
+                AnswerError,
+                RenderError,
+                TesseractMissing,
+                DecodeError,
+                ModelFilesMissing,
             ),
         )
 
@@ -518,7 +572,7 @@ async def test_a_stopped_run_continues_at_the_next_page(archive: Archive, databa
     assert steps(job) == {
         "check": "done",
         "ocr": "stopped",
-        "transcribe": "waiting",
+        "transcribe": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }
@@ -891,3 +945,360 @@ async def test_the_real_engines_read_a_photo_with_a_vision_service(
     assert (result.summary.tokens_in, result.summary.tokens_out) == (900, 12)
     letter = await document(database, "Brief.pdf")
     assert WORD in letter.extracted_text and letter.result_engine == "tesseract"
+
+
+# Transcription (D290 to D295) -------------------------------------------------------------------
+
+
+async def transcripts(url: str) -> dict[str, Any]:
+    """The valid transcripts by file name."""
+    found = await rows(
+        url,
+        "SELECT d.name, r.* FROM ai_result r JOIN document d ON d.sha256 = r.target_sha256 "
+        "WHERE r.kind = 'transcribe' AND r.state = 'valid'",
+    )
+    return {row.name: row for row in found}
+
+
+def progress_of(job: Any) -> AiProgress:
+    return AiProgress.model_validate(job.progress)
+
+
+def step(job: Any, key: str) -> Any:
+    return next(found for found in progress_of(job).steps if found.key == key)
+
+
+async def test_recordings_are_transcribed_and_searchable(archive: Archive, database: str) -> None:
+    await queue(database, "Sprachnachricht.ogg", "Rauschen.mp3", "Stumm.mp4")
+    fake = Fake()
+    settings = settings_for(database, archive)
+    options = options_for(settings, transcribe_threads=3)
+    result = await run_ai(settings, options, engines=fake.engines())
+
+    assert result.exit_code == 0
+    summary = result.summary
+    assert (summary.queued, summary.done, summary.no_text, summary.failed) == (3, 1, 2, 0)
+    assert (summary.documents, summary.pages, summary.minutes) == (1, 0, 0.9)  # 42 s and 12 s
+    assert fake.audio.loads == [3]  # one transcriber for the run
+    decoded = [name for name, _ in fake.audio.decodes]
+    assert decoded[0] == "Sprachnachricht.ogg"  # in most mails
+    assert sorted(decoded) == ["Rauschen.mp3", "Sprachnachricht.ogg", "Stumm.mp4"]
+    assert fake.audio.decodes[0][1] == {
+        "timeout": max(settings.attachment_text_timeout, 300.0),
+        "memory": int(settings.attachment_text_memory),
+        "max": 180 * 60.0,
+    }
+    assert [read[1] for read in fake.audio.reads] == [1.0, 9.5, 25.0]
+
+    voice = await document(database, "Sprachnachricht.ogg")
+    assert (voice.origin, voice.status, voice.duration) == ("transcript", "text", 42.0)
+    assert voice.extracted_text == "\n".join(line.text for line in VOICE)
+    assert (voice.result_engine, voice.model) == ("parakeet", TRANSCRIBE_MODEL)
+    assert [(line["start"], line["end"], line["uncertain"]) for line in voice.read] == [
+        (1.0, 8.0, False),
+        (9.5, 20.0, True),  # below MAILROBBE_AI_TRANSCRIBE_UNCERTAIN
+        (25.0, 40.0, False),
+    ]
+    assert voice.result_options == {
+        "max_minutes": 180,
+        "threads": 3,
+        "uncertain": 0.5,
+        "audio": True,
+    }
+    found = await rows(
+        database,
+        "SELECT name, text_origin::text AS origin FROM document "
+        "WHERE tsv @@ websearch_to_tsquery('german', :word)",
+        {"word": SPOKEN},
+    )
+    assert [(row.name, row.origin) for row in found] == [("Sprachnachricht.ogg", "transcript")]
+
+    heard = await transcripts(database)
+    assert (heard["Sprachnachricht.ogg"].duration, heard["Sprachnachricht.ogg"].transcribed) == (
+        42.0,
+        42.0,
+    )
+    # Nobody speaks in the tone, whose length the decoder did not know: done without a text.
+    tone = await document(database, "Rauschen.mp3")
+    assert (tone.origin, tone.status, tone.duration, tone.ai_result_id) == (
+        "extracted",
+        "unsupported",
+        12.0,
+        None,
+    )
+    assert (heard["Rauschen.mp3"].body, heard["Rauschen.mp3"].pages) == ("", [])
+    assert heard["Rauschen.mp3"].options["audio"] is True
+    mute = heard["Stumm.mp4"]  # a video without sound
+    assert (mute.options["audio"], mute.transcribed, mute.duration) == (False, 0.0, 5.0)
+    assert (await document(database, "Stumm.mp4")).duration == 5.0
+
+    queued = await tasks(database)
+    assert {row.status for row in queued.values()} == {"done"}
+    assert all(row.partial == {} and row.engine == "auto" for row in queued.values())
+    (calibration,) = await rows(database, "SELECT * FROM ai_calibration")
+    assert (calibration.kind, calibration.engine, calibration.model, calibration.unit) == (
+        "transcribe",
+        "parakeet",
+        TRANSCRIBE_MODEL,
+        "minute",
+    )
+    assert calibration.samples == 54 and calibration.seconds_per_unit > 0
+
+    job = await latest(database)
+    assert (job.status, job.phase) == ("done", "signals")
+    assert job.message.startswith(
+        "3 documents read (2 without text), 0 failed, 0 pages, 0.9 minutes of recordings, "
+        "1 documents with a new text"
+    )
+    assert steps(job) == {
+        "check": "done",
+        "ocr": "skipped",
+        "transcribe": "done",
+        "entities": "done",
+        "signals": "done",
+    }
+    transcribe = step(job, "transcribe")
+    assert (transcribe.unit, transcribe.done, transcribe.total) == ("documents", 3, 3)
+    progress = progress_of(job)
+    assert progress.minutes == pytest.approx(0.9)
+    assert (progress.current, progress.position) == (None, None)
+    assert check_unit(job) is None  # nothing to download
+
+
+def check_unit(job: Any) -> Any:
+    return step(job, "check").unit
+
+
+async def test_a_stopped_transcription_goes_on_after_the_last_piece(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Sprachnachricht.ogg")
+    fake = Fake()
+    fake.audio.hold = ("Sprachnachricht.ogg", 9.5)  # the second piece
+    settings = settings_for(database, archive)
+    run = run_ai(settings, options_for(settings), engines=fake.engines())
+    first = await stopped_while_reading(database, fake.audio.reading, fake.audio.release, run)
+
+    assert first.exit_code == jobrun.EXIT_INTERRUPTED and first.summary.status == "stopped"
+    assert first.summary.minutes == round(20 / 60, 2)
+    task = (await tasks(database))["Sprachnachricht.ogg"]
+    assert (task.status, task.attempts, task.result_id) == ("waiting", 0, None)
+    assert (task.partial["until"], task.partial["duration"]) == (20.0, 42.0)
+    assert [line["start"] for line in task.partial["segments"]] == [1.0, 9.5]
+    assert (await document(database, "Sprachnachricht.ogg")).origin == "extracted"
+    job = await latest(database)
+    assert job.status == "stopped" and "stopped on request" in job.message
+    assert steps(job) == {
+        "check": "done",
+        "ocr": "skipped",
+        "transcribe": "stopped",
+        "entities": "skipped",
+        "signals": "skipped",
+    }
+
+    fake.audio.reads.clear()
+    fake.audio.hold = None
+    second = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert second.exit_code == 0 and second.summary.done == 1
+    assert fake.audio.reads == [("Sprachnachricht.ogg", 25.0)]  # from the second reached on
+    assert second.summary.minutes == round(22 / 60, 2)
+    voice = await document(database, "Sprachnachricht.ogg")
+    assert voice.extracted_text == "\n".join(line.text for line in VOICE)
+    assert [line["start"] for line in voice.read] == [1.0, 9.5, 25.0]
+
+
+async def test_a_long_recording_is_read_up_to_max_minutes(archive: Archive, database: str) -> None:
+    await queue(database, "Rede.ogg")
+    fake = Fake()
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings, max_minutes=1), engines=fake.engines())
+    assert result.exit_code == 0 and fake.audio.decodes[0][1]["max"] == 60.0
+    speech = (await transcripts(database))["Rede.ogg"]
+    assert (speech.body, speech.duration, speech.transcribed) == ("Satz 10", 150.0, 60.0)
+    assert (await document(database, "Rede.ogg")).duration == 150.0
+    assert result.summary.minutes == 1.0
+
+
+async def test_a_recording_that_cannot_be_decoded_fails_after_three_attempts(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Kaputt.m4a", "Sprachnachricht.ogg")
+    fake = Fake()
+    fake.audio.decode_errors = {"Kaputt.m4a"}
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == 0
+    assert (result.summary.done, result.summary.failed) == (1, 1)
+    assert [name for name, _ in fake.audio.decodes].count("Kaputt.m4a") == 3
+    broken = (await tasks(database))["Kaputt.m4a"]
+    assert (broken.status, broken.attempts, broken.finished_at is not None) == ("failed", 3, True)
+    assert broken.error == "cannot decode: DecodeError: Invalid data found when processing input"
+    kept = await document(database, "Kaputt.m4a")
+    assert (kept.origin, kept.status, kept.duration) == ("extracted", "unsupported", None)
+    transcribe = step(await latest(database), "transcribe")
+    assert (transcribe.status, transcribe.done, transcribe.total) == ("done", 2, 2)
+
+
+async def test_the_transcriber_failing_on_a_recording_is_an_attempt(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Sprachnachricht.ogg")
+    fake = Fake()
+    fake.audio.read_errors = {"Sprachnachricht.ogg"}
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == 0 and result.summary.failed == 1
+    task = (await tasks(database))["Sprachnachricht.ogg"]
+    assert (task.status, task.attempts) == ("failed", 3)
+    assert task.error == "the transcriber failed: RuntimeError: ONNXRuntimeError: bad allocation"
+
+
+async def test_missing_model_files_are_downloaded_in_the_check(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Sprachnachricht.ogg")
+    fake = Fake()
+    fake.audio.missing = 250_000_000
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == 0 and result.summary.done == 1
+    assert (fake.audio.downloads, fake.audio.missing, len(fake.audio.loads)) == (
+        [250_000_000],
+        0,
+        1,
+    )
+    check = step(await latest(database), "check")
+    assert (check.status, check.unit, check.done, check.total) == (
+        "done",
+        "bytes",
+        250_000_000,
+        250_000_000,
+    )
+
+
+async def test_a_stop_during_the_download_keeps_what_came(archive: Archive, database: str) -> None:
+    await queue(database, "Sprachnachricht.ogg")
+    fake = Fake()
+    fake.audio.missing = 300_000_000
+    fake.audio.hold = ("model", 100_000_000)
+    settings = settings_for(database, archive)
+    run = run_ai(settings, options_for(settings), engines=fake.engines())
+    result = await stopped_while_reading(database, fake.audio.reading, fake.audio.release, run)
+    assert result.exit_code == jobrun.EXIT_INTERRUPTED and result.summary.status == "stopped"
+    assert (fake.audio.downloads, fake.audio.missing, fake.audio.loads) == (
+        [100_000_000],
+        200_000_000,
+        [],
+    )
+    job = await latest(database)
+    check = step(job, "check")
+    assert (check.status, check.done, check.total) == ("stopped", 100_000_000, 300_000_000)
+    assert steps(job)["transcribe"] == "skipped"
+    assert (await tasks(database))["Sprachnachricht.ogg"].status == "waiting"
+
+
+async def test_model_files_that_cannot_be_had_stop_the_run_before_any_task(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Flyer.pdf", "Sprachnachricht.ogg")
+    fake = Fake()
+    fake.audio.missing = 5
+    fake.audio.unavailable = "huggingface.co: Name or service not known"
+    settings = settings_for(database, archive, ai_model_dir=Path("/data/models"))
+    result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == ai_run.EXIT_FAILED and result.summary.status == "failed"
+    assert result.summary.message.endswith(
+        "the transcriber's model is not in /data/models: "
+        "ModelMissing: huggingface.co: Name or service not known"
+    )
+    assert (fake.reads, fake.audio.decodes, fake.audio.loads) == ([], [], [])
+    queued = await tasks(database)
+    assert {(row.status, row.started_at) for row in queued.values()} == {("waiting", None)}
+    job = await latest(database)
+    assert job.status == "failed"
+    assert steps(job) == {
+        "check": "failed",
+        "ocr": "waiting",
+        "transcribe": "skipped",
+        "entities": "skipped",
+        "signals": "skipped",
+    }
+
+
+async def test_a_transcriber_that_cannot_load_fails_the_run(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Sprachnachricht.ogg")
+
+    def broken(model_dir: Path, *, threads: int) -> Any:
+        raise RuntimeError("[ONNXRuntimeError] : 7 : INVALID_PROTOBUF")
+
+    settings = settings_for(database, archive)
+    engines = replace(Fake().engines(), transcriber=broken)
+    result = await run_ai(settings, options_for(settings), engines=engines)
+    assert result.exit_code == ai_run.EXIT_FAILED
+    assert result.summary.message.endswith(
+        "cannot load the transcriber: RuntimeError: [ONNXRuntimeError] : 7 : INVALID_PROTOBUF"
+    )
+    assert (await tasks(database))["Sprachnachricht.ogg"].status == "waiting"
+
+
+async def test_a_run_for_one_recording_leaves_the_queue_waiting(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Sprachnachricht.ogg", "Rauschen.mp3", "Flyer.pdf")
+    await rows(database, "UPDATE ai_task SET status = 'running'")  # left by a dead run
+    tone = await document(database, "Rauschen.mp3")
+    fake = Fake()
+    settings = settings_for(database, archive)
+    options = options_for(settings, documents=[tone.id])
+    result = await run_ai(settings, options, engines=fake.engines())
+
+    assert result.exit_code == 0 and result.summary.queued == 1
+    assert ([name for name, _ in fake.audio.decodes], fake.reads) == (["Rauschen.mp3"], [])
+    queued = await tasks(database)
+    assert {name: row.status for name, row in queued.items()} == {
+        "Sprachnachricht.ogg": "waiting",
+        "Rauschen.mp3": "done",
+        "Flyer.pdf": "waiting",
+    }
+    assert steps(await latest(database)) == {
+        "check": "done",
+        "ocr": "skipped",
+        "transcribe": "done",
+        "entities": "skipped",  # no text changed
+        "signals": "skipped",
+    }
+
+
+async def test_ocr_and_transcription_in_one_run(archive: Archive, database: str) -> None:
+    await queue(database, "Flyer.pdf", "Sprachnachricht.ogg")
+    fake = Fake()
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == 0
+    summary = result.summary
+    assert (summary.queued, summary.done, summary.pages, summary.minutes) == (2, 2, 1, 0.7)
+    assert summary.documents == 2
+    assert (await document(database, "Flyer.pdf")).origin == "ocr"
+    assert (await document(database, "Sprachnachricht.ogg")).origin == "transcript"
+    job = await latest(database)
+    assert job.message.startswith(
+        "2 documents read (0 without text), 0 failed, 1 pages, 0.7 minutes of recordings, "
+        "2 documents with a new text"
+    )
+    assert set(steps(job).values()) == {"done"}
+    assert progress_of(job).queued == 2
+
+
+async def test_a_stop_during_ocr_skips_the_transcription(archive: Archive, database: str) -> None:
+    await queue(database, "Scan.pdf", "Sprachnachricht.ogg")
+    slow, reading, release = holding(1)
+    fake = Fake(tesseract_reader=slow)
+    settings = settings_for(database, archive)
+    run = run_ai(settings, options_for(settings), engines=fake.engines())
+    result = await stopped_while_reading(database, reading, release, run)
+    assert result.exit_code == jobrun.EXIT_INTERRUPTED
+    assert (fake.audio.loads, fake.audio.decodes) == ([], [])
+    assert steps(await latest(database))["transcribe"] == "skipped"
+    assert (await tasks(database))["Sprachnachricht.ogg"].status == "waiting"

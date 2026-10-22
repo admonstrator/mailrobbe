@@ -278,7 +278,7 @@ async def enqueue(
         ids = await readable_ids(session, settings, request.filters)
     else:
         ids = list(request.document_ids or [])
-    queued = await queue.enqueue_ocr(
+    queued = await queue.enqueue(
         session,
         ids,
         engine=request.engine,

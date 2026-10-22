@@ -5,6 +5,7 @@ The contract between ai.services, ai.ocr, ai.audio, ai.run, ai.store and api/ai.
 does I/O except locality's name lookup.
 """
 
+import importlib.util
 import ipaddress
 import os
 import socket
@@ -312,3 +313,12 @@ class AiProgress(RunProgress):
     position: float | None = None  # seconds reached in the recording in work
     duration: float | None = None  # of the recording in work, once decoded
     unreachable_since: datetime | None = None  # a service did not answer since then (D184)
+
+
+TRANSCRIBER_MODULES = ("onnx_asr", "onnxruntime", "av")  # what the transcriber needs installed
+
+
+def transcriber_available() -> bool:
+    """Whether the transcriber's libraries are installed (AiTranscriptionInfo.available); they
+    are looked up, not imported."""
+    return all(importlib.util.find_spec(name) is not None for name in TRANSCRIBER_MODULES)
