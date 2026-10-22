@@ -47,6 +47,8 @@ LABEL_DACH = 20_000  # label_towns: towns of the four countries of at least thes
 LABEL_WORLD = 500_000  # of the world of at least these, and every capital
 EARTH_KM = 6371.0088  # mean radius
 _CELL = 0.25  # degrees of a cell of nearest_town's grid
+NAME_LIMIT = 200  # characters of a longer name: no place of the lists
+LOCATION_LIMIT = 500  # characters of a location read (ical.model.TEXT_LIMIT)
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +366,8 @@ def locate_name(label: str, detail: str | None) -> Located:
     names one (Friedberg (Hessen)); else a place of the postcode list whose postcodes lie
     together (Weinstadt). A name of town_names.txt is looked up as the name it stands for.
     Unknown when no place of the lists has that name."""
+    if len(label) > NAME_LIMIT:
+        return UNKNOWN
     key = fold(label)
     if detail == "country":
         codes = _country_index().get(key)
@@ -440,6 +444,7 @@ def locate_location(location: str) -> Located:
     the four countries' towns only: the world's other names hold words a room has too (Raum for
     Rauma). An invitation without a location is no case for this (the step places leaves it
     alone)."""
+    location = location[:LOCATION_LIMIT]
     found = _postcode_place(location)
     if found is not None:
         return found
