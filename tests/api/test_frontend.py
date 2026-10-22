@@ -8,13 +8,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from mailrobbe.api.frontend import ASSET_HEADERS, INDEX_HEADERS, NONCE_PLACEHOLDER
+from mailrobbe.api.frontend import ASSET_HEADERS, INDEX_HEADERS, MAP_HEADERS, NONCE_PLACEHOLDER
 from mailrobbe.config import Settings
 from tests.api.conftest import _client
 
 INDEX = "<!doctype html><title>Mailrobbe</title><script type=module src=/assets/app-3f9a1c.js>"
 SCRIPT = "console.log('Mailrobbe')\n"
 VIEWER = f"<!doctype html><script nonce={NONCE_PLACEHOLDER} src=/viewer/pdf-viewer.js></script>"
+GLYPHS = b"\x0a\x13\x0a\x11Noto Sans Regular"
 # Never connected: these tests only reach routes that do not use the database.
 NO_DATABASE = "postgresql+asyncpg://mailrobbe:x@127.0.0.1:9/mailrobbe"
 
@@ -29,6 +30,8 @@ def dist(tmp_path: Path) -> Path:
     (dist / "viewer").mkdir()
     (dist / "viewer" / "pdf.html").write_text(VIEWER)
     (dist / "viewer" / "pdf-viewer.js").write_text(SCRIPT)
+    (dist / "map" / "fonts" / "Noto Sans Regular").mkdir(parents=True)
+    (dist / "map" / "fonts" / "Noto Sans Regular" / "0-255.pbf").write_bytes(GLYPHS)
     (tmp_path / "secret.txt").write_text("outside the frontend")
     (dist / "link.txt").symlink_to(tmp_path / "secret.txt")
     return dist
@@ -67,6 +70,23 @@ async def test_other_files_are_served_as_they_are(client: httpx.AsyncClient) -> 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/svg+xml"
     assert "cache-control" not in response.headers
+
+
+async def test_the_overview_map_is_revalidated_and_its_gaps_are_404s(
+    client: httpx.AsyncClient,
+) -> None:
+    response = await client.get("/map/fonts/Noto%20Sans%20Regular/0-255.pbf")
+    assert (response.status_code, response.content) == (200, GLYPHS)
+    assert response.headers["cache-control"] == MAP_HEADERS["Cache-Control"]
+    assert "etag" in response.headers
+    again = await client.get(
+        "/map/fonts/Noto%20Sans%20Regular/0-255.pbf",
+        headers={"If-None-Match": response.headers["etag"]},
+    )
+    assert again.status_code == 304
+    for path in ("/map/fonts/Noto%20Sans%20Regular/65024-65279.pbf", "/map/states.json"):
+        assert (await client.get(path)).status_code == 404, path
+    assert _is_index(await client.get("/mapx/states.json"))
 
 
 async def test_the_pdf_viewer_runs_sandboxed_by_a_nonce_of_its_own(
