@@ -2,9 +2,14 @@
 
 import asyncio
 import logging
+import multiprocessing
 import os
 import signal
+import threading
+import time
 from collections.abc import AsyncIterator
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing.sharedctypes import Synchronized
 from typing import Any
 
 import pytest
@@ -119,6 +124,34 @@ def test_the_log_shows_each_step_and_the_database_behind_a_long_one(
     assert "edges: done in 1m10s" in caplog.text
     assert "attachments: done in 1m40s" in caplog.text
     assert jobrun.duration(3725) == "1h02m"
+
+
+def _start_late(started: "Synchronized[int]") -> None:
+    """Initializer: every worker after the first is still starting when the first has done all."""
+    with started.get_lock():
+        started.value += 1
+        late = started.value > 1
+    if late:
+        time.sleep(30)
+
+
+def test_kill_workers_ends_a_worker_still_starting_and_shutdown_returns() -> None:
+    context = multiprocessing.get_context("spawn")
+    started = context.Value("i", 0)
+    executor = ProcessPoolExecutor(
+        2, mp_context=context, initializer=_start_late, initargs=(started,)
+    )
+    futures = [executor.submit(abs, -1), executor.submit(abs, -2)]
+    assert [future.result(timeout=60) for future in futures] == [1, 2]
+    workers = list(executor._processes.values())
+    assert len(workers) == 2  # the first waits for work, holding the call queue's lock
+    jobrun.kill_workers(executor)
+    # A worker left alive would wait for that lock forever, and shutdown with it.
+    shutdown = threading.Thread(target=executor.shutdown, daemon=True)
+    shutdown.start()
+    shutdown.join(timeout=60)
+    assert not shutdown.is_alive()
+    assert [worker.exitcode for worker in workers] == [-signal.SIGKILL] * 2
 
 
 async def test_a_second_ctrl_c_aborts_only_when_it_comes_later(

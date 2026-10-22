@@ -59,6 +59,7 @@ uv sync                                  # install everything, including dev too
 uv run ruff check . && uv run ruff format --check .
 uv run mypy                              # strict, covers src and tests
 uv run pytest                            # DB tests skip without a test database
+uv run pytest -n auto                    # on every core (pytest-xdist), as CI does
 uv run pytest -m "not slow"              # quick run while iterating
 uv run mailrobbe generate --mails 10000 # test data into data/mbox (see --help)
 docker compose up -d --build             # Postgres + backend on http://127.0.0.1:8000
@@ -75,7 +76,7 @@ npm run lint && npm run format:check && npm run typecheck && npm test
 npm run build                            # frontend/dist, served by `mailrobbe serve`
 ```
 
-Database tests need `MAILROBBE_TEST_DATABASE_URL`, for example `postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe` against `docker compose up -d db`. The tests create and drop their own temporary database on that server and never touch the one they connect to. CI runs them against a Postgres 16 service and sets `MAILROBBE_REQUIRE_DB=1`, which turns the skip into a failure.
+Database tests need `MAILROBBE_TEST_DATABASE_URL`, for example `postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe` against `docker compose up -d db`. The tests create and drop their own temporary database on that server and never touch the one they connect to. CI runs them in four jobs side by side, each against its own Postgres 16 service with `-n auto` (D218), and sets `MAILROBBE_REQUIRE_DB=1`, which turns the skip into a failure.
 
 Check exit codes explicitly (`uv run mypy; echo $?`); piping into `tail` hides a red run.
 

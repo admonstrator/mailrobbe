@@ -127,7 +127,7 @@ Fotos nach ihren GPS-Daten, Orte, die Mails und Anhänge nennen, und die Orte vo
 
 ### Im Team festhalten und weitergeben
 
-Prüfstatus, Markierung, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen an der Mail und sind für alle sichtbar, die mit demselben Mailrobbe arbeiten. Der Export packt bis zu 2.000 Mails in ein ZIP für Justiziariat und Anwälte: Originalmails, PDFs, Manifest und Prüfsummen. Und „Als Bild für Soziale Medien“ unter den Aktionen einer Mail macht aus ihr ein PNG für Artikel und soziale Medien im Look eines Mailprogramms, mit geschwärzten Beteiligten, Adressen, Telefonnummern und Namen. Geschwärzt wird im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr.
+Prüfstatus, Markierung, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen an der Mail und sind für alle sichtbar, die mit demselben Mailrobbe arbeiten. Der Export packt bis zu 2.000 Mails in ein ZIP für Justiziariat und Anwälte: Originalmails, PDFs, Manifest und Prüfsummen. Und „Als Bild für Soziale Medien“ unter den Aktionen einer Mail macht aus ihr ein PNG für Artikel und soziale Medien im Look eines Mailprogramms, mit geschwärzten Beteiligten, Adressen, Telefonnummern und Namen. Geschwärzt wird im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr. Oben in der Fensterleiste steht, woher das Bild kommt: „Exportiert aus Mailrobbe (by admon.me)“.
 
 Mehr Bilder gibt es auf der [Website](https://mailrobbe.admon.me/).
 

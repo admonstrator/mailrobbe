@@ -68,18 +68,23 @@ describe("text recognition on a document", () => {
     expect(posts(calls, "/api/ai/results/77/discard")).toHaveLength(1);
   });
 
-  it("starts the recognition of a scan without a text at once", async () => {
+  it("starts the recognition of a scan without a text at once, beside the download", async () => {
     const { calls } = renderApp(`/anhaenge/${scannedDocument.id}`, api);
-    const card = await screen.findByRole("region", { name: "Texterkennung" });
-    expect(within(card).queryByRole("button", { name: "Text anzeigen" })).toBeNull();
-    fireEvent.click(within(card).getByRole("button", { name: "Text erkennen" }));
-    expect(await within(card).findByText(/Die Texterkennung läuft/)).toBeTruthy();
+    const header = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    const download = within(header).getByRole("link", { name: "Herunterladen" });
+    const button = within(header).getByRole("button", { name: "Text erkennen" });
+    expect(download.parentElement).toBe(button.parentElement);
+    fireEvent.click(button);
+    expect(await within(header).findByText(/Die Texterkennung läuft/)).toBeTruthy();
     expect(posts(calls, "/api/ai/tasks")[0].body).toEqual({
       document_ids: [scannedDocument.id],
       single: true,
       engine: "auto",
       start: true,
     });
+    // the text card has no second one
+    const card = screen.getByRole("region", { name: "Texterkennung" });
+    expect(within(card).queryByRole("button", { name: "Text erkennen" })).toBeNull();
   });
 
   it("shows no text card for a document OCR cannot read", async () => {
