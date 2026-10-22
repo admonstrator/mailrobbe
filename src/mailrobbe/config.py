@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     # Standard blocks (D225): a paragraph at the end of at least this many mails that are no
     # duplicates, used by their senders twice on average, is detected as one at the next import.
     block_min_mails: int = Field(default=25, ge=2)
+    # The detail map (D245, D246): downloaded on request into map_dir, from the newest daily
+    # build of Protomaps ("protomaps"), from the https URL of another PMTiles v3 file, or not at
+    # all ("off"); map_timeout is seconds per request, retries not counted.
+    map_dir: Path = Path("data/maps")
+    map_source: str = "protomaps"
+    map_timeout: float = 60.0
 
 
 def get_settings() -> Settings:

@@ -68,9 +68,16 @@ services:
       MAILROBBE_BLOCK_MIN_MAILS: ${MAILROBBE_BLOCK_MIN_MAILS:-}
       # Converted documents and decoded audio and video for the previews (D124); safe to delete.
       MAILROBBE_PREVIEW_DIR: /data/previews
+      # The detail map (D245, D246): downloaded on request only; "off" offers no download, an
+      # https URL of a PMTiles v3 file replaces the newest Protomaps build.
+      MAILROBBE_MAP_DIR: /data/maps
+      MAILROBBE_MAP_SOURCE: ${MAILROBBE_MAP_SOURCE:-protomaps}
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
       - previews:/data/previews
+      # A volume of its own by default; a host path (MAILROBBE_MAP_HOST_DIR=./data/maps) keeps
+      # the up to 10 GB outside Docker Desktop's disk.
+      - ${MAILROBBE_MAP_HOST_DIR:-maps}:/data/maps
     ports:
       - "127.0.0.1:${MAILROBBE_PORT:-8000}:8000"
     depends_on:
@@ -98,3 +105,4 @@ services:
 volumes:
   pgdata:
   previews:
+  maps:

@@ -425,6 +425,8 @@ export const mailDetail: MailDetail = {
         device: null,
         created: "2026-10-08T15:40:12Z",
         gps: false,
+        latitude: null,
+        longitude: null,
       },
     },
     {
@@ -1871,6 +1873,8 @@ export const documentDetail: DocumentDetail = {
       device: null,
       created: "2026-10-08T15:40:12Z",
       gps: false,
+      latitude: null,
+      longitude: null,
     },
   },
 };
@@ -1924,6 +1928,8 @@ export const imageDocument: DocumentDetail = {
       device: "Canon EOS 80D",
       created: "2026-10-02T12:31:07Z",
       gps: true,
+      latitude: 53.5438333,
+      longitude: 9.9661667,
     },
   },
 };

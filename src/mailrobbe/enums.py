@@ -116,6 +116,7 @@ class JobKind(StrEnum):
     IMPORT = "import"  # mailrobbe import
     DKIM = "dkim"  # mailrobbe dkim
     DKIM_KEYS = "dkim_keys"  # mailrobbe dkim-keys: keys of deleted selectors (D101)
+    MAP = "map"  # mailrobbe map download: the detail map (D246)
 
 
 class JobStatus(StrEnum):
@@ -183,6 +184,15 @@ class DocumentMetadataStatus(StrEnum):
     UNSUPPORTED = "unsupported"  # a format whose metadata Mailrobbe does not read
     TOO_LARGE = "too_large"  # above MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE, not read
     FAILED = "failed"  # damaged, encrypted, or the reader failed; metadata_error says why
+
+
+class PlaceStatus(StrEnum):
+    """entity.place_status and calendar_event.place_status (D242, D243): what the places step
+    found for a place entity or an invitation's location; NULL until it looked."""
+
+    FOUND = "found"  # a point: latitude, longitude and place_label are set
+    AMBIGUOUS = "ambiguous"  # several places of this name, none clearly the one meant
+    UNKNOWN = "unknown"  # no place of the shipped lists
 
 
 class EntityKind(StrEnum):
