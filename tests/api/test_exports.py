@@ -152,11 +152,13 @@ class Archive:
                         error=a["metadata_error"],
                         fields=a["metadata_fields"] or {},
                     ),
+                    protection=a["protection"],
                 )
                 for a in self.attachments[mail["id"]]
             ],
         )
-        return entry.model_dump(mode="json", by_alias=True, exclude={"research", "signals"})
+        exclude: Any = {"research": True, "signals": True, "attachments": {"__all__": {"password"}}}
+        return entry.model_dump(mode="json", by_alias=True, exclude=exclude)
 
 
 @pytest.fixture(scope="module")
@@ -193,8 +195,10 @@ async def _load(url: str, mbox_dir: Path) -> Archive:
             dns = {row["name"]: row for row in await rows("SELECT * FROM dns_cache")}
             attachments: dict[int, list[Row]] = defaultdict(list)
             for row in await rows(
-                "SELECT a.*, d.metadata_status, d.metadata_error, d.metadata_fields"
-                " FROM attachment a LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
+                "SELECT a.*, d.metadata_status, d.metadata_error, d.metadata_fields,"
+                " d.protection::text AS protection"
+                " FROM attachment a LEFT JOIN document d ON d.id = a.document_id"
+                " WHERE a.container_id IS NULL ORDER BY a.id"
             ):
                 attachments[row["mail_id"]].append(row)
     finally:
@@ -345,6 +349,7 @@ async def test_creating_an_export_stores_the_selection(
         "label": "Für Kanzlei Weber",
         "mails": len(order),  # byte-identical copies once
         "include_research": False,
+        "include_passwords": False,
         "created_by": "Lena Vogt",
         "manifest_sha256": None,
         "downloaded_at": None,
@@ -445,6 +450,7 @@ async def test_the_zip_holds_every_mail_with_manifest_and_checksums(
         "include_research": False,
         "mails": len(mails),
         "errors": 0,
+        "include_passwords": False,
     }
     for number, (entry, mail) in enumerate(zip(manifest["mails"], mails, strict=True), 1):
         pdf = export.read(f"{folders[number - 1]}/mail.pdf")
@@ -459,7 +465,7 @@ async def test_the_zip_holds_every_mail_with_manifest_and_checksums(
 
     # manifest.csv: the same per mail, below the export's figures.
     rows = export.csv()
-    assert rows[:8] == [
+    assert rows[:9] == [
         ["Mailrobbe-Export", str(info.id)],
         ["Bezeichnung", "Akte Hafen"],
         ["Erstellt von", "Lena Vogt"],
@@ -467,10 +473,11 @@ async def test_the_zip_holds_every_mail_with_manifest_and_checksums(
         ["Mails", str(len(mails))],
         ["Davon mit Fehler", "0"],
         ["Rechercheangaben", "nein"],
+        ["Kennwörter", "nein"],
         [],
     ]
-    assert tuple(rows[8]) == CSV_HEADER
-    for row, entry in zip(rows[9:], manifest["mails"], strict=True):
+    assert tuple(rows[9]) == CSV_HEADER
+    for row, entry in zip(rows[10:], manifest["mails"], strict=True):
         cells = dict(zip(CSV_HEADER, row, strict=True))
         assert cells["Nr."] == str(entry["number"])
         assert cells["Ordner"] == entry["folder"]
@@ -552,7 +559,7 @@ async def test_research_data_only_on_request(
     manifest = export.manifest()
     assert "selection" not in manifest["export"]
     assert all("research" not in entry for entry in manifest["mails"])
-    assert export.csv()[8] == list(CSV_HEADER)
+    assert export.csv()[9] == list(CSV_HEADER)
     for path in export.paths:
         content = export.pdf_text(path) if path.endswith(".pdf") else export.read(path).decode()
         for secret in ("Kartell", "Akte Hafen", "Quelle B", "Rechercheangaben (intern)"):
@@ -596,19 +603,83 @@ async def test_research_data_only_on_request(
     ]
     rows = export.csv()
     assert rows[6] == ["Rechercheangaben", "ja"]
-    assert tuple(rows[8]) == CSV_HEADER + CSV_RESEARCH_HEADER
-    assert rows[9][len(CSV_HEADER) : -1] == [  # the last column: the signals
+    assert tuple(rows[9]) == CSV_HEADER + CSV_RESEARCH_HEADER
+    assert rows[10][len(CSV_HEADER) : -1] == [  # the last column: the signals
         "Relevant (Lena Vogt, 2025-07-01T12:00:00Z)",
         "ja",
         "Kartell",
         "Akte Hafen",
         "Lena Vogt, 2025-07-01T12:00:00Z: Quelle B bestätigt.",
     ]
-    assert rows[10][len(CSV_HEADER) : -1] == ["Ungesichtet", "nein", "", "", ""]
+    assert rows[11][len(CSV_HEADER) : -1] == ["Ungesichtet", "nein", "", "", ""]
     pdf = export.pdf_text(marked)
     assert "Rechercheangaben (intern)" in pdf
     assert "Quelle B bestätigt." in pdf
     assert "ENTHALTEN" in export.read("LIESMICH.txt").decode()
+
+
+async def test_passwords_only_on_request(
+    mutable_client: httpx.AsyncClient, mutable_database_url: str, archive: Archive
+) -> None:
+    mail = next(
+        archive.mails[mail_id]
+        for mail_id in sorted(archive.attachments)
+        if archive.attachments[mail_id] and archive.mails[mail_id]["is_duplicate_of"] is None
+    )
+    attachment = archive.attachments[mail["id"]][0]
+    finder = next(i for i in sorted(archive.mails) if i != mail["id"])
+    await _execute(
+        mutable_database_url,
+        "INSERT INTO password (value) VALUES ('Hafen-2019')",
+        "INSERT INTO password_finding (password_id, mail_id, context) "
+        "SELECT id, :finder, 'Das Kennwort lautet: Hafen-2019' FROM password "
+        "WHERE value = 'Hafen-2019'",
+        "INSERT INTO document_password (document_id, password_id, finding_id, tier) "
+        "SELECT :document, p.id, f.id, 'thread' FROM password p JOIN password_finding f "
+        "ON f.password_id = p.id WHERE p.value = 'Hafen-2019' "
+        "ON CONFLICT (document_id) DO UPDATE SET password_id = excluded.password_id, "
+        "finding_id = excluded.finding_id, tier = excluded.tier",
+        "UPDATE document SET protection = 'open' WHERE id = :document",
+        finder=finder,
+        document=attachment["document_id"],
+    )
+    selection = {"ids": [mail["id"]]}
+
+    def shown(export: Zip) -> dict[str, Any]:
+        (entry,) = export.manifest()["mails"]
+        found: dict[str, Any] = entry["attachments"][0]
+        return found
+
+    without = await _create(mutable_client, selection)
+    export = Zip(await _download(mutable_client, without), without.id)
+    assert without.include_passwords is False
+    assert export.manifest()["export"]["include_passwords"] is False
+    assert shown(export)["protection"] == "open"
+    assert "password" not in shown(export)
+    rows = export.csv()
+    assert rows[7] == ["Kennwörter", "nein"]
+    assert "verschlüsselt, mit Kennwort geöffnet" in rows[10][CSV_HEADER.index("Anhänge")]
+    for path in export.paths:
+        if not path.endswith(".pdf"):
+            assert b"Hafen-2019" not in export.read(path), path
+    assert "Kennwörter: nicht enthalten" in export.read("LIESMICH.txt").decode()
+
+    included = await _create(mutable_client, {**selection, "include_passwords": True})
+    assert included.include_passwords is True
+    assert (await _listed(mutable_client, included.id)).include_passwords is True
+    export = Zip(await _download(mutable_client, included), included.id)
+    assert export.manifest()["export"]["include_passwords"] is True
+    assert shown(export)["password"] == {
+        "value": "Hafen-2019",
+        "tier": "thread",
+        "found_by": None,
+        "mail_id": finder,
+        "context": "Das Kennwort lautet: Hafen-2019",
+    }
+    rows = export.csv()
+    assert rows[7] == ["Kennwörter", "ja"]
+    assert "verschlüsselt, Kennwort: Hafen-2019" in rows[10][CSV_HEADER.index("Anhänge")]
+    assert "Kennwörter: ENTHALTEN" in export.read("LIESMICH.txt").decode()
 
 
 # Broken sources ------------------------------------------------------------------------------
@@ -673,7 +744,7 @@ async def test_unreadable_mails_are_listed_with_an_error(
     assert export.paths[:2] == [f"{good['folder']}/mail.eml", f"{good['folder']}/mail.pdf"]
     assert len(export.paths) == 6
     assert sorted(export.check_sums()) == sorted(export.paths[:-1])
-    failed = [row for row in export.csv()[9:] if row[CSV_HEADER.index("Fehler")]]
+    failed = [row for row in export.csv()[10:] if row[CSV_HEADER.index("Fehler")]]
     assert len(failed) == 3
     assert "Bei 3 von ihnen fehlen die Dateien" in export.read("LIESMICH.txt").decode()
 
@@ -752,7 +823,7 @@ async def test_signals_go_with_the_research_data(
     without = await _create(mutable_client, selection)
     export = Zip(await _download(mutable_client, without), without.id)
     assert all("signals" not in entry for entry in export.manifest()["mails"])
-    assert "Signale" not in export.csv()[8]
+    assert "Signale" not in export.csv()[9]
     for path in export.paths:
         content = export.pdf_text(path) if path.endswith(".pdf") else export.read(path).decode()
         assert "Wortfeld" not in content, path
@@ -763,8 +834,8 @@ async def test_signals_go_with_the_research_data(
     export = Zip(await _download(mutable_client, included), included.id)
     assert [entry["signals"] for entry in export.manifest()["mails"]] == [names, []]
     rows = export.csv()
-    assert rows[8][-1] == "Signale"
-    assert [row[-1] for row in rows[9:]] == [", ".join(names), ""]
+    assert rows[9][-1] == "Signale"
+    assert [row[-1] for row in rows[10:]] == [", ".join(names), ""]
     assert f"Signale {', '.join(names)}" in export.pdf_text(f"0001-{first['id']}/mail.pdf")
     assert "Signale" not in export.pdf_text(f"0002-{second['id']}/mail.pdf")
     readme = export.read("LIESMICH.txt").decode()

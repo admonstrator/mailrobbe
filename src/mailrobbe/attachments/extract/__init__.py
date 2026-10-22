@@ -13,10 +13,11 @@ XML, JSON, iCalendar, vCard), mail (attached mails), archive (ZIP member names).
 
 from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
 from mailrobbe.attachments.extract import sandbox
 from mailrobbe.attachments.extract.archive import extract_zip
-from mailrobbe.attachments.extract.base import Extractor
+from mailrobbe.attachments.extract.base import Extractor, Sink
 from mailrobbe.attachments.extract.mail import extract_mail
 from mailrobbe.attachments.extract.odf import extract_odf
 from mailrobbe.attachments.extract.ooxml import extract_docx, extract_pptx, extract_xlsx
@@ -78,17 +79,26 @@ EXTRACTORS: dict[str, Extractor] = {
 
 
 def extract_document(
-    data: bytes, filename: str | None, mime_type: str, limits: ExtractionLimits
+    data: bytes,
+    filename: str | None,
+    mime_type: str,
+    limits: ExtractionLimits,
+    password: str | None = None,
 ) -> Extraction:
-    """The text of one document; see the module docstring."""
+    """The text of one document; see the module docstring. A password opens a protected PDF or
+    OOXML file first (D236), in the child process, so the decryption is bounded too."""
     fmt = classify(filename, mime_type, data[:HEAD_SIZE])
     extractor = EXTRACTORS.get(fmt.name) if fmt.extractable else None
     if extractor is None:
         return Extraction(DocumentTextStatus.UNSUPPORTED, kind=fmt.kind)
     if not data:
         return Extraction(DocumentTextStatus.EMPTY, kind=fmt.kind)
+    if password:
+        job = partial(_opened, extractor, data, filename, mime_type, password)
+    else:
+        job = partial(extractor, data)
     outcome = sandbox.run(
-        partial(extractor, data),
+        job,
         timeout=limits.timeout,
         memory=limits.memory,
         max_chars=limits.max_chars,
@@ -101,3 +111,17 @@ def extract_document(
         outcome.error,
         fmt.kind,
     )
+
+
+def _opened(
+    extractor: Extractor,
+    data: bytes,
+    filename: str | None,
+    mime_type: str,
+    password: str,
+    sink: Sink,
+) -> Any:
+    """Decrypt with the password, then extract the plain bytes (runs in the child process)."""
+    from mailrobbe.attachments.protected import decrypted  # it imports this package
+
+    return extractor(decrypted(data, filename, mime_type, password), sink)

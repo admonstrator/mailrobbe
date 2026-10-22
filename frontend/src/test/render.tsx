@@ -5,7 +5,12 @@ import { createMemoryRouter, RouterProvider, type RouteObject } from "react-rout
 import { vi } from "vitest";
 
 import { createQueryClient } from "../api/queries";
-import { PAGE_SIZE, type DkimKeysRunRequest, type SelectorPage } from "../api/types";
+import {
+  PAGE_SIZE,
+  type DkimKeysRunRequest,
+  type MapDownloadRequest,
+  type SelectorPage,
+} from "../api/types";
 import { routes } from "../routes";
 import * as fx from "./fixtures";
 
@@ -52,9 +57,17 @@ function personApi(method: string, url: URL, id: number, endpoint: string | unde
   return notFound("such endpoint");
 }
 
-/** A document page or its text: the contract PDF and the photo exist. */
+/** A document page or its text: the contract PDF, the photo, and the protected and packed ones
+ *  of milestone 19 exist. */
 function documentApi(id: number, endpoint: string | undefined): unknown {
-  const document = [fx.documentDetail, fx.imageDocument].find((candidate) => candidate.id === id);
+  const document = [
+    fx.documentDetail,
+    fx.imageDocument,
+    fx.lockedDocument,
+    fx.openedDocument,
+    fx.containerDocument,
+    fx.memberDocument,
+  ].find((candidate) => candidate.id === id);
   if (!document) return notFound(`document with id ${id}`);
   if (endpoint === undefined) return document;
   return document.text_status === "text"
@@ -158,6 +171,13 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   }
   if (path === "/api/timeline") return timelineFor(url.searchParams);
   if (path === "/api/timeline/first-mentions") return fx.firstMentions;
+  if (path === "/api/documents/passwords") return fx.passwordTryEverywhere;
+  const password = /^\/api\/documents\/(\d+)\/password$/.exec(path);
+  if (password) {
+    return Number(password[1]) === fx.lockedDocument.id
+      ? fx.passwordTryMissed
+      : Response.json({ detail: { code: "not_locked", message: "not locked" } }, { status: 409 });
+  }
   const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);
   if (document) return documentApi(Number(document[1]), document[2]);
   const attachment = /^\/api\/attachments\/\d+\/(content|html)$/.exec(path);
@@ -182,7 +202,39 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   if (signals !== undefined) return signals;
   const topics = topicApi(url);
   if (topics !== undefined) return topics;
+  const places = placeApi(method, url, body);
+  if (places !== undefined) return places;
   return Response.json({ detail: "Not Found" }, { status: 404 });
+}
+
+/** The places and map endpoints (milestone 20), or undefined for other paths: the photo near
+ *  Weimar and the one of the document page have details; a photo list with a point is the
+ *  photos around it, without one the device's. */
+function placeApi(method: string, url: URL, body: unknown): unknown {
+  const path = url.pathname;
+  if (path === "/api/places/summary") return fx.placeSummary;
+  if (path === "/api/places/photos") return fx.photoPoints;
+  if (path === "/api/places/photo-list") {
+    return url.searchParams.has("lat") ? fx.photosNearby : fx.photosOfDevice;
+  }
+  const photo = /^\/api\/places\/photos\/(\d+)$/.exec(path);
+  if (photo) {
+    const found = [fx.photoDetail, fx.photoDetailLocal].find(
+      (candidate) => candidate.document_id === Number(photo[1]),
+    );
+    return found ?? notFound(`photo with id ${photo[1]}`);
+  }
+  if (path === "/api/places/texts") return fx.textPlaces;
+  if (path === "/api/places/events") return fx.eventPlaces;
+  if (path === "/api/map/towns") return fx.towns;
+  if (path === "/api/map/status") return fx.mapStatus;
+  if (path === "/api/map/download" && method === "POST") {
+    const options = { ...fx.mapJobRunning.options, ...(body as MapDownloadRequest) };
+    return Response.json({ ...fx.mapJobRunning, id: 22, options }, { status: 202 });
+  }
+  if (path === "/api/map/download/stop") return { ...fx.mapJobRunning, stop_requested: true };
+  if (path === "/api/map/detail" && method === "DELETE") return new Response(null, { status: 204 });
+  return undefined;
 }
 
 /** Renders routes at path against a fake backend; calls records every request. */

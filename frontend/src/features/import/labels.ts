@@ -38,7 +38,9 @@ export const STEP_LABELS: Record<string, string> = {
   person_stats: "Kennzahlen je Person",
   suggestions: "Alias-Vorschläge",
   global_stats: "Kennzahlen des Archivs",
+  archives: "Archive und angehängte Mails auspacken",
   attachments: "Text aus Anhängen lesen",
+  passwords: "Kennwörter suchen und probieren",
   metadata: "Metadaten aus Anhängen lesen",
   calendar: "Kalendereinladungen lesen",
   near_texts: "Fingerabdrücke der Mailtexte",
@@ -47,6 +49,7 @@ export const STEP_LABELS: Record<string, string> = {
   paragraphs: "Mailtexte in Absätze teilen",
   blocks: "Standardblöcke erkennen",
   entities: "Entitäten erkennen",
+  places: "Orte bestimmen",
   signals: "Signale berechnen",
   topic_terms: "Begriffe zählen",
   topic_labels: "Schreibweisen der Begriffe",
@@ -59,6 +62,10 @@ export const STEP_LABELS: Record<string, string> = {
   search: "Archivtexte nach Schlüsseln durchsuchen",
   fetch: "Schlüsselarchiv abfragen",
   compare: "Mit anderen Quellen abgleichen",
+  // map runs (D246)
+  directories: "Verzeichnis der Kartendatei lesen",
+  tiles: "Kartenkacheln laden",
+  finish: "Detailkarte fertigstellen",
 };
 
 export const stepLabel = (key: string) => STEP_LABELS[key] ?? key;
@@ -68,6 +75,7 @@ const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string,
   documents: ["Dokument", "Dokumente", "Dokumenten"],
   names: ["Selektor", "Selektoren", "Selektoren"],
   domains: ["Domain", "Domains", "Domains"],
+  places: ["Ort", "Orte", "Orten"],
 };
 
 const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });

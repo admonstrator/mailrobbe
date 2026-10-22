@@ -83,7 +83,7 @@ describe("PDF preview", () => {
     postFrom(frame.contentWindow!, { type: "failed", reason: "encrypted" });
     expect(
       screen.getByText(
-        "Dieses PDF ist mit einem Passwort geschützt. Herunterladen und mit dem Passwort öffnen.",
+        "Dieses PDF ist mit einem Kennwort geschützt. Herunterladen und mit dem Kennwort öffnen.",
       ),
     ).toBeTruthy();
     expect(screen.queryByTitle(`PDF-Vorschau von ${NAME}`)).toBeNull();

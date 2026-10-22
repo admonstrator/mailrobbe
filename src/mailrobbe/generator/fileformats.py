@@ -14,9 +14,10 @@ as written; content streams are deflated. Encrypted PDFs use the standard securi
 revision 4 with AES-128 (AESV2), with a user password, as Acrobat writes them. Scanned PDFs
 have pages that show only an image.
 
-Pictures: PNGs drawn here, JPEGs from the photos in media/; noise where every decoder skips it
-(a private PNG chunk, JPEG comment segments) brings them to the planned size and makes each one
-a file of its own. Recordings are the files in media/ as they are, made once with ffmpeg from
+Pictures: PNGs drawn here, JPEGs from the photos in media/, some with the EXIF of a phone or
+camera and its GPS position (exif_segment); noise where every decoder skips it (a private PNG
+chunk, JPEG comment segments) brings them to the planned size and makes each one a file of its
+own. Recordings are the files in media/ as they are, made once with ffmpeg from
 synthetic sources (media/README.md).
 """
 
@@ -30,12 +31,14 @@ import zipfile
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+from mailrobbe.generator.model import PhotoGps
 
 Table = Sequence[Sequence[str | float]]  # rows of cells; floats are amounts (numbers in XLSX)
 
@@ -305,6 +308,20 @@ def zip_bytes(
 ) -> bytes:
     """A ZIP of (name, data, deflate) members, every entry dated `when`; names ending in "/"
     are folders."""
+    return zip_archive(members, when, picture)[0]
+
+
+def zip_archive(
+    members: Sequence[tuple[str, bytes, bool]],
+    when: datetime,
+    picture: Picture | None = None,
+    *,
+    password: str | None = None,
+    rng: random.Random | None = None,
+) -> tuple[bytes, list[tuple[str, bytes]]]:
+    """zip_bytes, and the files it holds as (name, data), the picture included. With a
+    password every file entry is encrypted with the traditional PKWARE encryption (folders stay
+    plain), its 12-byte header drawn from `rng`."""
     stamp = (
         max(when.year, 1980),
         when.month,
@@ -313,6 +330,11 @@ def zip_bytes(
         when.minute,
         when.second // 2 * 2,
     )
+    if password is not None:
+        assert rng is not None, "an encrypted ZIP draws its headers from rng"
+        return _encrypted_zip(members, stamp, picture, password.encode("ascii"), rng)
+
+    files: list[tuple[str, bytes]] = []
 
     def add(archive: zipfile.ZipFile, name: str, data: bytes, deflate: bool) -> None:
         info = zipfile.ZipInfo(name, date_time=stamp)
@@ -320,6 +342,8 @@ def zip_bytes(
         info.external_attr = 0x10 if name.endswith("/") else 0
         info.compress_type = zipfile.ZIP_DEFLATED if deflate else zipfile.ZIP_STORED
         archive.writestr(info, data)
+        if not name.endswith("/"):
+            files.append((name, data))
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -333,9 +357,106 @@ def zip_bytes(
             length = picture.size - used - _ZIP_ENTRY - 2 * len(picture.name.encode())
             length = max(length, picture.least)
             if length > 0:
-                magic = _JPEG if picture.name.endswith((".jpg", ".jpeg")) else _PNG
-                add(archive, picture.name, filler(picture.rng, length, magic), False)
-    return buffer.getvalue()
+                add(archive, picture.name, _picture_bytes(picture, length), False)
+    return buffer.getvalue(), files
+
+
+def _picture_bytes(picture: Picture, length: int) -> bytes:
+    magic = _JPEG if picture.name.endswith((".jpg", ".jpeg")) else _PNG
+    return filler(picture.rng, length, magic)
+
+
+# Traditional PKWARE encryption (APPNOTE.TXT 6.1), the counterpart of zipfile's _ZipDecrypter.
+_CRC_TABLE = tuple(
+    functools.reduce(lambda c, _: (c >> 1) ^ 0xEDB88320 if c & 1 else c >> 1, range(8), n)
+    for n in range(256)
+)
+_ENCRYPTION_HEADER = 12
+
+
+class _ZipCrypto:
+    def __init__(self, password: bytes) -> None:
+        self._keys = [0x12345678, 0x23456789, 0x34567890]
+        for byte in password:
+            self._update(byte)
+
+    def _update(self, byte: int) -> None:
+        keys = self._keys
+        keys[0] = (keys[0] >> 8) ^ _CRC_TABLE[(keys[0] ^ byte) & 0xFF]
+        keys[1] = ((keys[1] + (keys[0] & 0xFF)) * 134775813 + 1) & 0xFFFFFFFF
+        keys[2] = (keys[2] >> 8) ^ _CRC_TABLE[(keys[2] ^ (keys[1] >> 24)) & 0xFF]
+
+    def encrypt(self, data: bytes) -> bytes:
+        k0, k1, k2 = self._keys
+        table = _CRC_TABLE
+        out = bytearray(len(data))
+        for index, byte in enumerate(data):
+            mixed = k2 | 2
+            out[index] = byte ^ ((mixed * (mixed ^ 1)) >> 8) & 0xFF
+            k0 = (k0 >> 8) ^ table[(k0 ^ byte) & 0xFF]
+            k1 = ((k1 + (k0 & 0xFF)) * 134775813 + 1) & 0xFFFFFFFF
+            k2 = (k2 >> 8) ^ table[(k2 ^ (k1 >> 24)) & 0xFF]
+        self._keys = [k0, k1, k2]
+        return bytes(out)
+
+
+def _encrypted_zip(
+    members: Sequence[tuple[str, bytes, bool]],
+    stamp: tuple[int, int, int, int, int, int],
+    picture: Picture | None,
+    password: bytes,
+    rng: random.Random,
+) -> tuple[bytes, list[tuple[str, bytes]]]:
+    """The ZIP written by hand, as zipfile lays it out, with every file entry encrypted."""
+    year, month, day, hour, minute, second = stamp
+    dos_time = hour << 11 | minute << 5 | second // 2
+    dos_date = (year - 1980) << 9 | month << 5 | day
+    entries = list(members)
+    if picture is not None:
+        names = [*(name for name, _, _ in entries), picture.name]
+        files = sum(not name.endswith("/") for name in names)
+        used = sum(_ZIP_ENTRY + 2 * len(name.encode()) for name, _, _ in entries) + _ZIP_END
+        used += _ENCRYPTION_HEADER * files
+        used += sum(len(_compressed(data, deflate)) for _, data, deflate in entries)
+        length = picture.size - used - _ZIP_ENTRY - 2 * len(picture.name.encode())
+        length = max(length, picture.least)
+        if length > 0:
+            entries.append((picture.name, _picture_bytes(picture, length), False))
+    out = bytearray()
+    central = bytearray()
+    found: list[tuple[str, bytes]] = []
+    for name, data, deflate in entries:
+        raw_name = name.encode()
+        folder = name.endswith("/")
+        flags = (0 if raw_name.isascii() else 0x800) | (0 if folder else 1)
+        method = zipfile.ZIP_DEFLATED if deflate and not folder else zipfile.ZIP_STORED
+        crc = zlib.crc32(data)
+        payload = _compressed(data, method == zipfile.ZIP_DEFLATED)
+        if not folder:
+            header = rng.randbytes(_ENCRYPTION_HEADER - 1) + bytes([crc >> 24])
+            payload = _ZipCrypto(password).encrypt(header + payload)
+            found.append((name, data))
+        fields = (20, flags, method, dos_time, dos_date, crc, len(payload), len(data))
+        offset = len(out)
+        out += struct.pack("<4s5HL2L2H", b"PK\x03\x04", *fields, len(raw_name), 0)
+        out += raw_name + payload
+        central += struct.pack(
+            "<4s6HL2L5HLL", b"PK\x01\x02", 20, *fields, len(raw_name), 0, 0, 0, 0,
+            0x10 if folder else 0, offset,
+        )  # fmt: skip
+        central += raw_name
+    count = len(entries)
+    out += central + struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, count, count, len(central),
+                                 len(out), 0)  # fmt: skip
+    return bytes(out), found
+
+
+def _compressed(data: bytes, deflate: bool) -> bytes:
+    """Deflate as zipfile writes it (default level, raw stream), or the data as it is."""
+    if not deflate:
+        return data
+    compressor = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
+    return compressor.compress(data) + compressor.flush()
 
 
 _XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
@@ -868,18 +989,98 @@ def _png_chunk(kind: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
 
 
-def jpeg(rng: random.Random, size: int, *, damaged: bool = False) -> bytes:
+def jpeg(rng: random.Random, size: int, *, damaged: bool = False, exif: bytes = b"") -> bytes:
     """A photo of media/ (made with ffmpeg) of about `size` bytes: comment segments of noise
-    after its JFIF header make up the rest, so every photo has bytes of its own. A damaged one
-    stops inside them, before the frame header."""
+    after its JFIF header (and its EXIF, exif_segment) make up the rest, so every photo has
+    bytes of its own. A damaged one stops inside them, before the frame header."""
     photo = fixture(f"jpeg-{rng.randint(1, _PHOTOS)}.jpeg")
     start = 4 + int.from_bytes(photo[4:6], "big")  # behind SOI and APP0
-    pad = max(size - len(photo), 64)
+    pad = max(size - len(photo) - len(exif), 64)
     noise = filler(rng, pad - 4 * -(-pad // (_COMMENT + 4)), b"")
     comments = b"".join(
         b"\xff\xfe" + struct.pack(">H", len(piece) + 2) + piece
         for piece in (noise[i : i + _COMMENT] for i in range(0, len(noise), _COMMENT))
     )
     if damaged:
-        return photo[:start] + comments[: rng.randint(5, len(comments) - 1)]
-    return photo[:start] + comments + photo[start:]
+        return photo[:start] + exif + comments[: rng.randint(5, len(comments) - 1)]
+    return photo[:start] + exif + comments + photo[start:]
+
+
+# EXIF (D241) --------------------------------------------------------------------------------
+
+_BYTE, _ASCII, _LONG, _RATIONAL = 1, 2, 4, 5
+_SIZES = {_BYTE: 1, _ASCII: 1, _LONG: 4, _RATIONAL: 8}
+_Entry = tuple[int, int, bytes]  # tag, type, its values as written
+
+
+def exif_segment(gps: PhotoGps) -> bytes:
+    """The APP1 segment of a phone's or camera's photo: make and model (IFD0), the time taken
+    and its UTC offset (Exif IFD), and the position as degrees, minutes and seconds with the
+    altitude and the GPS time in UTC (GPS IFD), little-endian as phones write it."""
+    utc = gps.taken - timedelta(hours=int(gps.offset[:3]), minutes=int(gps.offset[4:]))
+    ifd0 = [_text(0x010F, gps.make), _text(0x0110, gps.model)]
+    exif = [_text(0x9003, f"{gps.taken:%Y:%m:%d %H:%M:%S}"), _text(0x9011, gps.offset)]
+    position = [
+        (0x0000, _BYTE, bytes((2, 3, 0, 0))),
+        _text(0x0001, "N" if gps.latitude >= 0 else "S"),
+        (0x0002, _RATIONAL, _rationals(*_dms(gps.latitude))),
+        _text(0x0003, "E" if gps.longitude >= 0 else "W"),
+        (0x0004, _RATIONAL, _rationals(*_dms(gps.longitude))),
+        (0x0005, _BYTE, b"\x00"),
+        (0x0006, _RATIONAL, _rationals((round(gps.altitude * 10), 10))),
+        (0x0007, _RATIONAL, _rationals((utc.hour, 1), (utc.minute, 1), (utc.second, 1))),
+        _text(0x001D, f"{utc:%Y:%m:%d}"),
+    ]
+    body = b"Exif\x00\x00" + _tiff(ifd0, exif, position)
+    return b"\xff\xe1" + struct.pack(">H", len(body) + 2) + body
+
+
+def _dms(value: float) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    """Degrees, minutes and thousandths of seconds of a coordinate, without its sign."""
+    thousandths = round(abs(value) * 3_600_000)
+    degrees, rest = divmod(thousandths, 3_600_000)
+    minutes, seconds = divmod(rest, 60_000)
+    return (degrees, 1), (minutes, 1), (seconds, 1000)
+
+
+def dms_degrees(value: float) -> float:
+    """The coordinate as a reader computes it back from exif_segment's rationals, rounded to
+    seven places as attachments.metadata.exif stores it, with its sign."""
+    (degrees, _), (minutes, _), (seconds, scale) = _dms(value)
+    found = round(degrees / 1 + minutes / 1 / 60 + seconds / scale / 3600, 7)
+    return -found if value < 0 else found
+
+
+def _text(tag: int, value: str) -> _Entry:
+    return tag, _ASCII, value.encode("ascii") + b"\x00"
+
+
+def _rationals(*pairs: tuple[int, int]) -> bytes:
+    return b"".join(struct.pack("<II", numerator, denominator) for numerator, denominator in pairs)
+
+
+def _tiff(ifd0: list[_Entry], exif: list[_Entry], gps: list[_Entry]) -> bytes:
+    """A TIFF structure: IFD0 pointing to the Exif and GPS IFDs, then the values that do not fit
+    into an entry."""
+
+    def size(entries: list[_Entry]) -> int:
+        return 2 + 12 * len(entries) + 4
+
+    exif_at = 8 + size(ifd0) + 2 * 12
+    gps_at = exif_at + size(exif)
+    first = [*ifd0, (0x8769, _LONG, struct.pack("<I", exif_at)),
+             (0x8825, _LONG, struct.pack("<I", gps_at))]  # fmt: skip
+    data = bytearray()
+    data_at = gps_at + size(gps)
+    tables = bytearray()
+    for entries in (first, exif, gps):
+        tables += struct.pack("<H", len(entries))
+        for tag, kind, value in sorted(entries):
+            count = len(value) // _SIZES[kind]
+            if len(value) <= 4:
+                tables += struct.pack("<HHI", tag, kind, count) + value.ljust(4, b"\x00")
+            else:
+                tables += struct.pack("<HHII", tag, kind, count, data_at + len(data))
+                data += value + b"\x00" * (len(value) % 2)  # values start on a word
+        tables += struct.pack("<I", 0)
+    return b"II*\x00" + struct.pack("<I", 8) + bytes(tables) + bytes(data)

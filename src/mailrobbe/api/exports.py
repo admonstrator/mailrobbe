@@ -41,6 +41,7 @@ async def create_export(
         label=request.label.strip(),
         selection=request.model_dump(mode="json", include={"ids", "filters"}, exclude_unset=True),
         include_research=request.include_research,
+        include_passwords=request.include_passwords,
         mail_sha256=list(dict.fromkeys(mail.raw_sha256 for mail in mails)),
         created_by=editor,
     )
@@ -111,6 +112,7 @@ def _info(export: MailExport) -> ExportInfo:
         label=export.label,
         mails=len(export.mail_sha256),
         include_research=export.include_research,
+        include_passwords=export.include_passwords,
         created_by=export.created_by,
         created_at=export.created_at,
         manifest_sha256=export.manifest_sha256,

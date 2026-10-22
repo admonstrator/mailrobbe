@@ -161,6 +161,43 @@ segments and its paragraphs; writes take the editor from X-Mailrobbe-Editor (D54
     PUT    /api/blocks/{hash}/override           BlockOverrideUpdate -> BlockInfo (D225);
                                                  400 invalid_block
 
+Milestone 19 (D230 to D239): protected and packed attachments. AttachmentInfo has a container's
+members and the protection, DocumentFilters and DocumentSummary the protection, DocumentDetail the
+password with where it was found, the container's entries and the containers holding it,
+ExportRequest include_passwords; writes take the editor from X-Mailrobbe-Editor (D54):
+
+    POST /api/documents/{id}/password            PasswordTry -> PasswordTryResult: a typed-in
+                                                 password tried on one locked document (D237);
+                                                 409 not_locked
+    POST /api/documents/passwords                PasswordTry -> PasswordTryResult: on every
+                                                 locked document
+    GET  /api/attachments/{id}/content?decrypted=true  the opened document's bytes decrypted,
+                                                 made for the download and never stored (D209);
+                                                 409 not_locked, 422 decrypt_failed
+
+Places (milestone 20, D240 to D249). The map's filters are PlaceParams: the mail filters, which
+a mail carrying the photo, mentioning the place or carrying the invitation must meet, and the
+photo's capture time and device. MailFilters has photo_area, MetadataSummary the position:
+
+    GET    /api/places/summary                   PlaceSummary: photos, devices, the places
+                                                 step's figures
+    GET    /api/places/photos?PlaceParams        PhotoPoints: the photos with a position (D247)
+    GET    /api/places/photos/{id}               PhotoDetail of one document with a position,
+                                                 its mails and the nearest town (D248)
+    GET    /api/places/photo-list?PhotoListParams  PhotoList: around a point, nearest first, or
+                                                 by capture time (D248)
+    GET    /api/places/texts?PlaceParams         TextPlaces: places named in the mails (D242)
+    GET    /api/places/events?PlaceParams        EventPlaces: places of invitations (D243)
+    GET    /api/map/towns                        list[TownLabel], the overview map's labels (D244)
+    GET    /api/map/status                       MapStatus: the detail map, the offer, the run
+    POST   /api/map/download                     MapDownloadRequest -> 202 MapJob (D246); 409
+                                                 map_off, job_running for a map run alive
+    POST   /api/map/download/stop                MapJob, its stop requested
+    DELETE /api/map/detail                       204; the detail map and a stopped download's
+                                                 part are deleted; 409 job_running
+    GET    /api/map/tiles/{file}                 the detail map's PMTiles file, with Range
+                                                 requests (206, 416, ETag); 404 for any other
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -190,7 +227,10 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMembersStatus,
+    DocumentMemberStatus,
     DocumentMetadataStatus,
+    DocumentProtection,
     DocumentTextStatus,
     EntityKind,
     ImportErrorKind,
@@ -202,11 +242,20 @@ from mailrobbe.enums import (
     LookupOutcome,
     MboxStatus,
     ParticipationRole,
+    PasswordTier,
     PersonKind,
     ReviewStatus,
 )
 from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
 from mailrobbe.persons.suggestions import SuggestionReason
+from mailrobbe.places.model import (
+    BBox,
+    MapDetailKey,
+    MapOptions,
+    MapPhase,
+    MapProgress,
+    MapRegionKey,
+)
 from mailrobbe.preview.kinds import PreviewKind
 from mailrobbe.social.model import TERM_LIMIT, TERMS_LIMIT, CardShape, RedactionKind
 
@@ -270,6 +319,8 @@ BodyPart = Literal["clean", "own", "full"]
 PROXIMITY_LIMIT = 20  # the largest N of "a b"~N (D229)
 # A paragraph's hash: 16 lower-case hex digits (blocks.model).
 BLOCK_HASH_PATTERN = r"^[0-9a-f]{16}$"
+# An area of the map (D248): west,south,east,north in decimal degrees.
+AREA_PATTERN = r"^-?\d{1,3}(\.\d+)?(,-?\d{1,3}(\.\d+)?){3}$"
 # Tabs of a person's mail list (D29, D32): sent = From; received = To, Cc or Bcc but not From;
 # cc = Cc only (neither From, To nor Bcc).
 PersonRole = Literal["sent", "received", "cc"]
@@ -303,6 +354,9 @@ ErrorCode = Literal[
     "invalid_rule",  # 400: a hide rule without any criterion, or one that cannot be used (D221)
     "invalid_block",  # 400: a sample that is no paragraph of this hash, or none where needed
     "page_too_far",  # 400: a jump to a page did not answer within the count budget (D193)
+    "not_locked",  # 409: the document is not locked, or (decrypted) has no password found yet
+    "decrypt_failed",  # 422: the found password did not decrypt it; message says why
+    "map_off",  # 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
 ]
 
 
@@ -369,6 +423,9 @@ class MailFilters(BaseModel):
     include_hidden: bool = False
     body_part: BodyPart = "clean"
     block: str | None = Field(default=None, pattern=BLOCK_HASH_PATTERN)
+    # Milestone 20 (D248): the mail carries a photo whose position lies in this area,
+    # "west,south,east,north" in decimal degrees; west above east crosses the 180th meridian.
+    photo_area: str | None = Field(default=None, pattern=AREA_PATTERN)
 
 
 class MailOrderParams(MailFilters):
@@ -639,6 +696,9 @@ class MetadataSummary(BaseModel):
     device: str | None = None  # camera or scanner: Make and Model
     created: datetime | None = None  # when the file says it was made or taken, UTC
     gps: bool = False  # the file names a place (EXIF GPS)
+    # The position it states (D241): decimal degrees, south and west negative; None without one.
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class AttachmentInfo(BaseModel):
@@ -655,6 +715,13 @@ class AttachmentInfo(BaseModel):
     document_mails: int | None = None  # mails carrying the document, duplicates not counted
     preview: PreviewKind | None = None  # how the browser shows it (D120); None: download only
     metadata: MetadataSummary | None = None  # what the file says about itself (D167)
+    # Locked: it needs a password; open: one was found (D233). None: not protected.
+    protection: DocumentProtection | None = None
+    path: str | None = None  # a member's path inside its container (D231); None otherwise
+    # A container (ZIP, 7z, attached mail): whether it was unpacked, and its entries that became
+    # documents, in the container's order (D231); None and [] for any other attachment.
+    members_status: DocumentMembersStatus | None = None
+    members: list["AttachmentInfo"] = []
 
 
 class ThreadMail(BaseModel):
@@ -1634,6 +1701,7 @@ class ExportRequest(MailSelection):
     """An export of the selected mails, oldest first (D62)."""
 
     include_research: bool = False  # notes, tags, status and Akten in PDFs and manifest
+    include_passwords: bool = False  # the passwords that opened attachments (D208)
     label: str = Field(
         default="", max_length=LABEL_LIMIT
     )  # e.g. the Akte's name, for the export log
@@ -1644,6 +1712,7 @@ class ExportInfo(BaseModel):
     label: str
     mails: int
     include_research: bool
+    include_passwords: bool = False
     created_by: str | None
     created_at: datetime
     # SHA-256 of the ZIP's SHA256SUMS (which lists every other file) at the first complete
@@ -1700,6 +1769,7 @@ DocumentSort = Literal["recent", "oldest", "mails", "size"]  # first seen, newes
 DOCUMENT_NAMES_LIMIT = 20  # file names listed in DocumentDetail
 DOCUMENT_PERSONS_LIMIT = 10  # senders and recipients listed in DocumentDetail
 SNIPPET_LENGTH = 240  # characters of DocumentListItem.snippet
+PASSWORD_LENGTH = 128  # characters of a typed-in password (passwords.candidates)
 
 
 class DocumentFilters(BaseModel):
@@ -1723,6 +1793,7 @@ class DocumentFilters(BaseModel):
     # and .software as stored); empty: all.
     author: list[str] = []
     program: list[str] = []
+    protection: list[DocumentProtection] = []  # any of these (D233); empty: all
 
 
 class DocumentListParams(DocumentFilters):
@@ -1751,6 +1822,8 @@ class DocumentListItem(BaseModel):
     # With full text words in q: the extracted text around the first place one of them occurs
     # literally, at most SNIPPET_LENGTH characters; None otherwise or when none occurs as typed.
     snippet: str | None = None
+    protection: DocumentProtection | None = None  # D233
+    contained: bool = False  # it was found inside a container (D231)
 
 
 class DocumentPage(BaseModel):
@@ -1779,6 +1852,7 @@ class DocumentSummary(BaseModel):
     # METADATA_VALUES_LIMIT each; None: ran out of time.
     authors: list[MetadataValueCount] | None = None
     programs: list[MetadataValueCount] | None = None
+    protection: dict[DocumentProtection, int] | None = None  # every protection, 0 if none (D233)
 
 
 class DocumentNameCount(BaseModel):
@@ -1810,6 +1884,74 @@ class DocumentMetadata(BaseModel):
     summary: MetadataSummary | None  # the values the list filters by; None without fields
 
 
+# Protected and packed attachments (milestone 19, D230 to D239) ------------------------------
+
+
+class DocumentRef(BaseModel):
+    id: int
+    name: str | None
+
+
+class PasswordFinding(BaseModel):
+    """Where a password stands (D208): in a mail, in a document's text, or typed in by hand."""
+
+    id: int
+    context: str  # the line(s) around it, as written
+    mail: ThreadMail | None  # the mail it was found in
+    recipients: list[PersonRef] = []  # that mail's To, at most RECIPIENT_PREVIEW
+    document: DocumentRef | None = None  # the document whose text holds it
+    editor: str | None = None  # typed in by hand by this editor (D237)
+    created_at: datetime
+
+
+class DocumentPassword(BaseModel):
+    """The password that opened a document (D236), in plain text as evidence (D208)."""
+
+    value: str
+    tier: PasswordTier  # where it was found, nearest first (D235)
+    found_at: datetime
+    found_by: str | None  # the editor who typed it in (tier typed)
+    finding: PasswordFinding | None  # where it was found; None when that is not known
+
+
+class DocumentMember(BaseModel):
+    """One entry of a container (D231)."""
+
+    position: int
+    path: str
+    size: int | None  # unpacked, as declared or read
+    status: DocumentMemberStatus  # document: it became a member document
+    error: str | None  # English, technical
+    document_id: int | None  # the member document, once finalize assigned it
+    kind: DocumentKind | None = None
+    text_status: DocumentTextStatus | None = None
+    protection: DocumentProtection | None = None
+
+
+class DocumentMembers(BaseModel):
+    status: DocumentMembersStatus | None  # None: not unpacked yet (the next import's archives)
+    error: str | None  # English, technical: why it failed, or the entries not listed
+    entries: list[DocumentMember]  # in the container's order
+
+
+class DocumentContainerRef(BaseModel):
+    document_id: int  # the container document
+    name: str | None
+    path: str  # where the document sits in it
+
+
+class PasswordTry(BaseModel):
+    # as typed; white space around it is left out (passwords hold none, D234)
+    password: str = Field(min_length=1, max_length=PASSWORD_LENGTH, pattern=r"\S")
+
+
+class PasswordTryResult(BaseModel):
+    tried: int  # locked documents the password was tried on
+    opened: list[int]  # the documents it opened, now open with their text; a container is
+    # unpacked by the next import, an opened document's metadata read by it too
+    errors: int = 0  # documents that could not be read or tried (missing MBOX file, damage)
+
+
 class DocumentDetail(BaseModel):
     id: int
     name: str | None
@@ -1835,6 +1977,16 @@ class DocumentDetail(BaseModel):
     attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
     preview: PreviewKind | None  # how the browser shows it (D120); None: download only
     metadata: DocumentMetadata  # what the file says about itself (D167)
+    # Protection (D233 to D237). password_trial: a password can be tried on it (PDF, OOXML, ZIP,
+    # 7z; not ODF, D239). password_tries: passwords tried on it by the imports, last at
+    # password_tried_at. password: the one that opened it, with where it was found.
+    protection: DocumentProtection | None = None
+    password_trial: bool = False
+    password_tries: int = 0
+    password_tried_at: datetime | None = None
+    password: DocumentPassword | None = None
+    members: DocumentMembers | None = None  # a container's entries (D231); None otherwise
+    containers: list[DocumentContainerRef] = []  # where it was found inside (D231)
 
 
 class DocumentText(BaseModel):
@@ -2370,7 +2522,7 @@ class TopicClusters(BaseModel):
 # per research theme (signals.model). Figures count the mails that are no duplicates, as of the
 # last signals phase of an import (D135); filters and facets read mail_signal as it is.
 
-SignalGroup = Literal["addresses", "recipients", "time", "wording", "persons"]
+SignalGroup = Literal["addresses", "recipients", "time", "attachments", "wording", "persons"]
 SIGNAL_SENDERS = 5  # senders listed per signal in SignalOverview
 SILENT_LISTED = 50  # persons fallen silent listed in SignalOverview
 SIGNAL_DOMAINS = 10  # sender domains offered as a help for MAILROBBE_INTERNAL_DOMAINS
@@ -2450,6 +2602,9 @@ class SignalReason(BaseModel):
     forward_prefix: str | None  # forward, forward_out: the subject's prefix as written ("WG")
     forwarded_mail: str | None  # forward, forward_out: an attached mail's file name ("" unnamed)
     terms: list[EntityRef]  # term signals: the theme's terms found in the mail or attachments
+    # encrypted_attachment: the mail's protected documents; password_separate: the documents of
+    # other mails its password opened (D238); empty otherwise.
+    documents: list[DocumentRef] = []
 
 
 class MailSignals(BaseModel):
@@ -2543,3 +2698,249 @@ class BlockOverrideUpdate(BaseModel):
 
     standard: bool | None
     sample: str | None = None
+
+
+# Places (milestone 20, D240 to D249) ---------------------------------------------------------
+
+PHOTO_POINT_LIMIT = 20_000  # photos PhotoPoints draws at most (D248)
+TEXT_PLACE_LIMIT = 2_000  # places TextPlaces and EventPlaces draw at most
+PHOTO_MAILS_LIMIT = 20  # mails a PhotoDetail lists, earliest first
+PHOTO_LIST_LIMIT = 200  # photos a PhotoList lists at most
+PLACE_LOCATIONS_LIMIT = 5  # locations as written per EventPlace
+PLACE_EVENTS_LIMIT = 10  # events per EventPlace
+DEVICE_LIMIT = 200  # devices in PlaceSummary, most photos first
+RADIUS_LIMIT_KM = 200.0  # the largest radius of "Fotos im Umkreis"
+# A compass direction in German (N, NO, O, SO, S, SW, W, NW): from the nearest town towards the
+# photo.
+CompassDirection = Literal["N", "NO", "O", "SO", "S", "SW", "W", "NW"]
+PlaceDetailKind = Literal["city", "country"]  # entity.detail of a place (D81)
+
+
+class PlaceParams(MailFilters):
+    """The map's filters (D247): a photo shows when one mail carrying it meets the mail
+    filters, a place when mails meeting them mention it, an invitation's place when its mail
+    meets them; and the photo's own capture time (D241) and device."""
+
+    taken_from: date | None = None  # UTC day of the capture time, inclusive; photos without a
+    taken_to: date | None = None  # capture time never match either
+    device: str | None = None  # the photo's device (metadata_device) exactly
+
+
+class PhotoPoint(BaseModel):
+    id: int  # document id
+    lat: float
+    lon: float
+
+
+class PhotoPoints(BaseModel):
+    points: list[PhotoPoint]  # by document id, at most PHOTO_POINT_LIMIT
+    total: int  # photos matching
+    truncated: bool  # total is above PHOTO_POINT_LIMIT
+
+
+class PlaceMail(BaseModel):
+    id: int
+    date: datetime | None
+    subject: str | None
+    sender: PersonRef | None
+    recipients: list[PersonRef]  # To, then Cc, then Bcc; at most RECIPIENT_PREVIEW
+    recipient_count: int
+
+
+class NearestTown(BaseModel):
+    """The town of the shipped lists nearest to a photo (D248), within 50 km."""
+
+    name: str
+    region: str | None  # Bundesland, Kanton
+    country: str  # ISO 3166-1 alpha-2
+    distance_km: float
+    direction: CompassDirection | None  # None within 0.5 km of the town
+
+
+class PhotoDetail(BaseModel):
+    """GET /api/places/photos/{id}: one document with a position (D248)."""
+
+    document_id: int
+    attachment_id: int  # the occurrence /api/attachments/{id}/content reads it from
+    name: str | None
+    mime_type: str
+    preview: PreviewKind | None  # image: the browser shows it (D120)
+    latitude: float
+    longitude: float
+    altitude: float | None  # metres, below sea level negative
+    taken_at: datetime | None  # the capture time (D241), UTC
+    taken_text: str | None  # the capture time as found when the file gives no zone
+    device: str | None
+    nearest: NearestTown | None
+    mails: list[PlaceMail]  # the mails carrying it, earliest first, at most PHOTO_MAILS_LIMIT;
+    mail_count: int  # duplicates and hidden mails included (D222: the detail shows everything)
+
+
+class PhotoListParams(PlaceParams):
+    """The photos around a point (lat and lon, nearest first) or, without a point, every photo
+    matching the filters by capture time, earliest first (with device: one device's photos)."""
+
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
+    radius_km: float = Field(default=2.0, gt=0, le=RADIUS_LIMIT_KM)
+    limit: int = Field(default=50, ge=1, le=PHOTO_LIST_LIMIT)
+
+
+class PhotoListItem(BaseModel):
+    document_id: int
+    attachment_id: int
+    name: str | None
+    latitude: float
+    longitude: float
+    taken_at: datetime | None
+    device: str | None
+    distance_km: float | None  # from the point; None without one
+    first_mail: PlaceMail | None  # the earliest mail carrying it that meets the filters
+
+
+class PhotoList(BaseModel):
+    items: list[PhotoListItem]
+    total: int  # photos matching
+    truncated: bool  # total is above limit
+
+
+class TextPlace(BaseModel):
+    entity_id: int
+    label: str  # as the texts write it (entity.label)
+    place: str  # what the point stands for (entity.place_label)
+    detail: PlaceDetailKind
+    lat: float
+    lon: float
+    mails: int  # mails meeting the filters that mention it (of the sample when not exact)
+
+
+class TextPlaces(BaseModel):
+    places: list[TextPlace]  # most mails first, at most TEXT_PLACE_LIMIT
+    total: int  # places with a point mentioned by the mails counted
+    exact: bool  # False: counted over FACET_MAILS of the matching mails (D87)
+
+
+class PlaceEvent(BaseModel):
+    event_id: int
+    mail_id: int
+    kind: EventKey
+    summary: str | None
+    location: str | None  # as written
+    starts_at: datetime | None  # UTC; None when the zone is unknown
+    starts_local: datetime | None  # as written, without a zone
+    all_day: bool
+    uid: str | None
+
+
+class EventPlace(BaseModel):
+    lat: float
+    lon: float
+    place: str  # what the point stands for
+    locations: list[str]  # the locations as written, most events first, at most
+    events: int  # events at this point whose mail meets the filters
+    first: datetime | None  # the earliest and latest start (starts_at) of those
+    last: datetime | None
+    samples: list[PlaceEvent]  # the latest ones, at most PLACE_EVENTS_LIMIT
+
+
+class EventPlaces(BaseModel):
+    places: list[EventPlace]  # most events first, at most TEXT_PLACE_LIMIT
+    total: int  # points with events
+
+
+class PlaceCounts(BaseModel):
+    """What the places step found for place entities or invitation locations (D242, D243)."""
+
+    found: int
+    ambiguous: int
+    unknown: int
+    waiting: int  # not looked at yet: the next import run's step places
+
+
+class DeviceCount(BaseModel):
+    device: str
+    photos: int
+
+
+class PlaceSummary(BaseModel):
+    photos: int  # documents with a position
+    photos_dated: int  # of those, with a capture time
+    devices: list[DeviceCount]  # most photos first, at most DEVICE_LIMIT
+    texts: PlaceCounts  # place entities
+    events: PlaceCounts  # calendar events with a location
+    outdated: bool  # the lists or rules changed since the last step places (D242)
+    computed_at: datetime | None  # end of the last step places; None: never ran
+
+
+class TownLabel(BaseModel):
+    """A town the overview map labels (D244)."""
+
+    name: str
+    lat: float
+    lon: float
+    population: int
+    country: str  # ISO 3166-1 alpha-2
+    capital: bool
+
+
+class MapRegionInfo(BaseModel):
+    key: MapRegionKey  # a preset region, never view
+    bbox: BBox  # west, south, east, north
+    sizes: dict[MapDetailKey, int]  # bytes of each detail on the build of size_hints_build
+
+
+class MapDetailInfo(BaseModel):
+    key: MapDetailKey
+    max_zoom: int
+
+
+class DetailMap(BaseModel):
+    """The detail map in MAILROBBE_MAP_DIR (D245)."""
+
+    url: str  # /api/map/tiles/<file>, which the browser reads by range requests
+    region: MapRegionKey
+    bbox: BBox
+    detail: MapDetailKey
+    max_zoom: int
+    build: str | None  # the Protomaps build, e.g. "20261022"; None for another source
+    source_url: str  # the PMTiles file it was taken from
+    size: int  # bytes of the file
+    tiles: int
+    downloaded_at: datetime
+
+
+class MapPartial(BaseModel):
+    """A download that stopped: the next run with the same options continues it (D246)."""
+
+    region: MapRegionKey
+    bbox: BBox
+    detail: MapDetailKey
+    build: str | None
+    bytes_done: int
+    bytes_total: int
+
+
+class MapJob(JobInfo):
+    """A run of `mailrobbe map download` (D246)."""
+
+    phase: MapPhase | None
+    options: MapOptions
+    progress: MapProgress
+
+
+class MapStatus(BaseModel):
+    offered: bool  # MAILROBBE_MAP_SOURCE is not off
+    source_host: str | None  # the host a download asks (build.protomaps.com); None when off
+    detail_map: DetailMap | None
+    partial: MapPartial | None
+    regions: list[MapRegionInfo]  # in the order of places.model.REGIONS
+    details: list[MapDetailInfo]
+    size_hints_build: str  # the Protomaps build the sizes were measured on
+    free_bytes: int | None  # free space in MAILROBBE_MAP_DIR; None when it cannot be told
+    job: MapJob | None  # the latest map run; None before the first
+
+
+class MapDownloadRequest(BaseModel):
+    region: MapRegionKey
+    detail: MapDetailKey
+    bbox: BBox | None = None  # region view: the map's view, west below east; else not given

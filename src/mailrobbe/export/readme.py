@@ -1,7 +1,8 @@
 # ruff: noqa: RUF001  (German typography: dashes and quotation marks are meant)
 """LIESMICH.txt of an export (D62): for the lawyer or archivist who receives it, what the files
 are, how to check them, what a DKIM result says and where its key comes from (D105), and with
-the research data what its signals are (D139). German, CRLF line ends for Windows editors.
+the research data what its signals are (D139), and whether the passwords of encrypted
+attachments are included (D208). German, CRLF line ends for Windows editors.
 """
 
 from datetime import UTC
@@ -41,6 +42,19 @@ def readme(export: ManifestExport, folder: str, keys: int) -> bytes:
             "nicht enthalten. Bewertungen, Markierungen, Schlagworte, Akten, Notizen, Signale, "
             "Benennungen von Beteiligten und die Suchkriterien des Rechercheteams sind in keiner "
             "Datei dieses Exports."
+        )
+    if export.include_passwords:
+        passwords = (
+            "ENTHALTEN. Wo Mailrobbe einen verschlüsselten Anhang mit einem Kennwort geöffnet "
+            "hat, steht dieses Kennwort im Klartext in manifest.json (unter „password“, mit der "
+            "Mail, in der es gefunden wurde, und der Zeile, in der es steht) und in "
+            "manifest.csv. Bitte vertraulich behandeln."
+        )
+    else:
+        passwords = (
+            "nicht enthalten. manifest.json und manifest.csv nennen nur, ob ein Anhang "
+            "verschlüsselt ist („protection“: locked ohne bekanntes Kennwort, open mit Kennwort "
+            "geöffnet)."
         )
     key_row = (
         f"""\
@@ -105,6 +119,7 @@ Erstellt am {when} von {who}
 (der Name ist die in Mailrobbe eingegebene Bezeichnung, kein geprüftes Konto).
 Enthält {export.mails} Mails in Exportreihenfolge, die älteste zuerst. {errors}
 Rechercheangaben: {research}
+Kennwörter: {passwords}
 
 
 WAS IST DAS?

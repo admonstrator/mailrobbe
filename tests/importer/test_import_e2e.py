@@ -53,8 +53,11 @@ class Imported:
     errors: dict[tuple[str, int], set[str]] = field(repr=False)  # (file, offset) -> kinds
     signatures: dict[int, list[str]] = field(repr=False)  # mail id -> dkim_result statuses
     job: dict[str, Any] = field(repr=False)  # the run's job row
-    # mail id -> its attachments by position, with their document's kind and text status
+    # mail id -> its own attachments (not containers' members, D231) by position, with their
+    # document's kind and text status
     attachments: dict[int, list[dict[str, Any]]] = field(repr=False)
+    # mail id -> its calendar events by (method, uid, sequence), with their point (D243)
+    events: dict[int, dict[tuple[Any, ...], dict[str, Any]]] = field(repr=False)
 
     def mail(self, record: dict[str, Any]) -> dict[str, Any]:
         return self.mails[record["file"], record["offset"]]
@@ -84,7 +87,8 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
         mails = {
             (row.path, row.byte_offset): row._asdict()
             for row in await rows(
-                "SELECT m.*, f.path, (SELECT count(*) FROM attachment a WHERE a.mail_id = m.id) "
+                "SELECT m.*, f.path, (SELECT count(*) FROM attachment a WHERE a.mail_id = m.id "
+                "AND a.container_id IS NULL) "
                 "AS attachments FROM mail m JOIN mbox_file f ON f.id = m.mbox_file_id"
             )
         }
@@ -106,15 +110,21 @@ async def _load(url: str, exit_code: int, manifest: list[dict[str, Any]]) -> Imp
         files = {path: status for path, status in await rows("SELECT path, status FROM mbox_file")}
         attachments: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for row in await rows(
-            "SELECT a.*, d.kind::text AS kind, d.text_status::text AS status FROM attachment a "
-            "JOIN document d ON d.id = a.document_id ORDER BY a.mail_id, a.position"
+            "SELECT a.*, d.kind::text AS kind, d.text_status::text AS status, "
+            "d.metadata_latitude AS latitude, d.metadata_longitude AS longitude FROM attachment a "
+            "JOIN document d ON d.id = a.document_id WHERE a.container_id IS NULL "
+            "ORDER BY a.mail_id, a.position"
         ):
             attachments[row.mail_id].append(row._asdict())
+        events: dict[int, dict[tuple[Any, ...], dict[str, Any]]] = defaultdict(dict)
+        for row in await rows("SELECT * FROM calendar_event"):
+            events[row.mail_id][row.method, row.uid, row.sequence] = row._asdict()
         [job] = [row._asdict() for row in await rows("SELECT * FROM job")]
     await engine.dispose()
     return Imported(
-        exit_code, files, manifest, mails, participants, errors, signatures, job, attachments
-    )
+        exit_code, files, manifest, mails, participants, errors, signatures, job, attachments,
+        events,
+    )  # fmt: skip
 
 
 def test_every_file_is_done(imported: Imported) -> None:
@@ -135,6 +145,8 @@ def test_the_run_is_recorded_with_its_dkim_checks(imported: Imported) -> None:
     assert steps["attachments"].done > 0
     assert steps["entities"].done == steps["entities"].total
     assert steps["entities"].done > 0
+    assert steps["places"].status == "done" and steps["places"].done == steps["places"].total
+    assert steps["places"].done > 0
     assert steps["topic_labels"].total and steps["topic_labels"].done == steps["topic_labels"].total
     assert steps["import"].done == steps["import"].total == progress.bytes_imported
     # Every mail got a verdict (D13: the importer checks inline), so both rates are the same.
@@ -199,6 +211,8 @@ def test_documents_match_the_manifest(imported: Imported) -> None:
             where = (record["index"], truth["filename"])
             found = [attachment[key] for key in ("sha256", "size_bytes", "kind", "status")]
             assert found == [truth[key] for key in ("sha256", "size", "kind", "status")], where
+            position = [attachment["latitude"], attachment["longitude"]]
+            assert position == [truth["latitude"], truth["longitude"]], where  # D241
             hint = preview_kind(
                 DocumentKind(attachment["kind"]), attachment["filename"], attachment["mime_type"],
                 attachment["size_bytes"], hashed=attachment["sha256"] is not None,
@@ -207,6 +221,25 @@ def test_documents_match_the_manifest(imported: Imported) -> None:
             assert hint == truth["preview"], where
             kinds[truth["kind"]] += 1
     assert {"pdf", "document", "spreadsheet", "image"} <= set(kinds), kinds
+
+
+def test_event_locations_have_the_points_of_their_towns(imported: Imported) -> None:
+    """The step places (D243): an event whose truth names a town is found there; a reply, a
+    room or a call has no point."""
+    placed = 0
+    for record in imported.manifest:
+        events = imported.events.get(imported.mail(record)["id"], {})
+        for truth in record["calendar"] or []:
+            event = events[truth["method"], truth["uid"], truth["sequence"]]
+            where = (record["index"], event["location"])
+            if truth["place"] is None:
+                assert event["place_status"] != "found", where
+                continue
+            placed += 1
+            assert event["place_status"] == "found", where
+            assert event["latitude"] is not None and event["longitude"] is not None, where
+            assert event["place_label"].startswith(truth["place"]), where
+    assert placed > 0
 
 
 def test_dkim_matches_the_manifest(imported: Imported) -> None:

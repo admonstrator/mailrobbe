@@ -8,7 +8,9 @@ list's CSV (D25), below a few lines about the export. Research data (review stat
 tags, Akten, notes), the signals of each mail (D139), the labels of its participants (D157, in
 manifest.json) and the selection the mails were chosen by appear only when the export includes
 the research data: they are internal assessments or, as the selection and the word field
-signals do, show what the team looks for (source protection).
+signals do, show what the team looks for (source protection). Whether an attachment is
+encrypted (D233) is always stated; the password that opened it, with where it was found, only
+when the export includes the passwords (D208), as they then stand in plain text.
 """
 
 import csv
@@ -26,12 +28,14 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentMetadataStatus,
+    DocumentProtection,
     KeyOrigin,
     ParticipationRole,
+    PasswordTier,
     ReviewStatus,
 )
 from mailrobbe.export.pdf import ORIGIN_TEXTS, REVIEW_TEXTS
-from mailrobbe.export.records import AttachmentMetadata, ExportMail
+from mailrobbe.export.records import AttachmentMetadata, AttachmentPassword, ExportMail
 
 MailError = Literal[
     "not_in_archive",  # no mail of the archive has this content any more
@@ -114,6 +118,16 @@ class ManifestMetadata(BaseModel):
     fields: dict[str, dict[str, MetadataValue]]  # source -> key -> value; {} without any
 
 
+class ManifestPassword(BaseModel):
+    """The password that opened the attachment (D236) and where it was found (D208)."""
+
+    value: str  # in plain text
+    tier: PasswordTier  # mail, thread, contacts, attachments, opened, archive, manual or typed
+    found_by: str | None  # the editor who typed it in (D54), not verified
+    mail_id: int | None  # the archive's mail it was found in
+    context: str  # the line(s) around it as written; "" for one typed in
+
+
 class ManifestAttachment(BaseModel):
     filename: str | None
     mime_type: str
@@ -121,6 +135,9 @@ class ManifestAttachment(BaseModel):
     sha256: str | None  # None above the import's hash limit
     file: ManifestFile | None = None  # its own file in anhaenge/; not exported yet (D62)
     metadata: ManifestMetadata | None = None  # None: no document assigned yet (D70)
+    # locked: encrypted, no password known; open: a password opened it (D233); None: neither
+    protection: DocumentProtection | None = None
+    password: ManifestPassword | None = None  # only when the export includes the passwords
 
 
 class ManifestNote(BaseModel):
@@ -179,6 +196,7 @@ class ManifestExport(BaseModel):
     include_research: bool
     mails: int
     errors: int  # mails listed with an error instead of files
+    include_passwords: bool = False  # the passwords that opened attachments (D208)
     selection: dict[str, Any] | None = None  # as requested; only with research data
 
 
@@ -199,9 +217,10 @@ def mail_entry(
     files: ManifestFiles | None = None,
     error: MailError | None = None,
     signals: Sequence[str] = (),
+    passwords: bool = False,
 ) -> ManifestMail:
     """signals: the German names of the mail's signals (ExportMail.signal_names), kept only
-    with research data."""
+    with research data; passwords: whether the export includes the passwords (D208)."""
     entry = ManifestMail(
         number=number,
         folder=folder,
@@ -258,6 +277,8 @@ def mail_entry(
             size=a.size,
             sha256=a.sha256,
             metadata=_metadata(mail.attachment_metadata.get(a.id)),
+            protection=a.protection,
+            password=_password(mail.attachment_passwords.get(a.id)) if passwords else None,
         )
         for a in mail.attachments
     ]
@@ -270,6 +291,18 @@ def _metadata(found: AttachmentMetadata | None) -> ManifestMetadata | None:
     if found is None:
         return None
     return ManifestMetadata(status=found.status, error=found.error, fields=found.fields)
+
+
+def _password(found: AttachmentPassword | None) -> ManifestPassword | None:
+    if found is None:
+        return None
+    return ManifestPassword(
+        value=found.value,
+        tier=found.tier,
+        found_by=found.found_by,
+        mail_id=found.mail_id,
+        context=found.context,
+    )
 
 
 def _addresses(
@@ -312,9 +345,14 @@ def _research(research: MailResearch) -> ManifestResearch:
 
 
 def manifest_json(manifest: Manifest) -> bytes:
-    exclude: Any = None
+    export: dict[str, Any] = {}
+    mail: dict[str, Any] = {}
     if not manifest.export.include_research:
-        exclude = {"export": {"selection"}, "mails": {"__all__": {"research", "signals"}}}
+        export["selection"] = True
+        mail.update(research=True, signals=True)
+    if not manifest.export.include_passwords:
+        mail["attachments"] = {"__all__": {"password"}}
+    exclude = {"export": export, "mails": {"__all__": mail}}
     return (manifest.model_dump_json(indent=2, by_alias=True, exclude=exclude) + "\n").encode()
 
 
@@ -356,6 +394,7 @@ def manifest_csv(manifest: Manifest) -> bytes:
     writer.writerow(["Mails", str(export.mails)])
     writer.writerow(["Davon mit Fehler", str(export.errors)])
     writer.writerow(["Rechercheangaben", "ja" if research else "nein"])
+    writer.writerow(["Kennwörter", "ja" if export.include_passwords else "nein"])
     writer.writerow([])
     writer.writerow(CSV_HEADER + (CSV_RESEARCH_HEADER if research else ()))
     for mail in manifest.mails:
@@ -428,8 +467,20 @@ def _signatures(dkim: ManifestDkim | None) -> str:
 
 def _attachments(attachments: list[ManifestAttachment]) -> str:
     return "; ".join(
-        f"{a.filename or '(ohne Namen)'} ({a.mime_type}, {a.size} Bytes)" for a in attachments
+        f"{a.filename or '(ohne Namen)'} ({a.mime_type}, {a.size} Bytes{_protection(a)})"
+        for a in attachments
     )
+
+
+def _protection(attachment: ManifestAttachment) -> str:
+    match attachment.protection:
+        case DocumentProtection.LOCKED:
+            return ", verschlüsselt, Kennwort unbekannt"
+        case DocumentProtection.OPEN if attachment.password is not None:
+            return f", verschlüsselt, Kennwort: {attachment.password.value}"
+        case DocumentProtection.OPEN:
+            return ", verschlüsselt, mit Kennwort geöffnet"
+    return ""
 
 
 def _research_cells(mail: ManifestMail) -> list[str]:

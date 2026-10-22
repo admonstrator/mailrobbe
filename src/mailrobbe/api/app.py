@@ -21,11 +21,14 @@ from mailrobbe.api import (
     imports,
     keys,
     mails,
+    maps,
     marks,
     notes,
     persons,
+    places,
     previews,
     processes,
+    protected,
     research,
     signals,
     social,
@@ -88,12 +91,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(graph.router)
     app.include_router(imports.router)
     app.include_router(keys.router)  # /api/dkim/selectors/summary before {name}, as for mails
+    app.include_router(protected.router)
     app.include_router(documents.router)  # /api/documents/summary before {id}, as for mails
     app.include_router(previews.router)
     app.include_router(timeline.router)
     app.include_router(topics.router)
     app.include_router(hiding.router)
     app.include_router(blocks.router)
+    app.include_router(places.router)
+    app.include_router(maps.router)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

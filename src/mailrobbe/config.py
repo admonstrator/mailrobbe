@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     preview_timeout: float = 60.0
     preview_memory: ByteSize = ByteSize(1024**3)
     preview_workers: int = 2
+    # Protected and packed attachments (D230 to D237). Containers (ZIP, 7z, attached mails) are
+    # unpacked within these bounds, in a child process with the text extraction's limits; entries
+    # beyond them are listed, not unpacked. Passwords found in the archive or typed in by hand are
+    # tried on every locked document, each tier up to password_seconds (D235); no word lists.
+    archive_max_members: int = 1000
+    archive_max_size: ByteSize = ByteSize(500 * 1024**2)
+    password_seconds: float = 10.0
     # DKIM key lookups (SPEC 3.4, mailrobbe/dkim/checker.py). The override table answers the
     # names it lists; unset means mbox_dir/_generator/dns_override.json when that file exists.
     dkim_dns_override: Path | None = None
@@ -71,6 +78,12 @@ class Settings(BaseSettings):
     # Standard blocks (D225): a paragraph at the end of at least this many mails that are no
     # duplicates, used by their senders twice on average, is detected as one at the next import.
     block_min_mails: int = Field(default=25, ge=2)
+    # The detail map (D245, D246): downloaded on request into map_dir, from the newest daily
+    # build of Protomaps ("protomaps"), from the https URL of another PMTiles v3 file, or not at
+    # all ("off"); map_timeout is seconds per request, retries not counted.
+    map_dir: Path = Path("data/maps")
+    map_source: str = "protomaps"
+    map_timeout: float = 60.0
 
 
 def get_settings() -> Settings:

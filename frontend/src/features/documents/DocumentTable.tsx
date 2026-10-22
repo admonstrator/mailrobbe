@@ -16,6 +16,7 @@ import {
   pagesText,
   statusNote,
 } from "./labels";
+import { ContainedMark, ProtectionMark } from "./ProtectionMark";
 import { documentPath } from "./urlState";
 
 /** The tone of a status label: scans and locked files stand out a little, failures more. */
@@ -105,6 +106,8 @@ export function DocumentTable({
                         {otherNamesText(doc.names)}
                       </span>
                     )}
+                    {doc.protection && <ProtectionMark protection={doc.protection} />}
+                    {doc.contained && <ContainedMark />}
                     <StatusLabel status={doc.text_status} />
                   </span>
                   {doc.snippet && (

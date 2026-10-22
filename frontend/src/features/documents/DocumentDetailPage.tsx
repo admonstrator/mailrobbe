@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
-import { ApiError, attachmentContentUrl } from "../../api/client";
+import { ApiError, attachmentContentUrl, attachmentDecryptedUrl } from "../../api/client";
 import { useDocument } from "../../api/queries";
 import type { DocumentDetail, PreviewKind } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
@@ -12,13 +12,20 @@ import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatBytes, formatDate, formatDateTime, formatNumber } from "../../lib/format";
 import { AttachmentPreview } from "../preview/AttachmentPreview";
+import { ContentsCard } from "./ContentsCard";
 import styles from "./DocumentDetailPage.module.css";
 import { DocumentMails } from "./DocumentMails";
-import { DocumentNames, DocumentPersons, DocumentPreview } from "./DocumentSide";
+import {
+  DocumentContainers,
+  DocumentNames,
+  DocumentPersons,
+  DocumentPreview,
+} from "./DocumentSide";
 import { StatusLabel } from "./DocumentTable";
 import { DocumentTextCard } from "./DocumentTextCard";
 import { KindIcon } from "./KindIcon";
 import { MetadataCard } from "./MetadataCard";
+import { ProtectionCard } from "./ProtectionCard";
 import {
   documentName,
   hasStoredText,
@@ -105,15 +112,20 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
       )}
       <main className={styles.main}>
         <DocumentHeader ref={header} document={document} />
+        {document.protection && <ProtectionCard document={document} />}
         <DocumentTiles document={document} />
-        {document.preview && document.preview !== "image" && (
+        {document.preview && document.preview !== "image" && document.protection !== "locked" && (
           <PreviewCard document={document} kind={document.preview} />
         )}
+        {document.members && <ContentsCard document={document} members={document.members} />}
         <DocumentMails document={document} state={state} href={href} />
         {hasStoredText(document.text_status) && <DocumentTextCard document={document} />}
       </main>
       <aside className={styles.side} aria-label="Zum Dokument">
         {document.preview === "image" && <DocumentPreview key={document.id} document={document} />}
+        {document.containers && document.containers.length > 0 && (
+          <DocumentContainers containers={document.containers} />
+        )}
         <DocumentNames document={document} />
         <MetadataCard document={document} />
         <DocumentPersons
@@ -161,9 +173,22 @@ function Download({ document, size }: { document: DocumentDetail; size?: "sm" })
     <a
       href={attachmentContentUrl(document.attachment_id)}
       className={buttonClass("primary", size)}
+      title={document.protection ? "Die Datei, wie sie verschickt wurde: verschlüsselt" : undefined}
       download
     >
       Herunterladen
+    </a>
+  );
+}
+
+/** An opened file decrypted with the password found (D209), beside the original; a container's
+ *  contents are its members instead. */
+function DecryptedDownload({ document }: { document: DocumentDetail }) {
+  if (document.protection !== "open" || document.members || document.text_status === "unreadable")
+    return null;
+  return (
+    <a href={attachmentDecryptedUrl(document.attachment_id)} className={buttonClass()} download>
+      Entschlüsselt herunterladen
     </a>
   );
 }
@@ -181,7 +206,10 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
           <h1 className={styles.name}>{documentName(document.name)}</h1>
           <p className={styles.meta}>{meta.join(" · ")}</p>
         </div>
-        <Download document={document} />
+        <div className={styles.downloads}>
+          <Download document={document} />
+          <DecryptedDownload document={document} />
+        </div>
       </div>
       <dl className={styles.facts}>
         <div className={styles.fact}>
@@ -220,11 +248,13 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
             )}
           </dd>
         </div>
-        {document.preview === null && (
+        {(document.preview === null || document.protection === "locked") && (
           <div className={styles.fact}>
             <dt>Vorschau</dt>
             <dd className={styles.muted}>
-              Keine Vorschau im Browser, nur Download.
+              {document.protection === "locked"
+                ? "Keine Vorschau, solange das Kennwort fehlt."
+                : "Keine Vorschau im Browser, nur Download."}
               {hasStoredText(document.text_status) && " Text siehe unten."}
             </dd>
           </div>
@@ -283,6 +313,7 @@ function PreviewCard({ document, kind }: { document: DocumentDetail; kind: Previ
         attachmentId={document.attachment_id}
         kind={kind}
         name={documentName(document.name)}
+        decrypted={document.protection === "open"}
       />
     </Card>
   );

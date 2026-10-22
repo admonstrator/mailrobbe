@@ -38,6 +38,8 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
+      # The archive tests need the 7-Zip command, as the backend image has it (D230).
+      - run: command -v 7z || (sudo apt-get update && sudo apt-get install -y 7zip)
       - run: uv run pytest
         env:
           MAILROBBE_TEST_DATABASE_URL: postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe
@@ -74,7 +76,7 @@ jobs:
         run: |
           health=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/health)
           echo "$health"
-          test "$(echo "$health" | jq -r .schema_revision)" = 0016
+          test "$(echo "$health" | jq -r .schema_revision)" = 0018
       - name: MBOX mount is read-only
         run: |
           if output=$(docker compose exec -T backend sh -c 'touch /data/mbox/x' 2>&1); then

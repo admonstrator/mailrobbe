@@ -8,6 +8,8 @@ import { Card, CardTitle } from "../../components/Card";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { documentName } from "../documents/labels";
+import { documentPath } from "../documents/urlState";
 import { entityMailsHref } from "../entities/urlState";
 import { formatLocalTime, signalMailsHref, signalName } from "../signals/labels";
 import styles from "./SignalsCard.module.css";
@@ -119,6 +121,19 @@ function Details({ reason, timezone }: { reason: SignalReason; timezone: string 
       </span>,
     );
   }
+  if (reason.documents && reason.documents.length > 0) {
+    parts.push(
+      <span key="documents" className={styles.persons}>
+        {DOCUMENT_PREFIX[reason.key] ?? ""}
+        {reason.documents.map((document, index) => (
+          <Fragment key={document.id}>
+            {index > 0 && ", "}
+            <Link to={documentPath(document.id)}>{documentName(document.name)}</Link>
+          </Fragment>
+        ))}
+      </span>,
+    );
+  }
   if (parts.length === 0) return null;
   return <span className={styles.details}>{parts}</span>;
 }
@@ -127,6 +142,12 @@ function Details({ reason, timezone }: { reason: SignalReason; timezone: string 
 const PERSON_PREFIX: Partial<Record<string, string>> = {
   bcc: "in Bcc: ",
   forward_out: "an ",
+};
+
+/** The same before the documents (D238): the mail's protected ones stand alone, those of other
+ *  mails its password opened do not. */
+const DOCUMENT_PREFIX: Partial<Record<string, string>> = {
+  password_separate: "öffnete ",
 };
 
 /** The participants concerned, each with the address the signal is about. */

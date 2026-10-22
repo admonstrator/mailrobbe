@@ -56,6 +56,19 @@ class Address:
 
 
 @dataclass(frozen=True, slots=True)
+class PhotoGps:
+    """Where, when and with what a photo was taken, as its EXIF states it (D241)."""
+
+    latitude: float  # signed decimal degrees as written: 0, 0 for a camera without a fix, and
+    longitude: float  # once a latitude beyond 90 degrees, which no reader takes
+    altitude: float  # metres
+    taken: datetime  # local wall time, naive
+    offset: str  # its UTC offset, "+01:00" or "+02:00"
+    make: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
 class DocumentSpec:
     """A real document an attachment carries (generator.documents); its bytes follow from this
     and the attachment's size, so every mail that carries it carries the same bytes."""
@@ -64,6 +77,12 @@ class DocumentSpec:
     form: str  # pdf, pdf_scan, pdf_encrypted, pdf_damaged, docx, odt, xlsx, pptx, csv, txt, ...
     theme: str  # what it is about: minutes, invoice, donations, ...
     when: datetime  # date of the mail that first carried it
+    gps: PhotoGps | None = None  # a photo's EXIF with its GPS position (form jpeg)
+    # A protected document (pdf_encrypted, zip_protected): its password, and where the plan
+    # wrote it (generator.protection): the PasswordTier the passwords step opens it with, None
+    # when it is written nowhere and the document stays locked.
+    password: str | None = None
+    tier: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,12 +96,27 @@ class AttachmentSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class MemberTruth:
+    """One file entry of a container (a ZIP, an attached mail) as the archives step must list
+    it (D231), in the container's order; folders are no entries."""
+
+    path: str  # as 7-Zip lists it, or the file name of an attached mail's part
+    sha256: str  # of the entry's bytes once unpacked
+    size: int
+    encrypted: bool  # needs the container's password
+    container: bool  # a container itself: listed, not unpacked (depth 2)
+
+    def as_json(self) -> dict[str, Any]:
+        return {name: getattr(self, name) for name in self.__slots__}
+
+
+@dataclass(frozen=True, slots=True)
 class DocumentTruth:
     """One attachment as manifest.jsonl lists it, in the order importer.parse.mime_parts finds
     the attachments of the mail."""
 
     sha256: str | None  # of the decoded bytes; None when a byte fault (invalid_base64) hit them
-    filename: str
+    filename: str | None  # None for a part without a name (the version part of PGP/MIME)
     kind: str  # DocumentKind value
     status: str | None  # the DocumentTextStatus the extraction must reach; None after such a fault
     marker: str | None  # a word the extracted text contains; None without expected text
@@ -93,9 +127,20 @@ class DocumentTruth:
     # type its endpoint sends for an image, audio or video preview (else None).
     preview: str | None = None
     media_type: str | None = None
+    # A protected document (milestone 19): its password and the tier it is opened with (None:
+    # it stays locked); a container: its entries (MemberTruth.as_json()), else None.
+    password: str | None = None
+    tier: str | None = None
+    members: tuple[dict[str, Any], ...] | None = None
+    # The position the metadata step stores (D241): None without one, for 0, 0 and out of range.
+    latitude: float | None = None
+    longitude: float | None = None
 
     def as_json(self) -> dict[str, Any]:
-        return {name: getattr(self, name) for name in self.__slots__}
+        data = {name: getattr(self, name) for name in self.__slots__}
+        if self.members is not None:
+            data["members"] = list(self.members)
+        return data
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +157,9 @@ class EventTruth:
     # event, without offset for a floating time (no zone).
     start: str
     attendees: int
+    # The town its location names as the plan wrote it (D243): the step places gives the event
+    # a point there. None: no location, or a room or a call that names no town.
+    place: str | None = None
 
     def as_json(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__slots__}
@@ -135,6 +183,7 @@ class Meeting:
     attendees: tuple[Address, ...]  # the recipients of the invitation
     rooms: tuple[Address, ...] = ()  # booked rooms: attendees that no mail reaches
     sequence: int = 0
+    place: str | None = None  # the town of an address as the location (EventTruth.place)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +196,15 @@ class Invitation:
     style: str
     answer: Address | None = None  # REPLY: the attendee who answers
     partstat: str | None = None  # REPLY: ACCEPTED, DECLINED or TENTATIVE
+
+
+@dataclass(frozen=True, slots=True)
+class Note:
+    """Lines a mail carries in its own text as written, below its paragraphs and not wrapped
+    (generator.protection): where a password stands, or where it is to be found."""
+
+    lines: tuple[str, ...]
+    alone: bool = False  # the mail says nothing else: a password passed on in a mail of its own
 
 
 class MailKind(StrEnum):
@@ -189,6 +247,17 @@ class PlannedMail:
     quoted: "PlannedMail | None" = None
     large_attachment: bool = False  # the last attachment is the configured very large one
     calendar: Invitation | None = None  # the mail's calendar part (generator.invitations)
+    note: Note | None = None  # a password or where it is (generator.protection)
+    # The mail is encrypted as a whole (generator.protection): "smime" or "pgp"; its text and
+    # attachments are noise inside the encrypted part.
+    encrypted: str | None = None
+    # Planted passwords (generator.protection) stand in its text or its text attachments.
+    passwords: tuple[str, ...] = ()
+    # The D238 concealment signals this mail must get (SignalKind values).
+    signals: list[str] = field(default_factory=list)
+    # It carries a protected document or a planted password: no byte fault and no duplicate
+    # stands in for it, so the truth of the passwords holds (generator.protection).
+    guarded: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +305,11 @@ class RenderedMail:
     # Its calendar events: the calendar part, then those of its .ics documents; None when a
     # byte fault (invalid_base64) hit an .ics document, so they are no longer known.
     calendar: list[EventTruth] | None = field(default_factory=list)
+    # Milestone 19, carried from the plan: "smime"/"pgp" for an encrypted mail, the D238 signals
+    # (SignalKind values), and the planted passwords this mail holds (body or text attachments).
+    encrypted: str | None = None
+    signals: list[str] = field(default_factory=list)
+    passwords: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,12 +332,18 @@ class ManifestRecord:
     thread_index: int | None
     list_id: str | None
     automated: bool
-    attachments: int
+    attachments: int  # top-level parts mime_parts counts, == len(documents) (a .eml counts as one)
     dkim: dict[str, Any]  # {"expected": str, "signatures": [{domain, selector, ...}]}
     faults: dict[str, str]
     duplicate_of: int | None
     documents: list[dict[str, Any]] = field(default_factory=list)  # DocumentTruth.as_json()
     calendar: list[dict[str, Any]] | None = field(default_factory=list)  # EventTruth.as_json()
+    # Milestone 19: "smime" or "pgp" for a mail encrypted as a whole, else None; the signals of
+    # D238 the mail must get (SignalKind values, sorted); the planted passwords in its own text
+    # or its text attachments.
+    encrypted: str | None = None
+    signals: list[str] = field(default_factory=list)
+    passwords: list[str] = field(default_factory=list)
 
     def to_json_line(self) -> str:
         data = {name: getattr(self, name) for name in self.__slots__}

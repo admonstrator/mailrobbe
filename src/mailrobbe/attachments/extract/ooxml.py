@@ -11,6 +11,7 @@ A password-protected OOXML file is not a ZIP but an OLE container holding Encryp
 (encrypted); another OLE file under an OOXML name is a legacy binary file (unsupported).
 """
 
+import io
 import re
 
 from mailrobbe.attachments.extract.base import Damaged, Encrypted, Sink
@@ -33,6 +34,34 @@ def _ole(data: bytes) -> DocumentTextStatus:
     if _ENCRYPTED_PACKAGE in data:
         raise Encrypted
     return DocumentTextStatus.UNSUPPORTED  # a legacy binary file under an OOXML name
+
+
+def is_encrypted_ole(data: bytes) -> bool:
+    """Whether the content is a password-protected OOXML file (an OLE EncryptedPackage)."""
+    return data.startswith(_OLE) and _ENCRYPTED_PACKAGE in data
+
+
+def decrypt_ooxml(data: bytes, password: str) -> bytes:
+    """The decrypted OOXML (a ZIP) of a protected file; raises Encrypted on the wrong password
+    and Damaged on a broken one. Runs in the extraction's child process (D235)."""
+    import msoffcrypto  # heavy; imported where it is used, as the other readers do
+
+    try:
+        office = msoffcrypto.OfficeFile(io.BytesIO(data))
+        office.load_key(password=password)
+        out = io.BytesIO()
+        office.decrypt(out)
+    except msoffcrypto.exceptions.InvalidKeyError:
+        raise Encrypted from None
+    except Exception as error:  # a format msoffcrypto cannot read, or a broken file
+        if _wrong_password(error):
+            raise Encrypted from None
+        raise Damaged(f"cannot decrypt the Office file: {error}") from None
+    return out.getvalue()
+
+
+def _wrong_password(error: Exception) -> bool:
+    return "password" in str(error).lower() or "key" in type(error).__name__.lower()
 
 
 def _main_part(package: Package, default: str) -> str:

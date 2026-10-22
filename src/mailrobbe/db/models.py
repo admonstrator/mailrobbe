@@ -70,6 +70,18 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   paragraph_block the standard blocks and other paragraphs the blocks step looked at, and
   paragraph_override the team's choices about paragraphs (D225); mail.history and mail.blocks the
   ranges of body_text that are quoted and that are standard blocks, which mail.tsv weighs (D226).
+- Milestone 20 (migration 0017, D240 to D249): document.metadata_latitude, metadata_longitude
+  and metadata_gps_time are a photo's position as its metadata states it (D241); entity and
+  calendar_event carry the point the places step found for a place entity or an invitation's
+  location, with its status and what the point stands for (D242, D243); job kind map records the
+  downloads of the detail map (D246).
+- Milestone 19 (migration 0018, D230 to D239): document.protection says whether a document needs
+  a password (D233), members_status, members_version and members_error how a container's
+  unpacking stands, and password_tried_until, password_tries and password_tried_at how far the
+  passwords step got (D235); document_member lists a container's entries, and attachment
+  container_id and path make an entry an attachment of every mail carrying the container (D231,
+  D232); password and password_finding keep each password found and where it stands (D234),
+  document_password the one that opened a document (D236).
 """
 
 from datetime import date, datetime
@@ -85,6 +97,7 @@ from sqlalchemy import (
     Computed,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Identity,
@@ -115,7 +128,10 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMembersStatus,
+    DocumentMemberStatus,
     DocumentMetadataStatus,
+    DocumentProtection,
     DocumentTextStatus,
     EntityKind,
     JobKind,
@@ -123,6 +139,7 @@ from mailrobbe.enums import (
     KeyOrigin,
     MboxStatus,
     ParticipationRole,
+    PasswordTier,
     PersonKind,
     ReviewStatus,
 )
@@ -151,6 +168,10 @@ entity_kind_enum = _pg_enum(EntityKind, "entity_kind")
 key_origin_enum = _pg_enum(KeyOrigin, "key_origin")
 alias_tier_enum = _pg_enum(AliasTier, "alias_tier")
 document_metadata_status_enum = _pg_enum(DocumentMetadataStatus, "document_metadata_status")
+document_protection_enum = _pg_enum(DocumentProtection, "document_protection")
+document_members_status_enum = _pg_enum(DocumentMembersStatus, "document_members_status")
+document_member_status_enum = _pg_enum(DocumentMemberStatus, "document_member_status")
+password_tier_enum = _pg_enum(PasswordTier, "password_tier")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -186,6 +207,15 @@ DOCUMENT_TSV_EXPRESSION = (
 # Sort key of the document list by first appearance (D74): documents without a dated mail last.
 # The entity list sorts by the same expression over entity.first_date (D88).
 FIRST_DATE_SORT_KEY = "COALESCE(first_date, '-infinity'::timestamp with time zone)"
+
+# document.members_version of a container unpacked by the current code (migration 0018, D231);
+# raising it unpacks the containers of lower versions again at the next import.
+MEMBERS_VERSION = 1
+
+# The point of a place entity or an invitation's location (migration 0017, D242, D243):
+# place_status is NULL until the places step looked at it, then an enums.PlaceStatus value;
+# latitude and longitude are set with found, place_label says what the point stands for.
+PLACE_STATUS_CHECK = "place_status IN ('found', 'ambiguous', 'unknown')"
 
 # Version of the entity extraction's code (migration 0010, D84): raising it scans every mail and
 # document again at the next import. The scan tables store entities.model.scan_version(), which
@@ -343,6 +373,11 @@ class Attachment(Base):
         Index("ix_attachment_sha256", "sha256"),
         # the mails of a document, read from the index alone (search through attachments, D73)
         Index("ix_attachment_document_id", "document_id", "mail_id"),
+        Index(
+            "ix_attachment_container_id",
+            "container_id",
+            postgresql_where=text("container_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -351,12 +386,19 @@ class Attachment(Base):
     mime_type: Mapped[str] = mapped_column(Text)
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str | None] = mapped_column(Text)
-    # 0-based among the mail's attachments in the order importer.parse.mime_parts finds them
+    # 0-based among the mail's attachments in the order importer.parse.mime_parts finds them; of
+    # an attachment packed in a container, among the container's entries (document_member)
     position: Mapped[int] = mapped_column(SmallInteger)
     # NULL until the next finalize assigns it (attachments.documents)
     document_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("document.id", ondelete="SET NULL")
     )
+    # An entry of a container attachment of the same mail (migration 0018, D231): the attachment
+    # it is packed in, and its path there. NULL for the mail's own attachments (MIME parts).
+    container_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("attachment.id", ondelete="CASCADE")
+    )
+    path: Mapped[str | None] = mapped_column(Text)
 
 
 class Document(Base):
@@ -386,6 +428,20 @@ class Document(Base):
             "ix_document_metadata_program",
             "metadata_program",
             postgresql_where=text("metadata_program IS NOT NULL"),
+        ),
+        Index(
+            "ix_document_protection", "protection", postgresql_where=text("protection IS NOT NULL")
+        ),
+        Index(
+            "ix_document_members_status",
+            "members_status",
+            postgresql_where=text("members_status IS NOT NULL"),
+        ),
+        Index(
+            "ix_document_metadata_position",
+            "metadata_latitude",
+            "metadata_longitude",
+            postgresql_where=text("metadata_latitude IS NOT NULL"),
         ),
     )
 
@@ -433,6 +489,24 @@ class Document(Base):
     metadata_device: Mapped[str | None] = mapped_column(Text)
     metadata_created: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     metadata_gps: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # Protected and packed (migration 0018, D231 to D236): whether it needs a password, and for a
+    # container where its unpacking stands (attachments.packed); how far the passwords step got
+    # (every password found up to the password_finding id password_tried_until was offered to it,
+    # passwords.phase).
+    protection: Mapped[DocumentProtection | None] = mapped_column(document_protection_enum)
+    members_status: Mapped[DocumentMembersStatus | None] = mapped_column(
+        document_members_status_enum
+    )
+    members_version: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    members_error: Mapped[str | None] = mapped_column(Text)  # English, one line
+    password_tried_until: Mapped[int] = mapped_column(BigInteger, server_default="0")
+    password_tries: Mapped[int] = mapped_column(Integer, server_default="0")
+    password_tried_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    # The position the file states (migration 0017, D241): signed decimal degrees, NULL without
+    # one or at exactly 0, 0; the GPS time in UTC.
+    metadata_latitude: Mapped[float | None] = mapped_column(Float)
+    metadata_longitude: Mapped[float | None] = mapped_column(Float)
+    metadata_gps_time: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
 
 
 class DkimResult(Base):
@@ -795,6 +869,7 @@ class MailExport(Base):
     label: Mapped[str] = mapped_column(Text, server_default="")
     selection: Mapped[dict[str, Any]] = mapped_column(JSONB)  # the MailSelection as requested
     include_research: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    include_passwords: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))  # D208
     mail_sha256: Mapped[list[str]] = mapped_column(ARRAY(Text))
     # SHA-256 of the ZIP's SHA256SUMS and the time of the first complete download; None before
     manifest_sha256: Mapped[str | None] = mapped_column(Text)
@@ -819,6 +894,8 @@ class Entity(Base):
             postgresql_using="gin",
             postgresql_ops={"label": "gin_trgm_ops"},
         ),
+        Index("ix_entity_located", "mails", "id", postgresql_where=text("latitude IS NOT NULL")),
+        CheckConstraint(PLACE_STATUS_CHECK, name="place_status"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -835,6 +912,11 @@ class Entity(Base):
     documents: Mapped[int] = mapped_column(Integer, server_default="0")
     first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    # place: the point the places step found (migration 0017, D242, PLACE_STATUS_CHECK)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    place_status: Mapped[str | None] = mapped_column(Text)
+    place_label: Mapped[str | None] = mapped_column(Text)
 
 
 class MailEntity(Base):
@@ -1167,6 +1249,7 @@ class CalendarEvent(Base):
     __table_args__ = (
         UniqueConstraint("mail_id", "position"),
         CheckConstraint("kind IN ('request', 'reply', 'cancel')", name="kind"),
+        CheckConstraint(PLACE_STATUS_CHECK, name="place_status"),
         Index("ix_calendar_event_uid", "uid"),
         Index("ix_calendar_event_organizer_email", "organizer_email"),
     )
@@ -1191,6 +1274,11 @@ class CalendarEvent(Base):
     recurrence: Mapped[str | None] = mapped_column(Text)  # RRULE as written
     organizer_email: Mapped[str | None] = mapped_column(Text)  # lower case
     organizer_name: Mapped[str | None] = mapped_column(Text)
+    # The point of its location (migration 0017, D243), as on entity
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    place_status: Mapped[str | None] = mapped_column(Text)
+    place_label: Mapped[str | None] = mapped_column(Text)
 
 
 class CalendarAttendee(Base):
@@ -1341,3 +1429,99 @@ class ParagraphOverride(Base):
     editor: Mapped[str | None] = mapped_column(Text)  # D54
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class DocumentMember(Base):
+    """One entry of a container document (migration 0018, D231), as the archives step listed it.
+    The member attachments of every mail carrying the container are made from these rows
+    (attachments.containers)."""
+
+    __tablename__ = "document_member"
+    __table_args__ = (
+        Index(
+            "ix_document_member_member_id",
+            "member_id",
+            postgresql_where=text("member_id IS NOT NULL"),
+        ),
+    )
+
+    container_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, primary_key=True)  # 0-based entry order
+    path: Mapped[str] = mapped_column(Text)  # as the container names it
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)  # unpacked, as declared or read
+    status: Mapped[DocumentMemberStatus] = mapped_column(document_member_status_enum)
+    member_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="SET NULL")
+    )
+    error: Mapped[str | None] = mapped_column(Text)  # English, one line
+
+
+class Password(Base):
+    """A distinct password: found in the archive or typed in (migration 0018, D234, D237)."""
+
+    __tablename__ = "password"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, unique=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class PasswordFinding(Base):
+    """Where a password stands (D234): in a mail's subject or text, in a document's text, or typed
+    in by hand for every locked document (neither, with the editor)."""
+
+    __tablename__ = "password_finding"
+    __table_args__ = (
+        UniqueConstraint(
+            "password_id",
+            "mail_id",
+            "document_id",
+            name="uq_password_finding_place",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index(
+            "ix_password_finding_mail_id", "mail_id", postgresql_where=text("mail_id IS NOT NULL")
+        ),
+        Index(
+            "ix_password_finding_document_id",
+            "document_id",
+            postgresql_where=text("document_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    password_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("password.id", ondelete="CASCADE")
+    )
+    mail_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE")
+    )
+    document_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="CASCADE")
+    )
+    context: Mapped[str] = mapped_column(Text, server_default="")  # the line(s) around it
+    editor: Mapped[str | None] = mapped_column(Text)  # D54, typed in by hand
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class DocumentPassword(Base):
+    """The password that opened a document (D236): shown with where it was found, as evidence
+    (D208). The decrypted bytes are never stored (D209)."""
+
+    __tablename__ = "document_password"
+
+    document_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("document.id", ondelete="CASCADE"), primary_key=True
+    )
+    password_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("password.id", ondelete="CASCADE")
+    )
+    # the finding the step tried it for; NULL when that mail or document is gone
+    finding_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("password_finding.id", ondelete="SET NULL")
+    )
+    tier: Mapped[PasswordTier] = mapped_column(password_tier_enum)
+    found_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    found_by: Mapped[str | None] = mapped_column(Text)  # D54: who typed it in (tier typed)

@@ -253,6 +253,14 @@ def crafted(
 
 
 async def _crafted(url: str, settings: Settings, mbox_dir: Path) -> Crafted:
+    # The positions of the GPS fields, as migration 0017 copies them for documents read before it
+    # and the metadata step stores them (D241), whichever of the two filled this database.
+    await rows(
+        url,
+        "UPDATE document SET metadata_latitude = (metadata_fields #>> '{gps,latitude}')::float8,"
+        " metadata_longitude = (metadata_fields #>> '{gps,longitude}')::float8"
+        " WHERE metadata_gps",
+    )
     mails = [row.id for row in await rows(url, "SELECT id FROM mail ORDER BY byte_offset")]
     found = {row.sha256: row.id for row in await rows(url, "SELECT id, sha256 FROM document")}
     persons = await rows(url, "SELECT id, split_part(canonical_email, '@', 1) AS local FROM person")
@@ -585,7 +593,13 @@ async def test_the_summary_falls_back_to_a_bounded_count(
         return None
 
     monkeypatch.setattr(documents, "_all_unless_canceled", canceled)
-    nothing = {"kinds": None, "text_status": None, "authors": None, "programs": None}
+    nothing = {
+        "kinds": None,
+        "text_status": None,
+        "authors": None,
+        "programs": None,
+        "protection": None,
+    }
     summary = await get(crafted_client, "/api/documents/summary")
     assert summary == {"total": len(CONTENTS), "exact": True, **nothing}
     monkeypatch.setattr(documents, "COUNT_LIMIT", 4)
@@ -608,6 +622,7 @@ async def test_the_summary_runs_out_of_time(crafted: Crafted) -> None:
                     "text_status": None,
                     "authors": None,
                     "programs": None,
+                    "protection": None,
                 }
                 values = [("field", "author")]
                 assert await get(client, "/api/documents/metadata-values", values) == {
@@ -688,6 +703,8 @@ async def test_the_page_shows_every_field_the_file_states(
         device="Canon EOS R6",
         created=datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC),
         gps=True,
+        latitude=52.5200833,
+        longitude=13.41,
     )
     png = (await detail_of(crafted_client, crafted.documents["png"])).metadata
     assert png.fields == {"png": {"Author": "Peter Hofmann", "Software": "GIMP 2.10"}}
@@ -734,6 +751,8 @@ async def test_the_mail_detail_shows_each_attachments_summary(
             device="Canon EOS R6",
             created=datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC),
             gps=True,
+            latitude=52.5200833,
+            longitude=13.41,
         ),
     }
     first = MailDetail.model_validate(await get(crafted_client, f"/api/mails/{crafted.mails[0]}"))
@@ -1139,7 +1158,8 @@ async def test_items_against_sql(client: httpx.AsyncClient, imported_database_ur
             imported_database_url,
             """
             SELECT d.id, d.name, d.kind::text AS kind, d.mime_type, d.size_bytes, d.sha256,
-                d.pages, d.text_status::text AS text_status,
+                d.pages, d.text_status::text AS text_status, d.protection::text AS protection,
+                EXISTS (SELECT 1 FROM document_member dm WHERE dm.member_id = d.id) AS contained,
                 (SELECT count(DISTINCT a.filename) FROM attachment a WHERE a.document_id = d.id)
                     AS names,
                 c.mails, c.first_date, c.last_date, s.person_id, s.email, s.sender_name
@@ -1182,6 +1202,8 @@ async def test_items_against_sql(client: httpx.AsyncClient, imported_database_ur
             "last_date": row.last_date,
             "first_sender": sender and sender.model_dump(),
             "snippet": None,
+            "protection": row.protection,
+            "contained": row.contained,
         }
     assert any(item.first_sender for item in listed)
 
@@ -1334,6 +1356,7 @@ async def test_every_document_page_against_sql(
         "SELECT document_id, filename, count(*) AS n FROM attachment"
         " WHERE filename IS NOT NULL GROUP BY 1, 2",
     )
+    entries = await rows(url, "SELECT * FROM document_member ORDER BY container_id, position")
     occurrences = {
         row.document_id: row.id
         for row in await rows(
@@ -1367,7 +1390,29 @@ async def test_every_document_page_against_sql(
         hashed = row.sha256 is not None
         size, limit = row.size_bytes, Settings().preview_max_size
         preview = preview_kind(kind, row.name, row.mime_type, size, hashed=hashed, max_size=limit)
-        assert detail.preview == preview
+        assert detail.preview == (None if row.protection == "locked" else preview)
+        # Milestone 19: the protection, a container's entries and where a member was found.
+        assert detail.protection == row.protection
+        assert (detail.password_tries, detail.password_tried_at) == (
+            row.password_tries,
+            row.password_tried_at,
+        )
+        assert (detail.password is not None) == (row.protection == "open")
+        if kind in (DocumentKind.ARCHIVE, DocumentKind.EMAIL):
+            assert detail.members is not None
+            assert detail.members.status == row.members_status
+            assert [
+                (e.position, e.path, e.status, e.document_id) for e in detail.members.entries
+            ] == [
+                (e.position, e.path, e.status, e.member_id)
+                for e in entries
+                if e.container_id == document_id
+            ]
+        else:
+            assert detail.members is None
+        assert [(c.document_id, c.path) for c in detail.containers] == [
+            (e.container_id, e.path) for e in entries if e.member_id == document_id
+        ]
         assert row.metadata_version == METADATA_VERSION  # the import read every document
         assert (detail.metadata.status, detail.metadata.error) == (
             row.metadata_status,
@@ -1401,7 +1446,9 @@ async def test_the_import_summary_counts_attachments_and_documents(
     client: httpx.AsyncClient, imported_database_url: str
 ) -> None:
     summary = await get(client, "/api/import/summary")
-    (attachments,) = await rows(imported_database_url, "SELECT count(*) AS n FROM attachment")
+    (attachments,) = await rows(  # the mails' own, not the members of containers (D231)
+        imported_database_url, "SELECT count(*) AS n FROM attachment WHERE container_id IS NULL"
+    )
     statuses = {
         row.status: row.n
         for row in await rows(

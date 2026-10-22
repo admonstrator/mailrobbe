@@ -21,19 +21,26 @@ export interface ExportDialogProps {
 }
 
 /** Export of mails as ZIP with EML, PDF and manifest (D62): label and options, then the link to
- *  the ZIP. Research data stays out unless asked for (source protection). */
+ *  the ZIP. Research data stays out unless asked for (source protection), and so do the
+ *  passwords found (D208). */
 export function ExportDialog({ selection, count, label, onClose }: ExportDialogProps) {
   const create = useCreateExport();
   const id = useId();
   const [name, setName] = useState(label.slice(0, LABEL_LIMIT));
   const [research, setResearch] = useState(false);
+  const [passwords, setPasswords] = useState(false);
   const tooMany = count !== null && count > EXPORT_LIMIT;
   const result = create.data;
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (tooMany) return;
-    create.mutate({ ...selection, label: name.trim(), include_research: research });
+    create.mutate({
+      ...selection,
+      label: name.trim(),
+      include_research: research,
+      include_passwords: passwords,
+    });
   }
 
   if (result) {
@@ -43,7 +50,8 @@ export function ExportDialog({ selection, count, label, onClose }: ExportDialogP
           <p className={styles.summary}>
             Export {result.id}
             {result.label && ` „${result.label}“`}: {mailCount(result.mails)},{" "}
-            {result.include_research ? "mit Rechercheangaben" : "ohne Rechercheangaben"}.
+            {result.include_research ? "mit Rechercheangaben" : "ohne Rechercheangaben"}
+            {result.include_passwords && ", mit gefundenen Kennwörtern"}.
           </p>
           <p className={forms.text}>
             Das ZIP enthält je Mail die Originaldatei (mail.eml) und eine PDF-Lesefassung, dazu
@@ -104,6 +112,20 @@ export function ExportDialog({ selection, count, label, onClose }: ExportDialogP
             <span className={forms.text}>
               Ohne Haken enthält der Export nur die Mails und ihre Prüfangaben; interne
               Einschätzungen bleiben im Haus und schützen Quellen.
+            </span>
+          </span>
+        </label>
+        <label className={styles.option}>
+          <input
+            type="checkbox"
+            checked={passwords}
+            onChange={(event) => setPasswords(event.target.checked)}
+          />
+          <span>
+            <span className={styles.optionLabel}>Gefundene Kennwörter mitexportieren</span>
+            <span className={forms.text}>
+              Die Kennwörter, die Anhänge geöffnet haben, stehen dann mit ihrem Fundort im Klartext
+              im Export. Ohne Haken bleiben sie draußen.
             </span>
           </span>
         </label>

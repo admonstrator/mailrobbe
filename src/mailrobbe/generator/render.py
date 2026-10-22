@@ -24,9 +24,12 @@ import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
+from email.parser import BytesParser
+from email.policy import compat32
 from functools import lru_cache
 
-from mailrobbe.generator import documents, invitations
+from mailrobbe.enums import DocumentTextStatus
+from mailrobbe.generator import documents, invitations, protection
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.model import (
     Address,
@@ -34,6 +37,7 @@ from mailrobbe.generator.model import (
     DocumentTruth,
     Fault,
     MailKind,
+    MemberTruth,
     PlannedMail,
     RenderedMail,
     stage_rng,
@@ -42,13 +46,19 @@ from mailrobbe.generator.planner import format_date, subject_core
 from mailrobbe.generator.population import brand, is_freemail, org_name, utc_offset
 
 RFC822_FORWARD_SHARE = 0.3  # forwards that attach the original as message/rfc822
+EML_FORWARD_SHARE = 0.5  # of those, carried as a named .eml the importer lists but does not open
 _AUTOMATED = (MailKind.NEWSLETTER, MailKind.NOTIFICATION, MailKind.INVOICE)
+# The importer reads an attached mail's bytes with compat32 and serialises them again
+# (importer.parse.attachment_payload); its SHA-256 is of exactly those bytes, D231.
+_RFC822_PARSER = BytesParser(policy=compat32)
 
 
 def render(planned: PlannedMail) -> RenderedMail:
     rng = stage_rng(planned.seed, "render")
     style = _STYLES.get(planned.client, _STYLES["webmail"])
     charset = _charset(planned, rng)
+    if planned.encrypted is not None:
+        return _encrypted_mail(planned, style, charset, rng)
     root = _structure(planned, style, charset, rng)
     chunks = [_headers(planned, style, charset, rng).encode("ascii")]
     _emit(root, chunks)
@@ -63,6 +73,16 @@ def render(planned: PlannedMail) -> RenderedMail:
     # mime_parts order: inline pictures sit in the body (multipart/related), files follow it,
     # directly or inside a forwarded message/rfc822
     ordered = sorted(planned.attachments, key=lambda spec: not spec.inline)
+    named = _named_eml(root)
+    if named is not None:
+        # a named .eml is one attachment the importer lists without descending; the carried
+        # files are its members, not the mail's own documents (D231)
+        rendered.documents = [_eml_truth(named, [a for a in ordered if not a.inline])]
+        rendered.calendar = []
+        rendered.encrypted = planned.encrypted
+        rendered.signals = sorted(planned.signals)
+        rendered.passwords = list(planned.passwords)
+        return rendered
     rendered.documents = [_truth(spec) for spec in ordered]
     # the calendar part first (an invite.ics repeats it), then the .ics documents (D154)
     events = [invitations.truth(planned)] if planned.calendar is not None else []
@@ -72,7 +92,76 @@ def render(planned: PlannedMail) -> RenderedMail:
         if spec.document is not None and spec.document.form == "ics"
     ]
     rendered.calendar = events
+    rendered.encrypted = planned.encrypted
+    rendered.signals = sorted(planned.signals)
+    rendered.passwords = list(planned.passwords)
     return rendered
+
+
+def _encrypted_mail(
+    planned: PlannedMail, style: "_Style", charset: str, rng: random.Random
+) -> RenderedMail:
+    """A mail encrypted as a whole (D238): S/MIME (one application/pkcs7-mime part) or PGP/MIME
+    (multipart/encrypted with an application/pgp-encrypted part and an octet-stream part of
+    armoured noise). Its content is noise; the signal needs only the attachment's type."""
+    header = _headers(planned, style, charset, rng).encode("ascii")
+    if planned.encrypted == "smime":
+        spec = planned.attachments[0]
+        payload = protection.encrypted_payload(rng, "smime", spec.size)
+        leaf = (
+            "Content-Type: application/pkcs7-mime; smime-type=enveloped-data;"
+            f'{style.fold}name="smime.p7m"\n'
+            "Content-Transfer-Encoding: base64\n"
+            'Content-Disposition: attachment; filename="smime.p7m"\n\n'
+        ).encode("ascii")
+        raw = header + leaf + base64.encodebytes(payload)
+        truths = [_opaque_truth("smime.p7m", "application/pkcs7-mime", payload)]
+    else:
+        boundary = _boundary(planned.client, rng)
+        version = b"Version: 1\n"
+        spec = planned.attachments[-1]
+        payload = protection.armoured(protection.encrypted_payload(rng, "pgp", spec.size))
+        raw = (
+            header
+            + (
+                f"Content-Type: multipart/encrypted;{style.fold}"
+                f'protocol="application/pgp-encrypted";{style.fold}boundary="{boundary}"\n\n'
+                f"--{boundary}\n"
+                "Content-Type: application/pgp-encrypted\nContent-Disposition: attachment\n\n"
+            ).encode("ascii")
+            # the CRLF before a boundary belongs to the delimiter (RFC 2046), so each part body
+            # is followed by its own newline and then the separating one the boundary consumes
+            + version
+            + b"\n"
+            + (
+                f"--{boundary}\n"
+                f'Content-Type: application/octet-stream;{style.fold}name="encrypted.asc"\n'
+                "Content-Transfer-Encoding: 7bit\n"
+                'Content-Disposition: attachment; filename="encrypted.asc"\n\n'
+            ).encode("ascii")
+            + payload
+            + b"\n"
+            + f"--{boundary}--\n".encode("ascii")
+        )
+        truths = [
+            _opaque_truth(None, "application/pgp-encrypted", version),
+            _opaque_truth("encrypted.asc", "application/octet-stream", payload),
+        ]
+    rendered = RenderedMail(planned, raw, planned.message_id)
+    rendered.documents = truths
+    rendered.encrypted = planned.encrypted
+    rendered.signals = sorted(planned.signals)
+    return rendered
+
+
+def _opaque_truth(filename: str | None, mime_type: str, data: bytes) -> DocumentTruth:
+    """The truth of an encrypted mail's part: what the extraction makes of opaque bytes."""
+    kind = documents.classify_kind(filename, mime_type, data)
+    preview, media_type = documents.preview_of(kind, filename, mime_type, len(data))
+    return DocumentTruth(
+        hashlib.sha256(data).hexdigest(), filename, kind.value,
+        DocumentTextStatus.UNSUPPORTED.value, None, None, len(data), preview, media_type,
+    )  # fmt: skip
 
 
 def _truth(spec: AttachmentSpec) -> DocumentTruth:
@@ -173,6 +262,7 @@ class Text:
     closing: list[str]
     signature: list[str] = field(default_factory=list)
     links: list[tuple[str, str]] = field(default_factory=list)  # (label, URL)
+    extra: list[str] = field(default_factory=list)  # verbatim lines below (a password, D235)
 
     def lines(self, delimiter: bool) -> list[str]:
         out: list[str] = []
@@ -186,6 +276,8 @@ class Text:
         if self.signature:
             out += ["", "-- "] if delimiter else [""]
             out += self.signature
+        if self.extra:
+            out += ["", *self.extra]
         return out
 
 
@@ -216,8 +308,11 @@ def person_names(address: Address | None) -> tuple[str, str] | None:
 def compose(mail: PlannedMail) -> Text:
     """Own text of a mail. A pure function of the plan, so a reply can quote it exactly."""
     rng = stage_rng(mail.seed, "render-text")
+    if mail.note is not None and mail.note.alone:  # a mail written only to pass a password on
+        return _note_only(mail, rng)
     if mail.calendar is not None:  # the text of an invitation, answer or cancellation
-        return Text(None, [], invitations.body_lines(mail, rng))
+        extra = list(mail.note.lines) if mail.note is not None else []
+        return Text(None, [], invitations.body_lines(mail, rng), extra=extra)
     german = mail.language == "de"
     slots = _slots(mail, rng, german)
     if mail.kind in _AUTOMATED:
@@ -286,7 +381,24 @@ def compose(mail: PlannedMail) -> Text:
     signed = bool(signature) and sender is not None and signature[0] == sender[1]
     if sender and (colleague or not signed):  # no full name twice above the signature
         closing.append(sender[0] if colleague or signed or rng.random() < 0.4 else sender[1])
-    return Text(greeting, _paragraphs(filled, rng), closing, signature)
+    extra = list(mail.note.lines) if mail.note is not None else []
+    return Text(greeting, _paragraphs(filled, rng), closing, signature, extra=extra)
+
+
+def _note_only(mail: PlannedMail, rng: random.Random) -> Text:
+    """A short mail whose only point is the note it carries (a separate password, D235)."""
+    assert mail.note is not None
+    german = mail.language == "de"
+    names = person_names(mail.to[0]) if len(mail.to) == 1 else None
+    if names is not None:
+        greeting = f"{'Hallo' if german else 'Hi'} {names[0]},"
+    else:
+        greeting = "Hallo zusammen," if german else "Hi all,"
+    closing = [rng.choice(vocab.CLOSINGS_DE_INFORMAL if german else vocab.CLOSINGS_EN)]
+    sender = person_names(mail.sender)
+    if sender:
+        closing.append(sender[0])
+    return Text(greeting, [], closing, extra=list(mail.note.lines))
 
 
 def _paragraphs(sentences: list[str], rng: random.Random) -> list[str]:
@@ -393,7 +505,8 @@ def _automated_text(
         lines[0] = lines[0][:1].upper() + lines[0][1:]
     closing = [f"Ihr Team von {company}" if german else f"Your {company} team"]
     footer = [company, f"{rng.choice(vocab.CITIES_DE)} | https://{host}/impressum"]
-    return Text(greeting, _paragraphs(lines, rng), closing, footer, links)
+    extra = list(mail.note.lines) if mail.note is not None else []
+    return Text(greeting, _paragraphs(lines, rng), closing, footer, links, extra)
 
 
 def _wrap(text: str, width: int = 72) -> list[str]:
@@ -521,10 +634,14 @@ class _Multi:
 
 @dataclass(slots=True)
 class _Message:
-    """A message/rfc822 part: an attached copy of another mail."""
+    """A message/rfc822 part: an attached copy of another mail. Inline it is descended into by
+    reader and importer; as a named .eml (attached) it is listed as one attachment (D231)."""
 
     headers: str
     node: "_Node"
+    attached: bytes | None = None  # the serialised inner mail, when carried as a named .eml
+    header: str | None = None  # the part's MIME header lines for the named case
+    name: str | None = None  # the .eml file name, for its truth
 
 
 _Node = _Leaf | _Multi | _Message
@@ -544,6 +661,11 @@ def _emit(node: _Node, out: list[bytes]) -> None:
             out.append(delimiter)
             _emit(part, out)
         out.append(f"--{node.boundary}--\n".encode("ascii"))
+    elif node.attached is not None:  # a named .eml; the body is the serialised inner mail
+        assert node.header is not None
+        # the mail's own newline, then the one the boundary consumes (RFC 2046), so the importer
+        # reads back exactly node.attached
+        out += (node.header.encode("ascii"), b"\n", node.attached, b"\n")
     else:
         out.append(b"Content-Type: message/rfc822\nContent-Disposition: inline\n\n")
         out.append(node.headers.encode("ascii"))
@@ -774,6 +896,8 @@ def _html(
     if text.signature:
         signature = "<br>\n".join(esc(line) for line in text.signature)
         blocks.append(f'<div class="signature">{signature}</div>')
+    if text.extra:
+        blocks.append("<p>" + "<br>\n".join(esc(line) for line in text.extra) + "</p>")
     blocks += [f'<p><img src="cid:{cid}" alt="{esc(cid.partition("@")[0])}"></p>' for cid in cids]
     if quote:
         body = "<br>\n".join(esc(line.removeprefix(">").removeprefix(" ")) for line in quote[1:])
@@ -830,12 +954,104 @@ def _structure(planned: PlannedMail, style: _Style, charset: str, rng: random.Ra
         body = _Multi("related", _boundary(planned.client, rng), [body, *images])
     parts: list[_Node] = [body]
     if _forwards_as_message(planned) and planned.quoted is not None:
-        parts.append(_forwarded_message(planned.quoted, files, rng))
+        message = _forwarded_message(planned.quoted, files, rng)
+        if (
+            not inline
+            and files
+            and not _blocks_named_eml(files)
+            and (stage_rng(planned.seed, "render-forward-eml").random() < EML_FORWARD_SHARE)
+        ):
+            _as_named_eml(message, planned.quoted, style)
+        parts.append(message)
     else:
         parts += [_attachment_leaf(a, style) for a in files]
     if len(parts) == 1:
         return body
     return _Multi("mixed", _boundary(planned.client, rng), parts, style.preamble)
+
+
+def _blocks_named_eml(files: list[AttachmentSpec]) -> bool:
+    """A carried file that keeps a forward from being a named .eml: a container or a calendar,
+    which would make a member a container itself (depth 2) or want its own event (D154)."""
+    return any(
+        (a.filename or "").lower().endswith((".zip", ".eml", ".ics"))
+        or a.mime_type in ("application/zip", "message/rfc822")
+        for a in files
+    )
+
+
+def _as_named_eml(message: _Message, parent: PlannedMail, style: _Style) -> None:
+    """Carry the forwarded original as a named .eml: serialise the inner mail as the importer
+    reads it back, and name the attachment after the forwarded subject."""
+    inner_out = [message.headers.encode("ascii")]
+    _emit(message.node, inner_out)
+    message.attached = _RFC822_PARSER.parsebytes(b"".join(inner_out)).as_bytes()
+    message.name = _eml_name(parent)
+    message.header = (
+        f"Content-Type: message/rfc822;{style.fold}{_param('name', message.name, style)}\n"
+        f"Content-Disposition: attachment;{style.fold}{_param('filename', message.name, style)}\n"
+    )
+
+
+def _eml_name(parent: PlannedMail) -> str:
+    """An ASCII file name for an attached .eml, after the forwarded subject."""
+    core = (subject_core(parent.subject) or parent.subject).encode("ascii", "ignore").decode()
+    safe = "".join(c for c in core if c.isalnum() or c in " ._-").strip()
+    return f"{(safe.replace(' ', '_')[:60] or 'Nachricht')}.eml"
+
+
+def _named_eml(node: _Node) -> _Message | None:
+    """The named .eml part of a rendered tree, if any."""
+    if isinstance(node, _Multi):
+        for part in node.parts:
+            found = _named_eml(part)
+            if found is not None:
+                return found
+    elif isinstance(node, _Message) and node.attached is not None:
+        return node
+    return None
+
+
+def _eml_members(files: list[AttachmentSpec]) -> list[MemberTruth]:
+    """The attachments of an attached mail as its members, named as packed.list_members names
+    them (the file name, duplicates suffixed), with the SHA-256 of their unpacked bytes."""
+    seen: dict[str, int] = {}
+    members: list[MemberTruth] = []
+    for index, spec in enumerate(files):
+        base = (spec.filename or f"part-{index + 1}").replace("\x00", "").strip()
+        base = base or f"part-{index + 1}"
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        path = base if count == 0 else f"{base} ({count + 1})"
+        truth = _truth(spec)
+        assert truth.sha256 is not None  # a named .eml is never byte-damaged (faults.py)
+        members.append(
+            MemberTruth(
+                path, truth.sha256, truth.size, False, path.lower().endswith((".zip", ".eml"))
+            )
+        )
+    return members
+
+
+def _eml_truth(message: _Message, files: list[AttachmentSpec]) -> DocumentTruth:
+    """The truth of a named .eml: its SHA-256 and size as the importer stores them, the text it
+    extracts from the inner mail, and its members (the inner mail's attachments)."""
+    assert message.attached is not None and message.name is not None
+    size = len(message.attached)
+    kind = documents.classify_kind(message.name, "message/rfc822", message.attached)
+    preview, media_type = documents.preview_of(kind, message.name, "message/rfc822", size)
+    return DocumentTruth(
+        hashlib.sha256(message.attached).hexdigest(),
+        message.name,
+        kind.value,
+        DocumentTextStatus.TEXT.value,
+        None,
+        None,
+        size,
+        preview,
+        media_type,
+        members=tuple(member.as_json() for member in _eml_members(files)),
+    )
 
 
 def _forwarded_message(

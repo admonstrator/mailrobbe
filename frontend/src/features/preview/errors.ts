@@ -10,7 +10,8 @@ export interface PreviewProblem {
   retry: boolean;
 }
 
-/** German text for a failed read or conversion of an attachment for its preview (D76, D120). */
+/** German text for a failed read, conversion or decryption of an attachment for its preview
+ *  (D76, D120, D236). */
 export function previewProblem(error: Error): PreviewProblem {
   if (error instanceof ApiError) {
     switch (error.code) {
@@ -40,6 +41,19 @@ export function previewProblem(error: Error): PreviewProblem {
           title: "Die Vorschau ließ sich nicht erstellen. Herunterladen geht trotzdem.",
           reason: error.message,
           retry: true,
+        };
+      case "not_locked":
+        return {
+          title:
+            "Für diese Datei ist kein Kennwort gefunden, eine entschlüsselte Vorschau gibt es nicht.",
+          retry: false,
+        };
+      case "decrypt_failed":
+        return {
+          title:
+            "Die Datei ließ sich mit dem gefundenen Kennwort nicht entschlüsseln. Herunterladen geht trotzdem.",
+          reason: error.message,
+          retry: false,
         };
     }
   }

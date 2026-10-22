@@ -2,6 +2,7 @@ import { Link } from "react-router";
 
 import type { DocumentDetail } from "../../api/types";
 import { Card, CardTitle } from "../../components/Card";
+import { photoPosition, PhotoPosition } from "../places/PhotoPosition";
 import {
   coordinates,
   GROUP_LABELS,
@@ -15,12 +16,14 @@ import styles from "./MetadataCard.module.css";
 import { metadataListHref } from "./urlState";
 
 /** What the file says about itself (D167): every field found, in groups, as found and never
- *  rated, with the place on OpenStreetMap and the document list of its author and program. */
+ *  rated, with the place on a small map and OpenStreetMap (D249) and the document list of its
+ *  author and program. */
 export function MetadataCard({ document }: { document: DocumentDetail }) {
   const { metadata } = document;
   const rows = metadataRows(metadata);
   const place = coordinates(metadata);
   const summary = metadata.summary;
+  const position = photoPosition(summary);
   const groups = METADATA_GROUPS.filter(
     (group) => rows.some((row) => row.group === group) || (group === "place" && place),
   );
@@ -50,6 +53,9 @@ export function MetadataCard({ document }: { document: DocumentDetail }) {
               <h3 id={`document-metadata-${group}`} className={styles.groupTitle}>
                 {GROUP_LABELS[group]}
               </h3>
+              {group === "place" && position && (
+                <PhotoPosition documentId={document.id} position={position} openStreetMap={false} />
+              )}
               <dl className={styles.fields}>
                 {group === "place" && place && (
                   <div className={styles.field}>
@@ -81,7 +87,9 @@ export function MetadataCard({ document }: { document: DocumentDetail }) {
           ))}
           {metadata.error && (
             <p className={styles.damaged}>
-              Ein Teil der Datei ist beschädigt; aufgeführt ist, was sich davor lesen ließ.{" "}
+              {metadata.error.startsWith("encrypted")
+                ? "Die Datei ist verschlüsselt; aufgeführt ist, was sich ohne Kennwort lesen ließ."
+                : "Ein Teil der Datei ist beschädigt; aufgeführt ist, was sich davor lesen ließ."}{" "}
               <code className={styles.error}>{metadata.error}</code>
             </p>
           )}

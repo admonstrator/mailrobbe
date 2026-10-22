@@ -2,12 +2,13 @@ import email.policy
 import hashlib
 import re
 from collections import Counter
+from dataclasses import replace
 from email.message import EmailMessage, Message
 from email.parser import BytesParser
 
 import pytest
 
-from mailrobbe.generator.model import Fault, MailKind, PlannedMail, RenderedMail
+from mailrobbe.generator.model import AttachmentSpec, Fault, MailKind, PlannedMail, RenderedMail
 from mailrobbe.generator.render import compose, render
 
 _PARSER = BytesParser(policy=email.policy.default)
@@ -51,6 +52,8 @@ def test_parses_without_defects(parsed: list[tuple[RenderedMail, EmailMessage]])
             header = message[name]
             if header is not None:
                 assert not header.defects, (name, header.defects)
+        if _mail.encrypted is not None:
+            continue  # an encrypted mail (D238) has only opaque parts, no readable body
         body = message.get_body(("plain", "html"))
         assert body is not None
         assert isinstance(body, EmailMessage)
@@ -108,6 +111,8 @@ def test_attachments_as_planned(parsed: list[tuple[RenderedMail, EmailMessage]])
     document order with its decoded size and SHA-256; filler keeps its planned size."""
     with_files = with_documents = 0
     for mail, message in parsed:
+        if mail.encrypted is not None:
+            continue  # encrypted mails carry opaque parts, checked by test_encrypted_mails
         files = [part for part in message.walk() if part.get_filename()]
         planned = mail.planned.attachments
         assert sorted(part.get_filename() or "" for part in files) == sorted(
@@ -126,6 +131,51 @@ def test_attachments_as_planned(parsed: list[tuple[RenderedMail, EmailMessage]])
         with_documents += any(spec.document is not None for spec in planned)
     assert with_files > 0.08 * len(parsed)
     assert with_documents > 0.8 * with_files
+
+
+def _as_encrypted(base: PlannedMail, kind: str) -> PlannedMail:
+    """base with its body replaced by an encrypted-mail payload of `kind`, for the renderer."""
+    leaf = (
+        AttachmentSpec("smime.p7m", "application/pkcs7-mime", 6000)
+        if kind == "smime"
+        else AttachmentSpec("encrypted.asc", "application/octet-stream", 6000)
+    )
+    return replace(
+        base, encrypted=kind, attachments=(leaf,), calendar=None, note=None,
+        large_attachment=False, signals=["encrypted_mail"], passwords=(),
+    )  # fmt: skip
+
+
+def test_encrypted_mails(gen_plan: list[PlannedMail]) -> None:
+    """A mail encrypted as a whole (D238) is well formed S/MIME or PGP/MIME, carries the
+    encrypted_mail signal and no password, and its documents state every opaque part. Both kinds
+    are forced from a real plan mail, so the check does not depend on the random draw."""
+    natural = [render(mail) for mail in gen_plan if mail.encrypted is not None]
+    assert natural  # the plan makes some on its own
+    for mail in natural:
+        assert mail.encrypted in ("smime", "pgp")
+        assert mail.signals == ["encrypted_mail"] and not mail.passwords
+    base = next(m for m in gen_plan if m.kind is MailKind.PERSONAL and not m.attachments)
+    for kind in ("smime", "pgp"):
+        mail = render(_as_encrypted(base, kind))
+        message = _parse(mail.raw)
+        for part in message.walk():
+            assert not part.defects, part.defects
+        opaque = [part for part in message.walk() if part.get_content_maintype() != "multipart"]
+        if kind == "smime":
+            assert message.get_content_type() == "application/pkcs7-mime"
+            assert [part.get_content_type() for part in opaque] == ["application/pkcs7-mime"]
+        else:
+            assert message.get_content_type() == "multipart/encrypted"
+            assert message.get_param("protocol") == "application/pgp-encrypted"
+            assert [part.get_content_type() for part in opaque] == [
+                "application/pgp-encrypted",
+                "application/octet-stream",
+            ]
+        for part, truth in zip(opaque, mail.documents, strict=True):
+            payload = part.get_payload(decode=True)
+            assert isinstance(payload, bytes)
+            assert (len(payload), hashlib.sha256(payload).hexdigest()) == (truth.size, truth.sha256)
 
 
 def test_large_attachment(parsed: list[tuple[RenderedMail, EmailMessage]]) -> None:
@@ -182,7 +232,9 @@ def test_nested_structures(
             inner = next(p for p in message.walk() if p.get_content_type() == "message/rfc822")
             forwarded = inner.get_payload(0)
             assert isinstance(forwarded, EmailMessage)
-            assert forwarded["Message-ID"] == mail.planned.quoted.message_id  # type: ignore[union-attr]
+            # a named .eml is serialised again as the importer reads it (compat32), which may
+            # fold a long Message-ID onto a continuation line: the token itself is unchanged
+            assert str(forwarded["Message-ID"]).strip() == mail.planned.quoted.message_id  # type: ignore[union-attr]
             assert not any(part.defects for part in forwarded.walk())
         else:
             assert variant.startswith("depth_") and int(variant[6:]) >= 3

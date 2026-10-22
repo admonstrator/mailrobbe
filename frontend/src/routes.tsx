@@ -14,6 +14,7 @@ import { MailListPage } from "./features/mails/MailListPage";
 import { PersonProfilePage } from "./features/persons/PersonProfilePage";
 import { PersonsPage } from "./features/persons/PersonsPage";
 import { NotFoundPage } from "./features/placeholder/Placeholders";
+import { PlacesRoute } from "./features/places/lazyPages";
 import { AktenPage } from "./features/research/AktenPage";
 import { CollectionPage } from "./features/research/CollectionPage";
 import { SignalsRoute } from "./features/signals/lazyPages";
@@ -36,6 +37,7 @@ export const routes: RouteObject[] = [
       { path: "/entitaeten/:id", element: <EntityDetailRoute /> },
       { path: "/auffaelligkeiten", element: <SignalsRoute /> },
       { path: "/karte", element: <GraphPage /> },
+      { path: "/orte", element: <PlacesRoute /> },
       { path: "/zeitachse", element: <TimelineRoute /> },
       { path: "/themen", element: <TopicsRoute /> },
       { path: "/akten", element: <AktenPage /> },

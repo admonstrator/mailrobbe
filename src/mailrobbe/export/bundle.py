@@ -115,6 +115,7 @@ async def stream_export(
         created_by=export.created_by,
         created_at=export.created_at,
         include_research=export.include_research,
+        include_passwords=export.include_passwords,
         mails=len(entries),
         errors=sum(entry.error is not None for entry in entries),
         selection=export.selection,
@@ -146,8 +147,11 @@ def _add_mail(
             uses = signed.setdefault(signature.key_id, {})
             if signature.status in _VERIFIED:
                 uses[sha, signature.index] = _material(message, signature.index)
+    passwords = export.include_passwords
     if not isinstance(message, bytes):
-        return mail_entry(number, sha, mail, research, error=message, signals=signals)
+        return mail_entry(
+            number, sha, mail, research, error=message, signals=signals, passwords=passwords
+        )
     folder = f"{number:04d}-{mail.id}"
     eml = archive.add(f"{folder}/mail.eml", message)
     pdf = render_pdf(
@@ -159,7 +163,16 @@ def _add_mail(
         signals=signals,
     )
     files = ManifestFiles(eml=eml, pdf=archive.add(f"{folder}/mail.pdf", pdf))
-    return mail_entry(number, sha, mail, research, folder=folder, files=files, signals=signals)
+    return mail_entry(
+        number,
+        sha,
+        mail,
+        research,
+        folder=folder,
+        files=files,
+        signals=signals,
+        passwords=passwords,
+    )
 
 
 def _read(settings: Settings, mail: records.ExportMail, what: str) -> bytes | _Unreadable:

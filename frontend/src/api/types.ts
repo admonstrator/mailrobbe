@@ -91,6 +91,8 @@ export const BODY_PARTS: readonly BodyPart[] = ["clean", "own", "full"];
 export const PROXIMITY_LIMIT = 20;
 /** A paragraph's hash: 16 lower-case hex digits. */
 export const BLOCK_HASH_PATTERN = /^[0-9a-f]{16}$/;
+/** An area of the map (D248): west,south,east,north in decimal degrees. */
+export const AREA_PATTERN = /^-?\d{1,3}(\.\d+)?(,-?\d{1,3}(\.\d+)?){3}$/;
 
 export type ErrorCode =
   | "not_found"
@@ -120,7 +122,10 @@ export type ErrorCode =
   | "merge_undone" // 409: the merge, or every merge of the batch, was undone already (D163)
   | "invalid_rule" // 400: a hide rule without any criterion, or one that cannot be used (D221)
   | "invalid_block" // 400: a sample that is no paragraph of this hash, or none where needed
-  | "page_too_far"; // 400: a jump to a page did not answer within the count budget (D193)
+  | "page_too_far" // 400: a jump to a page did not answer within the count budget (D193)
+  | "not_locked" // 409: the document is not locked, or (decrypted) has no password found yet
+  | "decrypt_failed" // 422: the found password did not decrypt it; message says why
+  | "map_off"; // 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -174,6 +179,9 @@ export interface MailFilters {
   include_hidden?: boolean;
   body_part?: BodyPart;
   block?: string;
+  /** Milestone 20 (D248): the mail carries a photo whose position lies in this area,
+   *  "west,south,east,north" (AREA_PATTERN); west above east crosses the 180th meridian. */
+  photo_area?: string;
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -396,6 +404,13 @@ export interface AttachmentInfo {
   document_mails: number | null; // mails carrying the document, duplicates not counted
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
   metadata: MetadataSummary | null; // what the file says about itself (D167)
+  /** Locked: it needs a password; open: one was found (D233); null: not protected. */
+  protection?: DocumentProtection | null;
+  path?: string | null; // a member's path inside its container (D231)
+  /** A container (ZIP, 7z, attached mail): whether it was unpacked, and its entries that became
+   *  documents, in the container's order (D231); null and [] for any other attachment. */
+  members_status?: DocumentMembersStatus | null;
+  members?: AttachmentInfo[];
 }
 
 /** The few metadata fields of a document shown next to an attachment (D167), as found in the
@@ -407,6 +422,9 @@ export interface MetadataSummary {
   device: string | null; // camera or scanner: Make and Model
   created: string | null; // when the file says it was made or taken, ISO 8601 UTC
   gps: boolean; // the file names a place (EXIF GPS)
+  /** The position it states (D241): decimal degrees, south and west negative. */
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface ThreadMail {
@@ -893,7 +911,7 @@ export interface GraphSize {
 
 export const ERROR_PAGE_SIZE = 50;
 
-export type JobKind = "import" | "dkim" | "dkim_keys";
+export type JobKind = "import" | "dkim" | "dkim_keys" | "map";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
 export type ImportPhase =
@@ -907,6 +925,7 @@ export type ImportPhase =
   | "hidden"
   | "paragraphs"
   | "entities"
+  | "places"
   | "signals"
   | "topics";
 export type DkimPhase = "check" | "aggregates";
@@ -936,7 +955,7 @@ export interface ImportOptions {
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
-export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains"; // names: DKIM key names
+export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains" | "places"; // names: DKIM key names
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
@@ -1316,6 +1335,7 @@ export interface PermalinkTarget {
 
 export interface ExportRequest extends MailSelection {
   include_research?: boolean;
+  include_passwords?: boolean; // the passwords that opened attachments (D208)
   label?: string;
 }
 
@@ -1324,6 +1344,7 @@ export interface ExportInfo {
   label: string;
   mails: number;
   include_research: boolean;
+  include_passwords?: boolean;
   created_by: string | null;
   created_at: string;
   manifest_sha256: string | null; // of the ZIP's SHA256SUMS at the first complete download
@@ -1397,6 +1418,100 @@ export type DocumentTextStatus =
   | "unreadable"; // the MBOX file is missing or changed; tried again at the next import
 export type DocumentSort = "recent" | "oldest" | "mails" | "size";
 
+// Protected and packed attachments (milestone 19, D230 to D239) ----------------------------------
+
+/** document.protection (D233): locked needs a password, open was opened with one. */
+export type DocumentProtection = "locked" | "open";
+/** How the unpacking of a container stands (D231); null: waits for the next import. */
+export type DocumentMembersStatus =
+  | "done"
+  | "locked" // entries need a password not known yet; the others are unpacked
+  | "too_deep" // found only inside another container: listed there, not unpacked
+  | "unsupported" // a format not unpacked (RAR, tar, gzip, D239)
+  | "failed"
+  | "unreadable"; // its MBOX file is missing or changed; tried again at the next import
+/** What became of one entry of a container (D231). */
+export type DocumentMemberStatus =
+  | "document" // it became a member document
+  | "locked" // needs a password not known yet
+  | "too_large" // past MAILROBBE_ARCHIVE_MAX_SIZE unpacked
+  | "too_many" // past MAILROBBE_ARCHIVE_MAX_MEMBERS entries
+  | "failed";
+/** Where the password that opened a document was found, nearest first (D235). */
+export type PasswordTier =
+  | "manual" // typed in by hand for every locked document
+  | "mail" // the mail carrying the document
+  | "thread" // a mail of the same thread
+  | "contacts" // a mail between the same persons, 30 days before or after
+  | "attachments" // the text of a document attached to one of those mails
+  | "opened" // it opened another document
+  | "archive" // any other mail or document of the archive
+  | "typed"; // typed in on this document's page (POST /api/documents/{id}/password)
+export const PASSWORD_LENGTH = 128;
+
+export interface DocumentRef {
+  id: number;
+  name: string | null;
+}
+
+/** Where a password stands (D208): in a mail, in a document's text, or typed in by hand. */
+export interface PasswordFinding {
+  id: number;
+  context: string; // the line(s) around it, as written
+  mail: ThreadMail | null; // the mail it was found in
+  recipients: PersonRef[]; // that mail's To, at most RECIPIENT_PREVIEW
+  document: DocumentRef | null; // the document whose text holds it
+  editor: string | null; // typed in by hand by this editor (D237)
+  created_at: string;
+}
+
+/** The password that opened a document (D236), in plain text as evidence (D208). */
+export interface DocumentPassword {
+  value: string;
+  tier: PasswordTier;
+  found_at: string;
+  found_by: string | null; // the editor who typed it in (tier typed)
+  finding: PasswordFinding | null; // null when where it was found is not known
+}
+
+/** One entry of a container (D231). */
+export interface DocumentMember {
+  position: number;
+  path: string;
+  size: number | null; // unpacked, as declared or read
+  status: DocumentMemberStatus;
+  error: string | null; // English, technical
+  document_id: number | null; // the member document, once assigned
+  kind: DocumentKind | null;
+  text_status: DocumentTextStatus | null;
+  protection: DocumentProtection | null;
+}
+
+export interface DocumentMembers {
+  status: DocumentMembersStatus | null; // null: not unpacked yet (the next import)
+  error: string | null; // English, technical
+  entries: DocumentMember[]; // in the container's order
+}
+
+export interface DocumentContainerRef {
+  document_id: number; // the container document
+  name: string | null;
+  path: string; // where the document sits in it
+}
+
+/** POST /api/documents/{id}/password and /api/documents/passwords (D237). */
+export interface PasswordTry {
+  password: string; // 1 to PASSWORD_LENGTH characters
+}
+
+export interface PasswordTryResult {
+  tried: number; // locked documents the password was tried on
+  /** The documents it opened, now open with their text; a container is unpacked by the next
+   *  import, an opened document's metadata read by it too. */
+  opened: number[];
+  errors: number; // documents that could not be read or tried
+}
+
 /** Filters of the document list (D74). Mail conditions hold for one carrying mail. */
 export interface DocumentFilters {
   q?: string; // full text over content and file names
@@ -1412,6 +1527,7 @@ export interface DocumentFilters {
   /** What the file says about itself (D167): any of these values, exact. */
   author?: string[];
   program?: string[]; // MetadataSummary.software as stored
+  protection?: DocumentProtection[]; // any of these (D233)
 }
 
 export interface DocumentListParams extends DocumentFilters {
@@ -1437,6 +1553,8 @@ export interface DocumentListItem {
   last_date: string | null;
   first_sender: PersonRef | null;
   snippet: string | null; // with full text words in q: text around the first literal match
+  protection?: DocumentProtection | null; // D233
+  contained?: boolean; // it was found inside a container (D231)
 }
 
 export interface DocumentPage {
@@ -1462,6 +1580,7 @@ export interface DocumentSummary {
    *  time. */
   authors: MetadataValueCount[] | null;
   programs: MetadataValueCount[] | null;
+  protection?: Partial<Record<DocumentProtection, number>> | null; // every one present (D233)
 }
 
 export interface DocumentNameCount {
@@ -1499,6 +1618,16 @@ export interface DocumentDetail {
   attachment_id: number; // GET /api/attachments/{id}/content reads it
   preview: PreviewKind | null; // how the browser shows it (D120); null: download only
   metadata: DocumentMetadata; // what the file says about itself (D167)
+  /** Protection (D233 to D237). password_trial: a password can be tried on it (PDF, OOXML,
+   *  ZIP, 7z; not ODF, D239). password_tries: passwords the imports tried on it, last at
+   *  password_tried_at. password: the one that opened it, with where it was found. */
+  protection?: DocumentProtection | null;
+  password_trial?: boolean;
+  password_tries?: number;
+  password_tried_at?: string | null;
+  password?: DocumentPassword | null;
+  members?: DocumentMembers | null; // a container's entries (D231); null otherwise
+  containers?: DocumentContainerRef[]; // where it was found inside (D231)
 }
 
 export type DocumentMetadataStatus =
@@ -2080,11 +2209,15 @@ export const MAIL_SIGNAL_KINDS = [
   "forward_out",
   "night",
   "weekend",
+  "encrypted_attachment",
+  "password_separate",
+  "encrypted_mail",
 ] as const;
 export type MailSignalKind = (typeof MAIL_SIGNAL_KINDS)[number];
 /** A signal of a mail: a kind, or the word field of a research theme ("term:<theme key>"). */
 export type SignalKey = MailSignalKind | `term:${string}`;
-export type SignalGroup = "addresses" | "recipients" | "time" | "wording" | "persons";
+export type SignalGroup =
+  "addresses" | "recipients" | "time" | "attachments" | "wording" | "persons";
 
 export interface SignalSettings {
   internal_domains: string[]; // MAILROBBE_INTERNAL_DOMAINS; empty: internal signals are off
@@ -2142,6 +2275,9 @@ export interface SignalReason {
   forward_prefix: string | null; // forward, forward_out: "WG"
   forwarded_mail: string | null; // forward, forward_out: an attached mail's file name
   terms: EntityRef[]; // term signals: the theme's terms found
+  /** encrypted_attachment: the mail's protected documents; password_separate: the documents of
+   *  other mails its password opened (D238). */
+  documents?: DocumentRef[];
 }
 
 export interface MailSignals {
@@ -2304,4 +2440,263 @@ export interface BlockDetail {
 export interface BlockOverrideUpdate {
   standard: boolean | null;
   sample?: string | null;
+}
+
+// Places (milestone 20, D240 to D249) ---------------------------------------------------------
+
+export const PHOTO_POINT_LIMIT = 20_000; // photos PhotoPoints draws at most (D248)
+export const TEXT_PLACE_LIMIT = 2_000; // places TextPlaces and EventPlaces draw at most
+export const PHOTO_MAILS_LIMIT = 20;
+export const PHOTO_LIST_LIMIT = 200;
+export const PLACE_LOCATIONS_LIMIT = 5;
+export const PLACE_EVENTS_LIMIT = 10;
+export const DEVICE_LIMIT = 200;
+export const RADIUS_LIMIT_KM = 200;
+/** A compass direction in German, from the nearest town towards the photo. */
+export type CompassDirection = "N" | "NO" | "O" | "SO" | "S" | "SW" | "W" | "NW";
+export type PlaceDetailKind = "city" | "country";
+
+/** The map's filters (D247): a photo shows when one mail carrying it meets the mail filters, a
+ *  place when mails meeting them mention it, an invitation's place when its mail meets them; and
+ *  the photo's own capture time (D241) and device. */
+export interface PlaceParams extends MailFilters {
+  taken_from?: string; // YYYY-MM-DD, UTC day of the capture time, inclusive
+  taken_to?: string;
+  device?: string; // exactly
+}
+
+export interface PhotoPoint {
+  id: number; // document id
+  lat: number;
+  lon: number;
+}
+
+export interface PhotoPoints {
+  points: PhotoPoint[]; // by document id, at most PHOTO_POINT_LIMIT
+  total: number;
+  truncated: boolean;
+}
+
+export interface PlaceMail {
+  id: number;
+  date: string | null;
+  subject: string | null;
+  sender: PersonRef | null;
+  recipients: PersonRef[]; // at most RECIPIENT_PREVIEW
+  recipient_count: number;
+}
+
+/** The town of the shipped lists nearest to a photo (D248), within 50 km. */
+export interface NearestTown {
+  name: string;
+  region: string | null; // Bundesland, Kanton
+  country: string; // ISO 3166-1 alpha-2
+  distance_km: number;
+  direction: CompassDirection | null; // null within 0.5 km of the town
+}
+
+/** GET /api/places/photos/{id}: one document with a position (D248). */
+export interface PhotoDetail {
+  document_id: number;
+  attachment_id: number; // the occurrence /api/attachments/{id}/content reads it from
+  name: string | null;
+  mime_type: string;
+  preview: PreviewKind | null;
+  latitude: number;
+  longitude: number;
+  altitude: number | null; // metres
+  taken_at: string | null; // the capture time (D241), UTC
+  taken_text: string | null; // the capture time as found when the file gives no zone
+  device: string | null;
+  nearest: NearestTown | null;
+  mails: PlaceMail[]; // earliest first, at most PHOTO_MAILS_LIMIT
+  mail_count: number;
+}
+
+/** The photos around a point (lat and lon, nearest first) or, without a point, every photo
+ *  matching the filters by capture time, earliest first. */
+export interface PhotoListParams extends PlaceParams {
+  lat?: number;
+  lon?: number;
+  radius_km?: number; // default 2, at most RADIUS_LIMIT_KM
+  limit?: number; // default 50, at most PHOTO_LIST_LIMIT
+}
+
+export interface PhotoListItem {
+  document_id: number;
+  attachment_id: number;
+  name: string | null;
+  latitude: number;
+  longitude: number;
+  taken_at: string | null;
+  device: string | null;
+  distance_km: number | null; // from the point; null without one
+  first_mail: PlaceMail | null; // the earliest mail carrying it that meets the filters
+}
+
+export interface PhotoList {
+  items: PhotoListItem[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface TextPlace {
+  entity_id: number;
+  label: string; // as the texts write it
+  place: string; // what the point stands for
+  detail: PlaceDetailKind;
+  lat: number;
+  lon: number;
+  mails: number; // mails meeting the filters that mention it (of the sample when not exact)
+}
+
+export interface TextPlaces {
+  places: TextPlace[]; // most mails first, at most TEXT_PLACE_LIMIT
+  total: number;
+  exact: boolean; // false: counted over FACET_MAILS of the matching mails (D87)
+}
+
+export interface PlaceEvent {
+  event_id: number;
+  mail_id: number;
+  kind: EventKey;
+  summary: string | null;
+  location: string | null;
+  starts_at: string | null; // UTC; null when the zone is unknown
+  starts_local: string | null; // as written, without a zone
+  all_day: boolean;
+  uid: string | null;
+}
+
+export interface EventPlace {
+  lat: number;
+  lon: number;
+  place: string;
+  locations: string[]; // as written, most events first, at most PLACE_LOCATIONS_LIMIT
+  events: number;
+  first: string | null;
+  last: string | null;
+  samples: PlaceEvent[]; // the latest ones, at most PLACE_EVENTS_LIMIT
+}
+
+export interface EventPlaces {
+  places: EventPlace[]; // most events first, at most TEXT_PLACE_LIMIT
+  total: number;
+}
+
+/** What the places step found for place entities or invitation locations (D242, D243). */
+export interface PlaceCounts {
+  found: number;
+  ambiguous: number;
+  unknown: number;
+  waiting: number; // not looked at yet: the next import run's step places
+}
+
+export interface DeviceCount {
+  device: string;
+  photos: number;
+}
+
+export interface PlaceSummary {
+  photos: number;
+  photos_dated: number;
+  devices: DeviceCount[]; // most photos first, at most DEVICE_LIMIT
+  texts: PlaceCounts;
+  events: PlaceCounts;
+  outdated: boolean; // the lists or rules changed since the last step places
+  computed_at: string | null;
+}
+
+/** A town the overview map labels (D244). */
+export interface TownLabel {
+  name: string;
+  lat: number;
+  lon: number;
+  population: number;
+  country: string;
+  capital: boolean;
+}
+
+/** (west, south, east, north) in decimal degrees. */
+export type BBox = [number, number, number, number];
+export type MapRegionKey = "de" | "at" | "ch" | "dach" | "view"; // view: the map's current view
+export type MapDetailKey = "overview" | "streets" | "full";
+export type MapPhase = "plan" | "download" | "finish";
+
+export interface MapRegionInfo {
+  key: MapRegionKey; // a preset region, never view
+  bbox: BBox;
+  sizes: Record<MapDetailKey, number>; // bytes on the build of size_hints_build
+}
+
+export interface MapDetailInfo {
+  key: MapDetailKey;
+  max_zoom: number;
+}
+
+/** The detail map in MAILROBBE_MAP_DIR (D245). */
+export interface DetailMap {
+  url: string; // /api/map/tiles/<file>, read by range requests
+  region: MapRegionKey;
+  bbox: BBox;
+  detail: MapDetailKey;
+  max_zoom: number;
+  build: string | null;
+  source_url: string;
+  size: number;
+  tiles: number;
+  downloaded_at: string;
+}
+
+/** A download that stopped: the next run with the same options continues it (D246). */
+export interface MapPartial {
+  region: MapRegionKey;
+  bbox: BBox;
+  detail: MapDetailKey;
+  build: string | null;
+  bytes_done: number;
+  bytes_total: number;
+}
+
+export interface MapOptions {
+  region: MapRegionKey;
+  detail: MapDetailKey;
+  bbox: BBox;
+  max_zoom: number;
+  source: string;
+}
+
+export interface MapProgress extends RunProgress {
+  source_url: string | null;
+  build: string | null;
+  tiles: number;
+  bytes_total: number | null;
+  bytes_done: number;
+  continued_bytes: number; // downloaded by an earlier run this one continued
+}
+
+/** A run of `mailrobbe map download` (D246). */
+export interface MapJob extends JobInfo {
+  kind: "map";
+  phase: MapPhase | null;
+  options: MapOptions;
+  progress: MapProgress;
+}
+
+export interface MapStatus {
+  offered: boolean; // MAILROBBE_MAP_SOURCE is not off
+  source_host: string | null;
+  detail_map: DetailMap | null;
+  partial: MapPartial | null;
+  regions: MapRegionInfo[];
+  details: MapDetailInfo[];
+  size_hints_build: string;
+  free_bytes: number | null;
+  job: MapJob | null;
+}
+
+export interface MapDownloadRequest {
+  region: MapRegionKey;
+  detail: MapDetailKey;
+  bbox?: BBox; // region view only
 }

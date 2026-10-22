@@ -95,6 +95,13 @@
   min-width: 0;
 }
 
+/* The original and, for an opened file, its decrypted bytes (D209). */
+.downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .name {
   margin: 0;
   font-size: 20px;

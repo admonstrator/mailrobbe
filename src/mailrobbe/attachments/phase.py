@@ -10,21 +10,26 @@ After finalize, the import works through the documents waiting for their text:
     too large   above MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE: too_large, without a read
     workers     spawned processes, as many as the import has; each reads one document's bytes
                 (content.read_attachment) and extracts its text (extract.extract_document, which
-                runs the reader of its format in a child process with time and memory limits).
-                A missing or changed MBOX file makes the document unreadable, tried again at the
-                next import; a text extracted before stays until its file can be read again.
+                runs the reader of its format in a child process with time and memory limits),
+                with the password of an opened document (D236); a member of a container is read
+                from its container (D232). A missing or changed MBOX file makes the document
+                unreadable, tried again at the next import; a text extracted before stays until
+                its file can be read again.
     store       the results in batches, one transaction each, with EXTRACTOR_VERSION; a text
                 whose tsvector PostgreSQL refuses (above 1 MB) is halved until it fits, on its
                 own, so that one document never fails a batch
 
-The worker that has a document's bytes also reads its metadata (metadata.read_metadata, D167)
-when that waits too, so a new import reads each document once. The metadata step after it
-(collect_metadata) uses the same workers, order and batches for the documents left: those not
-read for their text (images, documents extracted before), and those read by an older
-METADATA_VERSION. Documents of a kind or format without metadata it reads are unsupported at
-once, those above the text extraction's size limit too_large (read again once the limit admits
-them), without a read; a missing or changed MBOX file leaves the metadata as it was, tried again
-at the next import.
+The worker that has a document's bytes also reads its metadata (metadata.read_metadata, D167, with
+the password too) when that waits too, so a new import reads each document once. The metadata step
+after it (collect_metadata) uses the same workers, order and batches for the documents left: those
+not read for their text (images, documents extracted before), and those read by an older
+METADATA_VERSION. Documents of a kind or format without metadata it reads are unsupported at once,
+those above the text extraction's size limit too_large (read again once the limit admits them),
+without a read; a missing or changed MBOX file leaves the metadata as it was, tried again at the
+next import.
+
+Between the two the passwords step (passwords.phase) opens what it can; an opened document gets
+its text there and its metadata in the metadata step.
 
 A stop (Ctrl-C, SIGTERM or the dashboard, D46) kills the workers at once together with their
 extraction children: each worker leads a process group of its own, which the main process kills.
@@ -127,12 +132,16 @@ _STORE_METADATA = text("""
         metadata_fields = CAST(u.fields AS jsonb), metadata_error = u.error,
         metadata_author = u.author, metadata_modified_by = u.modified_by,
         metadata_program = u.program, metadata_device = u.device, metadata_created = u.created,
-        metadata_gps = u.gps, metadata_version = :version
+        metadata_gps = u.gps, metadata_latitude = u.latitude, metadata_longitude = u.longitude,
+        metadata_gps_time = u.gps_time, metadata_version = :version
     FROM unnest(CAST(:ids AS bigint[]), CAST(:statuses AS text[]), CAST(:fields AS text[]),
                 CAST(:errors AS text[]), CAST(:authors AS text[]), CAST(:modified_by AS text[]),
                 CAST(:programs AS text[]), CAST(:devices AS text[]),
-                CAST(:created AS timestamptz[]), CAST(:gps AS boolean[]))
-        AS u(id, status, fields, error, author, modified_by, program, device, created, gps)
+                CAST(:created AS timestamptz[]), CAST(:gps AS boolean[]),
+                CAST(:latitudes AS float8[]), CAST(:longitudes AS float8[]),
+                CAST(:gps_times AS timestamptz[]))
+        AS u(id, status, fields, error, author, modified_by, program, device, created, gps,
+             latitude, longitude, gps_time)
     WHERE d.id = u.id
 """)
 
@@ -202,7 +211,12 @@ class Extractor(Protocol):
     monkeypatching)."""
 
     def __call__(
-        self, data: bytes, filename: str | None, mime_type: str, limits: ExtractionLimits
+        self,
+        data: bytes,
+        filename: str | None,
+        mime_type: str,
+        limits: ExtractionLimits,
+        password: str | None = None,
     ) -> Extraction: ...
 
 
@@ -210,7 +224,12 @@ class MetadataReader(Protocol):
     """metadata.read_metadata, or a module-level double."""
 
     def __call__(
-        self, data: bytes, filename: str | None, mime_type: str, limits: MetadataLimits
+        self,
+        data: bytes,
+        filename: str | None,
+        mime_type: str,
+        limits: MetadataLimits,
+        password: str | None = None,
     ) -> Reading: ...
 
 
@@ -261,13 +280,17 @@ def _extract(task: _Task) -> _Outcome:
     extraction = reading = None
     if task.text:
         try:
-            extraction = _state.extract(data, document.name, document.mime_type, _state.limits)
+            extraction = _state.extract(
+                data, document.name, document.mime_type, _state.limits, task.source.password
+            )
         except Exception as error:  # extract_document never raises for a bad document: a bug
             extraction = Extraction(S.FAILED, error=f"extraction failed: {describe(error)}")
     if task.metadata:
         try:
             limits = _state.metadata_limits
-            reading = _state.read(data, document.name, document.mime_type, limits)
+            reading = _state.read(
+                data, document.name, document.mime_type, limits, task.source.password
+            )
         except Exception as error:  # read_metadata never raises either
             reading = Reading(M.FAILED, error=f"reading failed: {describe(error)}")
     return _Outcome(extraction, reading=reading)
@@ -762,6 +785,9 @@ def _metadata_parameters(metas: Sequence[_Meta]) -> dict[str, Any]:
         "devices": [summary.device for summary in summaries],
         "created": [summary.created for summary in summaries],
         "gps": [summary.gps for summary in summaries],
+        "latitudes": [summary.latitude for summary in summaries],
+        "longitudes": [summary.longitude for summary in summaries],
+        "gps_times": [summary.gps_time for summary in summaries],
     }
 
 

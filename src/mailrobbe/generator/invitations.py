@@ -4,8 +4,9 @@ Apple Calendar write them.
 
 The planner decides with a random stream of its own (meeting, moved, PARTSTATS and the shares)
 and dresses mails it has made; its own draws keep reading them as made, so every other mail of
-the plan is the same with or without invitations. What a mail carries is PlannedMail.calendar
-(model.Invitation). Everything else is a pure
+the plan is the same with or without invitations. A second stream of its own (addressed) gives
+some meetings an address instead of a room: a postcode and its town, or a town alone (D243).
+What a mail carries is PlannedMail.calendar (model.Invitation). Everything else is a pure
 function of the plan, for the planner (subject, files) and the renderer (body_lines,
 calendar_part, has_inline_part, truth):
 
@@ -47,6 +48,8 @@ OUTLOOK_RULE = "*~*~*~*~*~*~*~*~*~*"
 _ALL_DAY_SHARE = 0.1
 _RECURRING_SHARE = 0.15
 _ROOM_SHARE = 0.3  # meetings of insiders that book a room
+_ADDRESS_SHARE = 0.2  # meetings without a room at an address with its postcode and town
+_TOWN_SHARE = 0.15  # or at a place in a town without a postcode
 
 # The subject prefix of each kind of mail, German and English; the outlook style writes it into
 # SUMMARY too, for answers and cancellations.
@@ -113,6 +116,19 @@ _PLACES_DE = (
     "Großer Saal", "Telefonkonferenz; Einwahl folgt",
 )  # fmt: skip
 _PLACES_EN = ("Meeting room {n}", "Room {n}.{m}", "Video call", "Board room", "Conference call")
+# Towns of addresses with a postcode of their centre (GeoNames postal codes, D243).
+_POSTCODES = (
+    ("20095", "Hamburg"), ("28195", "Bremen"), ("30159", "Hannover"), ("10117", "Berlin"),
+    ("04109", "Leipzig"), ("01067", "Dresden"), ("50667", "Köln"), ("40213", "Düsseldorf"),
+    ("60311", "Frankfurt am Main"), ("70173", "Stuttgart"), ("80331", "München"),
+    ("90403", "Nürnberg"), ("24103", "Kiel"), ("23552", "Lübeck"), ("48143", "Münster"),
+    ("99423", "Weimar"), ("1010", "Wien"), ("8001", "Zürich"), ("3011", "Bern"), ("9490", "Vaduz"),
+)  # fmt: skip
+_VENUES = (
+    "Rathaus", "Stadthalle", "Bürgerhaus", "Geschäftsstelle", "Tagungszentrum", "Hotel am Markt",
+    "Gemeindesaal", "Vereinsheim",
+)  # fmt: skip
+_STREETS = ("Marktplatz", "Bahnhofstraße", "Hauptstraße", "Lindenallee", "Schillerstraße")
 _AGENDA_DE = (
     "Rückblick, offene Punkte", "Stand der Arbeiten", "Budget; Freigaben", "Zeitplan",
     "Personal", "Termine und Fristen", "Risiken",
@@ -182,6 +198,21 @@ def meeting(
         attendees=(*mail.to, *mail.cc),
         rooms=rooms,
     )
+
+
+def addressed(rng: random.Random, meeting: Meeting) -> Meeting:
+    """The meeting at an address (_ADDRESS_SHARE: venue, street, postcode and town) or at a
+    place in a town (_TOWN_SHARE), unless it books a room; else as it is."""
+    draw = rng.random()
+    if meeting.rooms or draw >= _ADDRESS_SHARE + _TOWN_SHARE:
+        return meeting
+    venue = rng.choice(_VENUES)
+    postcode, town = rng.choice(_POSTCODES)
+    if draw < _ADDRESS_SHARE:
+        location = f"{venue}, {rng.choice(_STREETS)} {rng.randint(1, 60)}, {postcode} {town}"
+    else:
+        location = f"{venue}, {town}" if rng.random() < 0.5 else f"{venue} {town}"
+    return replace(meeting, location=location, place=town)
 
 
 def moved(rng: random.Random, meeting: Meeting) -> Meeting:
@@ -284,6 +315,7 @@ def truth(mail: PlannedMail) -> EventTruth:
         summary=_summary(invitation, mail.language),
         start=start,
         attendees=len(_attendees(invitation)),
+        place=None if invitation.method == "REPLY" else meeting.place,  # a reply has no LOCATION
     )
 
 
