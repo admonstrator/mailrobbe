@@ -35,6 +35,8 @@ const photo: AttachmentInfo = {
     device: "Canon EOS 80D",
     created: null,
     gps: true,
+    latitude: 48.1371,
+    longitude: 11.5754,
   },
 };
 

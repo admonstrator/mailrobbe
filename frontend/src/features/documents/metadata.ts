@@ -5,6 +5,7 @@
 
 import type { DocumentMetadata, DocumentMetadataStatus, MetadataValue } from "../../api/types";
 import { formatDateTime, formatNumber } from "../../lib/format";
+import type { Coordinates } from "../../lib/osm";
 
 export type MetadataGroup =
   "camera" | "capture" | "place" | "author" | "program" | "dates" | "document" | "other";
@@ -169,10 +170,7 @@ export interface MetadataRow {
   title?: string; // the value as it stands in the file, where the card shows another form
 }
 
-export interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
+export { openStreetMapUrl, type Coordinates } from "../../lib/osm";
 
 const ISO = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?)?)?$/;
 const ZONE = /(?:Z|[+-]\d{2}:\d{2})$/;
@@ -209,11 +207,6 @@ export function coordinates(metadata: DocumentMetadata): Coordinates | null {
   const { latitude, longitude } = metadata.fields.gps ?? {};
   if (typeof latitude !== "number" || typeof longitude !== "number") return null;
   return { latitude, longitude };
-}
-
-/** The place on OpenStreetMap, opened by the reader's choice; the app itself loads no map. */
-export function openStreetMapUrl({ latitude, longitude }: Coordinates): string {
-  return `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=16/${latitude}/${longitude}`;
 }
 
 /** Every field of the file as a row: the known ones in the card's order, then the others (the

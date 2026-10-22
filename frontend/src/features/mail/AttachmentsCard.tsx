@@ -11,6 +11,7 @@ import { formatBytes, formatDate, formatNumber } from "../../lib/format";
 import { KindIcon } from "../documents/KindIcon";
 import { kindFromMimeType, pagesText, statusNote } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
+import { photoPosition, PhotoPosition } from "../places/PhotoPosition";
 import { PreviewOverlay } from "../preview/PreviewOverlay";
 import styles from "./AttachmentsCard.module.css";
 import { attachmentElementId } from "./SearchHitsCard";
@@ -52,7 +53,8 @@ export function metadataLine(metadata: MetadataSummary, kind: DocumentKind | nul
 /** The attachments in the side column (D18, D75, D166): metadata, the download read from the
  *  MBOX file (D76), the preview over the page (D120, D165), and the document each one is, with
  *  the other mails that carry it; those holding a search word of the mail list's query marked,
- *  with the place (D79). A long list shows its first ATTACHMENTS_SHOWN. */
+ *  with the place (D79). A long list shows its first ATTACHMENTS_SHOWN. A photo with a position
+ *  shows it on a small map (D249), one photo at a time: the first, or the one chosen. */
 export function AttachmentsCard({
   attachments,
   hits = [],
@@ -66,12 +68,15 @@ export function AttachmentsCard({
   const [all, setAll] = useState(false);
   // One preview at a time, over the page.
   const [open, setOpen] = useState<AttachmentInfo | null>(null);
+  const [chosen, setChosen] = useState<number | null>(null);
   const hitById = new Map(hits.map((hit) => [hit.attachment_id, hit]));
   const shown = all
     ? attachments
     : attachments.filter(
         (attachment, index) => index < ATTACHMENTS_SHOWN || hitById.has(attachment.id),
       );
+  const positioned = shown.filter((attachment) => photoPosition(attachment.metadata));
+  const mapped = positioned.find((attachment) => attachment.id === chosen) ?? positioned[0];
 
   return (
     <Card variant="side" aria-labelledby={titleId}>
@@ -85,6 +90,7 @@ export function AttachmentsCard({
           const name = attachment.filename || "(ohne Namen)";
           const hit = hitById.get(attachment.id);
           const described = attachment.metadata && metadataLine(attachment.metadata, kind);
+          const position = photoPosition(attachment.metadata);
           return (
             <li
               key={attachment.id}
@@ -143,7 +149,22 @@ export function AttachmentsCard({
                       {documentLinkText(attachment.document_mails)}
                     </Link>
                   )}
+                  {position && attachment !== mapped && (
+                    <button
+                      type="button"
+                      className={styles.open}
+                      aria-label={`Aufnahmeort von ${name} zeigen`}
+                      onClick={() => setChosen(attachment.id)}
+                    >
+                      Aufnahmeort zeigen
+                    </button>
+                  )}
                 </span>
+                {position && attachment === mapped && (
+                  <span className={styles.position}>
+                    <PhotoPosition documentId={attachment.document_id} position={position} />
+                  </span>
+                )}
               </span>
             </li>
           );

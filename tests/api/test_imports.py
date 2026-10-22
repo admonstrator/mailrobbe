@@ -586,7 +586,8 @@ async def test_a_dkim_recheck_started_from_the_dashboard_runs_until_stopped(
     await post(client, "/api/dkim/recheck", {"statuses": ["nonsense"]}, status=422)
 
 
-@pytest.mark.parametrize("kind", list(JobKind))
+# A map download runs beside them (D246; tests/api/test_maps.py).
+@pytest.mark.parametrize("kind", [kind for kind in JobKind if kind is not JobKind.MAP])
 async def test_nothing_starts_while_a_run_of_either_kind_is_alive(
     dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch, kind: JobKind
 ) -> None:

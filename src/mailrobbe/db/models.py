@@ -70,6 +70,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   paragraph_block the standard blocks and other paragraphs the blocks step looked at, and
   paragraph_override the team's choices about paragraphs (D225); mail.history and mail.blocks the
   ranges of body_text that are quoted and that are standard blocks, which mail.tsv weighs (D226).
+- Milestone 20 (migration 0017, D240 to D249): document.metadata_latitude, metadata_longitude
+  and metadata_gps_time are a photo's position as its metadata states it (D241); entity and
+  calendar_event carry the point the places step found for a place entity or an invitation's
+  location, with its status and what the point stands for (D242, D243); job kind map records the
+  downloads of the detail map (D246).
 """
 
 from datetime import date, datetime
@@ -85,6 +90,7 @@ from sqlalchemy import (
     Computed,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Identity,
@@ -186,6 +192,11 @@ DOCUMENT_TSV_EXPRESSION = (
 # Sort key of the document list by first appearance (D74): documents without a dated mail last.
 # The entity list sorts by the same expression over entity.first_date (D88).
 FIRST_DATE_SORT_KEY = "COALESCE(first_date, '-infinity'::timestamp with time zone)"
+
+# The point of a place entity or an invitation's location (migration 0017, D242, D243):
+# place_status is NULL until the places step looked at it, then an enums.PlaceStatus value;
+# latitude and longitude are set with found, place_label says what the point stands for.
+PLACE_STATUS_CHECK = "place_status IN ('found', 'ambiguous', 'unknown')"
 
 # Version of the entity extraction's code (migration 0010, D84): raising it scans every mail and
 # document again at the next import. The scan tables store entities.model.scan_version(), which
@@ -387,6 +398,12 @@ class Document(Base):
             "metadata_program",
             postgresql_where=text("metadata_program IS NOT NULL"),
         ),
+        Index(
+            "ix_document_metadata_position",
+            "metadata_latitude",
+            "metadata_longitude",
+            postgresql_where=text("metadata_latitude IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -433,6 +450,11 @@ class Document(Base):
     metadata_device: Mapped[str | None] = mapped_column(Text)
     metadata_created: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     metadata_gps: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # The position the file states (migration 0017, D241): signed decimal degrees, NULL without
+    # one or at exactly 0, 0; the GPS time in UTC.
+    metadata_latitude: Mapped[float | None] = mapped_column(Float)
+    metadata_longitude: Mapped[float | None] = mapped_column(Float)
+    metadata_gps_time: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
 
 
 class DkimResult(Base):
@@ -819,6 +841,8 @@ class Entity(Base):
             postgresql_using="gin",
             postgresql_ops={"label": "gin_trgm_ops"},
         ),
+        Index("ix_entity_located", "mails", "id", postgresql_where=text("latitude IS NOT NULL")),
+        CheckConstraint(PLACE_STATUS_CHECK, name="place_status"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -835,6 +859,11 @@ class Entity(Base):
     documents: Mapped[int] = mapped_column(Integer, server_default="0")
     first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    # place: the point the places step found (migration 0017, D242, PLACE_STATUS_CHECK)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    place_status: Mapped[str | None] = mapped_column(Text)
+    place_label: Mapped[str | None] = mapped_column(Text)
 
 
 class MailEntity(Base):
@@ -1167,6 +1196,7 @@ class CalendarEvent(Base):
     __table_args__ = (
         UniqueConstraint("mail_id", "position"),
         CheckConstraint("kind IN ('request', 'reply', 'cancel')", name="kind"),
+        CheckConstraint(PLACE_STATUS_CHECK, name="place_status"),
         Index("ix_calendar_event_uid", "uid"),
         Index("ix_calendar_event_organizer_email", "organizer_email"),
     )
@@ -1191,6 +1221,11 @@ class CalendarEvent(Base):
     recurrence: Mapped[str | None] = mapped_column(Text)  # RRULE as written
     organizer_email: Mapped[str | None] = mapped_column(Text)  # lower case
     organizer_name: Mapped[str | None] = mapped_column(Text)
+    # The point of its location (migration 0017, D243), as on entity
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    place_status: Mapped[str | None] = mapped_column(Text)
+    place_label: Mapped[str | None] = mapped_column(Text)
 
 
 class CalendarAttendee(Base):

@@ -116,6 +116,8 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     }
     near = {step.key: step.status for step in second.steps if step.key.startswith("near_")}
     assert near == {"near_texts": "skipped", "near_groups": "done"}  # fingerprints kept (D158)
+    # Nothing waits for a point and the lists are those of the first run (D242).
+    assert {step.key: step.status for step in second.steps}["places"] == "skipped"
 
 
 @pytest.mark.db
@@ -255,10 +257,10 @@ def test_an_outdated_schema_is_refused(
     empty_database_url: str, mbox_dir: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     assert _import(empty_database_url, mbox_dir) == 1
-    assert "schema is at revision none, not at 0016: run `mailrobbe migrate` first" in caplog.text
+    assert "schema is at revision none, not at 0017: run `mailrobbe migrate` first" in caplog.text
     migrate.upgrade("0001", empty_database_url)
     assert _import(empty_database_url, mbox_dir) == 1
-    assert "schema is at revision 0001, not at 0016" in caplog.text
+    assert "schema is at revision 0001, not at 0017" in caplog.text
 
 
 def test_a_missing_directory_is_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

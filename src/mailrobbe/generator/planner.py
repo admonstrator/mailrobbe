@@ -239,6 +239,7 @@ class Planner:
         self._clock = _Clock(config, stage_rng(config.seed, "plan-clock"))
         self._large_rng = stage_rng(config.seed, "plan-large")
         self._calendar_rng = stage_rng(config.seed, "plan-calendar")
+        self._address_rng = stage_rng(config.seed, "plan-addresses")  # meetings at addresses
         persons = population.persons
         people = [p for p in persons if p.kind is not PersonKind.SERVICE]
         self._staff = _Pool([p for p in people if p.internal])
@@ -465,6 +466,7 @@ class Planner:
         )
         planned = _strip(mail)
         meeting = invitations.meeting(self._calendar_rng, mail, sender.index, sender.zone, room)
+        meeting = invitations.addressed(self._address_rng, meeting)
         mail.bcc = ()
         self._carry(mail, Invitation("REQUEST", meeting, invitations.style(client)))
         self._dressed[index] = planned

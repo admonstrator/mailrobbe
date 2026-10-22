@@ -253,6 +253,14 @@ def crafted(
 
 
 async def _crafted(url: str, settings: Settings, mbox_dir: Path) -> Crafted:
+    # The positions of the GPS fields, as migration 0017 copies them for documents read before it
+    # and the metadata step stores them (D241), whichever of the two filled this database.
+    await rows(
+        url,
+        "UPDATE document SET metadata_latitude = (metadata_fields #>> '{gps,latitude}')::float8,"
+        " metadata_longitude = (metadata_fields #>> '{gps,longitude}')::float8"
+        " WHERE metadata_gps",
+    )
     mails = [row.id for row in await rows(url, "SELECT id FROM mail ORDER BY byte_offset")]
     found = {row.sha256: row.id for row in await rows(url, "SELECT id, sha256 FROM document")}
     persons = await rows(url, "SELECT id, split_part(canonical_email, '@', 1) AS local FROM person")
@@ -688,6 +696,8 @@ async def test_the_page_shows_every_field_the_file_states(
         device="Canon EOS R6",
         created=datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC),
         gps=True,
+        latitude=52.5200833,
+        longitude=13.41,
     )
     png = (await detail_of(crafted_client, crafted.documents["png"])).metadata
     assert png.fields == {"png": {"Author": "Peter Hofmann", "Software": "GIMP 2.10"}}
@@ -734,6 +744,8 @@ async def test_the_mail_detail_shows_each_attachments_summary(
             device="Canon EOS R6",
             created=datetime(2024, 5, 6, 8, 9, 10, tzinfo=UTC),
             gps=True,
+            latitude=52.5200833,
+            longitude=13.41,
         ),
     }
     first = MailDetail.model_validate(await get(crafted_client, f"/api/mails/{crafted.mails[0]}"))

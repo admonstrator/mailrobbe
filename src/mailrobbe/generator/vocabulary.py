@@ -149,6 +149,21 @@ CITIES_DE = (
     "Hamburg", "Bremen", "Hannover", "Berlin", "Leipzig", "Dresden", "Köln", "Düsseldorf",
     "Frankfurt am Main", "Stuttgart", "München", "Nürnberg", "Kiel", "Lübeck", "Münster",
 )  # fmt: skip
+# Their centres (latitude, longitude), where the photos of an outing are taken (D241).
+CITY_POINTS = {
+    "Hamburg": (53.5507, 9.9930), "Bremen": (53.0758, 8.8072), "Hannover": (52.3744, 9.7386),
+    "Berlin": (52.5200, 13.4050), "Leipzig": (51.3397, 12.3731), "Dresden": (51.0504, 13.7373),
+    "Köln": (50.9375, 6.9603), "Düsseldorf": (51.2277, 6.7735),
+    "Frankfurt am Main": (50.1109, 8.6821), "Stuttgart": (48.7758, 9.1829),
+    "München": (48.1372, 11.5755), "Nürnberg": (49.4521, 11.0767), "Kiel": (54.3233, 10.1228),
+    "Lübeck": (53.8655, 10.6866), "Münster": (51.9607, 7.6261),
+}  # fmt: skip
+# Cameras and phones of the photos: make and model as EXIF writes them.
+CAMERAS = (
+    ("Apple", "iPhone 13"), ("Apple", "iPhone 15 Pro"), ("samsung", "SM-S911B"),
+    ("Google", "Pixel 8"), ("Canon", "Canon EOS R6"), ("NIKON CORPORATION", "NIKON Z 6_2"),
+    ("FUJIFILM", "X-T4"), ("SONY", "ILCE-7M3"),
+)  # fmt: skip
 
 WEEKDAYS_DE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
 WEEKDAYS_EN = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")

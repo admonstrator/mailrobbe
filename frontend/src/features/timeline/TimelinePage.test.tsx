@@ -26,14 +26,15 @@ const segment = (group: string, name: string) =>
   within(screen.getByRole("group", { name: group })).getByRole("button", { name });
 
 describe("timeline screen", () => {
-  it("is in the navigation after Karte and counts the archive by month", async () => {
+  it("is in the navigation after Karte and Orte and counts the archive by month", async () => {
     const { calls } = renderApp("/zeitachse");
     const total = await lane("Alle Treffer");
     const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
     const labels = within(navigation)
       .getAllByRole("link")
       .map((link) => link.textContent);
-    expect(labels.indexOf("Zeitachse")).toBe(labels.indexOf("Karte") + 1);
+    expect(labels.indexOf("Zeitachse")).toBe(labels.indexOf("Karte") + 2);
+    expect(labels.indexOf("Orte")).toBe(labels.indexOf("Karte") + 1);
     expect(document.title).toBe("Zeitachse · Mailrobbe");
     expect(screen.getByRole("heading", { name: "Zeitachse", level: 1 })).toBeTruthy();
     expect(screen.getByText("Mailaufkommen für die aktuelle Suche und Filter")).toBeTruthy();
