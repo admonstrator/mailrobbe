@@ -305,6 +305,20 @@ def zip_bytes(
 ) -> bytes:
     """A ZIP of (name, data, deflate) members, every entry dated `when`; names ending in "/"
     are folders."""
+    return zip_archive(members, when, picture)[0]
+
+
+def zip_archive(
+    members: Sequence[tuple[str, bytes, bool]],
+    when: datetime,
+    picture: Picture | None = None,
+    *,
+    password: str | None = None,
+    rng: random.Random | None = None,
+) -> tuple[bytes, list[tuple[str, bytes]]]:
+    """zip_bytes, and the files it holds as (name, data), the picture included. With a
+    password every file entry is encrypted with the traditional PKWARE encryption (folders stay
+    plain), its 12-byte header drawn from `rng`."""
     stamp = (
         max(when.year, 1980),
         when.month,
@@ -313,6 +327,11 @@ def zip_bytes(
         when.minute,
         when.second // 2 * 2,
     )
+    if password is not None:
+        assert rng is not None, "an encrypted ZIP draws its headers from rng"
+        return _encrypted_zip(members, stamp, picture, password.encode("ascii"), rng)
+
+    files: list[tuple[str, bytes]] = []
 
     def add(archive: zipfile.ZipFile, name: str, data: bytes, deflate: bool) -> None:
         info = zipfile.ZipInfo(name, date_time=stamp)
@@ -320,6 +339,8 @@ def zip_bytes(
         info.external_attr = 0x10 if name.endswith("/") else 0
         info.compress_type = zipfile.ZIP_DEFLATED if deflate else zipfile.ZIP_STORED
         archive.writestr(info, data)
+        if not name.endswith("/"):
+            files.append((name, data))
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -333,9 +354,106 @@ def zip_bytes(
             length = picture.size - used - _ZIP_ENTRY - 2 * len(picture.name.encode())
             length = max(length, picture.least)
             if length > 0:
-                magic = _JPEG if picture.name.endswith((".jpg", ".jpeg")) else _PNG
-                add(archive, picture.name, filler(picture.rng, length, magic), False)
-    return buffer.getvalue()
+                add(archive, picture.name, _picture_bytes(picture, length), False)
+    return buffer.getvalue(), files
+
+
+def _picture_bytes(picture: Picture, length: int) -> bytes:
+    magic = _JPEG if picture.name.endswith((".jpg", ".jpeg")) else _PNG
+    return filler(picture.rng, length, magic)
+
+
+# Traditional PKWARE encryption (APPNOTE.TXT 6.1), the counterpart of zipfile's _ZipDecrypter.
+_CRC_TABLE = tuple(
+    functools.reduce(lambda c, _: (c >> 1) ^ 0xEDB88320 if c & 1 else c >> 1, range(8), n)
+    for n in range(256)
+)
+_ENCRYPTION_HEADER = 12
+
+
+class _ZipCrypto:
+    def __init__(self, password: bytes) -> None:
+        self._keys = [0x12345678, 0x23456789, 0x34567890]
+        for byte in password:
+            self._update(byte)
+
+    def _update(self, byte: int) -> None:
+        keys = self._keys
+        keys[0] = (keys[0] >> 8) ^ _CRC_TABLE[(keys[0] ^ byte) & 0xFF]
+        keys[1] = ((keys[1] + (keys[0] & 0xFF)) * 134775813 + 1) & 0xFFFFFFFF
+        keys[2] = (keys[2] >> 8) ^ _CRC_TABLE[(keys[2] ^ (keys[1] >> 24)) & 0xFF]
+
+    def encrypt(self, data: bytes) -> bytes:
+        k0, k1, k2 = self._keys
+        table = _CRC_TABLE
+        out = bytearray(len(data))
+        for index, byte in enumerate(data):
+            mixed = k2 | 2
+            out[index] = byte ^ ((mixed * (mixed ^ 1)) >> 8) & 0xFF
+            k0 = (k0 >> 8) ^ table[(k0 ^ byte) & 0xFF]
+            k1 = ((k1 + (k0 & 0xFF)) * 134775813 + 1) & 0xFFFFFFFF
+            k2 = (k2 >> 8) ^ table[(k2 ^ (k1 >> 24)) & 0xFF]
+        self._keys = [k0, k1, k2]
+        return bytes(out)
+
+
+def _encrypted_zip(
+    members: Sequence[tuple[str, bytes, bool]],
+    stamp: tuple[int, int, int, int, int, int],
+    picture: Picture | None,
+    password: bytes,
+    rng: random.Random,
+) -> tuple[bytes, list[tuple[str, bytes]]]:
+    """The ZIP written by hand, as zipfile lays it out, with every file entry encrypted."""
+    year, month, day, hour, minute, second = stamp
+    dos_time = hour << 11 | minute << 5 | second // 2
+    dos_date = (year - 1980) << 9 | month << 5 | day
+    entries = list(members)
+    if picture is not None:
+        names = [*(name for name, _, _ in entries), picture.name]
+        files = sum(not name.endswith("/") for name in names)
+        used = sum(_ZIP_ENTRY + 2 * len(name.encode()) for name, _, _ in entries) + _ZIP_END
+        used += _ENCRYPTION_HEADER * files
+        used += sum(len(_compressed(data, deflate)) for _, data, deflate in entries)
+        length = picture.size - used - _ZIP_ENTRY - 2 * len(picture.name.encode())
+        length = max(length, picture.least)
+        if length > 0:
+            entries.append((picture.name, _picture_bytes(picture, length), False))
+    out = bytearray()
+    central = bytearray()
+    found: list[tuple[str, bytes]] = []
+    for name, data, deflate in entries:
+        raw_name = name.encode()
+        folder = name.endswith("/")
+        flags = (0 if raw_name.isascii() else 0x800) | (0 if folder else 1)
+        method = zipfile.ZIP_DEFLATED if deflate and not folder else zipfile.ZIP_STORED
+        crc = zlib.crc32(data)
+        payload = _compressed(data, method == zipfile.ZIP_DEFLATED)
+        if not folder:
+            header = rng.randbytes(_ENCRYPTION_HEADER - 1) + bytes([crc >> 24])
+            payload = _ZipCrypto(password).encrypt(header + payload)
+            found.append((name, data))
+        fields = (20, flags, method, dos_time, dos_date, crc, len(payload), len(data))
+        offset = len(out)
+        out += struct.pack("<4s5HL2L2H", b"PK\x03\x04", *fields, len(raw_name), 0)
+        out += raw_name + payload
+        central += struct.pack(
+            "<4s6HL2L5HLL", b"PK\x01\x02", 20, *fields, len(raw_name), 0, 0, 0, 0,
+            0x10 if folder else 0, offset,
+        )  # fmt: skip
+        central += raw_name
+    count = len(entries)
+    out += central + struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, count, count, len(central),
+                                 len(out), 0)  # fmt: skip
+    return bytes(out), found
+
+
+def _compressed(data: bytes, deflate: bool) -> bytes:
+    """Deflate as zipfile writes it (default level, raw stream), or the data as it is."""
+    if not deflate:
+        return data
+    compressor = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
+    return compressor.compress(data) + compressor.flush()
 
 
 _XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
