@@ -476,6 +476,7 @@ async def test_items_show_the_mail_and_its_participants(
             "event": mail.event,
             "hits": None,
             "attachment_machine": False,
+            "attachment_transcript": False,
         }
 
 

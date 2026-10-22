@@ -39,7 +39,7 @@ DocumentTruth (model.py) is what manifest.jsonl lists for each attachment of a m
 order importer.parse.mime_parts finds them: SHA-256, file name, kind, expected text status,
 marker, pages, the preview the API offers and the media type its endpoint sends; for a protected
 document its password and tier, for a ZIP its entries (MemberTruth); for a document with set text
-its OCR marker and words.
+its OCR marker and words; for a recording with speech its transcript marker and words.
 
 Set text for OCR (milestone 15): a share of the scanned PDFs show pages of set text instead of
 filler (a letter, minutes or notes), and a share of the new photos are a phone photo of such a
@@ -48,6 +48,12 @@ code of letters and digits Tesseract does not confuse, which the manifest lists 
 with the longer words of its text (ocr_words), so tests and smoke tests can check that OCR found
 them. Whether a document has set text and what it says come from random streams of its seed
 alone, so every other document keeps its bytes.
+
+Speech for transcription (milestone 16, D297): a share of the recordings of the forms SPOKEN has
+(OGG Opus, MP3, M4A, MP4, QuickTime) carry a recording of German speech from media/ instead of a
+tone, decided by a random stream of the recording's seed alone. Each says a few sentences of an
+association's everyday life with one marker word, which the manifest lists as transcript_marker
+with longer words of what is said (transcript_words) that the transcriber gets right.
 """
 
 import binascii
@@ -120,6 +126,7 @@ _SCAN_LINES = 30  # lines of set text per scanned page (fileformats.scan_page)
 _PICTURE_LINES = 18
 _SET_TEXT_WIDTH = 54  # characters per line of set text
 _OCR_WORDS = 12  # words of a set text the manifest lists
+SPOKEN_SHARE = 0.5  # recordings of the forms SPOKEN has that carry speech
 _SCAN_CODE = "ACDEFHKLMNPRTUVWXY3479"  # no 0/O, 1/I/J, 2/Z, 5/S, 6/G, 8/B for Tesseract
 
 # Template file names of the plan (vocabulary.ATTACHMENT_TYPES and the planner's own) -> the
@@ -209,6 +216,53 @@ RECORDING_FORMS: dict[str, tuple[str | None, int]] = {
     "webm": ("video/webm", 2),
     "wma": (None, 1),
     "avi": (None, 1),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Spoken:
+    """A recording of media/ with German speech (D297) and what a transcript of it contains."""
+
+    file: str  # in media/
+    marker: str  # the marker word, said once
+    words: tuple[str, ...]  # longer words of what is said that the transcriber gets right
+
+
+# Speech by form (media/README.md has the texts): espeak-ng's German voice, a few sentences of
+# an association's everyday life each. The words were checked with the model
+# (tests/ai/audio/test_real_model.py); words it hears otherwise are left out.
+SPOKEN: dict[str, tuple[Spoken, ...]] = {
+    "ogg": (
+        Spoken(
+            "spoken-1.ogg",
+            "Sonnenblume",
+            ("Vorstand", "Sitzung", "Donnerstag", "verschoben", "Einladung", "Mitglieder"),
+        ),
+    ),
+    "mp3": (
+        Spoken(
+            "spoken-2.mp3",
+            "Schneemann",
+            ("Spende", "Betrag", "Vereinskonto", "gebucht", "Überweisung", "zurück"),
+        ),
+    ),
+    "m4a": (
+        Spoken(
+            "spoken-3.m4a", "Schmetterling", ("zusammen", "Garten", "Samstag", "Tische", "Freitag")
+        ),
+    ),
+    "mp4": (
+        Spoken(
+            "spoken-4.mp4",
+            "Kirschbaum",
+            ("Willkommen", "Mitgliederversammlung", "Haushalt", "Bericht", "Projekt"),
+        ),
+    ),
+    "mov": (
+        Spoken(
+            "spoken-5.mov", "Windmühle", ("unserem", "Handwerker", "fertig", "Eingang", "feiern")
+        ),
+    ),
 }
 _DAMAGED_PICTURES = tuple(f"{form}_damaged" for form in PICTURE_TYPES)
 _FILES = frozenset((*PICTURE_TYPES, *RECORDING_FORMS))  # not swapped for a paper or recording
@@ -518,6 +572,7 @@ class Built:
     members: tuple[MemberTruth, ...] | None = None  # a ZIP's entries
     ocr_marker: str | None = None  # a document with set text (SetText)
     ocr_words: tuple[str, ...] | None = None
+    spoken: Spoken | None = None  # a recording with speech
 
     def truth(self, filename: str, mime_type: str) -> DocumentTruth:
         """The truth of an attachment carrying this document under that name and type."""
@@ -540,6 +595,8 @@ class Built:
             longitude,
             ocr_marker=self.ocr_marker,
             ocr_words=self.ocr_words,
+            transcript_marker=self.spoken.marker if self.spoken else None,
+            transcript_words=self.spoken.words if self.spoken else None,
         )
 
 
@@ -623,6 +680,7 @@ def _build(spec: DocumentSpec, size: int) -> Built:
         position=photo_position(spec.gps) if spec.form == "jpeg" else None,
         ocr_marker=text.marker if text else None,
         ocr_words=text.words if text else None,
+        spoken=spoken(spec),
     )
 
 
@@ -724,6 +782,8 @@ def damaged(truths: list[DocumentTruth], raw: bytes) -> list[DocumentTruth]:
             longitude=None,
             ocr_marker=None,
             ocr_words=None,
+            transcript_marker=None,
+            transcript_words=None,
         )
         if bad
         else truth
@@ -779,6 +839,9 @@ def _document(
     if text is not None and form == "png":
         return ff.poster(text.pages[0], rng, size), None, None
     if form in RECORDING_FORMS:
+        speech = spoken(spec)
+        if speech is not None:
+            return ff.fixture(speech.file), None, None
         fixture = ff.fixture(f"{form}-{rng.randint(1, RECORDING_FORMS[form][1])}.{form}")
         return fixture, None, None
     if form.removesuffix("_damaged") == "png":
@@ -892,6 +955,18 @@ def set_text(spec: DocumentSpec) -> SetText | None:
             if len(word) >= 6 and word.isalpha() and word != mark:
                 seen.setdefault(word, None)
     return SetText(pages, mark, tuple(list(seen)[:_OCR_WORDS]))
+
+
+def spoken(spec: DocumentSpec) -> Spoken | None:
+    """The speech a recording carries, None for most: only a share of the recordings of the
+    forms SPOKEN has carry one."""
+    files = SPOKEN.get(spec.form)
+    if not files:
+        return None
+    rng = random.Random(f"spoken:{spec.seed}")
+    if rng.random() >= SPOKEN_SHARE:
+        return None
+    return rng.choice(files)
 
 
 def _protect_password(spec: DocumentSpec) -> str:

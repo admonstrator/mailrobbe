@@ -17,19 +17,39 @@ path, headers, JSON body) in `requests`.
 The OpenAI flavours serve below /v1 (fake.url ends in /v1); "lmstudio" answers unknown paths with
 200 and an error JSON as LM Studio does, "openai" with 404. A request to a model that is not
 offered gets 404 with the message the real service gives.
+
+FakeAudio plays ai.audio for the run (D290 to D293): the decoder, the transcriber and the model
+files, as the Engines seam of ai.run takes them.
+
+    audio = FakeAudio({digest(data): Recording(30.0, (Line(2.0, 6.5, "Guten Tag."),))})
+    replace(engines, **audio.engines())   # decode, transcriber, model_state, download_model
+
+A recording is known by the SHA-256 of its bytes; the decoder hands out samples that name it,
+so the transcriber knows what it hears. Each line of a Recording is a piece of its own. The
+model's files lack `missing` bytes until download_model fetched them in `chunk`s (or fails with
+`unavailable`); `decode_errors` and `read_errors` name recordings that fail, `hold` a piece
+(recording, start) whose reading waits until `release` is set, `reading` being set meanwhile.
+Every call is recorded: `decodes`, `loads` (threads), `reads` (recording, piece start),
+`downloads`.
 """
 
 import base64
+import hashlib
 import json
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Literal
 
-from mailrobbe.ai.model import Protocol, Service
+import numpy as np
+
+from mailrobbe.ai.audio.decode import SAMPLE_RATE, Decoded
+from mailrobbe.ai.audio.parakeet import ModelState, Piece
+from mailrobbe.ai.model import Protocol, Service, TranscriptSegment
 
 Flavour = Literal["openai", "lmstudio", "ollama"]
 
@@ -226,3 +246,158 @@ def fake_service(flavour: Flavour, **options: Any) -> Iterator[FakeService]:
         server.shutdown()
         server.server_close()
         thread.join()
+
+
+# ai.audio ---------------------------------------------------------------------------------------
+
+
+class DecodeError(Exception):
+    pass
+
+
+class ModelMissing(Exception):
+    pass
+
+
+MODEL_TOTAL = 670_000_000  # what FakeAudio's model files weigh
+
+
+@dataclass(frozen=True, slots=True)
+class Line:
+    start: float
+    end: float
+    text: str
+    confidence: float = 0.9
+
+
+@dataclass(frozen=True, slots=True)
+class Recording:
+    """What a fake recording holds: its length, its lines of speech, whether it has sound and
+    whether the decoder tells its length."""
+
+    seconds: float
+    lines: tuple[Line, ...] = ()
+    audio: bool = True
+    known: bool = True
+
+
+@dataclass
+class FakeAudio:
+    """The decoder, the transcriber and the model files (module docstring)."""
+
+    recordings: dict[str, Recording]  # by the SHA-256 of their bytes
+    names: dict[str, str] = field(default_factory=dict)  # SHA-256 -> what the calls record
+    missing: int = 0
+    chunk: int = 100_000_000
+    unavailable: str | None = None  # download_model fails with this
+    decode_errors: set[str] = field(default_factory=set)  # names
+    read_errors: set[str] = field(default_factory=set)
+    hold: tuple[str, float] | None = None  # ("model", bytes fetched) holds the download
+    reading: threading.Event = field(default_factory=threading.Event)
+    release: threading.Event = field(default_factory=threading.Event)
+    decodes: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    loads: list[int] = field(default_factory=list)
+    reads: list[tuple[str, float]] = field(default_factory=list)
+    downloads: list[int] = field(default_factory=list)  # bytes fetched per call
+
+    def engines(self) -> dict[str, Any]:
+        """The fields of ai.run.Engines this plays; its errors are DecodeError and ModelMissing
+        of this module."""
+        return {
+            "decode": self.decode,
+            "transcriber": self.transcriber,
+            "model_state": self.model_state,
+            "download_model": self.download_model,
+        }
+
+    def _name(self, sha256: str) -> str:
+        return self.names.get(sha256, sha256[:12])
+
+    def decode(self, data: bytes, *, timeout: float, memory: int, max_seconds: float) -> Decoded:
+        sha256 = hashlib.sha256(data).hexdigest()
+        name = self._name(sha256)
+        self.decodes.append((name, {"timeout": timeout, "memory": memory, "max": max_seconds}))
+        if name in self.decode_errors:
+            raise DecodeError("Invalid data found when processing input")
+        recording = self.recordings[sha256]
+        if not recording.audio:
+            return Decoded(np.zeros(0, dtype=np.int16), recording.seconds, audio=False)
+        # The samples name the recording: its place among the recordings, in every sample.
+        index = list(self.recordings).index(sha256) + 1
+        length = int(min(recording.seconds, max_seconds) * SAMPLE_RATE)
+        samples = np.full(length, index, dtype=np.int16)
+        return Decoded(samples, recording.seconds if recording.known else None, audio=True)
+
+    def model_state(self, model_dir: Path) -> ModelState:
+        return ModelState(self.missing == 0, self.missing, MODEL_TOTAL)
+
+    def download_model(
+        self,
+        model_dir: Path,
+        *,
+        progress: Callable[[int], None],
+        stop: threading.Event,
+        timeout: float = 60.0,
+    ) -> None:
+        fetched = 0
+        try:
+            if self.unavailable is not None:
+                raise ModelMissing(self.unavailable)
+            while self.missing > 0 and not stop.is_set():
+                count = min(self.chunk, self.missing)
+                self.missing -= count
+                fetched += count
+                progress(count)
+                if self.hold == ("model", fetched):
+                    self.reading.set()
+                    assert self.release.wait(10)
+        finally:
+            self.downloads.append(fetched)
+
+    def transcriber(self, model_dir: Path, *, threads: int) -> "FakeTranscriber":
+        if self.missing:
+            raise ModelMissing(f"{self.missing} bytes of the model are missing")
+        self.loads.append(threads)
+        return FakeTranscriber(self)
+
+    def recording(self, samples: Any) -> tuple[str, Recording]:
+        sha256 = list(self.recordings)[int(samples[0]) - 1]
+        return self._name(sha256), self.recordings[sha256]
+
+
+@dataclass
+class FakeTranscriber:
+    """Each line of a recording is a piece; reading a piece gives its line."""
+
+    audio: FakeAudio
+
+    def pieces(self, samples: Any, *, start: float = 0.0) -> list[Piece]:
+        if not len(samples):
+            return []
+        _, recording = self.audio.recording(samples)
+        heard = len(samples) / SAMPLE_RATE
+        return [
+            Piece(line.start, line.end)
+            for line in recording.lines
+            if line.start >= start and line.end <= heard
+        ]
+
+    def read(self, samples: Any, piece: Piece, *, uncertain: float) -> list[TranscriptSegment]:
+        name, recording = self.audio.recording(samples)
+        self.audio.reads.append((name, piece.start))
+        if self.audio.hold == (name, piece.start):
+            self.audio.reading.set()
+            assert self.audio.release.wait(10)
+        if name in self.audio.read_errors:
+            raise RuntimeError("ONNXRuntimeError: bad allocation")
+        return [
+            TranscriptSegment(
+                start=line.start,
+                end=line.end,
+                text=line.text,
+                confidence=line.confidence,
+                uncertain=line.confidence < uncertain,
+            )
+            for line in recording.lines
+            if piece.start <= line.start < piece.end
+        ]

@@ -1,18 +1,21 @@
-// German texts of the AI page and of machine made texts elsewhere (D180 to D189): engines, task
-// and result states, the line of a recognised text, estimates, the notices after an action.
+// German texts of the AI page and of machine made texts elsewhere (D180 to D189, D290 to D296):
+// engines, task and result states, the line of a recognised text or a transcript, estimates, the
+// notices after an action.
 
 import { ApiError } from "../../api/client";
 import type {
+  AiEngine,
   AiEstimate,
   AiQueued,
   AiResultState,
+  AiTaskKind,
   AiTaskStatus,
   AiWorkList,
   DocumentAiResult,
-  OcrEngine,
+  DocumentTranscriptResult,
   OcrEngineChoice,
 } from "../../api/types";
-import { formatDate, formatNumber, formatRemaining } from "../../lib/format";
+import { formatClock, formatDate, formatNumber, formatRemaining } from "../../lib/format";
 
 export const ENGINE_LABELS: Record<OcrEngineChoice, string> = {
   auto: "Automatisch",
@@ -26,6 +29,13 @@ export const ENGINE_HINTS: Record<OcrEngineChoice, string> = {
   tesseract: "Tesseract im Container: schnell, erfindet nichts, nennt seine Sicherheit je Wort.",
   vision:
     "Das Bildmodell auf dem Rechner: liest Handschrift, Fotos und schlechte Scans besser, aber etwa 30-mal langsamer.",
+};
+
+/** What a task or a result does (D186, D295). */
+export const TASK_KIND_LABELS: Record<AiTaskKind, string> = {
+  ocr: "Texterkennung",
+  transcribe: "Transkription",
+  summarize: "Zusammenfassung",
 };
 
 export const TASK_STATUS_LABELS: Record<AiTaskStatus, string> = {
@@ -54,12 +64,14 @@ export const RESULT_STATE_LABELS: Record<AiResultState, string> = {
 export const WORK_LIST_TITLES: Record<AiWorkList, string> = {
   scanned: "Gescannte PDFs",
   images: "Bilder ab 100 KB",
+  media: "Sprachnachrichten und Videos",
 };
 
 export const WORK_LIST_HINTS: Record<AiWorkList, string> = {
   scanned: "PDFs, deren Seiten nur Bilder sind, ohne Textebene; noch ohne erkannten Text.",
   images:
     "Fotos und Bilder ab 100 KB in höchstens 50 Mails; kleinere und Logos aus Signaturen bleiben außen vor.",
+  media: "Aufnahmen und Videos mit Ton, noch ohne Transkript.",
 };
 
 /** The engine of a result as a reader knows it: Tesseract, the model's name, or both. */
@@ -68,6 +80,65 @@ export function engineName(engine: string, model: string | null): string {
   if (engine === "tesseract") return "Tesseract";
   if (engine === "vision") return vision;
   return `Tesseract und ${vision}`;
+}
+
+// The transcription models by the name ai_result.model stores (D290): short where a transcript
+// is marked, in full where the AI page describes the transcriber.
+const TRANSCRIBERS: Record<string, { short: string; full: string }> = {
+  "parakeet-tdt-0.6b-v3": {
+    short: "Parakeet v3",
+    full: "Parakeet TDT 0.6B v3 (NVIDIA, CC-BY-4.0)",
+  },
+};
+
+/** "Parakeet v3", in full "Parakeet TDT 0.6B v3 (NVIDIA, CC-BY-4.0)"; another model by its
+ *  name. */
+export function transcriberName(model: string | null, full = false): string {
+  const known = model ? TRANSCRIBERS[model] : undefined;
+  if (!known) return model || "Spracherkennung";
+  return full ? known.full : known.short;
+}
+
+/** "12 Minuten", "1 Minute", "2,5 Minuten": minutes of recordings, to a tenth below ten. */
+export function minutesText(minutes: number): string {
+  const rounded = minutes < 10 ? Math.round(minutes * 10) / 10 : Math.round(minutes);
+  const shown = rounded.toLocaleString("de-DE");
+  return `${shown} ${rounded === 1 ? "Minute" : "Minuten"}`;
+}
+
+/** "Maschinell transkribiert · Parakeet v3 · 22.10.2026 · Aufnahme 3:12" (D296), and "die
+ *  ersten 180 Minuten von 245" when the run stopped at its limit of minutes (D292). */
+export function transcriptLine(result: DocumentTranscriptResult): string {
+  const { duration, transcribed } = result;
+  const cut =
+    duration !== null && transcribed !== null && transcribed < duration - 1
+      ? `die ersten ${formatNumber(Math.floor(transcribed / 60))} Minuten von ${formatNumber(Math.ceil(duration / 60))}`
+      : null;
+  return [
+    "Maschinell transkribiert",
+    transcriberName(result.model),
+    formatDate(result.created_at),
+    duration !== null && `Aufnahme ${formatClock(duration)}`,
+    cut,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** What a transcript without words says (D292, D296). */
+export function silenceText(result: Pick<DocumentTranscriptResult, "audio">): string {
+  return result.audio ? "Keine Sprache erkannt." : "Die Datei hat keine Tonspur.";
+}
+
+/** The tasks of every kind by status, as the queue's filters count them. */
+export function queueCounts(
+  queue: Record<AiTaskKind, Record<AiTaskStatus, number>>,
+): Record<AiTaskStatus, number> {
+  const counts = { waiting: 0, running: 0, done: 0, failed: 0, cancelled: 0 };
+  for (const kind of Object.values(queue)) {
+    for (const status of TASK_STATUSES) counts[status] += kind[status];
+  }
+  return counts;
 }
 
 /** "Seite 3", "Seiten 2, 5 und 7" */
@@ -100,7 +171,7 @@ export function estimateText(estimate: AiEstimate): string {
 export function estimateFor(
   estimates: AiEstimate[],
   choice: OcrEngineChoice,
-  auto: OcrEngine,
+  auto: AiEngine,
 ): AiEstimate | undefined {
   const engine = choice === "auto" ? auto : choice;
   return estimates.find((estimate) => estimate.engine === engine);
@@ -112,21 +183,24 @@ export function queuedText(queued: AiQueued): string {
     `${formatNumber(queued.queued)} ${queued.queued === 1 ? "Dokument" : "Dokumente"} vorgemerkt`,
     queued.raised > 0 && `${formatNumber(queued.raised)} schon vorgemerkt`,
     queued.unreadable > 0 &&
-      `${formatNumber(queued.unreadable)} ohne Texterkennung (eigener Text oder zu groß)`,
+      `${formatNumber(queued.unreadable)} ohne Texterkennung oder Transkription (eigener Text oder zu groß)`,
     queued.logos > 0 &&
       `${formatNumber(queued.logos)} ${queued.logos === 1 ? "Logo" : "Logos"} ausgelassen`,
   ].filter(Boolean);
   return parts.join(", ");
 }
 
-/** What starting the recognition of one document did (D280). */
-export function startedText(queued: AiQueued): string {
+/** What starting the recognition or the transcription of one document did (D280, D295). */
+export function startedText(queued: AiQueued, kind: "ocr" | "transcribe" = "ocr"): string {
+  const work = TASK_KIND_LABELS[kind];
   if (queued.queued + queued.raised === 0) {
-    return "Dieses Dokument kann die Texterkennung nicht lesen.";
+    return kind === "ocr"
+      ? "Dieses Dokument kann die Texterkennung nicht lesen."
+      : "Diese Aufnahme kann die Transkription nicht lesen.";
   }
   switch (queued.run) {
     case "started":
-      return "Die Texterkennung läuft; das Ergebnis erscheint hier, sobald sie fertig ist.";
+      return `Die ${work} läuft; das Ergebnis erscheint hier, sobald sie fertig ist.`;
     case "running":
       return "Ein KI-Lauf ist schon unterwegs und liest dieses Dokument als nächstes.";
     case "busy":

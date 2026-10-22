@@ -1,58 +1,79 @@
-"""The AI run (D187): `mailrobbe ai run`, a run of kind ai in the job table with its steps.
+"""The AI run (D187, D295): `mailrobbe ai run`, a run of kind ai in the job table with its steps.
 
-    check     tasks a run that died left running wait again; valid results go back into
-              documents an import made again (store.reapply_results); the vision service the
-              waiting tasks need or may use is checked: refused (D181), reachable, its model
-              offered. A missing model, or a vision service tasks need and cannot have, stops the
-              run before it takes a task; one "auto" could use and cannot leaves everything to
-              Tesseract, whose languages are checked too
-    ocr       the waiting OCR tasks one at a time, highest priority first, then the documents
-              carried by most mails (D186): the bytes read from the MBOX file, pages rendered in
-              small batches from the first page not read yet (ai.ocr.render, a child process),
-              each page read by Tesseract or the vision model, kept in ai_task.partial and
-              committed, so a stop loses at most the pages in work; at most max_pages pages per
-              document and pass. Then store.store_ocr_result, the task done, ai_calibration
-              updated
-    entities  the entities phase of the import (D84), which also computes the entity figures,
-    signals   and the signals phase (D135), when a document's text changed in this run
+    check       tasks a run that died left running wait again; valid results go back into
+                documents an import made again (store.reapply_results); the vision service the
+                waiting tasks need or may use is checked: refused (D181), reachable, its model
+                offered. A missing model, or a vision service tasks need and cannot have, stops
+                the run before it takes a task; one "auto" could use and cannot leaves everything
+                to Tesseract, whose languages are checked too. When transcribe tasks wait, the
+                transcriber's files must be in MAILROBBE_AI_MODEL_DIR: what is missing is
+                downloaded now (D291), the step counting its bytes; files that cannot be had stop
+                the run before it takes a task, a stop keeps what came
+    ocr         the waiting OCR tasks one at a time, highest priority first, then the documents
+                carried by most mails (D186): the bytes read from the MBOX file, pages rendered
+                in small batches from the first page not read yet (ai.ocr.render, a child
+                process), each page read by Tesseract or the vision model, kept in
+                ai_task.partial and committed, so a stop loses at most the pages in work; at most
+                max_pages pages per document and pass. Then store.store_ocr_result, the task done,
+                ai_calibration updated
+    transcribe  the waiting transcribe tasks in the same order, the step counting documents: the
+                transcriber loaded once (Parakeet with transcribe_threads threads), each
+                recording's bytes decoded in a child process (ai.audio.decode, at most
+                max_minutes of it), its speech cut into pieces and each piece read, its lines
+                kept in ai_task.partial with the second reached and committed, so a stop loses
+                at most the piece in work and the next run goes on from there (D293). Then
+                store.store_transcript_result, the task done, ai_calibration updated per minute
+                of recording. A file without sound or without speech is done without a text
+    entities    the entities phase of the import (D84), which also computes the entity figures,
+    signals     and the signals phase (D135), when a document's text changed in this run
 
 The engine of a task (D182) is its own, or for "auto" the run's choice; "auto" reads a PDF with
 Tesseract and an image with the vision model when one is usable, and reads a Tesseract page that
 is uncertain again with the vision model, keeping that page unless it failed or came back empty.
 Tesseract reads tesseract_workers pages at once, the vision model concurrency pages.
 
-Failures (D184): an unreadable file or a page rendering that fails is an attempt of the task; a
-page whose answer is invalid is tried AI_TASK_ATTEMPTS times and then kept with its error; a
-task fails after AI_TASK_ATTEMPTS attempts. A service that does not answer fails nothing: the
-page waits WAIT_FIRST seconds, doubling up to WAIT_MAX, and after WAIT_LIMIT without an answer
-the run stops. A missing model or a missing Tesseract stops the run. A stop request (dashboard,
-Ctrl-C, SIGTERM) ends the run between pages; the task in work waits again with its pages. A
+Failures (D184): an unreadable file, a page rendering that fails, a recording that cannot be
+decoded or a transcriber failing on it is an attempt of the task; a page whose answer is invalid
+is tried AI_TASK_ATTEMPTS times and then kept with its error; a task fails after
+AI_TASK_ATTEMPTS attempts. A service that does not answer fails nothing: the page waits
+WAIT_FIRST seconds, doubling up to WAIT_MAX, and after WAIT_LIMIT without an answer the run
+stops. A missing model, a missing Tesseract or transcriber files that cannot be had stop the
+run. A stop request (dashboard, Ctrl-C, SIGTERM) ends the run between pages or pieces; the task
+in work waits again with what it read. A stop or failure before the transcribe step skips it. A
 remote vision service (D181) logs every request in ai_send_log, and the run stops once its
 tokens exceed MAILROBBE_AI_REMOTE_TOKEN_BUDGET. Keys are never logged or stored.
 
-The recognisers and the service check are ai.ocr and ai.services, reached through Engines so the
-tests hand in doubles.
+The recognisers, the service check, the decoder and the transcriber are ai.ocr, ai.services and
+ai.audio, reached through Engines so the tests hand in doubles.
 
 Exit status: 0 when the queue is done, 130 when stopped by request (the next run continues), 1
 when it could not start, a service did not answer for WAIT_LIMIT, the token budget is used up,
-a model or Tesseract is missing, or the signals phase failed.
+a model, Tesseract or the transcriber's files are missing, or the signals phase failed.
 """
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
+import numpy as np
+import numpy.typing as npt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from mailrobbe.ai import services
+from mailrobbe.ai.audio import decode, parakeet
+from mailrobbe.ai.audio.decode import SAMPLE_RATE, Decoded
+from mailrobbe.ai.audio.parakeet import ModelState, Piece
 from mailrobbe.ai.model import (
     AI_STEPS,
     AI_TASK_ATTEMPTS,
+    TRANSCRIBE_MODEL,
     AiOptions,
     AiProgress,
     OcrEngine,
@@ -60,18 +81,21 @@ from mailrobbe.ai.model import (
     Partial,
     Service,
     ServiceCheck,
+    TranscriptPartial,
+    TranscriptSegment,
     configured_services,
     locality,
     page_text,
     refusal,
+    transcript_text,
 )
 from mailrobbe.ai.ocr import render, tesseract, vision
 from mailrobbe.ai.prompts import load_prompts
-from mailrobbe.ai.store import reapply_results, store_ocr_result
+from mailrobbe.ai.store import reapply_results, store_ocr_result, store_transcript_result
 from mailrobbe.attachments.content import AttachmentChanged, document_sources, read_attachment
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
-from mailrobbe.enums import JobKind, JobOrigin, JobStatus
+from mailrobbe.enums import AiTaskKind, JobKind, JobOrigin, JobStatus
 from mailrobbe.importer.cli import _compute_signals, _scan_entities
 from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, Step, describe, job_run
 from mailrobbe.jobs import application_name
@@ -105,20 +129,35 @@ class Rendering(Protocol):
     def pages(self) -> Sequence[RenderedPage]: ...
 
 
+Samples = npt.NDArray[np.int16]
+
+
+class Transcribing(Protocol):
+    """ai.audio.parakeet.Transcriber as the run uses it."""
+
+    def pieces(self, samples: Samples, *, start: float = 0.0) -> list[Piece]: ...
+    def read(
+        self, samples: Samples, piece: Piece, *, uncertain: float
+    ) -> list[TranscriptSegment]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class EngineErrors:
-    """The exceptions of ai.services and ai.ocr the run tells apart."""
+    """The exceptions of ai.services, ai.ocr and ai.audio the run tells apart."""
 
     unreachable: type[Exception]  # the service did not answer: wait, fail nothing
     model_missing: type[Exception]  # the service does not offer the model: stop
     answer: type[Exception]  # an invalid answer for one page: an attempt of the page
     render: type[Exception]  # the file cannot be rendered: an attempt of the task
     tesseract_missing: type[Exception]  # stop
+    decode: type[Exception]  # the recording gives no sound: an attempt of the task
+    model_files: type[Exception]  # the transcriber's files are missing and cannot be had: stop
 
 
 @dataclass(frozen=True, slots=True)
 class Engines:
-    """What the run calls to render, recognise and check (ai.ocr, ai.services)."""
+    """What the run calls to render, recognise, check, decode and transcribe (ai.ocr,
+    ai.services, ai.audio)."""
 
     # render(data, kind, *, purpose, first, count, timeout, memory) -> Rendering
     render: Callable[..., Rendering]
@@ -132,11 +171,18 @@ class Engines:
     check: Callable[..., ServiceCheck]
     # the prompts of ai.toml, with their version
     prompts: Callable[[], Any]
+    # decode(data, *, timeout, memory, max_seconds) -> Decoded, in a child process
+    decode: Callable[..., Decoded]
+    # transcriber(model_dir, *, threads) -> Transcribing, loaded once per run
+    transcriber: Callable[..., Transcribing]
+    # model_state(model_dir) -> ModelState; download_model(model_dir, *, progress, stop)
+    model_state: Callable[[Path], ModelState]
+    download_model: Callable[..., None]
     errors: EngineErrors
 
 
 def default_engines() -> Engines:
-    """ai.ocr and ai.services."""
+    """ai.ocr, ai.services and ai.audio."""
     return Engines(
         render=render.render,
         tesseract=tesseract.read_page,
@@ -144,12 +190,18 @@ def default_engines() -> Engines:
         vision=vision.read_page,
         check=services.check_service,
         prompts=load_prompts,
+        decode=decode.decode,
+        transcriber=parakeet.Transcriber,
+        model_state=parakeet.model_state,
+        download_model=parakeet.download_model,
         errors=EngineErrors(
             unreachable=services.Unreachable,
             model_missing=services.ModelMissing,
             answer=services.AnswerError,
             render=render.RenderError,
             tesseract_missing=tesseract.TesseractMissing,
+            decode=decode.DecodeError,
+            model_files=parakeet.ModelMissing,
         ),
     )
 
@@ -163,11 +215,12 @@ class AiSummary:
 
     status: str  # done, stopped or failed
     message: str  # one line, also job.message
-    queued: int = 0  # OCR tasks waiting at the start
+    queued: int = 0  # tasks waiting at the start, OCR and transcribe
     done: int = 0  # finished with a text
-    no_text: int = 0  # finished without writing found
+    no_text: int = 0  # finished without writing found, or without speech
     failed: int = 0
     pages: int = 0  # read by this run
+    minutes: float = 0.0  # of recordings transcribed by this run
     documents: int = 0  # documents whose text changed: new texts and results put back
     tokens_in: int = 0
     tokens_out: int = 0
@@ -245,15 +298,25 @@ class _Task:
     data: bytes = b""
 
 
+@dataclass(slots=True)
+class _Recording:
+    """The transcribe task in work, with its document and the lines read so far."""
+
+    id: int
+    sha256: str
+    document_id: int
+    name: str
+    partial: TranscriptPartial
+
+
 # Tasks a run that died left running: holding the lock, no other run is alive (D187).
-_REQUEUE = text("""
-    UPDATE ai_task SET status = 'waiting' WHERE status = 'running' AND kind = 'ocr'
-""")
+_REQUEUE = text("UPDATE ai_task SET status = 'waiting' WHERE status = 'running'")
 # A run for some documents only (AiOptions.documents) leaves the other tasks waiting.
 _ONLY = (
     "(cardinality(CAST(:documents AS bigint[])) = 0 OR {task}.target_sha256 IN "
     "(SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
 )
+# The waiting tasks of one kind; pages, vision and auto concern OCR.
 _WAITING = text(f"""
     SELECT count(*) AS tasks,
         COALESCE(sum(GREATEST(0, LEAST(COALESCE(d.pages, 1), :max_pages)
@@ -261,13 +324,21 @@ _WAITING = text(f"""
         count(*) FILTER (WHERE t.engine = 'vision') AS vision,
         count(*) FILTER (WHERE t.engine = 'auto') AS auto
     FROM ai_task t LEFT JOIN document d ON d.sha256 = t.target_sha256
-    WHERE t.kind = 'ocr' AND t.status = 'waiting' AND {_ONLY.format(task="t")}
+    WHERE t.kind = CAST(:kind AS ai_task_kind) AND t.status = 'waiting'
+      AND {_ONLY.format(task="t")}
+""")
+# Transcribe tasks this run will take, before _REQUEUE: whether the check needs the model.
+_RECORDINGS = text(f"""
+    SELECT EXISTS (SELECT 1 FROM ai_task t
+                   WHERE t.kind = 'transcribe' AND t.status IN ('waiting', 'running')
+                     AND {_ONLY.format(task="t")})
 """)
 _TAKE = text(f"""
     UPDATE ai_task t SET status = 'running', job_id = :job_id, started_at = now()
     WHERE t.id = (
         SELECT w.id FROM ai_task w LEFT JOIN document d ON d.sha256 = w.target_sha256
-        WHERE w.kind = 'ocr' AND w.status = 'waiting' AND {_ONLY.format(task="w")}
+        WHERE w.kind = CAST(:kind AS ai_task_kind) AND w.status = 'waiting'
+          AND {_ONLY.format(task="w")}
         ORDER BY w.priority DESC, d.mails DESC NULLS LAST, w.id
         LIMIT 1 FOR UPDATE OF w SKIP LOCKED)
     RETURNING t.id, t.target_sha256, t.engine, t.partial
@@ -312,6 +383,18 @@ _CALIBRATE = text("""
         samples = ai_calibration.samples + CAST(:pages AS integer), unit = 'page',
         updated_at = now()
 """)
+# The transcriber's running mean of the seconds per minute of a recording (D295), weighted by
+# the seconds of the recordings measured, which samples counts.
+_CALIBRATE_MINUTES = text("""
+    INSERT INTO ai_calibration (kind, engine, model, unit, seconds_per_unit, samples)
+    VALUES ('transcribe', 'parakeet', :model, 'minute',
+        60 * CAST(:seconds AS float8) / CAST(:heard AS integer), :heard)
+    ON CONFLICT (kind, engine, model) DO UPDATE SET
+        seconds_per_unit = (ai_calibration.seconds_per_unit * ai_calibration.samples
+            + 60 * CAST(:seconds AS float8)) / (ai_calibration.samples + CAST(:heard AS integer)),
+        samples = ai_calibration.samples + CAST(:heard AS integer), unit = 'minute',
+        updated_at = now()
+""")
 _SENT = text("""
     INSERT INTO ai_send_log (service_url, kind, target_sha256, bytes, job_id)
     VALUES (:service_url, 'ocr', :sha256, :bytes, :job_id)
@@ -345,6 +428,8 @@ class _Run:
         self.remote_tokens = 0
         self.unanswered: float | None = None  # monotonic: since when no service answered
         self.pages_waiting = 0  # the ocr step's total at its start
+        self.ocr_waiting = 0  # OCR tasks waiting after the check
+        self.recordings_waiting = 0  # transcribe tasks waiting after the check: the step's total
         self._prompts: Any = None
 
     @property
@@ -355,8 +440,13 @@ class _Run:
 
     async def run(self) -> AiRun:
         try:
-            await self._check()
-            await self._ocr()
+            try:
+                await self._check()
+                await self._ocr()
+            except _Ended:
+                self.job.steps.skip("transcribe")
+                raise
+            await self._transcribe()
             code = EXIT_OK
             self.summary.status, self.summary.message = JobStatus.DONE, self._line()
         except _Ended as ended:
@@ -379,11 +469,14 @@ class _Run:
         return AiRun(self.summary, code)
 
     def _line(self) -> str:
-        """The run's figures in one line, for job.message."""
+        """The run's figures in one line, for job.message; the summary takes its minutes from
+        the progress here."""
         summary = self.summary
+        summary.minutes = round(self.progress.minutes, 2)
+        minutes = f"{summary.minutes:,.1f} minutes of recordings, " if summary.minutes else ""
         line = (
             f"{summary.done + summary.no_text} documents read ({summary.no_text} without text), "
-            f"{summary.failed} failed, {summary.pages} pages, "
+            f"{summary.failed} failed, {summary.pages} pages, {minutes}"
             f"{summary.documents} documents with a new text"
         )
         if summary.tokens_in or summary.tokens_out:
@@ -393,22 +486,23 @@ class _Run:
     # check -------------------------------------------------------------------------------------
 
     async def _check(self) -> None:
-        with self.job.steps.step("check"):
+        download = await self._model_download()
+        with self.job.steps.step(
+            "check", unit="bytes" if download else None, total=download or None
+        ) as counter:
             async with self.sessionmaker.begin() as session:
                 requeued = (await session.execute(_REQUEUE)).rowcount  # type: ignore[attr-defined]
                 reapplied = await reapply_results(session)
-                waiting = (
-                    await session.execute(
-                        _WAITING,
-                        {"max_pages": self.options.max_pages, "documents": self.options.documents},
-                    )
-                ).one()
+                waiting = await self._waiting(session, AiTaskKind.OCR)
+                recordings = await self._waiting(session, AiTaskKind.TRANSCRIBE)
             if requeued:
                 log.warning("%d tasks left running by an earlier run wait again", requeued)
             if reapplied:
                 log.info("put %d recognised texts back into documents imported again", reapplied)
             self.summary.documents += reapplied
-            self.summary.queued = self.progress.queued = int(waiting.tasks)
+            self.ocr_waiting = int(waiting.tasks)
+            self.recordings_waiting = int(recordings.tasks)
+            self.summary.queued = self.progress.queued = self.ocr_waiting + self.recordings_waiting
             choice = self.options.ocr_engine
             needed = int(waiting.vision) > 0 or (choice == "vision" and int(waiting.auto) > 0)
             wanted = choice == "auto" and int(waiting.auto) > 0
@@ -420,7 +514,70 @@ class _Run:
                     await asyncio.to_thread(self.engines.languages, self.options.languages)
                 except self.engines.errors.tesseract_missing as error:
                     raise _Ended(JobStatus.FAILED, describe(error), EXIT_FAILED) from None
+            # A stop during the download ends the step as stopped, not failed.
+            complete = not self.recordings_waiting or await self._check_model(counter)
         self.pages_waiting = int(waiting.pages)
+        if not complete:
+            raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+
+    async def _waiting(self, session: AsyncSession, kind: AiTaskKind) -> Any:
+        parameters = {
+            "kind": kind.value,
+            "max_pages": self.options.max_pages,
+            "documents": self.options.documents,
+        }
+        return (await session.execute(_WAITING, parameters)).one()
+
+    async def _model_download(self) -> int:
+        """The bytes the check downloads first (its step counts them): what the transcriber's
+        files lack when this run has transcribe tasks, else 0."""
+        async with self.sessionmaker() as session:
+            recordings = await session.scalar(_RECORDINGS, {"documents": self.options.documents})
+        if not recordings:
+            return 0
+        state = await asyncio.to_thread(self.engines.model_state, self.settings.ai_model_dir)
+        return 0 if state.ready else state.missing_bytes
+
+    async def _check_model(self, counter: Step) -> bool:
+        """Make the transcriber's files complete (D291), downloading what is missing; raises
+        _Ended when they cannot be had, and is False after a stop, which keeps what came for
+        the next run."""
+        directory = self.settings.ai_model_dir
+        state = await asyncio.to_thread(self.engines.model_state, directory)
+        if state.ready:
+            return True
+        log.info(
+            "the transcriber's model lacks %.1f MB in %s: downloading it",
+            state.missing_bytes / 1024**2,
+            directory,
+        )
+        stop = threading.Event()
+        relay = asyncio.create_task(self._relay_stop(stop))
+        try:
+            await asyncio.to_thread(
+                self.engines.download_model, directory, progress=counter.advance, stop=stop
+            )
+        except (self.engines.errors.model_files, OSError) as error:
+            raise _Ended(JobStatus.FAILED, self._no_model(error), EXIT_FAILED) from None
+        finally:
+            relay.cancel()
+        if self.job.stop.is_set():
+            return False
+        state = await asyncio.to_thread(self.engines.model_state, directory)
+        if not state.ready:
+            missing = f"{state.missing_bytes:,} bytes are still missing"
+            raise _Ended(JobStatus.FAILED, self._no_model(missing), EXIT_FAILED)
+        return True
+
+    def _no_model(self, reason: BaseException | str) -> str:
+        if isinstance(reason, BaseException):
+            reason = describe(reason)
+        return f"the transcriber's model is not in {self.settings.ai_model_dir}: {reason}"
+
+    async def _relay_stop(self, flag: threading.Event) -> None:
+        """Set flag once the run is asked to stop: for work in a thread."""
+        await self.job.stop.wait()
+        flag.set()
 
     async def _check_vision(self, needed: bool) -> None:
         """Make the vision service usable or say why not; raises _Ended when tasks need it or
@@ -479,7 +636,7 @@ class _Run:
     # ocr ---------------------------------------------------------------------------------------
 
     async def _ocr(self) -> None:
-        if not self.progress.queued:
+        if not self.ocr_waiting:
             self.job.steps.skip("ocr")
             return
         self.job.set_phase("ocr")
@@ -502,7 +659,11 @@ class _Run:
         """The next waiting task, now running in this run; a task without its document fails."""
         while True:
             async with self.sessionmaker.begin() as session:
-                parameters = {"job_id": self.job.job_id, "documents": self.options.documents}
+                parameters = {
+                    "kind": AiTaskKind.OCR.value,
+                    "job_id": self.job.job_id,
+                    "documents": self.options.documents,
+                }
                 row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:
                     return None
@@ -596,7 +757,7 @@ class _Run:
             first += 1
         return first
 
-    async def _sources(self, task: _Task) -> Any:
+    async def _sources(self, task: _Task | _Recording) -> Any:
         async with self.sessionmaker() as session:
             sources = await document_sources(session, [task.document_id])
         if task.document_id not in sources:
@@ -879,7 +1040,8 @@ class _Run:
                 {"engine": engine, "model": model, "seconds": sum(seconds), "pages": len(seconds)},
             )
 
-    async def _attempt(self, task: _Task, reason: str) -> None:
+    async def _attempt(self, task: _Task | _Recording, reason: str) -> bool:
+        """Count a failed attempt of the task; whether the task failed for good."""
         clear = reason.startswith("every page failed")  # the next attempt reads them again
         async with self.sessionmaker.begin() as session:
             status = await session.scalar(
@@ -887,12 +1049,213 @@ class _Run:
                 {"id": task.id, "error": reason, "attempts": AI_TASK_ATTEMPTS, "clear": clear},
             )
         log.warning("%s: %s", task.name or task.sha256[:12], reason)
-        if status == "failed":
+        failed: bool = status == "failed"
+        if failed:
             self._failed()
+        return failed
 
     def _failed(self) -> None:
         self.summary.failed += 1
         self.progress.failed += 1
+
+    # transcribe --------------------------------------------------------------------------------
+
+    async def _transcribe(self) -> None:
+        if not self.recordings_waiting:
+            self.job.steps.skip("transcribe")
+            return
+        self.job.set_phase("transcribe")
+        ended = None
+        with self.job.steps.step(
+            "transcribe", unit="documents", total=self.recordings_waiting
+        ) as counter:
+            try:
+                transcriber = await self._transcriber()
+                while not self.job.stop.is_set():
+                    task = await self._take_recording()
+                    if task is None:
+                        break
+                    if await self._hear(task, transcriber):
+                        counter.advance()
+            except _Ended as error:  # the step ends stopped or done, not failed
+                ended = error
+        if ended is not None:
+            raise ended
+        if self.job.stop.is_set():
+            raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+
+    async def _transcriber(self) -> Transcribing:
+        """Parakeet and Silero VAD, loaded once for the run (about 1.3 GB with four threads)."""
+        try:
+            return await asyncio.to_thread(
+                self.engines.transcriber,
+                self.settings.ai_model_dir,
+                threads=self.options.transcribe_threads,
+            )
+        except self.engines.errors.model_files as error:
+            raise _Ended(JobStatus.FAILED, self._no_model(error), EXIT_FAILED) from None
+        except Exception as error:  # its libraries or ONNX Runtime
+            message = f"cannot load the transcriber: {describe(error)}"
+            raise _Ended(JobStatus.FAILED, message, EXIT_FAILED) from None
+
+    async def _take_recording(self) -> _Recording | None:
+        """The next waiting transcribe task, now running in this run; a task without its
+        document fails."""
+        while True:
+            async with self.sessionmaker.begin() as session:
+                parameters = {
+                    "kind": AiTaskKind.TRANSCRIBE.value,
+                    "job_id": self.job.job_id,
+                    "documents": self.options.documents,
+                }
+                row = (await session.execute(_TAKE, parameters)).first()
+                if row is None:
+                    return None
+                document = (
+                    await session.execute(_DOCUMENT, {"sha256": row.target_sha256, "max_pages": 1})
+                ).first()
+                if document is not None:
+                    return _Recording(
+                        id=row.id,
+                        sha256=row.target_sha256,
+                        document_id=document.id,
+                        name=document.name,
+                        partial=TranscriptPartial.model_validate(row.partial or {}),
+                    )
+                await session.execute(
+                    _FAIL, {"id": row.id, "error": "no document has this content any more"}
+                )
+                self._failed()
+
+    async def _hear(self, task: _Recording, transcriber: Transcribing) -> bool:
+        """One recording to its end, or back to waiting when the run ends; whether it ended
+        (done, or failed for good) rather than going back to the queue for another attempt."""
+        self.progress.current = task.name
+        self.progress.position = task.partial.until
+        try:
+            await self._listen(task, transcriber)
+        except _Attempt as attempt:
+            return await self._attempt(task, str(attempt))
+        except BaseException:
+            async with self.sessionmaker.begin() as session:
+                await session.execute(_BACK, {"id": task.id})
+            raise
+        finally:
+            self.progress.current = self.progress.position = self.progress.duration = None
+        return True
+
+    async def _listen(self, task: _Recording, transcriber: Transcribing) -> None:
+        """Decode the recording, read its speech piece by piece from where the task stands,
+        each piece's lines kept and committed, and store the transcript."""
+        started = time.monotonic()
+        sources = await self._sources(task)
+        try:
+            data = await asyncio.to_thread(read_attachment, self.settings.mbox_dir, sources)
+        except (OSError, AttachmentChanged) as error:
+            raise _Attempt(f"unreadable: {describe(error)}") from None
+        limit = self.options.max_minutes * 60.0
+        try:
+            sound = await asyncio.to_thread(
+                self.engines.decode,
+                data,
+                timeout=max(self.settings.attachment_text_timeout, 300.0),
+                memory=int(self.settings.attachment_text_memory),
+                max_seconds=limit,
+            )
+        except self.engines.errors.decode as error:
+            raise _Attempt(f"cannot decode: {describe(error)}") from None
+        del data
+        partial = task.partial
+        decoded = len(sound.samples) / SAMPLE_RATE
+        # The decoder may not know the length; what it gave short of the limit is all there is.
+        if sound.duration is not None:
+            partial.duration = sound.duration
+        elif decoded < limit:
+            partial.duration = decoded
+        self.progress.duration = partial.duration
+        begun = partial.until
+        if sound.audio:
+            uncertain = self.options.transcribe_uncertain
+            for piece in await self._model(transcriber.pieces, sound.samples, start=begun):
+                if self.job.stop.is_set():
+                    raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+                lines = await self._model(
+                    transcriber.read, sound.samples, piece, uncertain=uncertain
+                )
+                partial.segments.extend(lines)
+                self._reached(partial, piece.end)
+                async with self.sessionmaker.begin() as session:
+                    await session.execute(
+                        _PARTIAL, {"id": task.id, "partial": partial.model_dump_json()}
+                    )
+        self._reached(partial, max(decoded, partial.until))
+        await self._store_transcript(task, sound.audio, time.monotonic() - started, begun)
+
+    async def _model(self, call: Callable[..., Any], *args: Any, **values: Any) -> Any:
+        """A call of the transcriber in a thread; what it raises is an attempt of the task."""
+        try:
+            return await asyncio.to_thread(call, *args, **values)
+        except Exception as error:
+            raise _Attempt(f"the transcriber failed: {describe(error)}") from None
+
+    def _reached(self, partial: TranscriptPartial, second: float) -> None:
+        """The recording in work is read up to second: the task's partial and the figures."""
+        if second > partial.until:
+            self.progress.minutes += (second - partial.until) / 60
+            partial.until = second
+        self.progress.position = partial.until
+
+    async def _store_transcript(
+        self, task: _Recording, audio: bool, seconds: float, begun: float
+    ) -> None:
+        """Store what the task read, mark it done and measure the transcriber's speed: seconds
+        spent by this run on the seconds of recording it read from begun on."""
+        partial = task.partial
+        async with self.sessionmaker.begin() as session:
+            stored = await store_transcript_result(
+                session,
+                sha256=task.sha256,
+                segments=partial.segments,
+                duration=partial.duration,
+                transcribed=partial.until,
+                audio=audio,
+                options={
+                    "max_minutes": self.options.max_minutes,
+                    "threads": self.options.transcribe_threads,
+                    "uncertain": self.options.transcribe_uncertain,
+                },
+                seconds=round(seconds, 3),
+                job_id=self.job.job_id,
+            )
+            await session.execute(_DONE, {"id": task.id, "result_id": stored.result_id})
+            heard = round(partial.until - begun)
+            if heard > 0 and seconds > 0:
+                await session.execute(
+                    _CALIBRATE_MINUTES,
+                    {"model": TRANSCRIBE_MODEL, "seconds": seconds, "heard": heard},
+                )
+        self.summary.documents += stored.documents
+        body, _ = transcript_text(partial.segments)
+        if body:
+            self.summary.done += 1
+            self.progress.done += 1
+        else:
+            self.summary.no_text += 1
+            self.progress.no_text += 1
+        if not audio:
+            found = "no sound"
+        elif body:
+            found = f"{len(partial.segments)} lines, {len(body):,} characters"
+        else:
+            found = "no speech"
+        length = "" if partial.duration is None else f" of {partial.duration:,.0f}"
+        log.info(
+            "%s: %s s%s read, %s",
+            task.name or task.sha256[:12],
+            f"{partial.until:,.0f}",
+            length,
+            found,
+        )
 
     # entities and signals ----------------------------------------------------------------------
 

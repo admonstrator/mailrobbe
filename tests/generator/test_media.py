@@ -37,6 +37,7 @@ RECORDINGS = [
     for form, (_, count) in documents.RECORDING_FORMS.items()
     for number in range(1, count + 1)
 ]
+SPOKEN = [spoken.file for files in documents.SPOKEN.values() for spoken in files]
 PHOTOS = ["jpeg-1.jpeg", "jpeg-2.jpeg", "jpeg-3.jpeg"]
 RECORDED = frozenset(documents.RECORDING_FORMS)
 ASF = bytes.fromhex("3026b2758e66cf11a6d900aa0062ce6c")
@@ -66,12 +67,12 @@ def _format(data: bytes) -> str:
     return "?"
 
 
-@pytest.mark.parametrize("name", RECORDINGS + PHOTOS)
+@pytest.mark.parametrize("name", RECORDINGS + SPOKEN + PHOTOS)
 def test_media_files_are_what_their_names_say(name: str) -> None:
     data = ff.fixture(name)
     form = name.rpartition(".")[2]
     assert _format(data) == form
-    assert len(data) <= 60_000
+    assert len(data) <= (80_000 if name in SPOKEN else 60_000)
     kind = DocumentKind.IMAGE if form == "jpeg" else DocumentKind.MEDIA
     assert classify(f"Datei.{form}", "application/octet-stream", data[:HEAD_SIZE]).kind is kind
     if form in ("mp4", "m4a", "mov"):
@@ -84,10 +85,10 @@ def test_media_files_are_what_their_names_say(name: str) -> None:
 
 def test_media_holds_the_files_the_generator_uses() -> None:
     names = {path.name for path in ff.MEDIA_DIR.iterdir()}
-    assert names == {*RECORDINGS, *PHOTOS, "README.md"}
-    contents = [ff.fixture(name) for name in RECORDINGS + PHOTOS]
+    assert names == {*RECORDINGS, *SPOKEN, *PHOTOS, "README.md"}
+    contents = [ff.fixture(name) for name in RECORDINGS + SPOKEN + PHOTOS]
     assert len({hashlib.sha256(data).digest() for data in contents}) == len(contents)
-    assert sum(map(len, contents)) < 320_000
+    assert sum(map(len, contents)) < 600_000
 
 
 def _png_chunks(data: bytes) -> list[tuple[bytes, bytes, bool]]:
@@ -149,9 +150,9 @@ def test_damaged_pictures_stop_before_their_image() -> None:
             assert classify(name, "image/png", data[:HEAD_SIZE]).kind is DocumentKind.IMAGE
 
 
-@pytest.mark.parametrize("name", RECORDINGS)
+@pytest.mark.parametrize("name", RECORDINGS + SPOKEN)
 def test_the_media_endpoint_serves_each_recording_as_the_manifest_says(name: str) -> None:
-    expected, _ = documents.RECORDING_FORMS[name.partition("-")[0]]
+    expected, _ = documents.RECORDING_FORMS[name.rpartition(".")[2]]
     assert media.media_type(ff.fixture(name)[:HEAD_SIZE]) == expected
 
 
@@ -187,7 +188,7 @@ def test_truths_of_pictures_and_recordings(
     )
     assert (truth.preview, truth.media_type) == (preview, media_type)
     if kind == "media":
-        assert truth.size < 60_000  # its recording's size, not the planned one
+        assert truth.size < 80_000  # its recording's size, not the planned one
 
 
 def test_truths_of_filler() -> None:
@@ -267,19 +268,25 @@ def _manifest(config: GeneratorConfig) -> list[dict[str, Any]]:
 def test_recordings_in_a_generated_archive_are_their_files(
     recorded: tuple[GeneratorConfig, GeneratorConfig],
 ) -> None:
-    files = {hashlib.sha256(ff.fixture(name)).hexdigest(): name for name in RECORDINGS}
+    files = {hashlib.sha256(ff.fixture(name)).hexdigest(): name for name in RECORDINGS + SPOKEN}
+    spoken = {s.file: s for files in documents.SPOKEN.values() for s in files}
     forms: Counter[str] = Counter()
     for record in _manifest(recorded[1]):
         for truth in record["documents"]:
             if truth["kind"] != "media" or truth["sha256"] is None:
                 continue
-            form = files[truth["sha256"]].partition("-")[0]
+            name = files[truth["sha256"]]
+            form = name.rpartition(".")[2]
             forms[form] += 1
             media_type, _ = documents.RECORDING_FORMS[form]
             assert truth["media_type"] == media_type
             assert truth["preview"] == (media_type.partition("/")[0] if media_type else None)
             assert truth["status"] == "unsupported" and truth["marker"] is None
-    assert len(forms) >= 5, forms
+            speech = spoken.get(name)
+            assert truth["transcript_marker"] == (speech.marker if speech else None)
+            assert truth["transcript_words"] == (list(speech.words) if speech else None)
+            forms["spoken"] += speech is not None
+    assert len(forms) >= 6 and forms["spoken"] > 0, forms
 
 
 @pytest.fixture(scope="module")

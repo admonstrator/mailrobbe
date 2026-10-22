@@ -5,12 +5,15 @@ from mailrobbe.ai.model import (
     AiOptions,
     ForbiddenService,
     OcrPage,
+    TranscriptSegment,
     configured_services,
     display_url,
     locality,
     page_text,
     refusal,
     result_engine,
+    transcribe_threads,
+    transcript_text,
 )
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT
@@ -140,3 +143,25 @@ def test_run_options_from_the_settings_carry_no_key() -> None:
     assert options.vision_model == "m" and options.max_pages == 7
     assert not options.vision_remote
     assert "secret" not in options.model_dump_json() and "pw" not in options.model_dump_json()
+
+
+def test_transcript_text_is_one_line_per_segment_in_time_order() -> None:
+    segments = [
+        TranscriptSegment(start=4.2, end=6.0, text=" Bis Freitag. "),
+        TranscriptSegment(start=0.0, end=4.0, text="Guten Tag."),
+        TranscriptSegment(start=6.5, end=7.0, text=""),
+    ]
+    assert transcript_text(segments) == ("Guten Tag.\nBis Freitag.", False)
+    assert transcript_text([]) == ("", False)
+    long = [TranscriptSegment(start=0, end=1, text="x" * (DOCUMENT_TEXT_LIMIT + 5))]
+    body, truncated = transcript_text(long)
+    assert truncated and len(body) == DOCUMENT_TEXT_LIMIT
+
+
+def test_the_transcriber_takes_the_threads_set_or_the_cpus_up_to_four() -> None:
+    assert transcribe_threads(Settings(ai_transcribe_threads=6)) == 6
+    assert 1 <= transcribe_threads(Settings(ai_transcribe_threads=0)) <= 4
+    options = AiOptions.from_settings(
+        Settings(ai_transcribe_max_minutes=30, ai_transcribe_uncertain=0.7)
+    )
+    assert (options.max_minutes, options.transcribe_uncertain) == (30, 0.7)

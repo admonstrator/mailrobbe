@@ -4,12 +4,14 @@ import { describe, expect, it } from "vitest";
 import type { AiStatus, ServiceCheck } from "../../api/types";
 import {
   aiJobRunning,
+  aiJobTranscribing,
   aiResultPage,
   aiSendLogPage,
   aiStatus,
   aiStatusRemoteRefused,
   aiStatusRunning,
   aiTaskPage,
+  aiTranscription,
 } from "../../test/fixtures";
 import { fixtureApi, renderApp, renderElement, type ApiCall } from "../../test/render";
 import { AiRunLine } from "../import/AiRunLine";
@@ -70,7 +72,8 @@ describe("AI page", () => {
     const { calls } = renderApp("/ki", aiApi(aiStatus));
     await screen.findByRole("heading", { name: "Dienste" });
     const services = card("Dienste");
-    expect(within(services).getByText("im Container")).toBeTruthy();
+    // Tesseract and the transcriber run in the container.
+    expect(within(services).getAllByText("im Container")).toHaveLength(2);
     expect(within(services).getByText("lokal")).toBeTruthy();
     expect(within(services).getByText("http://host.docker.internal:11434")).toBeTruthy();
     expect(within(services).getByText("qwen2.5vl:7b")).toBeTruthy();
@@ -185,6 +188,7 @@ describe("AI page", () => {
       engine: "auto",
       max_pages: 50,
       vision_model: "qwen2.5vl:7b",
+      max_minutes: 180,
     });
   });
 
@@ -212,6 +216,128 @@ describe("AI page", () => {
   });
 });
 
+describe("transcription on the AI page (D295)", () => {
+  it("describes the transcriber in the container and its files", async () => {
+    renderApp("/ki", aiApi(aiStatus));
+    await screen.findByRole("heading", { name: "Dienste" });
+    const transcriber = within(card("Dienste"))
+      .getByText("Parakeet TDT 0.6B v3 (NVIDIA, CC-BY-4.0)")
+      .closest("li")!;
+    expect(transcriber.textContent).toContain("im Container");
+    expect(transcriber.textContent).toContain(
+      "auf dem Prozessor (CPU) mit 4 Threads; höchstens 180 Minuten je Aufnahme",
+    );
+    expect(transcriber.textContent).toContain(
+      "Modelldateien werden beim ersten Lauf geladen (641,6 MB).",
+    );
+  });
+
+  it("says when part of the files or the libraries are missing", async () => {
+    renderApp(
+      "/ki",
+      aiApi({
+        ...aiStatus,
+        transcription: { ...aiTranscription, missing_bytes: 440_401_920 },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Dienste" });
+    expect(
+      within(card("Dienste")).getByText(/zu Ende geladen \(noch 420,0 MB von 641,6 MB\)/),
+    ).toBeTruthy();
+  });
+
+  it("cannot queue recordings without the transcriber's libraries", async () => {
+    renderApp(
+      "/ki",
+      aiApi({ ...aiStatus, transcription: { ...aiTranscription, available: false } }),
+    );
+    await screen.findByRole("heading", { name: "Dienste" });
+    expect(
+      within(card("Dienste")).getByText(/Die Bibliotheken der Transkription .* fehlen/),
+    ).toBeTruthy();
+    const media = within(card("Arbeitslisten")).getByRole("region", {
+      name: "Sprachnachrichten und Videos",
+    });
+    expect(within(media).getByRole("button", { name: "Vormerken" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("lists the recordings with their minutes and queues them without an engine", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    await screen.findByRole("heading", { name: "Arbeitslisten" });
+    const media = within(card("Arbeitslisten")).getByRole("region", {
+      name: "Sprachnachrichten und Videos",
+    });
+    expect(media.textContent).toContain(
+      "38 Dokumente · 162 Minuten (15 ohne bekannte Länge) · 39,3 MB · geschätzt ca. 18 min",
+    );
+    expect(within(media).queryByRole("combobox")).toBeNull();
+    fireEvent.click(within(media).getByRole("button", { name: "Vormerken" }));
+    await waitFor(() => expect(posts(calls, "/api/ai/tasks")).toHaveLength(1));
+    expect(posts(calls, "/api/ai/tasks")[0].body).toEqual({ work_list: "media" });
+  });
+
+  it("names the kind of tasks and results and shows a recording's length", async () => {
+    renderApp("/ki", aiApi(aiStatus));
+    const queue = await screen.findByRole("region", { name: "Warteschlange" });
+    const task = (
+      await within(queue).findByRole("link", { name: "Sprachnachricht_Vorstand.ogg" })
+    ).closest("tr")!;
+    expect(within(task).getByText("Transkription")).toBeTruthy();
+    expect(within(task).getByText("Parakeet v3")).toBeTruthy();
+    expect(within(task).getByText("1:05 von 3:12")).toBeTruthy();
+    const scan = within(queue).getByRole("link", { name: "Scan_20180306_7499.pdf" }).closest("tr")!;
+    expect(within(scan).getByText("Texterkennung")).toBeTruthy();
+    expect(within(scan).getByText("0 von 3 Seiten")).toBeTruthy();
+
+    const results = screen.getByRole("region", { name: "Ergebnisse" });
+    const result = (
+      await within(results).findByRole("link", { name: "Sprachnachricht_Vorstand.ogg" })
+    ).closest("tr")!;
+    expect(within(result).getByText("4 Zeilen, davon 1 unsicher")).toBeTruthy();
+    expect(within(result).getByText("Transkription")).toBeTruthy();
+    expect(within(result).getByText("3:12")).toBeTruthy();
+    expect(within(result).getByText("312")).toBeTruthy();
+    fireEvent.click(within(result).getByRole("button", { name: "Verwerfen" }));
+    expect(await screen.findByRole("dialog", { name: "Transkript verwerfen?" })).toBeTruthy();
+  });
+
+  it("counts the tasks of both kinds", async () => {
+    const queue = {
+      ...aiStatus.queue,
+      transcribe: { waiting: 3, running: 0, done: 5, failed: 1, cancelled: 0 },
+    };
+    renderApp("/ki", aiApi({ ...aiStatus, queue }));
+    const tasks = await screen.findByRole("region", { name: "Warteschlange" });
+    expect(within(tasks).getByRole("button", { name: "vorgemerkt 15" })).toBeTruthy();
+    expect(
+      within(tasks).getByRole("button", { name: "Alle fehlgeschlagenen erneut (3)" }),
+    ).toBeTruthy();
+    expect(within(card("Lauf")).getByText(/15 Dokumente sind vorgemerkt/)).toBeTruthy();
+  });
+
+  it("starts a run with the minutes per recording", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const run = await screen.findByRole("region", { name: "Lauf" });
+    const minutes = within(run).getByRole("textbox", { name: "Minuten je Aufnahme" });
+    expect(minutes).toHaveProperty("value", "180");
+    fireEvent.change(minutes, { target: { value: "30" } });
+    fireEvent.click(within(run).getByRole("button", { name: "KI-Lauf starten" }));
+    await waitFor(() => expect(posts(calls, "/api/ai/run")).toHaveLength(1));
+    expect(posts(calls, "/api/ai/run")[0].body).toMatchObject({ max_minutes: 30 });
+  });
+
+  it("shows a run transcribing with its minutes and the place in the recording", async () => {
+    renderApp("/ki", aiApi({ ...aiStatus, job: aiJobTranscribing }));
+    const run = await screen.findByRole("region", { name: "Lauf" });
+    expect(await within(run).findByText("Transkription")).toBeTruthy();
+    expect(run.textContent).toContain("13 Minuten transkribiert");
+    expect(run.textContent).toContain("In Arbeit: Sprachnachricht_Vorstand.ogg · 1:05 von 3:12");
+  });
+});
+
 describe("AI run on the dashboard", () => {
   it("says a run lives, with its pages, and links the page", () => {
     renderElement(<AiRunLine run={aiJobRunning} />);
@@ -220,6 +346,13 @@ describe("AI run on the dashboard", () => {
     expect(line.textContent).toContain("Ein Import kann erst danach starten.");
     expect(within(line).getByRole("link", { name: "Zur Seite „KI“" }).getAttribute("href")).toBe(
       "/ki",
+    );
+  });
+
+  it("says how many minutes a run transcribed", () => {
+    renderElement(<AiRunLine run={aiJobTranscribing} />);
+    expect(screen.getByRole("region", { name: "KI-Lauf" }).textContent).toContain(
+      "KI-Lauf läuft · 13 Minuten transkribiert · Ein Import",
     );
   });
 

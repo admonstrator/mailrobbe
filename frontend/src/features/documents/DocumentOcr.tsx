@@ -179,22 +179,29 @@ function AgainDialog({
   );
 }
 
-function DiscardDialog({
+/** "Verwerfen" of a recognised text or, with transcript, of a transcript (D185, D294), after a
+ *  confirmation; onDone gets the notice. */
+export function DiscardDialog({
   resultId,
+  transcript = false,
   onClose,
   onDone,
 }: {
   resultId: number;
+  transcript?: boolean;
   onClose: () => void;
   onDone: (notice: string) => void;
 }) {
   const discard = useDiscardAi();
   return (
-    <Dialog title="Erkannten Text verwerfen?" onClose={onClose}>
+    <Dialog
+      title={transcript ? "Transkript verwerfen?" : "Erkannten Text verwerfen?"}
+      onClose={onClose}
+    >
       <p className={styles.text}>
-        Der maschinell erkannte Text wird aus der Suche genommen. Das Dokument bekommt einen früher
-        erkannten Text zurück oder steht wieder ohne Text da, wie der Import es fand. Das Ergebnis
-        bleibt als verworfen auf der Seite „KI“ verzeichnet.
+        {transcript
+          ? "Das maschinell erstellte Transkript wird aus der Suche genommen. Die Aufnahme bekommt ein früheres Transkript zurück oder steht wieder ohne Text da, wie der Import sie fand. Das Ergebnis bleibt als verworfen auf der Seite „KI“ verzeichnet."
+          : "Der maschinell erkannte Text wird aus der Suche genommen. Das Dokument bekommt einen früher erkannten Text zurück oder steht wieder ohne Text da, wie der Import es fand. Das Ergebnis bleibt als verworfen auf der Seite „KI“ verzeichnet."}
       </p>
       {discard.error && (
         <p className={styles.warning} role="alert">
@@ -211,7 +218,11 @@ function DiscardDialog({
               { result: resultId },
               {
                 onSuccess: () => {
-                  onDone("Der erkannte Text ist verworfen.");
+                  onDone(
+                    transcript
+                      ? "Das Transkript ist verworfen."
+                      : "Der erkannte Text ist verworfen.",
+                  );
                   onClose();
                 },
               },
@@ -226,7 +237,7 @@ function DiscardDialog({
 }
 
 /** "Für KI vormerken" for the document list's current filter (D186): offered when the filter
- *  holds documents OCR can read, with their count and a confirmation. */
+ *  holds documents OCR or the transcriber can read (D295), with their count and a confirmation. */
 export function AiQueueButton({
   filters,
   summary,
@@ -267,7 +278,7 @@ function QueueDialog({
   const noun = readable === 1 ? "Dokument" : "Dokumente";
 
   return (
-    <Dialog title="Für die Texterkennung vormerken?" onClose={onClose}>
+    <Dialog title="Für KI vormerken?" onClose={onClose}>
       {done ? (
         <>
           <p className={styles.text} role="status">
@@ -285,7 +296,7 @@ function QueueDialog({
       ) : (
         <>
           <p className={styles.text}>
-            {`${formatNumber(readable)} ${noun} dieser Auswahl kann die Texterkennung lesen: gescannte PDFs und Bilder ohne eigenen Text. Ihr Text wird als „maschinell erkannt“ gekennzeichnet und lässt sich wieder verwerfen.`}
+            {`${formatNumber(readable)} ${noun} dieser Auswahl ${readable === 1 ? "kann" : "können"} Texterkennung oder Transkription lesen: gescannte PDFs und Bilder ohne eigenen Text, Aufnahmen und Videos mit Ton. Ihr Text wird als maschinell erkannt oder transkribiert gekennzeichnet und lässt sich wieder verwerfen.`}
           </p>
           <EngineSelect id={id} value={chosen} vision={vision} onChange={setEngine} />
           <Checkbox checked={logos} onChange={setLogos}>
