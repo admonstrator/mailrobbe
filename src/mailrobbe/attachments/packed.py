@@ -264,8 +264,12 @@ def _read_seven_zip(
 ) -> bytes | None:
     with _as_file(data) as archive:
         try:
+            # 7-Zip extracts nothing for a path the archive lacks and still ends with success
+            entries, _ = _seven_zip_entries(archive, password)
+            if all(entry.path != path for entry in entries):
+                return None
             return _seven_zip_read(archive, path, password, limit)
-        except _TooLarge:
+        except (_Damaged, _TooLarge, subprocess.TimeoutExpired):
             return None
 
 
