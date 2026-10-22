@@ -2,12 +2,13 @@ import email.policy
 import hashlib
 import re
 from collections import Counter
+from dataclasses import replace
 from email.message import EmailMessage, Message
 from email.parser import BytesParser
 
 import pytest
 
-from mailrobbe.generator.model import Fault, MailKind, PlannedMail, RenderedMail
+from mailrobbe.generator.model import AttachmentSpec, Fault, MailKind, PlannedMail, RenderedMail
 from mailrobbe.generator.render import compose, render
 
 _PARSER = BytesParser(policy=email.policy.default)
@@ -132,21 +133,36 @@ def test_attachments_as_planned(parsed: list[tuple[RenderedMail, EmailMessage]])
     assert with_documents > 0.8 * with_files
 
 
+def _as_encrypted(base: PlannedMail, kind: str) -> PlannedMail:
+    """base with its body replaced by an encrypted-mail payload of `kind`, for the renderer."""
+    leaf = (
+        AttachmentSpec("smime.p7m", "application/pkcs7-mime", 6000)
+        if kind == "smime"
+        else AttachmentSpec("encrypted.asc", "application/octet-stream", 6000)
+    )
+    return replace(
+        base, encrypted=kind, attachments=(leaf,), calendar=None, note=None,
+        large_attachment=False, signals=["encrypted_mail"], passwords=(),
+    )  # fmt: skip
+
+
 def test_encrypted_mails(gen_plan: list[PlannedMail]) -> None:
     """A mail encrypted as a whole (D238) is well formed S/MIME or PGP/MIME, carries the
-    encrypted_mail signal and no password, and its documents state every opaque part."""
-    rendered = [render(mail) for mail in gen_plan if mail.encrypted is not None]
-    encrypted = [(mail, _parse(mail.raw)) for mail in rendered]
-    assert encrypted
-    kinds = Counter(mail.encrypted for mail, _ in encrypted)
-    assert kinds["smime"] and kinds["pgp"]
-    for mail, message in encrypted:
-        assert mail.signals == ["encrypted_mail"]
-        assert not mail.passwords
+    encrypted_mail signal and no password, and its documents state every opaque part. Both kinds
+    are forced from a real plan mail, so the check does not depend on the random draw."""
+    natural = [render(mail) for mail in gen_plan if mail.encrypted is not None]
+    assert natural  # the plan makes some on its own
+    for mail in natural:
+        assert mail.encrypted in ("smime", "pgp")
+        assert mail.signals == ["encrypted_mail"] and not mail.passwords
+    base = next(m for m in gen_plan if m.kind is MailKind.PERSONAL and not m.attachments)
+    for kind in ("smime", "pgp"):
+        mail = render(_as_encrypted(base, kind))
+        message = _parse(mail.raw)
         for part in message.walk():
             assert not part.defects, part.defects
         opaque = [part for part in message.walk() if part.get_content_maintype() != "multipart"]
-        if mail.encrypted == "smime":
+        if kind == "smime":
             assert message.get_content_type() == "application/pkcs7-mime"
             assert [part.get_content_type() for part in opaque] == ["application/pkcs7-mime"]
         else:

@@ -233,6 +233,7 @@ class _Standalone:
     recipients: tuple[Address, ...]  # contacts: the carrier's recipients
     origin_name: str  # archive: the carrier's sender, named in the text
     exclude: tuple[int, ...]  # archive: persons the carrying mail involves, left out
+    when: datetime | None  # contacts: the carrier's time, so the new mail stays within days of it
 
 
 def _weighted[T](rng: random.Random, options: Sequence[tuple[T, float]]) -> T:
@@ -937,7 +938,10 @@ class Planner:
             tier = self._write_password(mail, index, remaining, spec, plant, pw, file)
             self._set_document_tier(mail, spec, tier)
             mail.guarded = True
-            mail.signals = sorted({*mail.signals, "encrypted_attachment"})
+            # the signals phase skips automated mails (signal_automated), so only a human mail
+            # carrying a protected attachment gets the concealment signal (D238)
+            if not mail.automated:
+                mail.signals = sorted({*mail.signals, "encrypted_attachment"})
 
     def _write_password(
         self,
@@ -1065,6 +1069,7 @@ class Planner:
                 mail.to,
                 "",
                 (),
+                self._clock.at(index),  # the carrier's time: the new mail stays days from it
             )
         else:
             involved = tuple(
@@ -1076,7 +1081,7 @@ class Planner:
             )
             name = mail.sender.display_name or mail.sender.email
             plant = _Standalone(
-                "archive", file, pw, mail.language, False, due, None, -1, (), name, involved
+                "archive", file, pw, mail.language, False, due, None, -1, (), name, involved, None
             )
         self._plants.append(plant)
         return True
@@ -1098,6 +1103,10 @@ class Planner:
         base plan stays the same."""
         rng = self._protect_rng
         persons = self.population.persons
+        if plant.when is not None:  # contacts: within days of the carrier, so the importer's
+            # contacts tier (a shared participant within its window, D235) reaches it
+            later = plant.when + timedelta(days=rng.randint(1, 4), seconds=rng.randrange(86400))
+            when = min(later, self._clock.end - timedelta(seconds=1))
         if plant.kind == "contacts":
             sender_person = persons[plant.sender_person]
             sender = plant.sender or sender_person.address(sender_person.mailbox(when), rng)
