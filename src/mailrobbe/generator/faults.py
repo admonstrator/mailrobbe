@@ -385,7 +385,8 @@ def _invalid_base64(mail: RenderedMail, rng: random.Random) -> bool:
         if mail.documents:  # the part may be an attachment: its bytes are no longer known
             mail.documents = damaged(mail.documents, mail.raw)
             if any(
-                t.sha256 is None and t.filename.lower().endswith(".ics") for t in mail.documents
+                t.sha256 is None and (t.filename or "").lower().endswith(".ics")
+                for t in mail.documents
             ):
                 mail.calendar = None  # an .ics document's event is no longer known either
         return True
@@ -421,8 +422,11 @@ def apply_faults(mail: RenderedMail, config: GeneratorConfig, rng: random.Random
 
     About config.fault_rate of the mails get one defect, a tenth of those a second one of
     another kind. A kind with no fitting variant for the mail falls back to another kind.
+
+    A guarded mail (a protected document or a planted password, generator.protection) is left
+    untouched, so its bytes and the password it carries stay what the manifest states.
     """
-    if rng.random() >= config.fault_rate:
+    if mail.planned.guarded or rng.random() >= config.fault_rate:
         return mail
     wanted = 2 if rng.random() < _SECOND_FAULT_SHARE else 1
     kinds = dict(_FAULT_WEIGHTS)
@@ -457,6 +461,10 @@ class DuplicateInjector:
         position = self._position
         self._position += 1
         rng = stage_rng(mail.planned.seed, "duplicate")
+        # A guarded mail is never replaced by a duplicate nor used as one's source (its protected
+        # attachment or planted password must appear once, in its place; generator.protection).
+        if mail.planned.guarded:
+            return mail
         if self._recent and rng.random() < self._config.duplicate_rate:
             source_position, source = self._recent[rng.randrange(len(self._recent))]
             return _duplicate(source, source_position, rng)

@@ -89,7 +89,8 @@ def test_every_field_matches_the_manifest(
         assert [a.email for a in mail.bcc] == entry["bcc"], index
         assert len(mail.attachments) == entry["attachments"], index
         assert set(_kinds(mail)) == _expected_kinds(entry["faults"]), (index, mail.issues)
-        assert mail.body_text, index
+        if entry["encrypted"] is None:  # a mail encrypted as a whole (D238) has no readable body
+            assert mail.body_text, index
 
 
 def test_threads_carry_their_references(

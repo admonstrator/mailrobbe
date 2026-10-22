@@ -15,7 +15,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta, timezone
 
-from mailrobbe.generator import invitations
+from mailrobbe.generator import documents, invitations, protection
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.config import GeneratorConfig
 from mailrobbe.generator.documents import DocumentPool
@@ -25,6 +25,7 @@ from mailrobbe.generator.model import (
     Invitation,
     MailKind,
     Meeting,
+    Note,
     PlannedMail,
     derive_seed,
     stage_rng,
@@ -39,6 +40,8 @@ from mailrobbe.generator.population import (
 )
 
 MAX_OPEN_THREADS = 400  # hard bound on the threads waiting for replies
+MAX_PENDING_PLANTS = 200  # separate password mails not yet written (generator.protection)
+_PLANT_GAP = (2, 40)  # stream positions a separate password mail lands after its carrier
 RECENT_MAILS = 64  # forwards pick one of the last mails
 MAX_REFERENCES = 20  # References keeps the root and the latest ancestors, like most clients
 MAX_ATTACHMENT_SIZE = 20 * 1024**2  # normal attachments stay below common server limits
@@ -173,6 +176,13 @@ class _Thread:
     meeting: Meeting | None = None  # the meeting the thread's first mail invited to, as of now
     cancelled: bool = False  # the organiser cancelled it: the thread goes on in plain mails
     planned: PlannedMail | None = None  # `last` before the calendar dressed it; None: `last`
+    # A protected document's password the next reply of the thread passes on (D235,
+    # generator.protection): the lines, a text file to attach, the password, and whether the
+    # reply gets the password_separate signal.
+    plant_lines: tuple[str, ...] | None = None
+    plant_file: AttachmentSpec | None = None
+    plant_password: str | None = None
+    plant_separate: bool = False
 
 
 _REPLY_COUNTS = ((1, 0.45), (2, 0.25), (3, 0.12), (4, 0.05), (5, 0.04), (6, 0.03), (8, 0.03),
@@ -204,6 +214,26 @@ _AUTOMATED_ATTACHMENTS = (
     ("Export_{n}.csv", "text/csv", 12_000, 1.0),
     ("Termin.ics", "text/calendar", 1_500, 0.3),
 )
+
+
+@dataclass(slots=True)
+class _Standalone:
+    """A mail the planner owes later to pass a protected document's password on (D235): a new
+    mail of its sender to the same recipients (contacts) or a mail between two other persons
+    (archive). It takes a stream position of its own; `due` is the earliest."""
+
+    kind: str  # "contacts" or "archive"
+    file: str  # the protected document's file name
+    password: str
+    language: str
+    separate: bool  # the password_separate signal (contacts, not archive)
+    due: int
+    sender: Address | None  # contacts: the carrier's sender
+    sender_person: int  # contacts: the carrier's sender person; archive: -1
+    recipients: tuple[Address, ...]  # contacts: the carrier's recipients
+    origin_name: str  # archive: the carrier's sender, named in the text
+    exclude: tuple[int, ...]  # archive: persons the carrying mail involves, left out
+    when: datetime | None  # contacts: the carrier's time, so the new mail stays within days of it
 
 
 def _weighted[T](rng: random.Random, options: Sequence[tuple[T, float]]) -> T:
@@ -273,6 +303,12 @@ class Planner:
         self._tz: dict[timedelta, timezone] = {}
         self._large_now = False  # the mail being built gets the very large attachment
         self._documents = DocumentPool(config.seed)
+        # Protected documents and their passwords (generator.protection) draw from streams of
+        # their own, so the base plan is the same whatever they add; _plants are the separate
+        # password mails still owed.
+        self._protect_rng = stage_rng(config.seed, "plan-protection")
+        self._protect_id_rng = stage_rng(config.seed, "plan-protection-id")
+        self._plants: list[_Standalone] = []
         self.max_open_threads = 0  # largest number of open threads seen, for tests
 
     @property
@@ -287,6 +323,7 @@ class Planner:
             if self._large_now:
                 next_large = next(large, -1)
             mail = self._next(index, self._clock.at(index))
+            self._plant_passwords(mail, index, self.config.mails - index)
             planned = self._dressed.pop(index, None)
             if not mail.automated:
                 self._recent.append(_strip(mail))
@@ -306,6 +343,9 @@ class Planner:
     def _next(self, index: int, when: datetime) -> PlannedMail:
         rng = self._rng
         remaining = self.config.mails - index
+        standalone = self._due_standalone(index, remaining)
+        if standalone is not None:
+            return self._standalone_mail(index, when, standalone)
         thread = self._forced_thread(remaining) or self._due_thread(index)
         if thread is not None:
             return self._reply(index, when, thread)
@@ -455,6 +495,13 @@ class Planner:
             client=client,
             large_attachment=self._large_now,
         )
+        if (
+            not mail.attachments
+            and not self._large_now
+            and self._protect_rng.random() < protection.ENCRYPTED_MAIL_SHARE
+        ):
+            self._make_encrypted(mail)
+            return mail
         if self._large_now or self._calendar_rng.random() >= invitations.INVITATION_SHARE:
             self._open_thread(mail, remaining, _PERSONAL_THREAD_SHARE)
             return mail
@@ -550,7 +597,7 @@ class Planner:
         client = self._client(forwarder, when)
         sender = forwarder.address(mailbox, rng, sender=True)
         carried = planned.attachments[:-1] if planned.large_attachment else planned.attachments
-        carried = tuple(a for a in carried if not a.inline)
+        carried = tuple(a for a in carried if not a.inline and not documents.is_protected(a))
         if self._large_now or not carried:
             carried = self._attachments(MailKind.FORWARD, when, client)
         mail = PlannedMail(
@@ -620,6 +667,8 @@ class Planner:
                 mail.subject = reply_subject(parent.subject, client, replier.language, rng)
             if not thread.cancelled and not self._large_now:
                 self._follow_up(mail, thread, replier)
+        if thread.plant_password is not None:
+            self._apply_thread_plant(mail, thread)
         thread.last = _strip(mail)
         thread.references = references
         thread.remaining -= 1
@@ -785,9 +834,11 @@ class Planner:
             date=format_date(later.date(), german),
         )
 
-    def _message_id(self, client: str, domain: str, when: datetime) -> str:
+    def _message_id(
+        self, client: str, domain: str, when: datetime, rng: random.Random | None = None
+    ) -> str:
         """Message-ID in the style of the program that wrote the mail; at least 64 random bits."""
-        bits = self._rng.getrandbits
+        bits = (rng or self._rng).getrandbits
         if client == "outlook" and when.year < 2016:
             return f"<{bits(40):012x}${bits(32):08x}${bits(32):08x}$@{domain}>"
         if client == "outlook":
@@ -854,6 +905,242 @@ class Planner:
             project=rng.choice(vocab.PROJECTS).replace(" ", "_"),
             word=rng.choice(vocab.SURNAMES_DE).replace(" ", "_"),
         )
+
+    # Protected documents and their passwords (D233 to D235, generator.protection) ----------
+
+    def _make_encrypted(self, mail: PlannedMail) -> None:
+        """Turn a personal mail into one encrypted as a whole (D238): S/MIME or PGP/MIME, its
+        content noise. Guarded, so no fault or duplicate stands in for it."""
+        rng = self._protect_rng
+        size = rng.randint(2_000, 40_000)
+        if rng.random() < protection.SMIME_SHARE:
+            mail.encrypted = "smime"
+            mail.attachments = (AttachmentSpec("smime.p7m", "application/pkcs7-mime", size),)
+        else:
+            mail.encrypted = "pgp"
+            mail.attachments = (AttachmentSpec("encrypted.asc", "application/octet-stream", size),)
+        mail.signals = ["encrypted_mail"]
+        mail.guarded = True
+
+    def _plant_passwords(self, mail: PlannedMail, index: int, remaining: int) -> None:
+        """For every protected document this mail carries, decide where its password is written
+        (generator.protection) and apply it: a note in the mail, a text file, or a later mail.
+        Sets the document's tier for the manifest and the carrier's concealment signal."""
+        rng = self._protect_rng
+        for spec in self._documents.take_protected():
+            document = spec.document
+            assert document is not None and document.password is not None
+            pw, file = document.password, spec.filename
+            room = remaining > _PLANT_GAP[0] + 2 and len(self._plants) < MAX_PENDING_PLANTS
+            plant = protection.choose_plant(rng, mail.automated, room)
+            if mail.calendar is not None and plant not in ("mail", "nowhere"):
+                plant = "mail"
+            tier = self._write_password(mail, index, remaining, spec, plant, pw, file)
+            self._set_document_tier(mail, spec, tier)
+            mail.guarded = True
+            # the signals phase skips automated mails (signal_automated), so only a human mail
+            # carrying a protected attachment gets the concealment signal (D238)
+            if not mail.automated:
+                mail.signals = sorted({*mail.signals, "encrypted_attachment"})
+
+    def _write_password(
+        self,
+        mail: PlannedMail,
+        index: int,
+        remaining: int,
+        spec: AttachmentSpec,
+        plant: str,
+        pw: str,
+        file: str,
+    ) -> str | None:
+        """Write the password where `plant` says and return the tier it will be found by, falling
+        back to the carrying mail when a later mail no longer fits."""
+        rng, language, automated = self._protect_rng, mail.language, mail.automated
+        if plant == "nowhere":
+            if rng.random() < 0.6:
+                self._note(mail, protection.announced(rng, language, file))
+            return None
+        if plant == "attachment":
+            txt = protection.text_file(rng, language, file, pw)
+            in_reply = rng.random() < protection.ATTACHMENT_IN_REPLY_SHARE
+            follow = protection.follow_up(rng, language, file, None)
+            if in_reply and self._thread_plant(mail, remaining, follow, txt, pw, separate=False):
+                self._note(mail, protection.announced(rng, language, file))
+            else:  # the text file travels on the carrying mail itself
+                self._attach(mail, txt)
+                self._note(mail, protection.in_text_file(rng, language, txt.filename))
+                mail.passwords = (*mail.passwords, pw)
+            return protection.TIERS["attachment"]
+        if plant == "thread" and self._thread_plant(
+            mail, remaining, protection.follow_up(rng, language, file, pw), None, pw, separate=True
+        ):
+            self._note(mail, protection.announced(rng, language, file))
+            return protection.TIERS["thread"]
+        if plant in ("contacts", "archive") and self._standalone_plant(
+            mail, index, plant, file, pw
+        ):
+            self._note(mail, protection.announced(rng, language, file))
+            return protection.TIERS[plant]
+        # "mail", or a tier that found no room: the password goes into the carrying mail.
+        self._note(mail, protection.in_mail(rng, language, automated, pw))
+        mail.passwords = (*mail.passwords, pw)
+        return protection.TIERS["mail"]
+
+    def _note(self, mail: PlannedMail, lines: tuple[str, ...]) -> None:
+        if not lines:
+            return
+        existing = mail.note.lines if mail.note is not None else ()
+        mail.note = Note((*existing, *lines))
+
+    def _attach(self, mail: PlannedMail, spec: AttachmentSpec) -> None:
+        mail.attachments = (*mail.attachments, spec)
+
+    def _set_document_tier(self, mail: PlannedMail, spec: AttachmentSpec, tier: str | None) -> None:
+        assert spec.document is not None
+        updated = replace(spec, document=replace(spec.document, tier=tier))
+        mail.attachments = tuple(updated if a is spec else a for a in mail.attachments)
+
+    def _thread_plant(
+        self,
+        mail: PlannedMail,
+        remaining: int,
+        lines: tuple[str, ...],
+        file: AttachmentSpec | None,
+        password: str,
+        *,
+        separate: bool,
+    ) -> bool:
+        """Owe the password to the next reply of the carrier's thread, opening one if needed."""
+        root = mail.index if mail.thread_index is None else mail.thread_index
+        thread = self._threads.get(root) or self._force_thread(mail, remaining)
+        if thread is None or thread.plant_password is not None:
+            return False
+        thread.plant_lines = lines
+        thread.plant_file = file
+        thread.plant_password = password
+        thread.plant_separate = separate
+        return True
+
+    def _force_thread(self, mail: PlannedMail, remaining: int) -> _Thread | None:
+        """Open a thread on a root-less mail for a password plant; None when there is no room."""
+        if mail.thread_index is not None:
+            return None
+        if len(self._threads) >= MAX_OPEN_THREADS or remaining - 1 <= len(self._unanswered):
+            return None
+        mail.thread_index = mail.index
+        thread = _Thread(
+            mail.index, _strip(mail), mail.references, _weighted(self._protect_rng, _REPLY_COUNTS)
+        )
+        self._threads[mail.index] = thread
+        self._unanswered[mail.index] = None
+        self._schedule_reply(thread, mail.index)
+        return thread
+
+    def _apply_thread_plant(self, mail: PlannedMail, thread: _Thread) -> None:
+        assert thread.plant_lines is not None and thread.plant_password is not None
+        self._note(mail, thread.plant_lines)
+        if thread.plant_file is not None:
+            mail.attachments = (*mail.attachments, thread.plant_file)
+        mail.passwords = (*mail.passwords, thread.plant_password)
+        if thread.plant_separate:
+            mail.signals = sorted({*mail.signals, "password_separate"})
+        mail.guarded = True
+        thread.plant_lines = thread.plant_file = thread.plant_password = None
+        thread.plant_separate = False
+
+    def _standalone_plant(
+        self, mail: PlannedMail, index: int, kind: str, file: str, pw: str
+    ) -> bool:
+        """Owe a separate password mail at a later stream position; False when none is left."""
+        due = index + self._protect_rng.randint(*_PLANT_GAP)
+        if due >= self.config.mails - 2 or len(self._plants) >= MAX_PENDING_PLANTS:
+            return False
+        if kind == "contacts":
+            sender_person = self._owners.get(mail.sender.email, (-1, 0))[0]
+            plant = _Standalone(
+                "contacts",
+                file,
+                pw,
+                mail.language,
+                True,
+                due,
+                mail.sender,
+                sender_person,
+                mail.to,
+                "",
+                (),
+                self._clock.at(index),  # the carrier's time: the new mail stays days from it
+            )
+        else:
+            involved = tuple(
+                {
+                    self._owners[a.email][0]
+                    for a in (mail.sender, *mail.to, *mail.cc)
+                    if a.email in self._owners
+                }
+            )
+            name = mail.sender.display_name or mail.sender.email
+            plant = _Standalone(
+                "archive", file, pw, mail.language, False, due, None, -1, (), name, involved, None
+            )
+        self._plants.append(plant)
+        return True
+
+    def _due_standalone(self, index: int, remaining: int) -> _Standalone | None:
+        """The next owed password mail that is due, or one forced out near the end of the stream."""
+        if not self._plants:
+            return None
+        ready = min((p for p in self._plants if p.due <= index), key=lambda p: p.due, default=None)
+        if ready is None and remaining <= len(self._plants):
+            ready = min(self._plants, key=lambda p: p.due)
+        if ready is None:
+            return None
+        self._plants.remove(ready)
+        return ready
+
+    def _standalone_mail(self, index: int, when: datetime, plant: _Standalone) -> PlannedMail:
+        """Build an owed password mail (generator.protection), from its own random streams so the
+        base plan stays the same."""
+        rng = self._protect_rng
+        persons = self.population.persons
+        if plant.when is not None:  # contacts: within days of the carrier, so the importer's
+            # contacts tier (a shared participant within its window, D235) reaches it
+            later = plant.when + timedelta(days=rng.randint(1, 4), seconds=rng.randrange(86400))
+            when = min(later, self._clock.end - timedelta(seconds=1))
+        if plant.kind == "contacts":
+            sender_person = persons[plant.sender_person]
+            sender = plant.sender or sender_person.address(sender_person.mailbox(when), rng)
+            to = plant.recipients or (sender,)
+            subject, lines = protection.new_mail(rng, plant.language, plant.file, plant.password)
+        else:
+            others = [p for p in self._everyone.items if p.index not in plant.exclude]
+            picks = rng.sample(others, min(2, len(others))) if others else [self._everyone.items[0]]
+            sender_person = picks[0]
+            sender = sender_person.address(sender_person.mailbox(when), rng, sender=True)
+            target = picks[-1] if len(picks) > 1 else sender_person
+            to = (target.address(target.mailbox(when), rng),)
+            subject, lines = protection.passed_on(
+                rng, plant.language, plant.file, plant.origin_name, plant.password
+            )
+        client = self._client(sender_person, when)
+        mail = PlannedMail(
+            index=index,
+            seed=derive_seed(self.config.seed, index),
+            date=self._local_date(sender_person, when),
+            sender=sender,
+            to=to,
+            subject=subject,
+            message_id=self._message_id(client, sender.domain, when, self._protect_id_rng),
+            language=plant.language,
+            kind=MailKind.PERSONAL,
+            client=client,
+            note=Note(lines, alone=True),
+            passwords=(plant.password,),
+            guarded=True,
+        )
+        if plant.separate:
+            mail.signals = ["password_separate"]
+        return mail
 
 
 def format_date(day: date, german: bool) -> str:
