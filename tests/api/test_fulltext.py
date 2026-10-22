@@ -1,4 +1,5 @@
-"""The full text part of a search (D170 to D176): groups, places, counted words, patterns."""
+"""The full text part of a search (D170 to D176, D226, D229): groups, places, the parts of the
+text, proximity terms, counted words, patterns."""
 
 import re
 
@@ -7,10 +8,10 @@ import pytest
 from mailrobbe.api.fulltext import (
     DOCUMENT_WEIGHTS,
     FIELDS,
-    MAIL_WEIGHTS,
     FullText,
     Words,
     full_text_search,
+    mail_weights,
     text_search,
     weights,
     word_regex,
@@ -105,8 +106,8 @@ def test_prefilter() -> None:
 
 
 def test_weights() -> None:
-    assert weights(frozenset(FIELDS), MAIL_WEIGHTS) == "AB"
-    assert weights(frozenset({"attachment"}), MAIL_WEIGHTS) == ""
+    assert weights(frozenset(FIELDS), mail_weights("clean")) == "ABC"
+    assert weights(frozenset({"attachment"}), mail_weights("clean")) == ""
     assert weights(frozenset({"attachment", "filename"}), DOCUMENT_WEIGHTS) == "AB"
     assert weights(frozenset({"filename", "body"}), DOCUMENT_WEIGHTS) == "A"
 
@@ -143,3 +144,70 @@ def test_special_characters_are_escaped() -> None:
     )
     assert word_regex_python(Words("C++ (neu)")).search("in C++ (neu) geschrieben")
     assert re.escape("a.b") == r"a\.b"
+
+
+def test_the_parts_are_weights_of_the_text() -> None:
+    assert mail_weights("clean") == {"subject": "A", "body": "BC"}
+    assert mail_weights("own") == {"subject": "A", "body": "B"}
+    assert mail_weights("full") == {"subject": "A", "body": "BCD"}
+    assert weights(frozenset(FIELDS), mail_weights("full")) == "ABCD"
+    assert weights(frozenset({"body"}), mail_weights("own")) == "B"
+    assert _search("Spende", body_part="own").body_part == "own"
+    assert _search("Spende").body_part == "clean"
+
+
+def test_a_proximity_term_alone_is_a_search() -> None:
+    search = _search('"Spende bar"~2', scope=["body"])
+    assert (search.search, search.groups, search.placed) == ("", (), ())
+    assert search.near == (Words("Spende bar", distance=2),)
+    assert search.counted == ((Words("Spende bar", distance=2), frozenset({"body"})),)
+    assert search.prefilter() is None
+
+
+def test_proximity_terms_count_unless_negated() -> None:
+    search = _search('Rat -"Spende bar"~2 "Rat Spende"~1 datei:Liste')
+    assert search.near == (
+        Words("Spende bar", negated=True, distance=2),
+        Words("Rat Spende", distance=1),
+    )
+    every = frozenset(FIELDS)
+    assert search.counted == (
+        (Words("Rat"), every),
+        (Words("Liste"), frozenset({"filename"})),
+        (Words("Rat Spende", distance=1), every),
+    )
+    assert search.search == "Rat"  # never part of the free words
+
+
+def test_a_proximity_term_asks_websearch_for_its_two_words() -> None:
+    assert Words("Spende bar", distance=2).websearch() == '"Spende" "bar"'
+    assert Words("Spende bar", negated=True, distance=2).websearch() == '"Spende" "bar"'
+
+
+@pytest.mark.parametrize(
+    ("text", "distance", "found"),
+    [
+        ("Spende bar", 1, True),
+        ("bar, die Spende", 1, True),  # either order
+        ("Spende in bar", 1, True),
+        ("Spende ganz in bar", 1, False),
+        ("Spende ganz in bar", 2, True),
+        ("Spende-bar", 1, True),
+        ("SPENDE\n\nBAR", 1, True),
+        ("Spenden bar", 3, False),  # whole words only
+        ("Spende barfuß", 3, False),
+        ("Spende " + "Rat " * 20 + "bar", 20, True),
+        ("Spende " + "Rat " * 21 + "bar", 20, False),
+        ("Spende Rat_2 bar", 1, False),  # _ separates, as it does for the words themselves
+    ],
+)
+def test_python_proximity_pattern(text: str, distance: int, found: bool) -> None:
+    pattern = word_regex_python(Words("Spende bar", distance=distance))
+    assert bool(pattern.search(text)) is found
+
+
+def test_the_proximity_pattern_of_postgresql() -> None:
+    between = r"(?:[^[:alnum:]]+[[:alnum:]]+){0,2}[^[:alnum:]]+"
+    assert word_regex(Words("Spende bar", distance=2)) == (
+        rf"(?<![[:alnum:]])(?:Spende{between}bar|bar{between}Spende)(?![[:alnum:]])"
+    )

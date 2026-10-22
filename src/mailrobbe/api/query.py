@@ -6,16 +6,20 @@ A token `name:value` with a known operator name (any case) and a non-empty value
 term; a bare `<local@host>` is a Message-ID; everything else is one full-text term per token,
 including unknown prefixes such as `Re:` or `https:` and operators without a value. The
 operators betreff:, text:, anhang: and datei: are full text words looked for in one place only
-(D172). A leading minus negates an operator or a Message-ID (D175); free text words keep it,
-since websearch_to_tsquery reads it. An operator whose value cannot be used raises QueryError
-naming the token. filters.py turns the terms into SQL; every term must hold.
+(D172). A token `"a b"~N` is a proximity term (D229, key near): the two words in the quotes with
+at most N words between them, in either order, N from 1 to PROXIMITY_LIMIT; anything else after
+the closing quote's `~`, or another number of words than two, is unusable, while `"a b"` alone
+stays a phrase. A leading minus negates an operator, a proximity term or a Message-ID (D175);
+free text words keep it, since websearch_to_tsquery reads it. An operator or a proximity term
+that cannot be used raises QueryError naming the token. filters.py turns the terms into SQL;
+every term must hold.
 """
 
 import re
 from datetime import date
 from typing import get_args
 
-from mailrobbe.api.schemas import DkimKey, QueryKey, QueryTerm
+from mailrobbe.api.schemas import PROXIMITY_LIMIT, DkimKey, QueryKey, QueryTerm
 
 DKIM_KEYS: tuple[DkimKey, ...] = get_args(DkimKey)
 # Full text words in one place (D172): German names, as the filter column names the places.
@@ -28,17 +32,20 @@ PLACED: dict[str, QueryKey] = {
 _OPERATORS: dict[str, QueryKey] = {
     key: key
     for key in get_args(QueryKey)
-    if key not in ("text", "message_id") and key not in PLACED.values()
+    if key not in ("text", "message_id", "near") and key not in PLACED.values()
 } | PLACED
 _TOKEN = re.compile(r'(?:[^\s"]+|"[^"]*(?:"|\Z))+')
 _OPERATOR = re.compile(r"([A-Za-z]+):(.*)", re.DOTALL)
 _MESSAGE_ID = re.compile(r"<[^<>\s@]+@[^<>\s]+>")
+_NEAR = re.compile(r'"([^"]*)"~(.*)', re.DOTALL)  # "a b"~N, whatever follows the tilde
+_DISTANCE = re.compile(r"[0-9]+")
 _ISO_DAY = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
 _GERMAN_DAY = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})")
 
 
 class QueryError(ValueError):
-    """An operator with a value that cannot be used; `term` is the token as written in q."""
+    """An operator or a proximity term that cannot be used; `term` is the token as written in
+    q."""
 
     def __init__(self, term: str, problem: str) -> None:
         super().__init__(f"{problem}: {term}")
@@ -71,8 +78,10 @@ def _term(raw: str) -> QueryTerm:
 
 
 def _operator(token: str, raw: str) -> QueryTerm | None:
-    """The operator or Message-ID term token is, raw being the token as written; None for a
-    full text word."""
+    """The operator, proximity or Message-ID term token is, raw being the token as written; None
+    for a full text word."""
+    if near := _NEAR.fullmatch(token):
+        return _near(near.group(1), near.group(2), raw)
     operator = _OPERATOR.fullmatch(token)
     if operator:
         key = _OPERATORS.get(operator.group(1).lower())
@@ -97,6 +106,15 @@ def _checked(key: str, value: str, raw: str) -> str:
     if key in ("after", "before") and parse_day(value) is None:
         raise QueryError(raw, f"{key}: takes a day as YYYY-MM-DD or DD.MM.YYYY")
     return value
+
+
+def _near(words: str, distance: str, raw: str) -> QueryTerm:
+    """The proximity term "words"~distance (D229): two words, at most distance words apart."""
+    if not _DISTANCE.fullmatch(distance) or not 1 <= int(distance) <= PROXIMITY_LIMIT:
+        raise QueryError(raw, f"a proximity term takes ~ and a number from 1 to {PROXIMITY_LIMIT}")
+    if len(words.split()) != 2:
+        raise QueryError(raw, "a proximity term takes exactly two words in its quotes")
+    return QueryTerm(key="near", value=" ".join(words.split()), raw=raw, distance=int(distance))
 
 
 def _unquote(text: str) -> str:

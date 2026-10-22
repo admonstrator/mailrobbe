@@ -1,10 +1,12 @@
-"""The search syntax (D20): operators, quoting, raw substrings, Message-IDs and errors."""
+"""The search syntax (D20): operators, quoting, raw substrings, Message-IDs, proximity terms
+(D229) and errors."""
 
 from datetime import date
 
 import pytest
 
 from mailrobbe.api.query import QueryError, parse_day, parse_query
+from mailrobbe.api.schemas import PROXIMITY_LIMIT
 
 
 def _terms(q: str) -> list[tuple[str, str, str]]:
@@ -162,3 +164,58 @@ def test_a_negated_operator_checks_its_value() -> None:
     with pytest.raises(QueryError) as caught:
         parse_query("-dkim:maybe")
     assert caught.value.term == "-dkim:maybe"
+
+
+def _near(q: str) -> list[tuple[str, str, str, bool, int | None]]:
+    return [(t.key, t.value, t.raw, t.negated, t.distance) for t in parse_query(q)]
+
+
+def test_a_proximity_term() -> None:
+    assert _near('"Spende bar"~3') == [("near", "Spende bar", '"Spende bar"~3', False, 3)]
+    assert _near(f'"Spende  bar"~1 "Rat Spende"~{PROXIMITY_LIMIT}') == [
+        ("near", "Spende bar", '"Spende  bar"~1', False, 1),
+        ("near", "Rat Spende", f'"Rat Spende"~{PROXIMITY_LIMIT}', False, PROXIMITY_LIMIT),
+    ]
+
+
+def test_a_proximity_term_among_other_terms() -> None:
+    q = 'Wochenrückblick -"Spende bar"~2 from:anna "Spende bar" datei:Liste'
+    assert _near(q) == [
+        ("text", "Wochenrückblick", "Wochenrückblick", False, None),
+        ("near", "Spende bar", '-"Spende bar"~2', True, 2),
+        ("from", "anna", "from:anna", False, None),
+        ("text", "Spende bar", '"Spende bar"', False, None),  # without ~ a phrase
+        ("in_filename", "Liste", "datei:Liste", False, None),
+    ]
+    position = 0
+    for term in parse_query(q):  # raw is the exact substring, in order
+        position = q.index(term.raw, position) + len(term.raw)
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        '"Spende bar"~0',
+        f'"Spende bar"~{PROXIMITY_LIMIT + 1}',
+        '"Spende bar"~x',
+        '"Spende bar"~',
+        '"Spende bar"~2x',
+        '"Spende bar"~-2',
+        '"Spende"~2',
+        '""~2',
+        '"Spende bar Rat"~2',
+        '-"Spende bar"~0',
+    ],
+)
+def test_an_unusable_proximity_term_names_the_token(token: str) -> None:
+    with pytest.raises(QueryError) as caught:
+        parse_query(f"Rat {token} Spende")
+    assert caught.value.term == token
+    assert str(caught.value).endswith(token)
+
+
+def test_a_tilde_elsewhere_is_full_text() -> None:
+    assert _near('Spende~2 "Spende bar~2 Rat') == [
+        ("text", "Spende~2", "Spende~2", False, None),
+        ("text", "Spende bar~2 Rat", '"Spende bar~2 Rat', False, None),
+    ]
