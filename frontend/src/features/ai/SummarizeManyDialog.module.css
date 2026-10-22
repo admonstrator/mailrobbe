@@ -1,0 +1,49 @@
+/* The dialog of summarising many (D308): the count, its details, the outcome. */
+
+.count {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.text,
+.hint,
+.warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hint {
+  color: var(--color-muted);
+}
+
+.warning {
+  color: var(--color-no-key-text);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.link {
+  margin-right: auto;
+  font-size: 13px;
+}
