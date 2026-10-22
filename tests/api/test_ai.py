@@ -314,9 +314,12 @@ async def test_a_work_list_is_queued_once_and_raised_after(
     assert await queue(dashboard, body) == {"queued": 3, "raised": 0, "unreadable": 0, "logos": 0}
     assert await queue(dashboard, body) == {"queued": 0, "raised": 3, "unreadable": 0, "logos": 0}
     listed = await tasks(dashboard)
-    assert [task["document"]["id"] for task in listed] == list(reversed(work.scans))
+    # Newest first; a work list is queued by its mails, so the scans' order is the archive's.
+    assert [task["id"] for task in listed] == sorted((task["id"] for task in listed), reverse=True)
+    assert sorted(task["document"]["id"] for task in listed) == sorted(work.scans)
     assert {task["status"] for task in listed} == {"waiting"}
-    assert listed[0]["document"]["pages"] is None and listed[-1]["document"]["pages"] == 2
+    pages = {task["document"]["id"]: task["document"]["pages"] for task in listed}
+    assert [pages[scan] for scan in work.scans] == [2, 3, None]
     images = await queue(dashboard, {"work_list": "images", "engine": "vision"})
     assert images["queued"] == 2  # the logo is not on the list at all
     assert (await status(dashboard))["queue"]["ocr"]["waiting"] == 5
