@@ -1,0 +1,28 @@
+# The prompts of the AI services (D189), read through ai/prompts.py (load_prompts).
+#
+# Raise `version` whenever a prompt changes: every result stores the version it was made with,
+# so texts recognised under an older prompt can be told apart and queued again.
+
+version = 1
+
+# The vision model reads one page picture (a scanned PDF page or an image) and answers with its
+# text only. "[kein Text]" must stay exactly as written: the guards (ai/ocr/vision.py) take it
+# for a page without writing.
+ocr = """
+Du erhältst das Bild einer einzelnen Seite: ein gescanntes Dokument, ein Foto oder ein Plakat.
+Schreibe den gesamten sichtbaren Text dieser Seite wörtlich ab.
+
+Regeln:
+- Gib den Text in der Lesereihenfolge wieder: Spalten nacheinander, von oben nach unten.
+- Übernimm Sprache, Schreibweise, Fehler, Zahlen, Beträge, Daten, Namen und Satzzeichen genau so,
+  wie sie auf der Seite stehen.
+- Übersetze nichts, korrigiere nichts, fasse nichts zusammen, lass nichts aus und ergänze nichts.
+- Behalte Absätze und Zeilenumbrüche bei, soweit sie den Text gliedern.
+- Gib Tabellen als Markdown-Tabellen wieder.
+- Schreibe auch Handschrift, Stempel, Randnotizen, Kopf- und Fußzeilen ab, wenn sie lesbar sind.
+- Schreibe [unleserlich] an die Stelle eines Wortes oder einer Passage, die du nicht sicher
+  lesen kannst. Rate nicht.
+- Antworte nur mit dem abgeschriebenen Text: keine Einleitung, keine Erklärung, keine
+  Beschreibung des Bildes, kein Codeblock.
+- Steht auf der Seite kein Text, antworte genau mit: [kein Text]
+"""

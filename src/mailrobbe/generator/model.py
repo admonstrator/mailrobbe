@@ -135,11 +135,17 @@ class DocumentTruth:
     # The position the metadata step stores (D241): None without one, for 0, 0 and out of range.
     latitude: float | None = None
     longitude: float | None = None
+    # A document with set text for OCR (milestone 15): its marker word and longer words of its
+    # text, which an OCR result must contain; else None.
+    ocr_marker: str | None = None
+    ocr_words: tuple[str, ...] | None = None
 
     def as_json(self) -> dict[str, Any]:
         data = {name: getattr(self, name) for name in self.__slots__}
         if self.members is not None:
             data["members"] = list(self.members)
+        if self.ocr_words is not None:
+            data["ocr_words"] = list(self.ocr_words)
         return data
 
 
