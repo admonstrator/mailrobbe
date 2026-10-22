@@ -9,7 +9,12 @@
 
 **Große Mailarchive durchsuchen, prüfen und verstehen.**
 
-[Website](https://mailrobbe.admon.me/) | [Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Unterstützen](#unterstützen) | [Schnellstart](#schnellstart) | [Häufige Fragen](#häufige-fragen)
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&logo=github)](https://github.com/sponsors/admonstrator) [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/admon) [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/aaronviehl) [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/admon)
+
+Hinter Mailrobbe steht kein Konzern, sondern admon, viel Hartnäckigkeit und eine bedenkliche Menge Energydrinks.<br>
+Wenn es dir eine Recherche leichter gemacht hat, freut sich die Weiterentwicklung über deine Unterstützung.
+
+[Website](https://mailrobbe.admon.me/) | [Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Schnellstart](#schnellstart) | [Häufige Fragen](#häufige-fragen)
 
 </div>
 
@@ -108,18 +113,6 @@ Mehr Bilder gibt es auf der [Website](https://mailrobbe.admon.me/).
 
 ---
 
-## Unterstützen
-
-Hinter Mailrobbe steht kein Konzern, sondern admon, viel Hartnäckigkeit und eine bedenkliche Menge Energydrinks. Wenn es dir eine Recherche leichter gemacht hat, freut sich die Weiterentwicklung über einen Kaffee, einen Energydrink oder einfach ein Danke.
-
-<div align="center">
-
-[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&logo=github)](https://github.com/sponsors/admonstrator) [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/admon) [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/aaronviehl) [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/admon)
-
-</div>
-
----
-
 ## Bevor es losgeht
 
 **Die Mails sind heilig. Die Rechercheakte auch.**
@@ -132,7 +125,7 @@ Mailrobbe bindet den Ordner mit den MBOX-Dateien nur lesend ein und ändert kein
 
 ## Schnellstart
 
-Nötig sind Docker (Docker Desktop unter macOS, Docker Engine unter Linux) und git. Ausgelegt ist Mailrobbe für einen Rechner mit etwa 10 GB Arbeitsspeicher für Datenbank und Import zusammen.
+Nötig sind Docker und git: Docker Desktop unter macOS oder Windows, Docker Engine unter Linux. Ausgelegt ist Mailrobbe für einen Rechner mit etwa 10 GB Arbeitsspeicher für Datenbank und Import zusammen. So viel muss Docker auch bekommen: unter macOS in Docker Desktop unter Settings, Resources; unter Windows regelt das WSL, das sich standardmäßig die Hälfte des Arbeitsspeichers nimmt.
 
 ```sh
 git clone https://github.com/admonstrator/mailrobbe.git
@@ -140,6 +133,8 @@ cd mailrobbe
 echo "MAILROBBE_MBOX_HOST_DIR=/Volumes/Archiv/mbox" > .env   # Ordner mit den MBOX-Dateien
 docker compose up -d --build
 ```
+
+**Windows:** Die Befehle laufen in einem WSL-Terminal, etwa im Ubuntu, das `wsl --install` einrichtet. In Docker Desktop unter Settings, Resources, WSL Integration muss diese Distribution eingeschaltet sein. Ein Archiv auf Laufwerk D: heißt dort `/mnt/d/Archiv/mbox`. Schneller liest der Import, wenn die MBOX-Dateien im Dateisystem von WSL selbst liegen, etwa unter `~/mbox`.
 
 Dann geht es so weiter:
 
@@ -256,6 +251,10 @@ Vermutlich trifft sie eine Ausblendregel. Über der Mailliste steht dann „ausg
 ### „Was passiert mit gefundenen Kennwörtern?“
 
 Sie stehen im Klartext auf der Dokumentseite, mit der Mail, in der sie standen, denn sie sind selbst ein Beleg. Entschlüsselte Dateien speichert Mailrobbe nie; Vorschau und Download entschlüsseln bei jedem Abruf neu. In einen Export kommen Kennwörter nur, wenn man es dort ankreuzt.
+
+### „Läuft das auch unter Windows?“
+
+Ja, mit Docker Desktop und WSL 2, wie unter macOS und Linux. Wie es geht, steht unter [Schnellstart](#schnellstart).
 
 ### „Können mehrere Leute gleichzeitig damit arbeiten?“
 

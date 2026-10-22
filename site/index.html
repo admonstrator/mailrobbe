@@ -308,11 +308,11 @@
           <ol class="steps">
             <li>
               <h3>Docker installieren</h3>
-              <p>Docker Desktop unter macOS, Docker Engine unter Linux. Ausgelegt ist Mailrobbe für etwa 10 GB Arbeitsspeicher.</p>
+              <p>Docker Desktop unter macOS oder Windows, Docker Engine unter Linux. Ausgelegt ist Mailrobbe für etwa 10 GB Arbeitsspeicher, und so viel muss Docker auch bekommen.</p>
             </li>
             <li>
               <h3>Mailrobbe holen und starten</h3>
-              <p>Die zweite Zeile nennt den Ordner mit den MBOX-Dateien. Er wird nur lesend eingebunden.</p>
+              <p>Die dritte Zeile nennt den Ordner mit den MBOX-Dateien. Er wird nur lesend eingebunden. Unter Windows laufen die Befehle in einem WSL-Terminal, ein Ordner auf Laufwerk D: heißt dort <code>/mnt/d/Archiv/mbox</code>.</p>
               <pre><code>git clone https://github.com/admonstrator/mailrobbe.git
 cd mailrobbe
 echo "MAILROBBE_MBOX_HOST_DIR=/Volumes/Archiv/mbox" &gt; .env
@@ -357,6 +357,10 @@ docker compose up -d --build</code></pre>
             <p>Nein. Es zeigt, dass die Mail mit dem Schlüssel der Domain unterschrieben wurde und die unterschriebenen Teile seither unverändert sind. „Schlüssel nicht abrufbar“ heißt nur, dass der Schlüssel heute nicht mehr im DNS steht; über eine Fälschung sagt das nichts.</p>
           </details>
           <details>
+            <summary>Läuft das auch unter Windows?</summary>
+            <p>Ja, mit Docker Desktop und WSL 2, wie unter macOS und Linux. Die Befehle laufen in einem WSL-Terminal, etwa im Ubuntu, das <code>wsl --install</code> einrichtet. In Docker Desktop muss unter Settings, Resources, WSL Integration diese Distribution eingeschaltet sein. Am schnellsten liest der Import, wenn die MBOX-Dateien im Dateisystem von WSL selbst liegen.</p>
+          </details>
+          <details>
             <summary>Können mehrere Leute gleichzeitig damit arbeiten?</summary>
             <p>Ja. Alle, die denselben Mailrobbe im Browser öffnen, sehen dieselbe Rechercheakte. Konten gibt es nicht, jeder Browser trägt einmal einen Namen ein. Wer die Oberfläche schützen will, setzt Benutzername und Kennwort in der <code>.env</code>.</p>
           </details>
@@ -387,5 +391,67 @@ docker compose up -d --build</code></pre>
         <p><a href="https://github.com/admonstrator/mailrobbe">Quellcode auf GitHub</a> · Alle Bilder zeigen erfundene Testdaten.</p>
       </div>
     </footer>
+
+    <dialog class="lightbox" closedby="any" aria-label="Vergrößertes Bild">
+      <figure>
+        <img alt="" />
+        <figcaption>
+          <span class="caption"></span>
+          <span class="hint">Bild anklicken zum Vergrößern · Pfeiltasten blättern · Esc schließt</span>
+        </figcaption>
+      </figure>
+      <button type="button" class="lb-close" aria-label="Schließen">&times;</button>
+      <button type="button" class="lb-prev" aria-label="Vorheriges Bild">&lsaquo;</button>
+      <button type="button" class="lb-next" aria-label="Nächstes Bild">&rsaquo;</button>
+    </dialog>
+
+    <script>
+      // Screenshots open in a lightbox; without the script the links open the image itself.
+      (() => {
+        const dialog = document.querySelector(".lightbox");
+        const image = dialog.querySelector("img");
+        const caption = dialog.querySelector(".caption");
+        const shots = [...document.querySelectorAll("a.shot")];
+        let current = 0;
+
+        const show = (index) => {
+          current = (index + shots.length) % shots.length;
+          image.src = shots[current].href;
+          image.alt = shots[current].querySelector("img").alt;
+          caption.textContent = image.alt;
+          dialog.classList.remove("zoomed");
+          dialog.scrollTo(0, 0);
+        };
+
+        shots.forEach((shot, index) =>
+          shot.addEventListener("click", (event) => {
+            event.preventDefault();
+            show(index);
+            dialog.showModal();
+          }),
+        );
+        image.addEventListener("click", () => dialog.classList.toggle("zoomed"));
+        dialog.querySelector(".lb-close").addEventListener("click", () => dialog.close());
+        dialog.querySelector(".lb-prev").addEventListener("click", () => show(current - 1));
+        dialog.querySelector(".lb-next").addEventListener("click", () => show(current + 1));
+        dialog.addEventListener("keydown", (event) => {
+          if (dialog.classList.contains("zoomed")) return;
+          if (event.key === "ArrowLeft") show(current - 1);
+          if (event.key === "ArrowRight") show(current + 1);
+        });
+
+        // Light dismiss for browsers without closedby (Safari): a click on the backdrop.
+        if (!("closedBy" in HTMLDialogElement.prototype)) {
+          dialog.addEventListener("click", (event) => {
+            if (event.target !== dialog) return;
+            const box = dialog.getBoundingClientRect();
+            const inside =
+              box.top <= event.clientY && event.clientY <= box.bottom &&
+              box.left <= event.clientX && event.clientX <= box.right;
+            if (!inside) dialog.close();
+          });
+        }
+      })();
+    </script>
   </body>
 </html>
