@@ -1,14 +1,18 @@
 import { Fragment, type ReactNode, type Ref } from "react";
+import { flushSync } from "react-dom";
 import { Link } from "react-router";
 
 import type { MailDetail, Participant, ParticipationRole } from "../../api/types";
+import { Avatar } from "../../components/Avatar";
 import { Card } from "../../components/Card";
 import { DkimBadge } from "../../components/DkimBadge";
+import { FoldCard } from "../../components/FoldCard";
 import { Highlighted, type SearchMarks } from "../../components/Highlighted";
-import { CopyIcon } from "../../components/icons";
+import { CopyIcon, PaperclipIcon } from "../../components/icons";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
+import { setFoldOpen } from "../../lib/folds";
 import {
   formatBytes,
   formatDateTime,
@@ -17,6 +21,8 @@ import {
   formatRelative,
 } from "../../lib/format";
 import { personName } from "../../lib/person";
+import { ATTACHMENTS_CARD_ID, ATTACHMENTS_FOLD } from "./AttachmentsCard";
+import { DKIM_CARD_ID, DKIM_FOLD } from "./DkimCard";
 import styles from "./HeaderCard.module.css";
 
 function Meta({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
@@ -49,7 +55,15 @@ function People({ people, strong }: { people: Participant[]; strong?: boolean })
 /** "3f9a…c21e" */
 const shortHash = (hash: string) => `${hash.slice(0, 4)}…${hash.slice(-4)}`;
 
-/** Subject, DKIM badge and the metadata grid; the search words marked in the subject (D79). */
+/** Opens a block below the text and scrolls to it, once it is open: the page may be too short
+ *  to scroll that far while it is folded. */
+function show(fold: string, elementId: string): void {
+  flushSync(() => setFoldOpen(fold, true));
+  document.getElementById(elementId)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+}
+
+/** Subject, DKIM badge, sender, recipients and date, as a mail program shows them; the search
+ *  words marked in the subject (D79). The technical fields are in TechCard below the text. */
 export function HeaderCard({
   mail,
   mailHref,
@@ -62,9 +76,8 @@ export function HeaderCard({
   ref?: Ref<HTMLElement>;
 }) {
   const byRole = (role: ParticipationRole) => mail.participants.filter((p) => p.role === role);
-  const cc = byRole("cc");
-  const bcc = byRole("bcc");
-  const { source } = mail;
+  const from = byRole("from");
+  const sender = from.at(0);
 
   return (
     <Card ref={ref} className={styles.card}>
@@ -72,55 +85,65 @@ export function HeaderCard({
         <h1 className={cx(styles.subject, !mail.subject && styles.muted)}>
           {mail.subject ? <Highlighted text={mail.subject} marks={marks} /> : "(kein Betreff)"}
         </h1>
-        <DkimBadge status={dkimKey(mail.dkim.status)} />
+        <button
+          type="button"
+          className={styles.dkim}
+          title="DKIM-Prüfung zeigen"
+          onClick={() => show(DKIM_FOLD, DKIM_CARD_ID)}
+        >
+          <DkimBadge status={dkimKey(mail.dkim.status)} />
+        </button>
       </div>
-      <dl className={styles.grid}>
-        <Meta label="Von">
-          <People people={byRole("from")} strong />
-        </Meta>
-        <Meta label="Datum">
+      <div className={styles.from}>
+        {sender && (
+          <Avatar personId={sender.person_id} name={personName(sender)} email={sender.email} />
+        )}
+        <dl className={styles.people}>
+          <div className={styles.line}>
+            <dt className={styles.hidden}>Von</dt>
+            <dd className={styles.value}>
+              <People people={from} strong />
+            </dd>
+          </div>
+          {(["to", "cc", "bcc"] as const).map((role) => {
+            const people = byRole(role);
+            if (people.length === 0 && role !== "to") return null;
+            return (
+              <div key={role} className={styles.line}>
+                <dt className={styles.role}>{ROLE_LABELS[role]}:</dt>
+                <dd className={styles.value}>
+                  <People people={people} />
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+        <p className={styles.when}>
           {mail.date ? (
             <>
-              {formatDateTimeLong(mail.date)}{" "}
-              <span className={styles.muted}>({formatRelative(mail.date)})</span>
+              <span>{formatDateTimeLong(mail.date)}</span>
+              <span className={styles.muted}>{formatRelative(mail.date)}</span>
             </>
           ) : (
-            <span className={styles.muted}>unbekannt</span>
+            <span className={styles.muted}>Datum unbekannt</span>
           )}
-        </Meta>
-        <Meta label="An">
-          <People people={byRole("to")} />
-        </Meta>
-        {cc.length > 0 && (
-          <Meta label="Cc">
-            <People people={cc} />
-          </Meta>
-        )}
-        {bcc.length > 0 && (
-          <Meta label="Bcc">
-            <People people={bcc} />
-          </Meta>
-        )}
-        <Meta label="Message-ID" mono>
-          {mail.message_id ?? "–"}
-        </Meta>
-        <Meta label="In-Reply-To" mono>
-          {mail.in_reply_to === null ? (
-            "–"
-          ) : mail.in_reply_to_id === null ? (
-            mail.in_reply_to
-          ) : (
-            <Link to={mailHref(mail.in_reply_to_id)}>{mail.in_reply_to}</Link>
-          )}
-        </Meta>
-        <Meta label="Quelle" mono>
-          {source.path} · Offset {formatNumber(source.byte_offset)} ·{" "}
-          {formatBytes(source.byte_length)}
-        </Meta>
-        <Meta label="Interne ID" mono>
-          #{mail.id} · SHA-256 <span title={mail.raw_sha256}>{shortHash(mail.raw_sha256)}</span>
-        </Meta>
-      </dl>
+        </p>
+      </div>
+      {mail.attachments.length > 0 && (
+        <p className={styles.chips}>
+          <button
+            type="button"
+            className={styles.chip}
+            onClick={() => show(ATTACHMENTS_FOLD, ATTACHMENTS_CARD_ID)}
+          >
+            <PaperclipIcon size={14} />
+            {mail.attachments.length === 1
+              ? "1 Anhang"
+              : `${formatNumber(mail.attachments.length)} Anhänge`}
+            {` · ${formatBytes(mail.attachments.reduce((sum, { size }) => sum + size, 0))}`}
+          </button>
+        </p>
+      )}
       {(mail.duplicate_of !== null || mail.duplicates.length > 0) && (
         <p className={styles.duplicates}>
           <CopyIcon size={14} />
@@ -144,6 +167,51 @@ export function HeaderCard({
         </p>
       )}
     </Card>
+  );
+}
+
+const ROLE_LABELS = { to: "An", cc: "Cc", bcc: "Bcc" } as const;
+
+/** Message-ID, In-Reply-To, the place in the MBOX file and the internal id: folded below the
+ *  text until opened once. */
+export function TechCard({
+  mail,
+  mailHref,
+}: {
+  mail: MailDetail;
+  mailHref: (id: number) => string;
+}) {
+  const { source } = mail;
+  return (
+    <FoldCard
+      id="mail.tech"
+      variant="main"
+      defaultOpen={false}
+      title="Technische Angaben"
+      summary="Message-ID, In-Reply-To, Quelle in der MBOX, interne ID"
+    >
+      <dl className={styles.grid}>
+        <Meta label="Message-ID" mono>
+          {mail.message_id ?? "–"}
+        </Meta>
+        <Meta label="In-Reply-To" mono>
+          {mail.in_reply_to === null ? (
+            "–"
+          ) : mail.in_reply_to_id === null ? (
+            mail.in_reply_to
+          ) : (
+            <Link to={mailHref(mail.in_reply_to_id)}>{mail.in_reply_to}</Link>
+          )}
+        </Meta>
+        <Meta label="Quelle" mono>
+          {source.path} · Offset {formatNumber(source.byte_offset)} ·{" "}
+          {formatBytes(source.byte_length)}
+        </Meta>
+        <Meta label="Interne ID" mono>
+          #{mail.id} · SHA-256 <span title={mail.raw_sha256}>{shortHash(mail.raw_sha256)}</span>
+        </Meta>
+      </dl>
+    </FoldCard>
   );
 }
 

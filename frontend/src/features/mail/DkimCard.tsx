@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { useMailBody, useRecheckDkim } from "../../api/queries";
-import type { DkimKeyInfo, DkimSignature, MailDetail } from "../../api/types";
+import type { DkimKeyInfo, DkimSignature, MailDetail, MailDkim } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { KeyOriginBadge } from "../../components/KeyOriginBadge";
 import { ShortHash } from "../../components/ShortHash";
 import { Spinner } from "../../components/Spinner";
@@ -12,10 +12,12 @@ import { cx } from "../../lib/cx";
 import {
   CONSISTENT_TEXT,
   DKIM_REASON_TEXTS,
+  DKIM_STATUS_LABELS,
   evidenceLine,
   keyName,
   selectorPath,
 } from "../../lib/dkim";
+import { setFoldOpen } from "../../lib/folds";
 import { formatDateTime, formatDuration, formatNumber } from "../../lib/format";
 import styles from "./DkimCard.module.css";
 import { sourceErrorText } from "./errors";
@@ -30,21 +32,50 @@ function checkedLine(signature: DkimSignature): string {
   return `geprüft am ${formatDateTime(signature.checked_at)} · ${dns}${ttl}`;
 }
 
-/** The DKIM box (SPEC 3.4, 5.2): one block per signature, "Neu prüfen" checks again. */
+/** The id of the DKIM box, which the header's badge scrolls to. */
+export const DKIM_CARD_ID = "mail-dkim";
+/** Its fold (lib/folds): folded unless opened once, the badge in the header opens it. */
+export const DKIM_FOLD = "mail.dkim";
+
+/** Folded: "2 Signaturen · Schlüssel nicht im DNS (Selector gelöscht) · geprüft am …". */
+function foldedSummary({ status, signatures }: MailDkim): string {
+  if (status === null) return "Noch nicht geprüft";
+  if (status === "unsigned" || signatures.length === 0) return "Keine DKIM-Signatur";
+  const count =
+    signatures.length === 1 ? "1 Signatur" : `${formatNumber(signatures.length)} Signaturen`;
+  const findings = signatures.map((signature) =>
+    signature.reason ? DKIM_REASON_TEXTS[signature.reason] : DKIM_STATUS_LABELS[signature.status],
+  );
+  return [
+    count,
+    ...new Set(findings),
+    `geprüft am ${formatDateTime(signatures[0].checked_at)}`,
+  ].join(" · ");
+}
+
+/** The DKIM box (SPEC 3.4, 5.2): one block per signature, "Neu prüfen" checks again and
+ *  opens it. It folds to one line, and is folded until opened once. */
 export function DkimCard({ mail }: { mail: MailDetail }) {
   const recheck = useRecheckDkim(mail.id);
   const { status, signatures } = mail.dkim;
 
   return (
-    <Card className={styles.card}>
-      <div className={styles.head}>
-        <CardTitle>DKIM-Prüfung</CardTitle>
-        {signatures.length > 0 && <span className={styles.sub}>{checkedLine(signatures[0])}</span>}
+    <FoldCard
+      id={DKIM_FOLD}
+      elementId={DKIM_CARD_ID}
+      variant="main"
+      defaultOpen={false}
+      className={styles.card}
+      title="DKIM-Prüfung"
+      summary={foldedSummary(mail.dkim)}
+      actions={
         <Button
           size="xs"
-          className={styles.recheck}
           disabled={recheck.isPending}
-          onClick={() => recheck.mutate()}
+          onClick={() => {
+            setFoldOpen(DKIM_FOLD, true);
+            recheck.mutate();
+          }}
         >
           {recheck.isPending ? (
             <>
@@ -54,7 +85,9 @@ export function DkimCard({ mail }: { mail: MailDetail }) {
             "Neu prüfen"
           )}
         </Button>
-      </div>
+      }
+    >
+      {signatures.length > 0 && <p className={styles.sub}>{checkedLine(signatures[0])}</p>}
       {recheck.isError && (
         <p className={styles.error} role="alert">
           Neu prüfen fehlgeschlagen: {sourceErrorText(recheck.error)}
@@ -74,7 +107,7 @@ export function DkimCard({ mail }: { mail: MailDetail }) {
           />
         ))
       )}
-    </Card>
+    </FoldCard>
   );
 }
 

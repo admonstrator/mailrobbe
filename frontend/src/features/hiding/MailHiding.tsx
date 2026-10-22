@@ -3,7 +3,8 @@ import { Link } from "react-router";
 
 import type { MailDetail } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { Card } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { describeRule, joinGerman, keptReasons, subjectStart } from "./labels";
 import styles from "./MailHiding.module.css";
 import { RuleDialog, type RuleDraft } from "./RuleDialog";
@@ -39,13 +40,12 @@ export function HiddenNote({ mail }: { mail: MailDetail }) {
 export function HideCard({ mail }: { mail: MailDetail }) {
   const [draft, setDraft] = useState<RuleDraft | null>(null);
   return (
-    <Card variant="side">
-      <CardTitle variant="caps">Ausblenden</CardTitle>
+    <FoldCard id="mail.hide" defaultOpen={false} title="Ausblenden">
       <Button variant="outline" size="sm" onClick={() => setDraft(mailDraft(mail))}>
         Mails wie diese ausblenden
       </Button>
       {draft && <RuleDialog draft={draft} onClose={() => setDraft(null)} />}
-    </Card>
+    </FoldCard>
   );
 }
 

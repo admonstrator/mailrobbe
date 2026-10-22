@@ -19,6 +19,107 @@
   overflow-wrap: anywhere;
 }
 
+/* The badge opens the DKIM box below the text. */
+.dkim {
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.dkim:hover {
+  filter: brightness(0.96);
+}
+
+/* Sender with the initials, the recipients below, the date at the right, as a mail program. */
+.from {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.people {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.line {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.role {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
+.hidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.when {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Narrow, the date goes below the recipients. */
+@media (max-width: 639px) {
+  .from {
+    flex-wrap: wrap;
+  }
+
+  .when {
+    flex-basis: 100%;
+    flex-direction: row;
+    gap: 8px;
+    padding-left: 46px;
+  }
+}
+
+/* The attachment count, which scrolls to the list below the text. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -2px 0 0 46px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--color-surface);
+  color: var(--color-nav);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.chip:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
 /* Two or three columns, as the width allows. */
 .grid {
   display: grid;

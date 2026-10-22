@@ -161,7 +161,7 @@ describe("rule dialog", () => {
 
   it("shows no note on a mail no rule hides", async () => {
     renderApp(`/mails/${mailDetail.id}`, api());
-    await screen.findByRole("button", { name: "Mails wie diese ausblenden" });
+    await screen.findByRole("button", { name: "Ausblenden" });
     expect(screen.queryByRole("region", { name: "Ausgeblendet" })).toBeNull();
   });
 
@@ -174,7 +174,9 @@ describe("rule dialog", () => {
         list_id: "news.nordlicht.example",
       }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Mails wie diese ausblenden" }));
+    // The block is folded until opened once.
+    fireEvent.click(await screen.findByRole("button", { name: "Ausblenden" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mails wie diese ausblenden" }));
     const dialog = screen.getByRole("dialog", { name: "Ausblendregel anlegen" });
     expect(within(dialog).getByRole("radio", { name: "Adresse" })).toHaveProperty("checked", true);
     expect(

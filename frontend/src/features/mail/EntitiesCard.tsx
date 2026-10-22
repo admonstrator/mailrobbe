@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useMailEntities, useThemes } from "../../api/queries";
 import type { EntityContextKey, EntityRef, MailEntity, ThemeInfo } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { TAG_PALETTE } from "../../lib/research";
@@ -73,12 +73,15 @@ export function EntitiesCard({ mailId }: { mailId: number }) {
   const shown = all ? found : found.slice(0, COLLAPSED);
 
   return (
-    <Card variant="side" aria-labelledby="mail-entities-title">
-      <CardTitle id="mail-entities-title" variant="caps">
-        {found.length > 0
+    <FoldCard
+      id="mail.entities"
+      defaultOpen={false}
+      title={
+        found.length > 0
           ? `Erkannt in dieser Mail (${formatNumber(found.length)})`
-          : "Erkannt in dieser Mail"}
-      </CardTitle>
+          : "Erkannt in dieser Mail"
+      }
+    >
       {mentions.isPending ? (
         <Spinner label="Entitäten werden geladen" />
       ) : mentions.isError ? (
@@ -107,7 +110,7 @@ export function EntitiesCard({ mailId }: { mailId: number }) {
           )}
         </>
       )}
-    </Card>
+    </FoldCard>
   );
 }
 

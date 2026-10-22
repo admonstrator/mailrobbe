@@ -29,9 +29,9 @@ describe("calendar events of a mail", () => {
     const { calls } = renderApp(`/mails/${mailDetail.id}`, withEvents([calendarEvent]));
     const card = await eventCard();
 
-    // In the main column, after the DKIM box and before the text.
-    const dkim = screen.getByRole("heading", { name: "DKIM-Prüfung" }).closest("section")!;
-    expect(dkim.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // In the main column, after the header and before the text.
+    const header = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    expect(header.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const body = screen.getByRole("tab", { name: "Text" }).closest("section")!;
     expect(card.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 

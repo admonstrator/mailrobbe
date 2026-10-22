@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { fixtureApi, renderApp } from "../../test/render";
+import { fixtureApi, openFolds, renderApp } from "../../test/render";
 
 async function entitiesCard(): Promise<HTMLElement> {
   const heading = await screen.findByRole("heading", { name: /^Erkannt in dieser Mail/ });
@@ -10,6 +10,7 @@ async function entitiesCard(): Promise<HTMLElement> {
 
 describe("entities of one mail", () => {
   it("are grouped by kind, mentions in text and attachments together", async () => {
+    openFolds("mail.entities");
     const { calls } = renderApp("/mails/184221");
     const card = await entitiesCard();
     await within(card).findByRole("link", { name: "12.500,00 EUR" });
@@ -66,6 +67,7 @@ describe("entities of one mail", () => {
   });
 
   it("show the first 12 and all on request", async () => {
+    openFolds("mail.entities");
     renderApp("/mails/184221");
     const card = await entitiesCard();
     await within(card).findByRole("link", { name: "12.500,00 EUR" });
@@ -80,6 +82,7 @@ describe("entities of one mail", () => {
   });
 
   it("say when nothing was found", async () => {
+    openFolds("mail.entities");
     renderApp("/mails/184221", (call) =>
       call.url.pathname === "/api/mails/184221/entities" ? [] : fixtureApi(call),
     );
