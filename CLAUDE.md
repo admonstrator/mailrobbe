@@ -49,6 +49,7 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/aggregates.py`: aggregation tables; `refresh_aggregates` runs edges, person figures, alias suggestions and `global_stats` in that order (finalize, `mailrobbe dkim`, merges; D33), and `global_stats` is also refreshed lazily by the API (D19)
 - `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`, `dkim-keys`, `graph`, `map`, `bench`)
 - `tests/`: mirrors the package; `tests/db` needs PostgreSQL
+- `site/`: the project page at https://mailrobbe.admon.me (static HTML and CSS, German), deployed by `.github/workflows/pages.yml`; its screenshots in `site/img/` come from the generated test archive only and the README uses them too (D194)
 
 ## Commands
 
