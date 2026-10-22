@@ -90,6 +90,7 @@ const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string,
   domains: ["Domain", "Domains", "Domains"],
   places: ["Ort", "Orte", "Orten"],
   pages: ["Seite", "Seiten", "Seiten"],
+  texts: ["Text", "Texte", "Texten"],
 };
 
 const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });

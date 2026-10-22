@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ApiError } from "../../api/client";
 import { importStatusInterval, runAlive } from "../../api/queries";
-import type { ImportJob, MboxFileInfo } from "../../api/types";
+import type { ImportJob, MboxFileInfo, StepProgress } from "../../api/types";
 import {
   dkimJobDone,
   dkimJobRunning,
@@ -13,7 +13,7 @@ import {
   importStatusPaused,
   scanResult,
 } from "../../test/fixtures";
-import { actionErrorText, scanSummary } from "./labels";
+import { actionErrorText, scanSummary, stepDetail } from "./labels";
 import {
   canResume,
   fileRows,
@@ -171,5 +171,26 @@ describe("notices", () => {
       "Eine Einstellung ist ungültig: workers: 99 > 64",
     );
     expect(actionErrorText(new ApiError(502, null, "HTTP 502"))).toMatch(/Server/);
+  });
+});
+
+describe("step details", () => {
+  it("count the texts a summarize step summarised (D300)", () => {
+    const step: StepProgress = {
+      key: "summarize",
+      status: "running",
+      unit: "texts",
+      done: 1,
+      total: 3,
+      started_at: null,
+      seconds: 30,
+      rate: 0.05,
+      eta_seconds: null,
+    };
+    expect(stepDetail(step, "running")).toBe("1 von 3 Texten · 3 Texte/min · läuft seit 30 s");
+    expect(stepDetail({ ...step, done: 3 }, "done")).toBe("fertig in 30 s · 3 Texte");
+    expect(stepDetail({ ...step, total: 1 }, "stopped")).toBe(
+      "angehalten bei 1 von 1 Text nach 30 s",
+    );
   });
 });

@@ -967,7 +967,9 @@ export interface ImportOptions {
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
-export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages"; // names: DKIM key names
+// names: DKIM key names; texts: mails and documents summarised (D300)
+export type StepUnit =
+  "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages" | "texts";
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
