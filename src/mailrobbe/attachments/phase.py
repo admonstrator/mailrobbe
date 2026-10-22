@@ -78,7 +78,7 @@ from mailrobbe.attachments.metadata.model import (
 from mailrobbe.config import Settings
 from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT, EXTRACTOR_VERSION
 from mailrobbe.enums import DocumentKind, DocumentMetadataStatus, DocumentTextStatus
-from mailrobbe.jobrun import Step, describe, ignore_interrupts, spawning_workers
+from mailrobbe.jobrun import Step, describe, ignore_interrupts, kill_workers, spawning_workers
 
 if TYPE_CHECKING:  # not at run time: the spawned workers import this module, and need little
     from mailrobbe.importer.runner import ImportFigures
@@ -315,11 +315,13 @@ class _Pool:
         return future
 
     def kill(self) -> None:
-        # The workers are not reaped before shutdown, so their ids are still theirs.
+        # The groups of the workers that have one, with their extraction children; the workers
+        # are not reaped before shutdown, so their ids are still theirs.
         for pid in self._pids[:]:
             if pid:
                 with suppress(ProcessLookupError, PermissionError):
                     os.killpg(pid, signal.SIGKILL)
+        kill_workers(self._executor)  # and those still starting
 
     def close(self, kill: bool) -> None:
         if kill:
