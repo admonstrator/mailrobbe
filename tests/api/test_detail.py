@@ -688,12 +688,19 @@ async def test_recheck_gives_the_expected_results(
     mutable_client: httpx.AsyncClient, archive: Archive
 ) -> None:
     for status in ("pass", "fail", "no_key", "temp_error", "unsigned"):
-        record, mail = next((r, m) for r, m in archive.entries if r["dkim"]["expected"] == status)
+        # a mail of that status, else one with a signature of it (a key that times out beside a
+        # valid signature gives the mail pass): every signature status is rechecked
+        record, mail = next(
+            (r, m)
+            for r, m in archive.entries
+            if r["dkim"]["expected"] == status
+            or any(s["expected"] == status for s in r["dkim"]["signatures"])
+        )
         before = archive.dkim[mail["id"]]
         response = await mutable_client.post(f"/api/mails/{mail['id']}/dkim/recheck")
         assert response.status_code == 200, response.text
         dkim = MailDkim.model_validate(response.json())
-        assert dkim.status == status
+        assert dkim.status == record["dkim"]["expected"]
         assert _signatures(dkim) == _expected_signatures(record)
         for signature, row in zip(dkim.signatures, before, strict=True):
             assert signature.checked_at > row["checked_at"]
