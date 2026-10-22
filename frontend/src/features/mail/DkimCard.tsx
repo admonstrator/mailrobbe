@@ -197,8 +197,9 @@ function SignatureBlock({
   );
 }
 
-/** The key from another source than today's DNS that verified the signature (D100): its
- *  SHA-256, size, evidence in one line each and the way to everything about its name. */
+/** The stored key that verified the signature, kept from DNS (D106) or from another source
+ *  (D100): its SHA-256, size, evidence in one line each and the way to everything about its
+ *  name. */
 function KeyBlock({ dkimKey: key }: { dkimKey: DkimKeyInfo }) {
   return (
     <div className={styles.key}>

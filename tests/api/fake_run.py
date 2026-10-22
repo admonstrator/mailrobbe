@@ -3,6 +3,7 @@ in the dashboard's tests.
 
     python fake_run.py BEHAVIOUR KIND --origin ORIGIN [--workers N] [--status S...] [--jobs N]
     python fake_run.py BEHAVIOUR dkim-keys --origin ORIGIN TASK [--name N]... [--domain D]...
+        [--skip-domain D]...
     python fake_run.py BEHAVIOUR map --origin ORIGIN download --region R --detail D [--bbox B]
 
 Tests put (sys.executable, this file, BEHAVIOUR) into api.processes.CLI. Like the real commands,
@@ -50,6 +51,7 @@ def _options(kind: JobKind, args: argparse.Namespace, settings: Settings) -> Bas
             task=args.task,
             names=args.name or [],
             domains=args.domain or [],
+            skip_domains=args.skip_domain or [],
             workers=args.jobs or settings.import_workers,
         )
     return jobs.DkimOptions(
@@ -69,6 +71,7 @@ async def main(argv: Sequence[str]) -> int:
     parser.add_argument("task", nargs="?")  # dkim-keys, map
     parser.add_argument("--name", action="append")
     parser.add_argument("--domain", action="append")
+    parser.add_argument("--skip-domain", action="append")
     parser.add_argument("--region")  # map
     parser.add_argument("--detail")
     parser.add_argument("--bbox")

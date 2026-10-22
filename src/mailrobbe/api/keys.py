@@ -468,12 +468,17 @@ async def start_keys(
     arguments: list[str] = [run.task]
     if run.names and run.task not in ("reconstruct", "check"):
         raise api_error(400, "invalid_option", f"the task {run.task} takes no key names")
-    if run.domains and run.task != "fetch":
+    if (run.domains or run.skip_domains) and run.task != "fetch":
         raise api_error(400, "invalid_option", f"the task {run.task} takes no domains")
+    if run.domains and run.skip_domains:
+        raise api_error(400, "invalid_option", "domains and skip_domains exclude each other")
     if run.task == "fetch" and zkemail.archive_url(settings) is None:
         raise api_error(409, "archive_off", "the key archive is switched off")
     arguments += [f"--name={name}" for name in dict.fromkeys(map(_key_name, run.names))]
     arguments += [f"--domain={domain}" for domain in dict.fromkeys(map(_domain, run.domains))]
+    arguments += [
+        f"--skip-domain={domain}" for domain in dict.fromkeys(map(_domain, run.skip_domains))
+    ]
     if run.workers is not None:
         arguments.append(f"--jobs={run.workers}")
     environment = processes.child_environment(settings)

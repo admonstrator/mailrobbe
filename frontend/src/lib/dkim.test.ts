@@ -10,6 +10,7 @@ import {
   DKIM_REASON_TEXTS,
   DKIM_STATUS_LABELS,
   dkimKey,
+  evidenceLine,
   KEY_ORIGIN_LABELS,
   KEY_ORIGIN_TEXTS,
   KEY_ORIGINS,
@@ -74,5 +75,40 @@ describe("DKIM texts", () => {
     expect(DKIM_REASON_TEXTS.key_not_found).toBe("Schlüssel nicht im DNS (Selector gelöscht)");
     expect(dkimKey(null)).toBe("unchecked");
     expect(dkimKey("fail")).toBe("fail");
+  });
+});
+
+describe("evidenceLine", () => {
+  const evidence = {
+    id: 1,
+    origin: "dns" as const,
+    source: "dns" as const,
+    lookup_id: 2,
+    asked_at: "2026-10-21T08:00:00Z",
+    observed_from: "2026-10-21T08:00:00Z",
+    observed_to: "2026-10-21T09:00:00Z",
+    reference: null,
+    note: null,
+    editor: null,
+    raw_sha256: null,
+    raw_size: null,
+    signatures: [],
+  };
+
+  it("says when Mailrobbe saw a kept key in DNS (D106)", () => {
+    expect(evidenceLine(evidence)).toBe("DNS · im DNS gesehen am 21.10.2026");
+    expect(evidenceLine({ ...evidence, observed_to: "2027-03-02T10:00:00Z" })).toBe(
+      "DNS · im DNS gesehen 21.10.2026 bis 02.03.2027",
+    );
+  });
+
+  it("names the selector a key was published under", () => {
+    expect(
+      evidenceLine({
+        ...evidence,
+        origin: "observed",
+        reference: "s2._domainkey.nordlicht.example",
+      }),
+    ).toBe("DNS · im DNS gesehen am 21.10.2026 · unter s2._domainkey.nordlicht.example");
   });
 });

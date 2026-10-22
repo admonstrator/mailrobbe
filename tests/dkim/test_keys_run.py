@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -52,6 +52,11 @@ from tests.dkim.test_recheck import Archive, _load
 pytestmark = pytest.mark.db
 
 Outcome = tuple[str, str | None]  # dkim_result status and reason
+
+# Every run keeps the keys today's DNS gives (D106); these tests look at what the tasks find.
+FOUND_KEYS = "dkim_key WHERE origin <> 'dns'"
+SEARCHES = "dkim_key_lookup WHERE source <> 'dns'"
+ARCHIVE_LOOKUPS = "dkim_key_lookup WHERE source = 'zkemail'"
 
 
 @pytest.fixture
@@ -266,7 +271,7 @@ def test_reconstruct_rebuilds_the_keys_of_retired_selectors(
     assert not result.stopped
     summary = result.summary
     assert (summary.names, summary.keys_found, summary.factorable) == (2, 1, 0)
-    [key] = asyncio.run(_rows(checked.url, "SELECT id, name, origin, record FROM dkim_key"))
+    [key] = asyncio.run(_rows(checked.url, f"SELECT id, name, origin, record FROM {FOUND_KEYS}"))
     identity = key_identity(key["record"])
     assert identity is not None
     assert (key["name"], identity.modulus, identity.exponent) == (rebuilt, truth.n, truth.e)
@@ -369,7 +374,7 @@ def test_a_name_is_tried_again_only_with_other_signatures(checked: Archive, corp
 
     first = _run(checked, "reconstruct")
     assert (first.summary.names, first.summary.keys_found, first.summary.mails_checked) == (1, 0, 0)
-    sql = "SELECT query, outcome, message FROM dkim_key_lookup"
+    sql = f"SELECT query, outcome, message FROM {SEARCHES}"
     [lookup] = asyncio.run(_rows(checked.url, sql))
     assert (lookup["query"], lookup["outcome"]) == (name, "not_found")
     assert lookup["message"] == "1 distinct RSA signatures, two are needed"
@@ -382,7 +387,7 @@ def test_a_name_is_tried_again_only_with_other_signatures(checked: Archive, corp
     assert _steps(_job(checked))["reconstruct"][0] == "skipped"
     given = _run(checked, "reconstruct", names=[name.upper()])  # a name given is always tried
     assert given.summary.names == 1
-    assert _count(checked, "SELECT count(*) FROM dkim_key_lookup") == 2
+    assert _count(checked, f"SELECT count(*) FROM {SEARCHES}") == 2
 
 
 def test_only_failures_from_before_today_s_key_are_read(checked: Archive) -> None:
@@ -426,7 +431,7 @@ def test_only_failures_from_before_today_s_key_are_read(checked: Archive) -> Non
     result = _run(checked, "reconstruct")
 
     assert result.summary.names == 1
-    [lookup] = asyncio.run(_rows(checked.url, "SELECT query, raw FROM dkim_key_lookup"))
+    [lookup] = asyncio.run(_rows(checked.url, f"SELECT query, raw FROM {SEARCHES}"))
     assert lookup["query"] == name
     assert json.loads(lookup["raw"])["read"] == [[first["mail_id"], first["signature_index"]]]
 
@@ -485,7 +490,8 @@ def test_search_finds_records_quoted_in_a_mail_and_in_a_document(
             checked.url,
             "SELECT k.name, k.origin, k.bits, e.reference, e.details, e.observed_from, l.source,"
             " l.query, l.raw FROM dkim_key k JOIN dkim_key_evidence e ON e.key_id = k.id"
-            ' JOIN dkim_key_lookup l ON l.id = e.lookup_id ORDER BY k.name COLLATE "C"',
+            " JOIN dkim_key_lookup l ON l.id = e.lookup_id WHERE k.origin <> 'dns'"
+            ' ORDER BY k.name COLLATE "C"',
         )
     )
     assert [key["name"] for key in keys] == fitting
@@ -504,7 +510,7 @@ def test_search_finds_records_quoted_in_a_mail_and_in_a_document(
         assert key["query"] == key["reference"]
         expected = _expected(signed, key["name"], KeyOrigin.DOCUMENTED)
         assert _outcomes(checked, key["name"]) == expected, key["name"]
-    assert _count(checked, "SELECT count(*) FROM dkim_key_lookup") == 2  # one per text
+    assert _count(checked, f"SELECT count(*) FROM {SEARCHES}") == 2  # one per text
     assert result.summary.mails_changed > 0
     assert _steps(_job(checked))["search"] == ("done", None, 2, 2)
 
@@ -584,7 +590,12 @@ def test_fetch_asks_the_archive_once_per_domain(checked: Archive, corpus: Corpus
         n for n in _clean(corpus, signed, 2048, mails=2) if _domain(n) != _domain(observed)
     )
     domains = _concerned_domains(checked)
-    failing, slow = [d for d in domains if d not in (_domain(observed), _domain(recovered))][:2]
+    failing, slow, broken = [
+        d for d in domains if d not in (_domain(observed), _domain(recovered))
+    ][:3]
+    # a record PostgreSQL cannot store (NUL in a tag): an error for its domain, not the run's end
+    unstorable = _record(corpus, 1024).replace("v=DKIM1;", "v=DKIM1; n=\x00;")
+    assert key_identity(unstorable) is not None
     answers = {
         _domain(observed): (
             200,
@@ -595,6 +606,7 @@ def test_fetch_asks_the_archive_once_per_domain(checked: Archive, corpus: Corpus
         ),
         _domain(recovered): (200, [_entry(recovered, _record(corpus, 2048), "gcd_recovered")]),
         failing: (500, {"error": "internal"}),
+        broken: (200, [_entry(f"s._domainkey.{broken}", unstorable, "live_dns")]),
     }
 
     with key_archive(answers, slow=frozenset({slow})) as (url, requests):
@@ -616,12 +628,14 @@ def test_fetch_asks_the_archive_once_per_domain(checked: Archive, corpus: Corpus
     assert outcomes.pop(_domain(observed)) == outcomes.pop(_domain(recovered)) == ("found", 200)
     assert outcomes.pop(failing) == ("error", 500)
     assert outcomes.pop(slow) == ("error", None)
+    assert outcomes.pop(broken) == ("error", 200)
+    assert lookups[broken]["message"] == "the answer could not be stored"
     assert set(outcomes.values()) == {("not_found", 200)}
     assert lookups[slow]["message"] == "no answer within 0.5 s"
     assert lookups[failing]["raw"] == b'{"error": "internal"}'  # stored as it came
     assert lookups[_domain(observed)]["query"] == f"{url}/api/key?domain={_domain(observed)}"
 
-    keys = asyncio.run(_rows(checked.url, "SELECT name, origin FROM dkim_key"))
+    keys = asyncio.run(_rows(checked.url, f"SELECT name, origin FROM {FOUND_KEYS}"))
     expected = _origin_after_compare(corpus, recovered, _record(corpus, 2048))
     assert {key["name"]: key["origin"] for key in keys} == {
         observed: "observed",
@@ -641,11 +655,11 @@ def test_fetch_asks_the_archive_once_per_domain(checked: Archive, corpus: Corpus
     assert _outcomes(checked, recovered) == _expected(signed, recovered, expected)
 
     # Elsewhere than on this machine, domains under reserved TLDs are never sent.
-    lookups_before = _count(checked, "SELECT count(*) FROM dkim_key_lookup")
+    lookups_before = _count(checked, f"SELECT count(*) FROM {ARCHIVE_LOOKUPS}")
     remote = checked.settings.model_copy(update={"dkim_key_archive_url": "http://192.0.2.1:9"})
     elsewhere = _run(checked, "fetch", remote)
     assert elsewhere.summary.skipped_domains == sorted(_concerned_domains(checked))
-    assert _count(checked, "SELECT count(*) FROM dkim_key_lookup") == lookups_before
+    assert _count(checked, f"SELECT count(*) FROM {ARCHIVE_LOOKUPS}") == lookups_before
     job = _job(checked)
     assert job["message"].endswith(
         f"; {len(elsewhere.summary.skipped_domains)} domains under reserved TLDs skipped"
@@ -675,7 +689,7 @@ def test_a_stop_ends_the_fetch_but_checks_what_it_found(
         engine = create_async_engine(checked.url, poolclass=pool.NullPool)
         try:
             async with asyncio.timeout(30):
-                while not await checked.query("SELECT 1 FROM dkim_key_lookup"):
+                while not await checked.query(f"SELECT 1 FROM {ARCHIVE_LOOKUPS}"):
                     await asyncio.sleep(0.02)
             async with engine.begin() as connection:
                 assert await jobs.request_stop(connection, JobKind.DKIM_KEYS) is not None
@@ -688,7 +702,7 @@ def test_a_stop_ends_the_fetch_but_checks_what_it_found(
         result = asyncio.run(stopped_run(url))
 
     assert result.stopped
-    asked = {row[0] for row in asyncio.run(checked.query("SELECT domain FROM dkim_key_lookup"))}
+    asked = {row[0] for row in asyncio.run(checked.query(f"SELECT domain FROM {ARCHIVE_LOOKUPS}"))}
     assert 1 <= len(asked) < len(domains)
     assert result.summary.mails_changed > 0
     for name in signed:  # the keys found are checked all the same
@@ -701,6 +715,73 @@ def test_a_stop_ends_the_fetch_but_checks_what_it_found(
     steps = _steps(job)
     assert steps["fetch"][:3] == ("stopped", "domains", len(asked))
     assert steps["check"][0] == "done"
+
+
+def _fetch_plan(archive: Archive, url: str) -> zkemail.FetchPlan:
+    async def plan() -> zkemail.FetchPlan:
+        engine = create_async_engine(archive.url, poolclass=pool.NullPool)
+        try:
+            async with engine.connect() as connection:
+                return await zkemail.fetch_plan(connection, url)
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(plan())
+
+
+def test_a_fetch_over_every_domain_goes_on_where_an_interrupted_one_ended(
+    checked: Archive,
+) -> None:
+    domains = _concerned_domains(checked)
+    answered, failed = domains[:3], domains[3]
+    with key_archive({}) as (url, requests):
+        # a fetch over every domain, stopped after three answers and an error, then a check
+        started = datetime(2026, 10, 22, 8, tzinfo=UTC)
+        for status, options in (("stopped", {"task": "fetch"}), ("done", {"task": "check"})):
+            asyncio.run(
+                _write(
+                    checked.url,
+                    "INSERT INTO job (kind, origin, status, options, started_at) VALUES"
+                    " ('dkim_keys', 'cli', CAST(:status AS job_status), CAST(:options AS jsonb),"
+                    " :started)",
+                    status=status,
+                    options=json.dumps(options),
+                    started=started,
+                )
+            )
+        for domain in [*answered, failed]:
+            asyncio.run(
+                _write(
+                    checked.url,
+                    "INSERT INTO dkim_key_lookup (source, query, domain, asked_at, outcome,"
+                    " tool_version) VALUES ('zkemail', :query, :domain, :asked, :outcome, 'test')",
+                    query=zkemail.query_url(url, domain),
+                    domain=domain,
+                    asked=started + timedelta(minutes=1),
+                    outcome="error" if domain == failed else "not_found",
+                )
+            )
+        plan = _fetch_plan(checked, url)
+        assert plan.continues == started
+        assert [domain.domain for domain in plan.domains if domain.done] == [
+            domain for domain in domains if domain in answered
+        ]
+
+        settings = checked.settings.model_copy(update={"dkim_key_archive_url": url})
+        rest = _run(checked, "fetch", settings)
+        second = sorted(request["domain"] for request in requests)
+        # it ran to its end: the next one starts from the beginning, less the skipped domain
+        _run(checked, "fetch", settings, skip_domains=[domains[-1].upper()])
+        third = sorted(request["domain"] for request in requests[len(second) :])
+        # given domains are asked whatever the series
+        _run(checked, "fetch", settings, domains=[answered[0]])
+        fourth = [request["domain"] for request in requests[len(second) + len(third) :]]
+
+    assert second == sorted(set(domains) - set(answered))  # the error is asked again
+    assert rest.summary.names < sum(domain.names for domain in plan.domains)
+    assert third == sorted(domains[:-1])
+    assert fourth == [answered[0]]
+    assert _fetch_plan(checked, url).continues is None
 
 
 # check ----------------------------------------------------------------------------------------
@@ -735,8 +816,18 @@ def test_check_follows_a_key_that_turns_factorable(checked: Archive, corpus: Cor
     shared = rsa_record(prime * cofactor, 65537)
     asyncio.run(_store_key(checked.url, other, shared, KeyOrigin.RECONSTRUCTED))
     flagged = _run(checked, "search")  # no text quotes a key; compare runs all the same
-    assert flagged.summary.factorable == 2
-    sql = 'SELECT name, factorable FROM dkim_key ORDER BY name COLLATE "C"'
+    # The generator's key is published under other names too: kept from DNS, flagged as well.
+    identity = key_identity(record)
+    assert identity is not None
+    published = asyncio.run(
+        _rows(
+            checked.url,
+            "SELECT name FROM dkim_key WHERE origin = 'dns' AND key_sha256 = :sha256",
+            sha256=identity.key_sha256,
+        )
+    )
+    assert published and flagged.summary.factorable == 2 + len(published)
+    sql = f'SELECT name, factorable FROM {FOUND_KEYS} ORDER BY name COLLATE "C"'
     assert asyncio.run(checked.query(sql)) == sorted([(name, True), (other, True)])
     assert _results(checked, name) == before
     assert flagged.summary.transitions == dict(

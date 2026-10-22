@@ -139,8 +139,10 @@ class DnsResolver:
                 DkimReason.DNS_TIMEOUT,
             )
         self._failures = 0
+        # PostgreSQL text holds no NUL, and no valid key record has one: it is replaced, so a
+        # broken record is stored and judged like any other instead of failing its batch.
         records = [
-            b"".join(rdata.strings).decode("latin-1")
+            b"".join(rdata.strings).decode("latin-1").replace("\x00", "\ufffd")
             for rdata in answer.rrset or ()
             if isinstance(rdata, TXTBase)
         ]

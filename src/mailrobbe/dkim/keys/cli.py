@@ -71,15 +71,24 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
             default=[],
             metavar="NAME",
             help="only this key name ('<selector>._domainkey.<domain>'); repeatable"
-            + ("" if task != "check" else " (default: every name with a key)"),
+            + ("" if task != "check" else " (default: every name a stored key may help)"),
         )
         if task == "fetch":
-            command.add_argument(
+            domains = command.add_mutually_exclusive_group()
+            domains.add_argument(
                 "--domain",
                 action="append",
                 default=[],
                 metavar="DOMAIN",
-                help="ask for this domain; repeatable (default: every concerned domain)",
+                help="ask for this domain; repeatable (default: every concerned domain, and "
+                "after a fetch that was stopped only those it did not get an answer for)",
+            )
+            domains.add_argument(
+                "--skip-domain",
+                action="append",
+                default=[],
+                metavar="DOMAIN",
+                help="leave this domain out of every concerned domain; repeatable",
             )
         _common(command)
     add = tasks.add_parser(
@@ -145,6 +154,7 @@ def run(args: argparse.Namespace) -> int:
                 task=args.task,
                 names=args.name,
                 domains=getattr(args, "domain", []),
+                skip_domains=getattr(args, "skip_domain", []),
                 workers=workers,
             )
         result = asyncio.run(run_keys(settings, options, origin=args.origin))

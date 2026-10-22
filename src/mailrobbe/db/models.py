@@ -982,7 +982,8 @@ class DocumentEntityScan(Base):
 
 
 class DkimKey(Base):
-    """A key for one key name from a source other than today's DNS; one row per content."""
+    """A key for one key name, kept from DNS (D106) or from another source; one row per
+    content."""
 
     __tablename__ = "dkim_key"
     __table_args__ = (

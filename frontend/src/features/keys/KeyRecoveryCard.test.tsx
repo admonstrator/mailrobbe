@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import type { DkimKeysJob, ErrorCode, ImportStatus, KeyArchivePreview } from "../../api/types";
 import {
+  archivePreview,
   archivePreviewPublic,
   importStatusPaused,
   keysJobDone,
   keysJobRunning,
 } from "../../test/fixtures";
 import { fixtureApi, renderElement, type ApiCall } from "../../test/render";
+import { fetchRequest } from "./ArchivePreviewDialog";
 import { KeyRecoveryCard } from "./KeyRecoveryCard";
 
 /** The fixture backend with no import alive and a key run the test changes; answer handles a
@@ -49,6 +51,7 @@ describe("key recovery card", () => {
     expect(figure("Gefundene Schlüssel")).toBe(
       "3 im DNS beobachtet · 1 dokumentiert · 11 rekonstruiert",
     );
+    expect(figure("Aus dem DNS aufbewahrt")).toBe("2.417 Schlüssel");
     expect(
       within(card()).getByText(/1 Schlüssel teilt einen Primfaktor mit einem anderen/),
     ).toBeTruthy();
@@ -181,7 +184,7 @@ describe("archive preview", () => {
     expect(within(dialog).getByText("http://127.0.0.1:8200")).toBeTruthy();
     expect(
       within(dialog).getByText(
-        "Mailrobbe schickt dem Archiv nur die Namen der angehakten Domains, eine Anfrage je Domain. Selektoren, Mails, Adressen und alles andere bleiben hier; hochgeladen wird nichts.",
+        "Mailrobbe schickt dem Archiv nur die Namen der angehakten Domains, eine Anfrage je Domain. Selektoren, Mails, Adressen und alles andere bleiben hier; hochgeladen wird nichts. Die Anfragen gehen nacheinander hinaus; ein angehaltener Lauf macht beim nächsten Start weiter.",
       ),
     ).toBeTruthy();
     const rows = within(dialog).getAllByRole("row").slice(1);
@@ -198,8 +201,49 @@ describe("archive preview", () => {
     expect(within(dialog).getByText("2 von 3 Domains gewählt")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Abfragen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // every domain but the one unchecked, without a list of all others (D107)
     expect(posts(calls, "/api/dkim/keys/run").map((call) => call.body)).toEqual([
-      { task: "fetch", domains: ["nordlicht-gmbh.example", "verein-nord.example"] },
+      { task: "fetch", skip_domains: ["stadtwerke-beispiel.example"] },
+    ]);
+  });
+
+  it("fetches every domain without a limit", async () => {
+    const domains = Array.from({ length: 2_500 }, (_, index) => ({
+      domain: `domain-${String(index).padStart(4, "0")}.example`,
+      names: 1,
+      mails: 2_500 - index,
+      last_asked_at: null,
+      done: false,
+    }));
+    const { dialog, calls } = await openPreview({ ...archivePreview, domains });
+    expect(await within(dialog).findByText("2.500 von 2.500 Domains gewählt")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Abfragen" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts(calls, "/api/dkim/keys/run").map((call) => call.body)).toEqual([
+      { task: "fetch" },
+    ]);
+  });
+
+  it("goes on after an interrupted fetch", async () => {
+    const [first, ...rest] = archivePreview.domains;
+    const preview: KeyArchivePreview = {
+      ...archivePreview,
+      domains: [{ ...first!, done: true }, ...rest],
+      continues: "2026-10-22T08:00:00Z",
+    };
+    const { dialog, calls } = await openPreview(preview);
+    expect(
+      await within(dialog).findByText(
+        "Die Abfrage vom 22.10.2026 10:00 ist nicht zu Ende gelaufen. 1 Domain hat seither geantwortet und bleibt diesmal aus.",
+      ),
+    ).toBeTruthy();
+    const boxes = within(dialog).getAllByRole("checkbox") as HTMLInputElement[];
+    expect(boxes.map((box) => box.checked)).toEqual([false, true, true]);
+    expect(within(dialog).getByText("01.10.2026 12:00 · beantwortet")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Abfragen" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posts(calls, "/api/dkim/keys/run").map((call) => call.body)).toEqual([
+      { task: "fetch" },
     ]);
   });
 
@@ -228,7 +272,7 @@ describe("archive preview", () => {
   });
 
   it("says when the archive is off and offers nothing", async () => {
-    const { dialog } = await openPreview({ url: null, domains: [], skipped: [] });
+    const { dialog } = await openPreview({ url: null, domains: [], skipped: [], continues: null });
     expect(await within(dialog).findByText(/Das Schlüsselarchiv ist abgeschaltet/)).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Abfragen" })).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Schließen" }));
@@ -244,5 +288,38 @@ describe("archive preview", () => {
     expect((await within(dialog).findByRole("alert")).textContent).toBe(
       "Das Schlüsselarchiv ist abgeschaltet (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off).",
     );
+  });
+});
+
+describe("fetchRequest", () => {
+  const domain = (name: string, done = false) => ({
+    domain: name,
+    names: 1,
+    mails: 1,
+    last_asked_at: null,
+    done,
+  });
+  const domains = [domain("a.example", true), domain("b.example"), domain("c.example")];
+
+  it("asks every domain the interrupted fetch did not answer, less the unchecked", () => {
+    expect(fetchRequest(domains, new Set(["a.example"]))).toEqual({ task: "fetch" });
+    expect(fetchRequest(domains, new Set(["a.example", "c.example"]))).toEqual({
+      task: "fetch",
+      skip_domains: ["c.example"],
+    });
+  });
+
+  it("names the domains when an answered one is checked again", () => {
+    expect(fetchRequest(domains, new Set(["b.example"]))).toEqual({
+      task: "fetch",
+      domains: ["a.example", "c.example"],
+    });
+  });
+
+  it("refuses lists longer than one request takes", () => {
+    const many = Array.from({ length: 2_002 }, (_, index) => domain(`d${index}.example`));
+    const half = new Set(many.slice(0, 1_001).map(({ domain: name }) => name));
+    expect(fetchRequest(many, half)).toBeNull();
+    expect(fetchRequest(many, new Set())).toEqual({ task: "fetch" });
   });
 });

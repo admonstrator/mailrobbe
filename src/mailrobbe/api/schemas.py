@@ -633,7 +633,8 @@ class KeyEvidenceInfo(BaseModel):
 
 
 class DkimKeyInfo(BaseModel):
-    """A key from a source other than today's DNS (dkim_key) with all its evidence."""
+    """A stored key (dkim_key): kept from DNS (D106) or from another source, with all its
+    evidence."""
 
     id: int
     name: str  # '<selector>._domainkey.<domain>'
@@ -669,7 +670,8 @@ class DkimSignature(BaseModel):
     # Origin of the key the result rests on (D100); None when it rests on none (no_key,
     # temp_error, a failure found before the key was asked for).
     key_origin: KeyOrigin | None = None
-    key: DkimKeyInfo | None = None  # the dkim_key that verified it; None for today's DNS
+    # the stored key that verified it; None when today's DNS answer did, or none verified
+    key: DkimKeyInfo | None = None
 
 
 class MailDkim(BaseModel):
@@ -2169,6 +2171,7 @@ class ArchiveDomain(BaseModel):
     names: int  # concerned key names of the domain
     mails: int  # mails with a signature of those names
     last_asked_at: datetime | None  # the latest ZK Email lookup of the domain
+    done: bool  # answered by the interrupted fetch a fetch over every domain continues (D107)
 
 
 class KeyArchivePreview(BaseModel):
@@ -2178,12 +2181,19 @@ class KeyArchivePreview(BaseModel):
     domains: list[ArchiveDomain]  # concerned domains, most mails first
     # Domains under reserved TLDs (.example, .test, ...) go only to an archive on this machine
     skipped: list[str]
+    continues: datetime | None  # start of the interrupted fetch a new one goes on with (D107)
+
+
+RUN_LIST_LIMIT = 1000  # names or domains one run request names; "every" needs no list (D107)
 
 
 class DkimKeysRunRequest(BaseModel):
     task: DkimKeysTask
-    names: list[str] = Field([], max_length=1000)  # reconstruct, check: only these key names
-    domains: list[str] = Field([], max_length=1000)  # fetch: only these domains
+    # reconstruct, check: only these key names
+    names: list[str] = Field([], max_length=RUN_LIST_LIMIT)
+    domains: list[str] = Field([], max_length=RUN_LIST_LIMIT)  # fetch: only these domains
+    # fetch without domains: every concerned domain but these
+    skip_domains: list[str] = Field([], max_length=RUN_LIST_LIMIT)
     workers: int | None = Field(default=None, ge=1, le=64)
 
 

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.config import Settings
 from mailrobbe.dkim import checker, store
-from mailrobbe.dkim.keys.store import load_candidates
+from mailrobbe.dkim.keys.store import keep_cached_keys, load_candidates
 from mailrobbe.dkim.model import DnsAnswer, KeyCandidates
 from mailrobbe.enums import DkimStatus
 
@@ -49,7 +49,9 @@ class Preload:
 
 
 async def load_preload(session: AsyncSession) -> Preload:
-    """Main process, once per run: the cached DNS answers and candidate keys for every worker."""
+    """Main process, once per run: the cached DNS answers and candidate keys for every worker;
+    found answers not kept as keys yet are kept first (D106)."""
+    await keep_cached_keys(session)
     return Preload(await store.load_dns_cache(session), await load_candidates(session))
 
 

@@ -18,6 +18,12 @@ and of names only keys from other sources verify, with their names, mails and wh
 asked. Domains under reserved TLDs (.example, .test,
 ...) never leave this machine: they go only to an archive on a loopback address (tests,
 generated data) and are skipped otherwise.
+
+A fetch over every domain goes on where an interrupted one ended (D107): when the latest such
+fetches did not run to their end (stopped, failed, or their process died), the domains the
+archive answered since the first of them began are done and left out; an error is asked again.
+A fetch that ran to its end starts the next one from the beginning; a fetch of given domains
+asks them all and neither ends nor continues the series.
 """
 
 import ipaddress
@@ -34,7 +40,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from mailrobbe.config import Settings
-from mailrobbe.db.models import DkimKeyLookup, DkimResult, Mail
+from mailrobbe.db.models import DkimKeyLookup, DkimResult, Job, Mail
 from mailrobbe.dkim.keys.identity import key_identity
 from mailrobbe.dkim.keys.store import (
     CONCERNED,
@@ -46,7 +52,7 @@ from mailrobbe.dkim.keys.store import (
 )
 from mailrobbe.dkim.override import key_name, normalise_name
 from mailrobbe.dkim.resolver import is_reserved
-from mailrobbe.enums import KeyLookupSource, KeyOrigin, LookupOutcome
+from mailrobbe.enums import JobKind, JobStatus, KeyLookupSource, KeyOrigin, LookupOutcome
 
 OFF = "off"
 USER_AGENT = f"Mailrobbe/{TOOL_VERSION}"
@@ -80,20 +86,31 @@ class ArchiveDomain:
     names: int  # concerned key names of the domain
     mails: int  # mails with a signature of those names (no duplicates)
     last_asked_at: datetime | None  # the latest lookup of the domain at the archive
+    done: bool = False  # answered by the interrupted fetch this one continues (D107)
 
 
 @dataclass(frozen=True, slots=True)
 class FetchPlan:
     url: str | None  # the archive's base URL; None: switched off
-    domains: list[ArchiveDomain]  # to be asked, most mails first
+    domains: list[ArchiveDomain]  # most mails first; those done are left out of a fetch
     skipped: list[str]  # under reserved TLDs, not sent to an archive elsewhere
+    continues: datetime | None = None  # start of the interrupted fetch this one continues
+
+    @property
+    def asked(self) -> list[ArchiveDomain]:
+        """The domains a fetch sends requests for."""
+        return [domain for domain in self.domains if not domain.done]
 
 
-async def fetch_plan(db: Executor, url: str | None, domains: Collection[str] = ()) -> FetchPlan:
+async def fetch_plan(
+    db: Executor, url: str | None, domains: Collection[str] = (), skip: Collection[str] = ()
+) -> FetchPlan:
     """The domains a fetch asks, or the given ones, with their figures: the domains of concerned
     names and of names a key from another source verifies, whose origin the archive may raise
-    (a reconstructed key the archive saw in DNS becomes observed, D102)."""
+    (a reconstructed key the archive saw in DNS becomes observed, D102). Without given domains
+    those in skip are left out, and those an interrupted fetch got an answer for are done."""
     given = sorted({normalise_name(domain) for domain in domains if normalise_name(domain)})
+    left_out = {normalise_name(domain) for domain in skip}
     concerned = (
         select(
             DkimResult.domain,
@@ -121,17 +138,50 @@ async def fetch_plan(db: Executor, url: str | None, domains: Collection[str] = (
             .group_by(DkimKeyLookup.domain)
         )
     }
+    continues = None if given or url is None else await _interrupted_since(db)
+    answered = set()
+    if url is not None and continues is not None:
+        answered = await _answered(db, url, continues)
     local = url is not None and is_local(url)
     plan: list[ArchiveDomain] = []
     skipped: list[str] = []
-    for domain in given or sorted(figures):
+    for domain in given or sorted(set(figures) - left_out):
         if is_reserved(domain) and not local:
             skipped.append(domain)
             continue
         names, mails = figures.get(domain, (0, 0))
-        plan.append(ArchiveDomain(domain, names, mails, asked.get(domain)))
+        plan.append(ArchiveDomain(domain, names, mails, asked.get(domain), domain in answered))
     plan.sort(key=lambda entry: (-entry.mails, entry.domain.encode()))
-    return FetchPlan(url, plan, skipped)
+    return FetchPlan(url, plan, skipped, continues if answered else None)
+
+
+async def _interrupted_since(db: Executor) -> datetime | None:
+    """When the first of the latest fetches over every domain began that did not run to their
+    end; None when the latest one did (D107). A running fetch counts as not ended yet."""
+    since = None
+    for status, started_at, options in await db.execute(
+        select(Job.status, Job.started_at, Job.options)
+        .where(Job.kind == JobKind.DKIM_KEYS, Job.options["task"].astext == "fetch")
+        .order_by(Job.id.desc())
+    ):
+        if options.get("domains"):
+            continue
+        if status == JobStatus.DONE:
+            break
+        since = started_at
+    return since
+
+
+async def _answered(db: Executor, url: str, since: datetime) -> set[str]:
+    """The domains this archive answered (keys or none, not an error) since then."""
+    rows = await db.execute(
+        select(DkimKeyLookup.domain, DkimKeyLookup.query).where(
+            DkimKeyLookup.source == KeyLookupSource.ZKEMAIL.value,
+            DkimKeyLookup.outcome != LookupOutcome.ERROR.value,
+            DkimKeyLookup.asked_at >= since,
+        )
+    )
+    return {domain for domain, query in rows if domain and query == query_url(url, domain)}
 
 
 @dataclass(frozen=True, slots=True)

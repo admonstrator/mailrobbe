@@ -4,9 +4,10 @@ Every source goes the same way: save_lookup records the question and the answer 
 when nothing was found or the source failed), save_evidence stores a key found in that answer
 and what the answer says about it. A key is one row per name and content (key_sha256), so the
 same key from two sources is one row with two pieces of evidence, and its origin is the
-strongest of them. load_candidates hands the keys to the checker; add_manual_key stores a key a
-person entered (D103). CONCERNED and of_key_names select dkim_result rows; selector_summary
-counts what the dashboard card shows.
+strongest of them. keep_dns_keys keeps every key today's DNS gives (D106), so it still verifies
+once the domain drops or replaces it; load_candidates hands the keys to the checker;
+add_manual_key stores a key a person entered (D103). CONCERNED and of_key_names select
+dkim_result rows; selector_summary counts what the dashboard card shows.
 
 The functions take an AsyncSession or AsyncConnection, run in the caller's transaction and never
 commit.
@@ -15,24 +16,37 @@ commit.
 import hashlib
 import mimetypes
 import re
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from importlib.metadata import version
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, false, func, or_, select, text, tuple_, update
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    and_,
+    exists,
+    false,
+    func,
+    or_,
+    select,
+    text,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from mailrobbe.api.schemas import SelectorSummary
-from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult
+from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DkimResult, DnsCache
 from mailrobbe.dkim.keys.identity import key_identity, split_key_name
-from mailrobbe.dkim.model import CandidateKey
+from mailrobbe.dkim.model import FOUND_TTL, CandidateKey, DnsAnswer
 from mailrobbe.enums import (
     KEY_ORIGIN_RANK,
     DkimReason,
     DkimStatus,
+    DnsStatus,
     KeyLookupSource,
     KeyOrigin,
     LookupOutcome,
@@ -41,6 +55,7 @@ from mailrobbe.enums import (
 Executor = AsyncSession | AsyncConnection
 
 TOOL_VERSION = version("mailrobbe")
+DNS_RECORD_TYPE = "text/plain; charset=utf-8"  # raw_type of a DNS answer: the TXT record
 
 # The dkim_result rows a key search works for, whose key name is "concerned": no key (no_key),
 # or a failing signature with an intact body, as after a new key under the old name.
@@ -198,6 +213,88 @@ async def save_evidence(
         .on_conflict_do_nothing(index_elements=["key_id", "lookup_id"])
     )
     return int(key_id)
+
+
+async def keep_dns_keys(db: Executor, answers: Iterable[DnsAnswer]) -> None:
+    """Keep the key of every found answer (D106): a key of origin dns, its lookup the record
+    unchanged (source dns, asked when DNS answered), its evidence the first and the last time
+    Mailrobbe saw it there. A key once kept stays when DNS later answers not found, an error or
+    another key, so the mails it verified still verify (the checker tries it after DNS). The
+    same answer again only moves the last time on. Answers without a usable key are left out.
+    """
+    for answer in answers:
+        if answer.status is not DnsStatus.FOUND or answer.record is None:
+            continue
+        parts = split_key_name(answer.name)
+        if parts is None or key_identity(answer.record) is None:
+            continue
+        raw = answer.record.encode("utf-8")
+        lookup_id = await find_lookup(db, KeyLookupSource.DNS, answer.name, raw)
+        if lookup_id is None:
+            lookup_id = await save_lookup(
+                db,
+                KeyLookupSource.DNS,
+                answer.name,
+                LookupOutcome.FOUND,
+                domain=parts[1],
+                name=answer.name,
+                raw=raw,
+                raw_type=DNS_RECORD_TYPE,
+                message="the DNS answer of the name, kept",
+                asked_at=answer.fetched_at,
+            )
+        seen = Evidence(
+            KeyOrigin.DNS,
+            observed_from=answer.fetched_at,
+            observed_to=answer.fetched_at,
+            details={"name": answer.name},
+        )
+        key_id = await save_evidence(db, lookup_id, answer.name, answer.record, seen)
+        assert key_id is not None  # name and record were checked above
+        await db.execute(
+            update(DkimKeyEvidence)
+            .where(
+                DkimKeyEvidence.key_id == key_id,
+                DkimKeyEvidence.lookup_id == lookup_id,
+                DkimKeyEvidence.origin == KeyOrigin.DNS,
+            )
+            .values(
+                observed_from=func.least(DkimKeyEvidence.observed_from, answer.fetched_at),
+                observed_to=func.greatest(DkimKeyEvidence.observed_to, answer.fetched_at),
+            )
+        )
+
+
+async def keep_cached_keys(db: Executor) -> None:
+    """keep_dns_keys for the found dns_cache rows not kept yet, as those of runs before D106;
+    one anti join finds them, so a run start costs nothing once every key is kept."""
+    kept = (
+        select(DkimKeyLookup.id)
+        .join(DkimKeyEvidence, DkimKeyEvidence.lookup_id == DkimKeyLookup.id)
+        .where(
+            DkimKeyLookup.source == KeyLookupSource.DNS.value,
+            DkimKeyLookup.query == DnsCache.name,
+            DkimKeyLookup.raw_sha256
+            == func.encode(func.sha256(func.convert_to(DnsCache.record, "UTF8")), "hex"),
+            DkimKeyEvidence.origin == KeyOrigin.DNS,
+        )
+    )
+    rows = await db.execute(
+        select(DnsCache.name, DnsCache.record, DnsCache.fetched_at)
+        .where(
+            DnsCache.status == DnsStatus.FOUND,
+            DnsCache.record.is_not(None),
+            ~exists(kept),
+        )
+        .order_by(DnsCache.name)
+    )
+    await keep_dns_keys(
+        db,
+        [
+            DnsAnswer(name, DnsStatus.FOUND, record, fetched_at, FOUND_TTL)
+            for name, record, fetched_at in rows
+        ],
+    )
 
 
 async def load_candidates(db: Executor) -> dict[str, tuple[CandidateKey, ...]]:
@@ -361,7 +458,12 @@ async def selector_summary(db: Executor) -> SelectorSummary:
         factorable=factorable or 0,
         signatures={origin: getattr(names, f"origin_{origin}") for origin in KeyOrigin},
         lookups={source: lookups.get(source.value, 0) for source in KeyLookupSource},
-        last_lookup_at=await db.scalar(select(func.max(DkimKeyLookup.asked_at))),
+        # a search's, not when DNS gave a key that was kept (D106)
+        last_lookup_at=await db.scalar(
+            select(func.max(DkimKeyLookup.asked_at)).where(
+                DkimKeyLookup.source != KeyLookupSource.DNS.value
+            )
+        ),
     )
 
 

@@ -37,7 +37,10 @@ name are tried, strongest origin first. A candidate counts only when it suits th
 decides: pass for an intact body (consistent for a reconstructed key), fail body_hash_mismatch
 for a changed one, with the candidate's key_id, key_origin and key_bits. When none does, the
 result of DNS stays, except that no_key becomes no_key key_mismatch. Without candidates the
-results are those of DNS alone.
+results are those of DNS alone. Every key DNS gave once is a candidate of origin dns (D106), so
+a signature its key verified still passes after the domain dropped or replaced it; when DNS
+gives no key (not found, revoked, temp_error) and no candidate verifies, the newest key kept
+from DNS decides steps 4 to 7 as DNS did, so a failure stays the failure it was.
 
 signature_material gives what reconstructing and testing keys need from each signature: the
 header hash b= signs, b= itself and its hash algorithm (dkim/keys).
@@ -51,7 +54,7 @@ import hashlib
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from email.utils import getaddresses
 from typing import Any
@@ -347,6 +350,8 @@ class _Mail:
             return status, reason
         found = candidates.get(dns_name, ())
         for candidate in found:
+            if answer.record is not None and candidate.record == answer.record.strip():
+                continue  # today's DNS key, kept (D106): tried already
             key = parse_key_record(candidate.record)
             if (
                 isinstance(key, DkimReason)
@@ -359,6 +364,12 @@ class _Mail:
             if not details.body_hash_ok:
                 return DkimStatus.FAIL, DkimReason.BODY_HASH_MISMATCH
             return origin_status(candidate.origin), None
+        kept = [candidate for candidate in found if candidate.origin is KeyOrigin.DNS]
+        if kept and status in (DkimStatus.NO_KEY, DkimStatus.TEMP_ERROR):
+            # DNS gives no key any more: the newest one it gave decides, as it did (D106)
+            latest = replace(answer, status=DnsStatus.FOUND, record=kept[-1].record)
+            details.key_id = kept[-1].key_id
+            return self._with_dns_key(latest, signature, digest, details)
         if found and status is DkimStatus.NO_KEY:
             return DkimStatus.NO_KEY, DkimReason.KEY_MISMATCH
         return status, reason

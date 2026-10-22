@@ -86,9 +86,9 @@ describe("DKIM box", () => {
   it("marks a key from today's DNS without a key block", async () => {
     openFolds("mail.dkim");
     renderApp("/mails/184221");
-    await screen.findByText("DNS heute");
-    expect(within(card()).getByText("DNS heute").getAttribute("title")).toBe(
-      "Die Domain veröffentlicht diesen Schlüssel heute im DNS.",
+    await screen.findByText("DNS");
+    expect(within(card()).getByText("DNS").getAttribute("title")).toBe(
+      "Mailrobbe hat diesen Schlüssel selbst im DNS der Domain abgefragt, heute oder früher; einmal gesehen bleibt er gespeichert.",
     );
     expect(within(card()).queryByRole("link", { name: "Selektor ansehen" })).toBeNull();
     expect(within(card()).queryByRole("list", { name: "Belege" })).toBeNull();

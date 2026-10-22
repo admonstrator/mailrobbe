@@ -9,8 +9,11 @@
                  attempt is a lookup, its JSON the signatures read and the keys found, and
                  every key found is evidence with the signatures it verifies.
     search       key records quoted in the archive's mail and attachment texts (archive.py)
-    fetch        the ZK Email DKIM archive, one request per domain (zkemail.py)
-    check        only the check below, for the given names, or every name with a key
+    fetch        the ZK Email DKIM archive, one request per domain (zkemail.py); over every
+                 domain it goes on where an interrupted fetch ended (D107), and a domain
+                 whose answer cannot be stored is an error lookup, never the end of the run
+    check        only the check below, for the given names, or every name with a key whose
+                 signatures are concerned or rest on a stored key
 
 The first three continue with compare: a reconstructed key that today's DNS publishes under
 another selector of the domain, or that another source holds under another name of the domain,
@@ -50,6 +53,7 @@ from typing import Any
 
 from sqlalchemy import Row, and_, func, or_, select, update
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from mailrobbe import aggregates
@@ -64,6 +68,7 @@ from mailrobbe.db.models import (
     MboxFile,
 )
 from mailrobbe.db.session import create_engine
+from mailrobbe.dkim.cli import error_line
 from mailrobbe.dkim.keys import archive, zkemail
 from mailrobbe.dkim.keys.identity import key_identity, rsa_record, split_key_name
 from mailrobbe.dkim.keys.model import (
@@ -75,6 +80,7 @@ from mailrobbe.dkim.keys.model import (
 from mailrobbe.dkim.keys.reconstruct import RebuiltKey, RsaSignature, rebuild_keys, shared_factors
 from mailrobbe.dkim.keys.store import (
     CONCERNED,
+    DNS_RECORD_TYPE,
     Evidence,
     find_lookup,
     of_key_names,
@@ -326,14 +332,15 @@ class _Run:
         """The names to rebuild, most mails first, each with the signatures to read."""
         # A key replaced under the same name leaves signatures that fail with an intact body
         # from before the first one today's key verifies; those after it are mails changed on
-        # the way (a list's subject tag), whose pairs cost a GCD each and never give a key.
+        # the way (a list's subject tag), whose pairs cost a GCD each and never give a key. A
+        # key kept from DNS (D106) counts as today's.
         first_pass = (
             select(
                 DkimResult.domain,
                 DkimResult.selector,
                 func.min(DkimResult.signed_at).label("signed_at"),
             )
-            .where(DkimResult.status == DkimStatus.PASS, DkimResult.key_id.is_(None))
+            .where(DkimResult.status == DkimStatus.PASS, DkimResult.key_origin == KeyOrigin.DNS)
             .group_by(DkimResult.domain, DkimResult.selector)
             .subquery()
         )
@@ -527,24 +534,32 @@ class _Run:
         url = self.options.archive_url
         assert url is not None
         with self._step("select", unit="names") as step:
-            plan = await zkemail.fetch_plan(self.db, url, self.options.domains)
+            plan = await zkemail.fetch_plan(
+                self.db, url, self.options.domains, self.options.skip_domains
+            )
             await self.db.commit()
-            self.figures.names = step.done = sum(domain.names for domain in plan.domains)
+            asked = plan.asked
+            self.figures.names = step.done = sum(domain.names for domain in asked)
         self.skipped = plan.skipped
         if plan.skipped:
             log.info("not sent to %s (reserved TLDs): %s", url, ", ".join(plan.skipped))
-        if not plan.domains:
+        if plan.continues is not None:
+            log.info(
+                "going on with the fetch begun %s: %d domains answered since are left out",
+                plan.continues.isoformat(timespec="seconds"),
+                len(plan.domains) - len(asked),
+            )
+        if not asked:
             self.job.steps.skip("fetch")
             return
         timeout = self.settings.dkim_key_archive_timeout
-        with self._step("fetch", unit="domains", total=len(plan.domains)) as step:
-            for domain in plan.domains:
+        with self._step("fetch", unit="domains", total=len(asked)) as step:
+            for domain in asked:
                 if self.job.stop.is_set():
                     break
                 query = zkemail.query_url(url, domain.domain)
                 answer = await asyncio.to_thread(zkemail.ask, query, timeout)
-                keys = await zkemail.store_answer(self.db, query, domain.domain, answer)
-                await self.db.commit()
+                keys = await self._store_answer(query, domain.domain, answer)
                 self._found(keys)
                 if answer.error:
                     log.warning("%s: %s", domain.domain, answer.error)
@@ -552,12 +567,50 @@ class _Run:
                     log.info("%s: %d keys", domain.domain, len(keys))
                 step.advance()
 
+    async def _store_answer(
+        self, query: str, domain: str, answer: zkemail.Answer
+    ) -> dict[int, str]:
+        """zkemail.store_answer, committed; an answer the database refuses (a NUL in a record)
+        is kept as an error lookup instead, so one domain never ends the fetch."""
+        try:
+            keys = await zkemail.store_answer(self.db, query, domain, answer)
+            await self.db.commit()
+            return keys
+        except SQLAlchemyError as error:
+            await self.db.rollback()
+            log.warning("%s: the answer could not be stored: %s", domain, error_line(error))
+        await save_lookup(
+            self.db,
+            KeyLookupSource.ZKEMAIL,
+            query,
+            LookupOutcome.ERROR,
+            domain=domain,
+            raw=answer.body,
+            raw_type=answer.content_type,
+            http_status=answer.status,
+            message="the answer could not be stored",
+        )
+        await self.db.commit()
+        return {}
+
     async def _names_to_check(self) -> None:
         with self._step("select", unit="names") as step:
-            names = self.options.names or await self.db.scalars(select(DkimKey.name).distinct())
+            names = self.options.names or await self._names_with_keys()
             self.touched.update(names)
             await self.db.commit()
             self.figures.names = step.done = len(self.touched)
+
+    async def _names_with_keys(self) -> set[str]:
+        """The names with a stored key whose signatures are concerned or rest on a stored key;
+        a name whose signatures pass with today's DNS is left out, though its key is kept
+        (D106)."""
+        rows = await self.db.execute(
+            select(DkimResult.domain, DkimResult.selector)
+            .distinct()
+            .where(or_(CONCERNED, DkimResult.key_id.is_not(None)))
+        )
+        wanted = {key_name(selector, domain) for domain, selector in rows if domain and selector}
+        return set(await self.db.scalars(select(DkimKey.name).distinct())) & wanted
 
     # compare -----------------------------------------------------------------------------
 
@@ -631,8 +684,10 @@ class _Run:
                     await save_evidence(self.db, lookup_id, key.name, key.record, seen)
             for evidence in held.get((key.domain, key.key_sha256), ()):
                 if evidence.name != key.name:
+                    # A key kept from the DNS of another name was published there, not here.
+                    origin = evidence.origin
                     copy = Evidence(
-                        evidence.origin,
+                        KeyOrigin.OBSERVED if origin == KeyOrigin.DNS else origin,
                         observed_from=evidence.observed_from,
                         observed_to=evidence.observed_to,
                         reference=evidence.reference,
@@ -664,7 +719,7 @@ class _Run:
             domain=None if parts is None else parts[1],
             name=name,
             raw=raw,
-            raw_type="text/plain; charset=utf-8",
+            raw_type=DNS_RECORD_TYPE,
             message="today's DNS answer, from the DNS cache",
             asked_at=fetched_at,
         )
