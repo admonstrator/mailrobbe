@@ -1,14 +1,16 @@
-"""What the AI modules hand each other (D180 to D189, D290 to D297): services, OCR pages,
-transcript segments, run options and figures.
+"""What the AI modules hand each other (D180 to D189, D290 to D297, D300 to D311): services, OCR
+pages, transcript segments, summaries, run options and figures.
 
-The contract between ai.services, ai.ocr, ai.audio, ai.run, ai.store and api/ai.py; nothing here
-does I/O except locality's name lookup.
+The contract between ai.services, ai.ocr, ai.audio, ai.summarize, ai.run, ai.store and
+api/ai.py; nothing here does I/O except locality's name lookup.
 """
 
 import importlib.util
 import ipaddress
 import os
+import re
 import socket
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,7 +24,7 @@ from mailrobbe.db.models import DOCUMENT_TEXT_LIMIT
 from mailrobbe.enums import AiTaskKind
 from mailrobbe.jobs import RunProgress
 
-Capability = Literal["vision"]  # M16 adds "audio", M17 "text"
+Capability = Literal["vision", "text"]  # M16 adds "audio"
 Protocol = Literal["openai", "ollama"]
 Locality = Literal["local", "remote"]
 OcrEngine = Literal["tesseract", "vision"]
@@ -39,11 +41,26 @@ LOGO_MAILS = 50  # images in more mails are left out of a selection unless chose
 IMAGE_MIN_BYTES = 100 * 1024  # smaller images are not on the work list "Bilder"
 NO_TEXT_MARK = "[kein Text]"  # the vision prompt's answer for a page without writing
 PAGE_SEPARATOR = "\n\f\n"  # between the pages of a recognised text
-# The steps of an AI run (job.steps, D187), in order.
-AI_STEPS = ("check", "ocr", "transcribe", "entities", "signals")  # entities computes its figures
+# The steps of an AI run (job.steps, D187), in order: summaries after OCR and transcription, so a
+# text recognised or transcribed in the same run is what they read.
+AI_STEPS = ("check", "ocr", "transcribe", "summarize", "entities", "signals")  # entities: figures
 # Transcription (D292, D293): pieces of speech the transcriber reads at once, lines of a transcript
 PIECE_SECONDS = 25.0  # longest piece, cut at a pause where there is one
 SEGMENT_SECONDS = 15.0  # longest line of a transcript; a line ends at a sentence's end or a pause
+
+# Summaries (D300 to D311).
+SUMMARY_MIN_WORDS = 50  # own text below this: tags and theme hints only, no summary (D302)
+SUMMARY_MAX_PARTS = 20  # parts of a long text summarised; beyond, the first ones only (D303)
+SUMMARY_MAX_TAGS = 6  # AI tags kept per summary (D304)
+TAG_MAX_CHARS = 40  # longer tags are dropped, not cut
+QUOTE_MAX_CHARS = 300  # longer quotes are dropped, not cut
+THEME_HINTS_PER_THEME = 3  # quotes kept per theme and summary
+CHARS_PER_TOKEN = 3.5  # German text, without a tokenizer (D303)
+SUMMARY_ANSWER_TOKENS = 1200  # max_tokens of one answer: a summary, tags and quotes
+VOCABULARY_TAGS = 200  # the most used AI tags the prompt offers besides the team's tags (D305)
+# Seconds without a measurement (D188): per task, and per 1,000 tokens of input.
+SUMMARY_RULE_SECONDS_PER_TASK = 3.0
+SUMMARY_RULE_SECONDS_PER_KTOKEN = 5.0
 
 
 class ForbiddenService(ValueError):
@@ -136,6 +153,14 @@ def configured_services(settings: Settings) -> dict[Capability, Service]:
             protocol=settings.ai_vision_protocol,
             key=settings.ai_vision_key.get_secret_value(),
         )
+    if settings.ai_text_url.strip():
+        services["text"] = Service(
+            capability="text",
+            url=settings.ai_text_url.strip().rstrip("/"),
+            model=settings.ai_text_model.strip(),
+            protocol=settings.ai_text_protocol,
+            key=settings.ai_text_key.get_secret_value(),
+        )
     return services
 
 
@@ -172,7 +197,8 @@ class ServiceCheck(BaseModel):
     models: list[ServiceModel] = []
     model: str = ""  # the configured one
     model_found: bool | None = None  # None: the service lists no models
-    # The real test (D180): a picture with a known word, read back by the model.
+    # The real test (D180): a picture with a known word, read back by the model; for text a short
+    # text whose summary by the answer schema must name the word (D300).
     test: Literal["passed", "failed"] | None = None
     test_detail: str | None = None  # English: what came back, or why it failed
     seconds: float | None = None  # of the test
@@ -266,16 +292,19 @@ class AiOptions(BaseModel):
     max_minutes: int = 180  # of a recording per document and pass (D292)
     transcribe_threads: int = 4  # CPU threads of the transcriber
     transcribe_uncertain: float = 0.8  # lines below this mean token probability are uncertain
+    # M17 (D300): with documents, a run for some elements only takes the tasks of these mails
+    # too (one started from its page, D307); the text model overrides MAILROBBE_AI_TEXT_MODEL.
+    mails: list[int] = []
+    text_model: str = ""
+    text_url: str = ""  # display_url of the text service, "" without one
+    text_remote: bool = False
+    context_tokens: int = 4096
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AiOptions":
-        vision = configured_services(settings).get("vision")
-        remote = False
-        if vision is not None:
-            try:
-                remote = locality(vision.url) == "remote"
-            except ForbiddenService:
-                remote = False
+        services = configured_services(settings)
+        vision = services.get("vision")
+        text = services.get("text")
         return cls(
             ocr_engine=settings.ai_ocr_engine,
             vision_model=vision.model if vision else "",
@@ -285,11 +314,24 @@ class AiOptions(BaseModel):
             concurrency=settings.ai_concurrency,
             tesseract_workers=max(1, min(4, settings.import_workers)),
             vision_url=vision.display_url if vision else "",
-            vision_remote=remote,
+            vision_remote=_remote(vision),
             max_minutes=settings.ai_transcribe_max_minutes,
             transcribe_threads=transcribe_threads(settings),
             transcribe_uncertain=settings.ai_transcribe_uncertain,
+            text_model=text.model if text else "",
+            text_url=text.display_url if text else "",
+            text_remote=_remote(text),
+            context_tokens=settings.ai_context_tokens,
         )
+
+
+def _remote(service: Service | None) -> bool:
+    if service is None:
+        return False
+    try:
+        return locality(service.url) == "remote"
+    except ForbiddenService:
+        return False
 
 
 def transcribe_threads(settings: Settings) -> int:
@@ -313,6 +355,7 @@ class AiProgress(RunProgress):
     position: float | None = None  # seconds reached in the recording in work
     duration: float | None = None  # of the recording in work, once decoded
     unreachable_since: datetime | None = None  # a service did not answer since then (D184)
+    summaries: int = 0  # summarize tasks done (D300); done, no_text and failed count OCR's
 
 
 TRANSCRIBER_MODULES = ("onnx_asr", "onnxruntime", "av")  # what the transcriber needs installed
@@ -322,3 +365,54 @@ def transcriber_available() -> bool:
     """Whether the transcriber's libraries are installed (AiTranscriptionInfo.available); they
     are looked up, not imported."""
     return all(importlib.util.find_spec(name) is not None for name in TRANSCRIBER_MODULES)
+
+
+# Summaries (D300 to D311) -----------------------------------------------------------------------
+
+
+class ThemeHint(BaseModel):
+    """A theme of themes.toml with the quote that shows it (D304), checked against the text."""
+
+    theme: str  # a theme key of themes.toml
+    quote: str  # as it stands in the text (its spelling, not the model's)
+    # Character offset in the stored text (mail.body_text, document.extracted_text); None: it
+    # stands only in the head (subject, file name) or in a line the input added ("Weitergeleitet:").
+    position: int | None = None
+
+
+class SummaryPart(BaseModel):
+    """One part of a long text and what the model made of it (ai_result.pages of a summary)."""
+
+    number: int  # from 1
+    characters: int  # of the part's text
+    summary: str = ""
+    error: str | None = None  # the part failed (English, one line); the others count
+    seconds: float = 0.0
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+class Summary(BaseModel):
+    """What the summarize step hands ai.store.store_summary_result: the checked answer."""
+
+    summary: str  # "" for a short text (short) or when the model found nothing to say
+    tags: list[str]  # labels as checked (D304), at most SUMMARY_MAX_TAGS
+    themes: list[ThemeHint]
+    parts: list[SummaryPart]  # one for a text that fits the context
+    parts_total: int  # the text's parts; more than len(parts) when cut at SUMMARY_MAX_PARTS
+    short: bool = False  # own text below SUMMARY_MIN_WORDS: tags and hints only (D302)
+    dropped_tags: int = 0  # too long, or beyond SUMMARY_MAX_TAGS
+    dropped_themes: int = 0  # unknown theme, or the quote is not in the text (D304)
+    words: int = 0  # of the text read
+    origin: str | None = None  # a document's text_origin: extracted, ocr or transcript
+
+
+def tag_key(label: str) -> str:
+    """The key an AI tag is stored and matched by (D305): NFKC, case folded, umlauts and ß
+    written out, every run of spaces, dashes and underscores one space, the ends trimmed: so
+    "Spenden-Quittung" and "spenden quittung " are one tag, "Größe" and "groesse" too, while
+    "Spendenquittung" is another."""
+    folded = unicodedata.normalize("NFKC", label).casefold()
+    for umlaut, written in (("ä", "ae"), ("ö", "oe"), ("ü", "ue"), ("ß", "ss")):
+        folded = folded.replace(umlaut, written)
+    return re.sub(r"[\s_\-\u2010-\u2015]+", " ", folded).strip()

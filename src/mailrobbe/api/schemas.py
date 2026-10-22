@@ -229,6 +229,24 @@ X-Mailrobbe-Editor (D54):
                                                  job_running while an import or AI run lives
     POST /api/ai/run/stop                        AiJob, its stop requested
 
+Summaries and AI tags (milestone 17, D300 to D311): POST /api/ai/tasks takes kind summarize with
+mail_ids, mail_filters (an Akte is collection=<id>), document_ids or the document list's filters,
+and with preview only counts and estimates; tasks, results and the send log name a mail or a
+document (target). MailFilters has ai_tag and ai_theme, DocumentFilters ai_tag:
+
+    GET  /api/ai/summary?AiSummaryParams         AiSummaryView: the summary of one mail or
+                                                 document, its open task, and for a mail the
+                                                 summaries of its attachments (D307); 400
+                                                 invalid_selection unless exactly one is given,
+                                                 404 not_found for an unknown one
+    GET  /api/ai/facets?MailFilters              AiFacets: AI tags and themes of the matching
+                                                 mails, counted as the entity facets (D309)
+    GET  /api/ai/tags?AiTagParams                list[AiTagCount]: AI tags by id or by part of
+                                                 their name, most mails first (D309)
+    POST /api/ai/tags/{id}/adopt                 AiTagAdopt -> AiTagAdopted: a team tag of the
+                                                 same name on the mails carrying the AI tag
+                                                 (D310); 404 not_found for an unknown AI tag
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -265,6 +283,7 @@ from mailrobbe.dkim.keys.model import (
 )
 from mailrobbe.enums import (
     AiResultState,
+    AiTarget,
     AiTaskKind,
     AiTaskStatus,
     AliasTier,
@@ -473,6 +492,11 @@ class MailFilters(BaseModel):
     # Milestone 20 (D248): the mail carries a photo whose position lies in this area,
     # "west,south,east,north" in decimal degrees; west above east crosses the 180th meridian.
     photo_area: str | None = Field(default=None, pattern=AREA_PATTERN)
+    # Milestone 17 (D309): a valid summary of the mail or of one of its attachments' documents
+    # has each of these AI tags (ai_tag.id); has a theme hint for each of these theme keys of
+    # themes.toml (an unknown key is invalid_filter).
+    ai_tag: list[int] = []
+    ai_theme: list[str] = []
 
 
 class MailOrderParams(MailFilters):
@@ -1878,6 +1902,7 @@ class DocumentFilters(BaseModel):
     program: list[str] = []
     protection: list[DocumentProtection] = []  # any of these (D233); empty: all
     text_origin: list[TextOrigin] = []  # where its text comes from (D185, D189); empty: all
+    ai_tag: list[int] = []  # a valid summary of it has each of these AI tags (D309)
 
 
 class DocumentListParams(DocumentFilters):
@@ -3058,7 +3083,9 @@ class MapDownloadRequest(BaseModel):
 # selection, never the whole archive (D186); a run of kind ai works it through (D187).
 
 AiWorkList = Literal["scanned", "images", "media"]  # ai.queue.WorkList
-AiPhase = Literal["check", "ocr", "transcribe", "entities", "signals"]  # ai.model.AI_STEPS
+AiPhase = Literal[
+    "check", "ocr", "transcribe", "summarize", "entities", "signals"
+]  # ai.model.AI_STEPS
 AI_QUEUE_LIMIT = 50_000  # documents one request may queue (D186)
 AI_PAGE_SIZE = 50  # default page of the task, result and send log lists
 # Seconds per page without a measurement (D188); an image counts as one page.
@@ -3138,6 +3165,8 @@ class AiStatus(BaseModel):
     job: AiJob | None  # the latest AI run; None before the first
     defaults: AiOptions  # the options of the latest run, or the settings' before the first (D49)
     transcription: "AiTranscriptionInfo | None" = None  # the transcriber (D290, D291)
+    # A text service is configured and allowed (D300): "Zusammenfassen" shows, else a hint.
+    text: bool = False
 
 
 class AiTranscriptionInfo(BaseModel):
@@ -3153,9 +3182,10 @@ class AiTranscriptionInfo(BaseModel):
 
 
 class AiQueueRequest(BaseModel):
-    """What to queue: exactly one of work_list, document_ids and filters (D186). Each document
-    gets what fits it, OCR for a scan or picture and a transcription for a recording (D295),
-    unless kind names one."""
+    """What to queue: for OCR and transcription exactly one of work_list, document_ids and
+    filters (D186), each document getting what fits it, OCR for a scan or picture and a
+    transcription for a recording (D295), unless kind names one; for summarize exactly one
+    of mail_ids, mail_filters, document_ids and filters (D308)."""
 
     work_list: AiWorkList | None = None
     document_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)
@@ -3163,9 +3193,17 @@ class AiQueueRequest(BaseModel):
     engine: OcrEngineChoice = "auto"
     include_logos: bool = False  # images in more than LOGO_MAILS mails too
     single: bool = False  # one document from its page: first in the queue, a logo too
-    # With document_ids: start a run reading only these documents at once (D280).
+    # With document_ids or mail_ids: start a run for only these at once (D280, D307); with
+    # filters or mail_filters (summarize only): start a run for the whole queue unless an AI run
+    # is alive (D308).
     start: bool = False
-    kind: AiTaskKind | None = None  # only this kind of task; None: what fits each document
+    # Only this kind of task; None: what fits each document (OCR or a transcription). Summaries
+    # are asked for by name (D308); 400 invalid_option for a kind the selection cannot have.
+    kind: AiTaskKind | None = None
+    mail_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)
+    mail_filters: MailFilters | None = None  # the mail list's; an Akte is collection=[id]
+    # Nothing is queued: AiQueued says how many would be and, for summarize, how long (D308).
+    preview: bool = False
 
 
 # What start did (D280): a run for these documents began; an AI run is alive already and takes
@@ -3183,6 +3221,21 @@ class AiQueued(BaseModel):
     # unknown id
     logos: int  # images in more than LOGO_MAILS mails, left out
     run: AiQueuedRun | None = None  # with start, None without
+    # Summaries (D302, D308): mails among them with less own text than SUMMARY_MIN_WORDS (tags
+    # and theme hints only), and how long the queued (with preview: the queueable) ones take.
+    short: int = 0
+    estimate: "AiTextEstimate | None" = None
+
+
+class AiTextEstimate(BaseModel):
+    """How long summarising a selection takes (D188, D308): per task and per 1,000 tokens of
+    input, measured for the model (ai_calibration, unit ktoken) or by the rule of thumb."""
+
+    model: str  # the text model; "" when none is set
+    tasks: int
+    tokens: int  # of the input, estimated from its characters (CHARS_PER_TOKEN)
+    seconds: float
+    estimated: bool  # True: by SUMMARY_RULE_SECONDS_*, "geschätzt"
 
 
 class AiDocumentRef(BaseModel):
@@ -3193,6 +3246,14 @@ class AiDocumentRef(BaseModel):
     kind: DocumentKind | None
     pages: int | None
     duration: float | None = None  # seconds of a recording, once known (D293)
+
+
+class AiMailRef(BaseModel):
+    """The mail a task, result or send is about, by its content (the earliest such mail)."""
+
+    id: int
+    subject: str | None
+    date: datetime | None
 
 
 class AiTaskParams(BaseModel):
@@ -3217,6 +3278,8 @@ class AiTaskItem(BaseModel):
     pages_read: int  # pages of ai_task.partial, kept across a stop (D187)
     pages_total: int | None
     result_id: int | None
+    target: AiTarget = AiTarget.DOCUMENT  # D301: document or mail names it
+    mail: AiMailRef | None = None  # None: a document's task, or no mail has the content any more
     seconds_read: float | None = None  # transcribe: seconds of the recording read so far
 
 
@@ -3264,6 +3327,11 @@ class AiResultItem(BaseModel):
     job_id: int | None
     discarded_by: str | None
     discarded_at: datetime | None
+    target: AiTarget = AiTarget.DOCUMENT  # D301
+    mail: AiMailRef | None = None
+    # A summary (D300): characters is its length, pages_read and pages_total its parts.
+    tags: int = 0
+    themes: int = 0
     # A transcript's (D293); pages_* are 0 for it
     duration: float | None = None
     transcribed: float | None = None  # seconds read
@@ -3291,6 +3359,8 @@ class AiSendItem(BaseModel):
     document: AiDocumentRef | None
     bytes: int
     job_id: int | None
+    target: AiTarget = AiTarget.DOCUMENT  # D301
+    mail: AiMailRef | None = None
 
 
 class AiSendLogPage(BaseModel):
@@ -3306,6 +3376,7 @@ class AiRunRequest(BaseModel):
     engine: OcrEngineChoice | None = None  # for tasks queued with auto
     vision_model: str | None = Field(default=None, max_length=200)
     max_pages: int | None = Field(default=None, ge=1, le=10_000)
+    text_model: str | None = Field(default=None, max_length=200)  # summaries (D300)
     max_minutes: int | None = Field(default=None, ge=1, le=10_000)  # per recording (D292)
 
 
@@ -3371,6 +3442,125 @@ class TranscriptView(BaseModel):
 
     result: DocumentTranscriptResult
     segments: list[TranscriptSegment]  # in time order
+
+
+# Summaries and AI tags (milestone 17, D300 to D311) ------------------------------------------
+#
+# A summary is a valid ai_result of kind summarize for a mail (by raw_sha256) or a document (by
+# sha256); its tags and theme hints hang on it and leave every view with it (D306). Everything
+# here is "maschinell erzeugt" (D311): the UI says so with model and date wherever it shows.
+
+
+AI_FACET_TAGS = 20  # AI tags in AiFacets
+
+
+class AiSummaryParams(BaseModel):
+    """Exactly one of mail and document."""
+
+    mail: int | None = None
+    document: int | None = None
+
+
+class AiTagCount(BaseModel):
+    """An AI tag with the mails it describes: those whose own summary or whose attachment's
+    document's summary has it (D309), duplicates included."""
+
+    id: int
+    label: str
+    mails: int
+
+
+class AiSummaryTheme(BaseModel):
+    theme: str  # the key of themes.toml
+    label: str  # the theme's name there
+    quote: str  # as it stands in the text
+    position: int | None  # character offset in the text the summary read; None: in its head
+
+
+class AiSummaryResult(BaseModel):
+    """One valid summary (D307)."""
+
+    id: int  # ai_result.id: "Verwerfen" is POST /api/ai/results/{id}/discard
+    target: AiTarget
+    summary: str  # "" when short (or the model found nothing to say)
+    short: bool  # own text below SUMMARY_MIN_WORDS: tags and theme hints only (D302)
+    tags: list[AiTagCount]
+    themes: list[AiSummaryTheme]
+    parts_read: int  # parts of the text summarised
+    parts_total: int  # more than parts_read: only the first ones (D303)
+    origin: TextOrigin | None  # a document's text it read: extracted, ocr or transcript
+    model: str | None
+    remote: bool  # made by a service outside this machine (D181)
+    prompt_version: int | None
+    created_at: datetime
+
+
+class AiSummaryTask(BaseModel):
+    """The open summarize task of the element: vorgemerkt or läuft."""
+
+    id: int
+    status: AiTaskStatus  # waiting or running
+    parts_done: int  # parts of a long text summarised so far
+    parts_total: int | None
+
+
+class AiAttachmentSummary(BaseModel):
+    """The summary of one of a mail's attachments, by its document."""
+
+    document_id: int
+    name: str | None
+    result: AiSummaryResult
+
+
+class AiSummaryView(BaseModel):
+    """What the card "KI-Zusammenfassung" shows (D307); asked again every 3 s while task is open."""
+
+    available: bool  # a text service is configured and allowed (AiStatus.text)
+    # The element has something to summarise: a mail with a subject or text, a document with a
+    # SHA-256 and a text (extracted, recognised or transcribed).
+    summarizable: bool
+    result: AiSummaryResult | None
+    task: AiSummaryTask | None
+    failed: str | None  # the latest task failed with this reason (English) and none is open
+    attachments: list[AiAttachmentSummary]  # a mail's attachments with a summary; [] else
+
+
+class AiFacetTheme(BaseModel):
+    key: str
+    label: str
+    mails: int
+
+
+class AiFacets(BaseModel):
+    """AI tags and themes among the mails of a filter (D309), counted as EntityFacets count."""
+
+    tags: list[AiTagCount]  # most mails first, at most AI_FACET_TAGS
+    themes: list[AiFacetTheme]  # in the order of themes.toml, themes with mails only
+    mails: int | None  # mails counted over; None without filters (the whole archive)
+    sampled: bool  # the filter matches more than FACET_MAILS mails
+
+
+class AiTagParams(BaseModel):
+    id: list[int] = []  # these AI tags; empty: by q
+    q: str = ""  # part of the label, any case
+    limit: int = Field(FACET_LIMIT, ge=1, le=MAX_FACET_LIMIT)
+
+
+class AiTagAdopt(BaseModel):
+    """Which mails get the team tag (D310): one mail, the mails of a filter that carry the AI
+    tag, or without either every mail carrying it. Never more than BULK_LIMIT mails."""
+
+    mail_id: int | None = None
+    filters: MailFilters | None = None
+
+
+class AiTagAdopted(BaseModel):
+    tag_id: int  # the team tag (tag.id), found by its name or made with it
+    created: bool  # the team tag was made now
+    mails: int  # mails it was added to now (those that had it already not counted)
+
+
+AiQueued.model_rebuild()
 
 
 ImportStatus.model_rebuild()

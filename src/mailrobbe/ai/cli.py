@@ -1,23 +1,28 @@
 """`mailrobbe ai`: text of scanned PDFs and images from Tesseract or a vision model (D180 to D189),
-and transcripts of audio and video from Parakeet (D290 to D297).
+transcripts of audio and video from Parakeet (D290 to D297), and summaries, AI tags and theme
+hints of mails and documents from a text model (D300 to D308).
 
     run     work through the queue (ai.run): a run of kind ai with the steps check, ocr,
-            transcribe, entities and signals; stoppable at any page or piece of a recording,
-            the next run continues there
-    check   ask each configured service for real (a picture with a known word for vision) and
-            print what it found as JSON
+            transcribe, summarize, entities and signals; stoppable at any page, piece of a
+            recording or part, the next run continues there. --document and --mail take only
+            the tasks of these elements
+    check   ask each configured service for real (a picture with a known word for vision, a
+            short text whose summary must name that word for text) and print what it found as
+            JSON
     queue   put a selection on the queue: the work lists "scanned", "images" and "media" of the
-            AI page, or documents by id (D186, D295)
+            AI page, or documents by id (D186, D295); with --summarize, summaries of mails, of
+            the mails of an Akte and of documents (D308)
     model   print the state of the transcriber's files as JSON; with --download fetch what is
             missing (D291), which a run that transcribes also does in its check step
     status  print the tasks per kind and status, the transcriber and the latest run as JSON
 
 The dashboard starts `mailrobbe ai --origin ui run [options]` as a child process (D46) and stops
-it with a stop request. Exit status of run as in ai.run: 0 done, 130 stopped by request, 1 when
-it could not start or ended early for a reason it names, 2 for arguments it cannot use; check
-exits with 1 when a configured service fails. `model --download` holds the lock of the AI runs
-while it downloads, so it refuses (1) while a run is alive and a run refuses meanwhile; Ctrl-C
-stops it (130), keeping what came for the next download.
+it with a stop request; "Zusammenfassen" on a mail or a document starts it with --mail=ID or
+--document=ID (D307). Exit status of run as in ai.run: 0 done, 130 stopped by request, 1 when it
+could not start or ended early for a reason it names, 2 for arguments it cannot use; check exits
+with 1 when a configured service fails. `model --download` holds the lock of the AI runs while it
+downloads, so it refuses (1) while a run is alive and a run refuses meanwhile; Ctrl-C stops it
+(130), keeping what came for the next download.
 """
 
 import argparse
@@ -29,7 +34,7 @@ import time
 from dataclasses import asdict
 from typing import Any, get_args
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from mailrobbe import jobs
@@ -43,7 +48,7 @@ from mailrobbe.ai.model import (
     transcribe_threads,
     transcriber_available,
 )
-from mailrobbe.ai.queue import enqueue, task_counts, work_list_ids
+from mailrobbe.ai.queue import enqueue, enqueue_summaries, task_counts, work_list_ids
 from mailrobbe.ai.run import EXIT_FAILED, Engines, default_engines, run_ai
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
@@ -55,6 +60,11 @@ from mailrobbe.jobs import latest_job
 log = logging.getLogger(__name__)
 
 EXIT_USAGE = 2
+# The mails of Akten: every mail with the content of one in them (D53); duplicates share a task.
+_AKTE_MAILS = text("""
+    SELECT m.id FROM collection_mail c JOIN mail m ON m.raw_sha256 = c.mail_sha256
+    WHERE c.collection_id = ANY(CAST(:ids AS bigint[]))
+""")
 
 
 def _positive(value: str) -> int:
@@ -77,13 +87,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     engines = get_args(OcrEngineChoice)
     work = tasks.add_parser(
         "run",
-        help="recognise the text of the queued documents and transcribe the queued recordings",
+        help="recognise and transcribe the queued documents and summarise the queued texts",
         description="Work through the queue: render the pages of each queued document, read "
         "them with Tesseract or the vision model and store the text; decode each queued "
         "recording and transcribe its speech with Parakeet, downloading the model's files "
         "first when they are missing (MAILROBBE_AI_MODEL_DIR). Both texts become searchable "
-        "like an extracted one; then scan the new texts for entities and compute the signals. "
-        "Ctrl-C stops after the page or piece in work; the next run continues there.",
+        "like an extracted one; summarise the queued mails and documents with the text model, "
+        "with AI tags and theme hints; then scan the new texts for entities and compute the "
+        "signals. Ctrl-C stops after the page, piece or part in work; the next run continues "
+        "there.",
     )
     work.add_argument(
         "--engine",
@@ -119,21 +131,51 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         metavar="ID",
         help="read only this queued document, leaving the rest of the queue waiting; repeatable",
     )
+    work.add_argument(
+        "--mail",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="summarise only this queued mail (with --document: and these documents), leaving "
+        "the rest of the queue waiting; repeatable",
+    )
+    work.add_argument(
+        "--text-model", help="the text model for this run (default: MAILROBBE_AI_TEXT_MODEL)"
+    )
     work.add_argument("--quiet", action="store_true", help="no progress output")
     tasks.add_parser(
         "check",
         help="test the configured AI services and print what they answered as JSON",
-        description="Ask each configured service for its models and read a picture with a "
-        "known word with the vision model; refused services (outside this machine without "
-        "MAILROBBE_AI_ALLOW_REMOTE) are not asked. Exits with 1 when one fails.",
+        description="Ask each configured service for its models, read a picture with a known "
+        "word with the vision model and have the text model summarise a short text naming that "
+        "word; refused services (outside this machine without MAILROBBE_AI_ALLOW_REMOTE) are "
+        "not asked. Exits with 1 when one fails.",
     )
     queue = tasks.add_parser(
         "queue",
-        help="queue documents for text recognition or transcription",
+        help="queue documents for OCR or transcription, or mails and documents for summaries",
         description="Queue OCR for the scanned PDFs, the images of the AI page's work list "
         "(100 KB and more, in at most 50 mails), a transcription for the recordings, or what "
         "fits documents by id. Documents with a text of their own and documents without a "
-        "SHA-256 are left out.",
+        "SHA-256 are left out. With --summarize, queue summaries of mails, of the mails of "
+        "an Akte and of documents with a text instead.",
+    )
+    queue.add_argument(
+        "--summarize",
+        action="store_true",
+        help="summaries, AI tags and theme hints of --mail, --collection and --document",
+    )
+    queue.add_argument(
+        "--mail", type=int, action="append", default=[], metavar="ID", help="a mail; repeatable"
+    )
+    queue.add_argument(
+        "--collection",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="the mails of an Akte; repeatable",
     )
     queue.add_argument("--scanned", action="store_true", help="every scanned PDF not read yet")
     queue.add_argument("--images", action="store_true", help="the work list of images")
@@ -222,6 +264,10 @@ def options(settings: Settings, args: argparse.Namespace) -> AiOptions:
         update["max_minutes"] = args.max_minutes
     if args.document:
         update["documents"] = sorted(set(args.document))
+    if args.mail:
+        update["mails"] = sorted(set(args.mail))
+    if args.text_model:
+        update["text_model"] = args.text_model.strip()
     return found.model_copy(update=update)
 
 
@@ -229,7 +275,7 @@ async def check(settings: Settings, engines: Engines | None = None) -> list[Serv
     """Each configured service checked for real, in the order of the capabilities."""
     services = configured_services(settings)
     if not services:
-        log.info("no AI service is configured (MAILROBBE_AI_VISION_URL)")
+        log.info("no AI service is configured (MAILROBBE_AI_VISION_URL, MAILROBBE_AI_TEXT_URL)")
         return []
     engines = engines or default_engines()
     return [
@@ -250,6 +296,11 @@ def failed(found: ServiceCheck) -> bool:
 
 
 async def _queue(settings: Settings, args: argparse.Namespace) -> int:
+    if args.summarize:
+        return await _queue_summaries(settings, args)
+    if args.mail or args.collection:
+        log.error("--mail and --collection queue summaries: add --summarize")
+        return EXIT_USAGE
     if not (args.scanned or args.images or args.media or args.document):
         log.error("name what to queue: --scanned, --images, --media or --document ID")
         return EXIT_USAGE
@@ -266,6 +317,28 @@ async def _queue(settings: Settings, args: argparse.Namespace) -> int:
             queued = await enqueue(
                 session, ids, engine=args.engine, include_logos=args.include_logos
             )
+    finally:
+        await engine.dispose()
+    print(json.dumps(asdict(queued), indent=2))
+    return 0
+
+
+async def _queue_summaries(settings: Settings, args: argparse.Namespace) -> int:
+    """Summaries of the mails, the Akten's mails and the documents named (D308)."""
+    if args.scanned or args.images or args.media:
+        log.error("--summarize takes --mail, --collection and --document, not a work list")
+        return EXIT_USAGE
+    if not (args.mail or args.collection or args.document):
+        log.error("name what to summarise: --mail ID, --collection ID or --document ID")
+        return EXIT_USAGE
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_sessionmaker(engine).begin() as session:
+            mails = list(args.mail)
+            if args.collection:
+                found = await session.execute(_AKTE_MAILS, {"ids": args.collection})
+                mails += found.scalars()
+            queued = await enqueue_summaries(session, mail_ids=mails, document_ids=args.document)
     finally:
         await engine.dispose()
     print(json.dumps(asdict(queued), indent=2))

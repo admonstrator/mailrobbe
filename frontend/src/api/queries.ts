@@ -29,6 +29,7 @@ import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
   AiChanged,
+  AiFacets,
   AiJob,
   AiQueued,
   AiQueueRequest,
@@ -37,6 +38,12 @@ import type {
   AiRunRequest,
   AiSendLogPage,
   AiStatus,
+  AiSummaryParams,
+  AiSummaryView,
+  AiTagAdopt,
+  AiTagAdopted,
+  AiTagCount,
+  AiTagParams,
   AiTaskAction,
   AiTaskPage,
   AiTaskParams,
@@ -1609,6 +1616,10 @@ export const aiKeys = {
   tasks: (params: AiTaskParams) => ["ai", "tasks", params] as const,
   results: (params: AiResultParams) => ["ai", "results", params] as const,
   sendLog: ["ai", "send-log"] as const,
+  // Milestone 17 (D307, D309): under "ai", so a queue change or a discard asks them again.
+  summary: (params: AiSummaryParams) => ["ai", "summary", params] as const,
+  facets: (filters: MailFilters) => ["ai", "facets", filters] as const,
+  tags: (params: AiTagParams) => ["ai", "tags", params] as const,
 };
 
 /** How often the AI page asks for the status (D48): every 2 s while a run is alive, else every
@@ -1736,4 +1747,43 @@ export function useStopAiRun() {
     mutationFn: () => apiPost<AiJob>("/api/ai/run/stop", {}),
     onSuccess: (job) => showAiRun(queryClient, job),
   });
+}
+
+// Summaries and AI tags (milestone 17, D300 to D311) ------------------------------------------
+
+/** The card "KI-Zusammenfassung" of one mail or document (D307); asked again every 3 s while its
+ *  task is open, so the summary shows without a reload. */
+export function useAiSummary(params: AiSummaryParams, enabled = true) {
+  return useQuery({
+    queryKey: aiKeys.summary(params),
+    queryFn: ({ signal }) => apiGet<AiSummaryView>("/api/ai/summary", params, signal),
+    enabled,
+    refetchInterval: (query) => (query.state.data?.task ? OCR_POLL : false),
+  });
+}
+
+/** AI tags and themes among the mails of a filter (D309). */
+export function useAiFacets(filters: MailFilters, enabled = true) {
+  return useQuery({
+    queryKey: aiKeys.facets(filters),
+    queryFn: ({ signal }) => apiGet<AiFacets>("/api/ai/facets", filters, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** AI tags by id (the chips of a filter) or by part of their name (D309). */
+export function useAiTags(params: AiTagParams, enabled = true) {
+  return useQuery({
+    queryKey: aiKeys.tags(params),
+    queryFn: ({ signal }) => apiGet<AiTagCount[]>("/api/ai/tags", params, signal),
+    enabled,
+  });
+}
+
+/** Adds the team tag of an AI tag's name to its mails (D310): the research data changes. */
+export function useAdoptAiTag() {
+  return useResearchWrite(({ tagId, ...body }: AiTagAdopt & { tagId: number }) =>
+    apiPost<AiTagAdopted>(`/api/ai/tags/${tagId}/adopt`, body),
+  );
 }

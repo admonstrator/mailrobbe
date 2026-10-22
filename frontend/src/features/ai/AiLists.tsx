@@ -10,9 +10,11 @@ import {
 } from "../../api/queries";
 import type {
   AiDocumentRef,
+  AiMailRef,
   AiResultItem,
   AiResultState,
   AiStatus,
+  AiTarget,
   AiTaskItem,
   AiTaskStatus,
 } from "../../api/types";
@@ -37,6 +39,7 @@ import {
   pageNumbers,
   queueCounts,
   RESULT_STATE_LABELS,
+  SUMMARY_LABEL,
   TASK_KIND_LABELS,
   TASK_STATUS_LABELS,
   TASK_STATUSES,
@@ -47,6 +50,12 @@ import {
 function pagesAmount(read: number, total: number | null): string {
   if (total !== null) return `${formatNumber(read)} von ${formatNumber(total)} Seiten`;
   return read > 0 ? `${formatNumber(read)} ${read === 1 ? "Seite" : "Seiten"}` : "–";
+}
+
+/** A summary's parts read (D303): "1 von 4", "2", or "–". */
+function partsAmount(read: number, total: number | null): string {
+  if (total !== null) return `${formatNumber(read)} von ${formatNumber(total)}`;
+  return read > 0 ? formatNumber(read) : "–";
 }
 
 /** A recording's part read of its length (D293): "1:05 von 3:12", "3:12", or "–". */
@@ -65,6 +74,25 @@ function DocumentCell({ document }: { document: AiDocumentRef | null }) {
   );
 }
 
+type Element = { target: AiTarget; document: AiDocumentRef | null; mail: AiMailRef | null };
+
+function elementName(item: Element): string {
+  if (item.target === "mail") return item.mail?.subject || "(ohne Betreff)";
+  return item.document?.name || "ohne Namen";
+}
+
+/** A task, result or send names a document or, for a summary, a mail by its subject (D301). */
+function ElementCell({ item }: { item: Element }) {
+  if (item.target !== "mail") return <DocumentCell document={item.document} />;
+  if (!item.mail) return <span className={styles.muted}>gelöscht</span>;
+  return (
+    <Link to={`/mails/${item.mail.id}`} className={styles.docLink}>
+      {elementName(item)}
+    </Link>
+  );
+}
+
+/** The tasks of every kind by status: OCR and summaries share the queue and its actions. */
 /** A filter button of a list; none pressed shows everything. */
 function Toggle({
   active,
@@ -173,14 +201,14 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
           }
         >
           Vorgemerkt wird oben in den Arbeitslisten, in der Anhangsliste oder auf der Seite eines
-          Dokuments.
+          Dokuments; Zusammenfassungen auch in der Mailliste und auf der Seite einer Mail.
         </EmptyState>
       ) : (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Dokument</th>
+                <th>Dokument oder Mail</th>
                 <th>Status</th>
                 <th>Verfahren</th>
                 <th className={styles.num}>Umfang</th>
@@ -229,14 +257,17 @@ function TaskRow({
   onRetry: () => void;
   onCancel: () => void;
 }) {
+  const summary = task.kind === "summarize";
   const transcribe = task.kind === "transcribe";
   const amount = transcribe
     ? secondsAmount(task.seconds_read, task.document?.duration)
-    : pagesAmount(task.pages_read, task.pages_total);
+    : summary
+      ? partsAmount(task.pages_read, task.pages_total)
+      : pagesAmount(task.pages_read, task.pages_total);
   return (
     <tr>
       <td>
-        <DocumentCell document={task.document} />
+        <ElementCell item={task} />
         {task.priority > 0 && <span className={styles.tag}>zuerst</span>}
         {task.error && <span className={styles.technical}>{task.error}</span>}
       </td>
@@ -249,10 +280,12 @@ function TaskRow({
         )}
       </td>
       <td>
-        {transcribe ? transcriber : ENGINE_LABELS[task.engine]}
-        <span className={styles.sub}>{TASK_KIND_LABELS[task.kind]}</span>
+        {summary ? SUMMARY_LABEL : transcribe ? transcriber : ENGINE_LABELS[task.engine]}
+        {!summary && <span className={styles.sub}>{TASK_KIND_LABELS[task.kind]}</span>}
       </td>
-      <td className={styles.num}>{amount}</td>
+      <td className={styles.num} title={summary ? "Abschnitte" : undefined}>
+        {amount}
+      </td>
       <td className={styles.nowrap}>
         {formatDateTime(task.queued_at)}
         {task.queued_by && <span className={styles.muted}>{` · ${task.queued_by}`}</span>}
@@ -293,7 +326,8 @@ export function ResultsCard({ alive }: { alive: boolean }) {
       <CardTitle id="ai-results-title">Ergebnisse</CardTitle>
       <p className={styles.muted}>
         Jeder erkannte Text und jedes Transkript bleibt hier verzeichnet. Verworfen geht es aus der
-        Suche, das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da.
+        Suche, das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da. Eine
+        verworfene Zusammenfassung verschwindet mit ihren Schlagwörtern und Hinweisen.
       </p>
       <div className={styles.chips} role="group" aria-label="Nach Zustand filtern">
         {RESULT_FILTERS.map((value) => (
@@ -317,7 +351,7 @@ export function ResultsCard({ alive }: { alive: boolean }) {
           <table className={styles.table}>
             <thead>
               <tr>
-                <th>Dokument</th>
+                <th>Dokument oder Mail</th>
                 <th>Verfahren</th>
                 <th className={styles.num}>Umfang</th>
                 <th className={styles.num}>Zeichen</th>
@@ -354,6 +388,9 @@ function ResultRow({
   onDiscard: (target: DiscardTarget) => void;
 }) {
   const total = result.pages_total ?? result.pages_read;
+  if (result.kind === "summarize") {
+    return <SummaryRow result={result} total={total} onDiscard={onDiscard} />;
+  }
   const transcript = result.kind === "transcribe";
   const lines = result.segments ?? 0;
   const uncertain = result.uncertain_segments ?? 0;
@@ -399,6 +436,68 @@ function ResultRow({
           <span className={styles.muted}>{` · Lauf ${formatNumber(result.job_id)}`}</span>
         )}
       </td>
+      <ResultEnd result={result} onDiscard={onDiscard} />
+    </tr>
+  );
+}
+
+/** A summary (D300): the mail or document, its tags and hints, the model, its parts. */
+function SummaryRow({
+  result,
+  total,
+  onDiscard,
+}: {
+  result: AiResultItem;
+  total: number;
+  onDiscard: (target: DiscardTarget) => void;
+}) {
+  const failed = result.failed.length;
+  return (
+    <tr>
+      <td>
+        <ElementCell item={result} />
+        <span className={styles.sub}>
+          {`${formatNumber(result.tags)} ${result.tags === 1 ? "Schlagwort" : "Schlagwörter"} · ${formatNumber(result.themes)} ${result.themes === 1 ? "Hinweis" : "Hinweise"}`}
+        </span>
+        {failed > 0 && (
+          <span className={styles.warningText}>
+            {`${formatNumber(failed)} ${failed === 1 ? "Abschnitt" : "Abschnitte"} nicht zusammengefasst`}
+          </span>
+        )}
+      </td>
+      <td>
+        {SUMMARY_LABEL}
+        <span className={styles.sub}>{engineName(result.engine, result.model)}</span>
+        {result.remote && <span className={cx(styles.place, styles.remote)}>Internet</span>}
+      </td>
+      <td className={styles.num} title="Abschnitte">
+        {total > 0 ? `${formatNumber(result.pages_read - failed)} von ${formatNumber(total)}` : "–"}
+      </td>
+      <td className={styles.num}>
+        {result.characters > 0 ? formatNumber(result.characters) : "–"}
+      </td>
+      <td className={styles.nowrap}>
+        {formatDateTime(result.created_at)}
+        <span className={styles.muted}>{` · ${formatElapsed(result.seconds)}`}</span>
+        {result.job_id !== null && (
+          <span className={styles.muted}>{` · Lauf ${formatNumber(result.job_id)}`}</span>
+        )}
+      </td>
+      <ResultEnd result={result} onDiscard={onDiscard} />
+    </tr>
+  );
+}
+
+/** The state of a result and its discard actions, the last two cells of its row. */
+function ResultEnd({
+  result,
+  onDiscard,
+}: {
+  result: AiResultItem;
+  onDiscard: (target: DiscardTarget) => void;
+}) {
+  return (
+    <>
       <td>
         <span className={cx(styles.state, styles[`result_${result.state}`])}>
           {RESULT_STATE_LABELS[result.state]}
@@ -419,7 +518,7 @@ function ResultRow({
           </>
         )}
       </td>
-    </tr>
+    </>
   );
 }
 
@@ -427,26 +526,33 @@ function DiscardDialog({ target, onClose }: { target: DiscardTarget; onClose: ()
   const discard = useDiscardAi();
   const [done, setDone] = useState<number | null>(null);
   const one = "result" in target;
+  const summary = one && target.result.kind === "summarize";
   return (
     <Dialog
       title={
-        !one
-          ? "Alle Texte dieses Laufs verwerfen?"
-          : target.result.kind === "transcribe"
-            ? "Transkript verwerfen?"
-            : "Erkannten Text verwerfen?"
+        summary
+          ? "Zusammenfassung verwerfen?"
+          : !one
+            ? "Alle Texte dieses Laufs verwerfen?"
+            : target.result.kind === "transcribe"
+              ? "Transkript verwerfen?"
+              : "Erkannten Text verwerfen?"
       }
       onClose={onClose}
     >
       {done !== null ? (
         <p className={styles.dialogText} role="status">
-          {`${formatNumber(done)} ${done === 1 ? "Text" : "Texte"} verworfen.`}
+          {summary
+            ? "Die Zusammenfassung ist verworfen."
+            : `${formatNumber(done)} ${done === 1 ? "Text" : "Texte"} verworfen.`}
         </p>
       ) : (
         <p className={styles.dialogText}>
-          {one
-            ? `Der Text von „${target.result.document?.name ?? "ohne Namen"}“ wird aus der Suche genommen; das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da.`
-            : `Jeder noch gültige Text, den Lauf ${formatNumber(target.job)} erkannt oder transkribiert hat, wird aus der Suche genommen. Das lässt sich nur durch neues Erkennen oder Transkribieren rückgängig machen.`}
+          {summary
+            ? `Die Zusammenfassung von „${elementName(target.result)}“ verschwindet mit ihren Schlagwörtern und Hinweisen, auch aus den Filtern der Mailliste.`
+            : one
+              ? `Der Text von „${target.result.document?.name ?? "ohne Namen"}“ wird aus der Suche genommen; das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da.`
+              : `Jeder noch gültige Text und jede Zusammenfassung, die Lauf ${formatNumber(target.job)} erkannt, transkribiert oder erzeugt hat, wird verworfen; Texte und Transkripte gehen aus der Suche. Das lässt sich nur durch einen neuen Lauf rückgängig machen.`}
         </p>
       )}
       {discard.error && (
@@ -491,7 +597,7 @@ export function SentCard() {
     <Card aria-labelledby="ai-sent-title">
       <CardTitle id="ai-sent-title">Gesendet</CardTitle>
       <p className={styles.muted}>
-        {`Seitenbilder, die an einen Dienst im Internet gingen: ${formatNumber(total)} ${total === 1 ? "Sendung" : "Sendungen"}. Jede ist hier verzeichnet.`}
+        {`Seitenbilder und Texte, die an einen Dienst im Internet gingen: ${formatNumber(total)} ${total === 1 ? "Sendung" : "Sendungen"}. Jede ist hier verzeichnet.`}
       </p>
       {log.isPending ? (
         <div className={styles.listLoading}>
@@ -508,7 +614,7 @@ export function SentCard() {
               <tr>
                 <th>Gesendet</th>
                 <th>Dienst</th>
-                <th>Dokument</th>
+                <th>Dokument oder Mail</th>
                 <th className={styles.num}>Größe</th>
               </tr>
             </thead>
@@ -518,7 +624,7 @@ export function SentCard() {
                   <td className={styles.nowrap}>{formatDateTime(item.sent_at)}</td>
                   <td className={styles.mono}>{item.service_url}</td>
                   <td>
-                    <DocumentCell document={item.document} />
+                    <ElementCell item={item} />
                   </td>
                   <td className={styles.num}>{formatBytes(item.bytes)}</td>
                 </tr>

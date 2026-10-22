@@ -2,10 +2,14 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  AiFacets,
   AiJob,
+  AiQueued,
   AiResultPage,
   AiSendLogPage,
   AiStatus,
+  AiSummaryResult,
+  AiSummaryView,
   AiTaskPage,
   AiTranscriptionInfo,
   CalendarEventInfo,
@@ -4352,6 +4356,11 @@ const aiDefaults: AiStatus["defaults"] = {
   vision_url: "http://host.docker.internal:11434",
   documents: [],
   vision_remote: false,
+  mails: [],
+  text_model: "",
+  text_url: "",
+  text_remote: false,
+  context_tokens: 4096,
   max_minutes: 180,
   transcribe_threads: 4,
   transcribe_uncertain: 0.8,
@@ -4448,6 +4457,7 @@ export const aiStatus: AiStatus = {
   remote_used: false,
   job: null,
   defaults: aiDefaults,
+  text: false,
   transcription: aiTranscription,
 };
 
@@ -4509,6 +4519,7 @@ export const aiJobRunning: AiJob = {
     tokens_out: 0,
     current: "Scan_20180306_7499.pdf",
     unreachable_since: null,
+    summaries: 0,
   },
 };
 
@@ -4536,6 +4547,8 @@ export const aiTaskPage: AiTaskPage = {
       pages_read: 0,
       pages_total: 3,
       result_id: null,
+      target: "document",
+      mail: null,
     },
     {
       id: 298,
@@ -4553,6 +4566,8 @@ export const aiTaskPage: AiTaskPage = {
       pages_read: 0,
       pages_total: null,
       result_id: null,
+      target: "document",
+      mail: null,
     },
     {
       id: 305,
@@ -4577,6 +4592,8 @@ export const aiTaskPage: AiTaskPage = {
       pages_total: null,
       result_id: null,
       seconds_read: 65,
+      target: "document",
+      mail: null,
     },
   ],
   next_cursor: null,
@@ -4603,6 +4620,10 @@ export const aiResultPage: AiResultPage = {
       job_id: 40,
       discarded_by: null,
       discarded_at: null,
+      target: "document",
+      mail: null,
+      tags: 0,
+      themes: 0,
     },
     {
       id: 88,
@@ -4633,6 +4654,10 @@ export const aiResultPage: AiResultPage = {
       transcribed: 192.4,
       segments: 4,
       uncertain_segments: 1,
+      target: "document",
+      mail: null,
+      tags: 0,
+      themes: 0,
     },
   ],
   next_cursor: null,
@@ -4648,6 +4673,8 @@ export const aiSendLogPage: AiSendLogPage = {
       document: { id: 5150, name: "Scan_20180306_7499.pdf", kind: "pdf", pages: 3 },
       bytes: 412_331,
       job_id: 40,
+      target: "document",
+      mail: null,
     },
   ],
   next_cursor: null,
@@ -4693,6 +4720,145 @@ export const scannedDocument: DocumentDetail = {
   ai: { result: null, task: null },
 };
 
+// Summaries and AI tags (milestone 17) -------------------------------------------------------
+
+/** The AI facets of the whole archive (D309): tags most mails first, themes in the order of
+ *  themes.toml. */
+export const aiFacets: AiFacets = {
+  tags: [
+    { id: 12, label: "Spende", mails: 214 },
+    { id: 5, label: "Parteitag", mails: 96 },
+    { id: 31, label: "Vorstandssitzung", mails: 41 },
+    { id: 8, label: "Barzahlung", mails: 17 },
+  ],
+  themes: [
+    { key: "spenden", label: "Spendenaffären", mails: 58 },
+    { key: "gewalt", label: "Gewalt", mails: 6 },
+  ],
+  mails: null,
+  sampled: false,
+};
+
+/** The same among the 1,207 mails with an attachment (summaryFiltered). */
+export const aiFacetsFiltered: AiFacets = {
+  tags: [
+    { id: 12, label: "Spende", mails: 38 },
+    { id: 31, label: "Vorstandssitzung", mails: 9 },
+  ],
+  themes: [{ key: "spenden", label: "Spendenaffären", mails: 11 }],
+  mails: 1_207,
+  sampled: false,
+};
+
+/** An archive without summaries. */
+export const aiFacetsEmpty: AiFacets = { tags: [], themes: [], mails: null, sampled: false };
+
+/** The AI page with a local text model beside the vision model (D300). */
+export const aiStatusText: AiStatus = {
+  ...aiStatus,
+  services: [
+    ...aiStatus.services,
+    {
+      capability: "text",
+      url: "http://host.docker.internal:1234/v1",
+      model: "local-text:8b",
+      protocol: "auto",
+      locality: "local",
+      refused: null,
+      key: false,
+    },
+  ],
+  defaults: {
+    ...aiDefaults,
+    kinds: ["ocr", "summarize"],
+    text_model: "local-text:8b",
+    text_url: "http://host.docker.internal:1234/v1",
+  },
+  text: true,
+};
+
+/** The summary of the contract mail: the first two of five parts, two tags, two theme hints. */
+export const aiSummaryResult: AiSummaryResult = {
+  id: 501,
+  target: "mail",
+  summary:
+    "Herr Brandt schickt die finale Fassung der Rahmenvereinbarung 2026 und bittet um Unterschrift bis Freitag. Die Spenden des Fördervereins sollen künftig ohne Quittungen verbucht werden; der Vorstand sei einverstanden.",
+  short: false,
+  tags: [
+    { id: 11, label: "Rahmenvereinbarung", mails: 14 },
+    { id: 12, label: "Spendenquittungen", mails: 3 },
+  ],
+  themes: [
+    {
+      theme: "spenden",
+      label: "Spendenaffären",
+      quote: "Spenden ohne Quittungen verbuchen",
+      position: 412,
+    },
+    { theme: "vertrag", label: "Verträge", quote: "Rahmenvereinbarung 2026", position: null },
+  ],
+  parts_read: 2,
+  parts_total: 5,
+  origin: null,
+  model: "local-text:8b",
+  remote: false,
+  prompt_version: 1,
+  created_at: "2026-10-21T18:40:00Z",
+};
+
+/** The card of the contract mail: its summary and the summary of its scanned attachment. */
+export const aiSummaryMail: AiSummaryView = {
+  available: true,
+  summarizable: true,
+  result: aiSummaryResult,
+  task: null,
+  failed: null,
+  attachments: [
+    {
+      document_id: 5150,
+      name: "Scan_20180306_7499.pdf",
+      result: {
+        ...aiSummaryResult,
+        id: 502,
+        target: "document",
+        summary: "Eine Quittung über 500 Euro, ausgestellt ohne Namen des Spenders.",
+        tags: [{ id: 12, label: "Spendenquittungen", mails: 3 }],
+        themes: [],
+        parts_read: 1,
+        parts_total: 1,
+        origin: "ocr",
+      },
+    },
+  ],
+};
+
+/** A mail with a text and no summary yet, a text service usable. */
+export const aiSummaryNone: AiSummaryView = {
+  available: true,
+  summarizable: true,
+  result: null,
+  task: null,
+  failed: null,
+  attachments: [],
+};
+
+/** The preview of summarising the mails with an attachment (D308): 312 short, by the rule of
+ *  thumb. */
+export const summarizePreview: AiQueued = {
+  queued: 1_207,
+  raised: 0,
+  unreadable: 0,
+  logos: 0,
+  run: null,
+  short: 312,
+  estimate: {
+    model: "text-local",
+    tasks: 1_207,
+    tokens: 1_850_000,
+    seconds: 7_800,
+    estimated: true,
+  },
+};
 // Transcripts (milestone 16) --------------------------------------------------------------------
 
 /** A run in the transcription step: 12,5 minutes transcribed, a voice message at 1:05 of 3:12. */

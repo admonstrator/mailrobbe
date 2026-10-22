@@ -1,7 +1,19 @@
-import type { DocumentKind, DocumentSummary, DocumentTextStatus, Stats } from "../../api/types";
+import { useState } from "react";
+
+import { useAiTags } from "../../api/queries";
+import {
+  FACET_LIMIT,
+  MAX_FACET_LIMIT,
+  type DocumentKind,
+  type DocumentSummary,
+  type DocumentTextStatus,
+  type Stats,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
+import { Spinner } from "../../components/Spinner";
 import { utcDay } from "../../lib/format";
+import { useDebounced } from "../../lib/useDebounced";
 import { DateField } from "../mails/FilterColumn";
 import { FilterGroup } from "../mails/FilterGroup";
 import { DebouncedInput } from "./DebouncedInput";
@@ -165,6 +177,8 @@ export function DocumentFilterColumn({
         ))}
       </FilterGroup>
 
+      <AiTagFilter selected={state.ai_tag} onChange={(ai_tag) => change({ ai_tag })} />
+
       <FilterGroup
         id="documents.protection"
         title="Verschlüsselt"
@@ -243,5 +257,80 @@ export function DocumentFilterColumn({
         )}
       </FilterGroup>
     </aside>
+  );
+}
+
+/** AI tags offered before a search. */
+const AI_TAGS_SHOWN = 6;
+
+/** The AI tags of the documents' summaries (D309), machine made (D311): the chosen ones as
+ *  chips, the most used others and a search by name (GET /api/ai/tags). Left out while the
+ *  archive has no AI tags and none is chosen. */
+function AiTagFilter({
+  selected,
+  onChange,
+}: {
+  selected: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const q = useDebounced(text.trim(), 250);
+  const searching = text.trim() !== "";
+  const named = useAiTags({ id: selected, limit: MAX_FACET_LIMIT }, selected.length > 0);
+  const top = useAiTags({ limit: AI_TAGS_SHOWN + selected.length });
+  const found = useAiTags({ q, limit: FACET_LIMIT }, q !== "");
+  if (selected.length === 0 && !top.data?.length) return null;
+  const offered = ((searching ? found.data : top.data) ?? [])
+    .filter((tag) => !selected.includes(tag.id))
+    .slice(0, searching ? FACET_LIMIT : AI_TAGS_SHOWN);
+  const label = (id: number) => named.data?.find((tag) => tag.id === id)?.label ?? `#${id}`;
+
+  return (
+    <FilterGroup id="documents.ai_tag" title="KI-Schlagwort" active={selected.length > 0}>
+      <p className={styles.note}>Maschinell erzeugt, aus den Zusammenfassungen.</p>
+      {selected.map((id) => (
+        <span key={id} className={styles.chip}>
+          <span className={styles.chipText}>{label(id)}</span>
+          <button
+            type="button"
+            className={styles.chipRemove}
+            aria-label={`KI-Schlagwort entfernen: ${label(id)}`}
+            onClick={() => onChange(selected.filter((other) => other !== id))}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        type="search"
+        className={styles.input}
+        aria-label="KI-Schlagwort suchen"
+        placeholder="KI-Schlagwort suchen …"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {searching && !found.data && !found.isError ? (
+        <p className={styles.resultNote}>
+          <Spinner label="KI-Schlagwörter werden gesucht" /> Suche …
+        </p>
+      ) : searching && found.isError ? (
+        <p className={styles.note}>Die Suche ist fehlgeschlagen.</p>
+      ) : searching && offered.length === 0 ? (
+        <p className={styles.note}>Nichts gefunden.</p>
+      ) : (
+        offered.map((tag) => (
+          <Checkbox
+            key={tag.id}
+            checked={false}
+            onChange={() => {
+              onChange([...selected, tag.id]);
+              setText("");
+            }}
+          >
+            {tag.label}
+          </Checkbox>
+        ))
+      )}
+    </FilterGroup>
   );
 }

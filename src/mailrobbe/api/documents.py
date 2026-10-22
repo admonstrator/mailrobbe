@@ -102,6 +102,7 @@ from mailrobbe.api.filters import (
     WALK_ROWS,
     FilterError,
     _contains,
+    document_ai_tagged,
     internal_domains,
     mail_conditions,
 )
@@ -272,6 +273,7 @@ def document_conditions(
         where.append(Document.metadata_program.in_(sorted(set(filters.program))))
     if filters.text_origin:
         where.append(Document.text_origin.in_(sorted(set(filters.text_origin))))
+    where += [document_ai_tagged(tag_id) for tag_id in sorted(set(filters.ai_tag))]  # D309
     mail_filters = MailFilters(
         date_from=filters.date_from,
         date_to=filters.date_to,

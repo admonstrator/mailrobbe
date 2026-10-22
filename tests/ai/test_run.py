@@ -414,6 +414,7 @@ async def test_a_run_reads_the_queue_in_order_and_stores_the_texts(
         "check": "done",
         "ocr": "done",
         "transcribe": "skipped",
+        "summarize": "skipped",
         "entities": "done",
         "signals": "done",
     }
@@ -453,6 +454,7 @@ async def test_nothing_queued_skips_the_later_steps(archive: Archive, database: 
         "check": "done",
         "ocr": "skipped",
         "transcribe": "skipped",
+        "summarize": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }
@@ -573,6 +575,7 @@ async def test_a_stopped_run_continues_at_the_next_page(archive: Archive, databa
         "check": "done",
         "ocr": "stopped",
         "transcribe": "skipped",
+        "summarize": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }

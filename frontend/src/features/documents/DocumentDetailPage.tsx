@@ -17,6 +17,7 @@ import {
   formatDateTime,
   formatNumber,
 } from "../../lib/format";
+import { SummarizeButton, SummaryCard } from "../ai/SummaryCard";
 import { AttachmentPreview } from "../preview/AttachmentPreview";
 import { ContentsCard } from "./ContentsCard";
 import styles from "./DocumentDetailPage.module.css";
@@ -126,6 +127,7 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
         <DocumentHeader ref={header} document={document} />
         {document.protection && <ProtectionCard document={document} />}
         <DocumentTiles document={document} />
+        <SummaryCard target="document" id={document.id} />
         {document.preview && document.preview !== "image" && document.protection !== "locked" && (
           <PreviewCard document={document} kind={document.preview} onMedia={setPlayer} />
         )}
@@ -231,6 +233,7 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
         <div className={styles.downloads}>
           <Download document={document} />
           <RecognizeButton document={document} />
+          <SummarizeButton documentId={document.id} />
           <DecryptedDownload document={document} />
         </div>
       </div>
@@ -330,6 +333,7 @@ function CompactDocument({ document }: { document: DocumentDetail }) {
       <span className={styles.compactMeta}>{documentMeta(document).join(" · ")}</span>
       <Download document={document} size="sm" />
       <RecognizeButton document={document} size="sm" />
+      <SummarizeButton documentId={document.id} size="sm" />
     </>
   );
 }

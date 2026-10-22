@@ -118,6 +118,15 @@ class Settings(BaseSettings):
     ai_transcribe_max_minutes: int = Field(default=180, ge=1)
     ai_transcribe_threads: int = Field(default=0, ge=0)
     ai_transcribe_uncertain: float = Field(default=0.8, ge=0, le=1)
+    # Summaries and AI tags (M17, D300): the text service, set like the vision service (it may
+    # be the same server with another model); empty: no "Zusammenfassen". ai_context_tokens is
+    # the context the model was loaded with (LM Studio's slider, Ollama's num_ctx): a longer
+    # text is summarised in parts that fit it (D303).
+    ai_text_url: str = ""
+    ai_text_model: str = ""
+    ai_text_key: SecretStr = SecretStr("")
+    ai_text_protocol: Literal["auto", "openai", "ollama"] = "auto"
+    ai_context_tokens: int = Field(default=4096, ge=2048)
 
 
 def get_settings() -> Settings:

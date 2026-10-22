@@ -22,6 +22,7 @@ import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
+import { SummarizeButton } from "../ai/SummarizeManyDialog";
 import styles from "./CollectionScreen.module.css";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExportDialog } from "./ExportDialog";
@@ -117,6 +118,7 @@ function Collection({ collection }: { collection: CollectionDetail }) {
           <Button variant="primary" onClick={() => setExporting(true)}>
             Exportieren
           </Button>
+          <SummarizeButton selection={{ mail_filters: { collection: [id] } }} size="md" />
           <Button
             onClick={() => {
               remove.reset();

@@ -46,7 +46,9 @@ function currentPlace(progress: AiProgress): string | null {
 export function AiRunCard({ status }: { status: AiStatus }) {
   const job = status.job;
   const alive = Boolean(job?.alive && job.status === "running");
-  const waiting = queueCounts(status.queue).waiting;
+  // Documents to read or transcribe, and texts to summarise (D300), share the queue.
+  const summaries = status.queue.summarize.waiting;
+  const waiting = queueCounts(status.queue).waiting - summaries;
   return (
     <Card aria-labelledby="ai-run-title">
       <CardTitle id="ai-run-title">Lauf</CardTitle>
@@ -55,7 +57,7 @@ export function AiRunCard({ status }: { status: AiStatus }) {
       ) : (
         <>
           {job && <LastRun job={job} />}
-          <StartForm status={status} waiting={waiting} />
+          <StartForm status={status} waiting={waiting} summaries={summaries} />
         </>
       )}
     </Card>
@@ -92,6 +94,7 @@ function LiveRun({ job }: { job: AiJob }) {
         )}
         {readText(job)}
         {progress.failed > 0 && ` · ${formatNumber(progress.failed)} fehlgeschlagen`}
+        {progress.summaries > 0 && ` · ${summariesText(progress.summaries)}`}
         {` · ${formatNumber(progress.queued)} noch vorgemerkt`}
       </p>
       {progress.current && (
@@ -103,7 +106,7 @@ function LiveRun({ job }: { job: AiJob }) {
       )}
       {progress.unreachable_since && (
         <p className={styles.warning} role="alert">
-          {`Das Bildmodell antwortet nicht seit ${formatDateTime(progress.unreachable_since)}. Der Lauf wartet und versucht es weiter; läuft LM Studio oder Ollama noch?`}
+          {`${job.phase === "summarize" ? "Das Textmodell" : "Das Bildmodell"} antwortet nicht seit ${formatDateTime(progress.unreachable_since)}. Der Lauf wartet und versucht es weiter; läuft LM Studio oder Ollama noch?`}
         </p>
       )}
       {stop.error && (
@@ -132,6 +135,7 @@ function LastRun({ job }: { job: AiJob }) {
     <p className={styles.muted}>
       {`Letzter Lauf ${ended} am ${formatDateTime(when)}: ${readText(job)}`}
       {progress.failed > 0 && `, ${formatNumber(progress.failed)} fehlgeschlagen`}
+      {progress.summaries > 0 && `; ${summariesText(progress.summaries)}`}
       {"."}
       {job.message && job.status === "failed" && (
         <span className={styles.technical}>{` ${job.message}`}</span>
@@ -140,11 +144,25 @@ function LastRun({ job }: { job: AiJob }) {
   );
 }
 
-function StartForm({ status, waiting }: { status: AiStatus; waiting: number }) {
+/** "1 Zusammenfassung", "3 Zusammenfassungen" */
+function summariesText(count: number): string {
+  return `${formatNumber(count)} ${count === 1 ? "Zusammenfassung" : "Zusammenfassungen"}`;
+}
+
+function StartForm({
+  status,
+  waiting,
+  summaries,
+}: {
+  status: AiStatus;
+  waiting: number;
+  summaries: number;
+}) {
   const id = useId();
   const defaults = status.defaults;
   const [engine, setEngine] = useState<OcrEngineChoice>(defaults.ocr_engine);
   const [model, setModel] = useState(defaults.vision_model);
+  const [textModel, setTextModel] = useState(defaults.text_model);
   const [maxPages, setMaxPages] = useState(String(defaults.max_pages));
   // The limit per recording (D292), offered once the server knows the transcriber.
   const transcriber = status.transcription;
@@ -169,6 +187,7 @@ function StartForm({ status, waiting }: { status: AiStatus; waiting: number }) {
           engine: chosen,
           max_pages: pages,
           ...(status.vision && model.trim() ? { vision_model: model.trim() } : {}),
+          ...(status.text && textModel.trim() ? { text_model: textModel.trim() } : {}),
           ...(transcriber ? { max_minutes: minutes } : {}),
         });
       }}
@@ -176,7 +195,10 @@ function StartForm({ status, waiting }: { status: AiStatus; waiting: number }) {
       <p className={styles.muted}>
         {waiting > 0
           ? `${formatNumber(waiting)} ${waiting === 1 ? "Dokument ist" : "Dokumente sind"} vorgemerkt. Der Lauf liest sie und hört auf, wenn die Warteschlange leer ist; angehalten macht der nächste Lauf weiter.`
-          : "Nichts vorgemerkt. Erst Dokumente vormerken, aus einer Arbeitsliste oder der Anhangsliste."}
+          : summaries === 0 &&
+            "Nichts vorgemerkt. Erst Dokumente vormerken, aus einer Arbeitsliste oder der Anhangsliste."}
+        {summaries > 0 &&
+          ` ${summariesText(summaries)} ${summaries === 1 ? "ist" : "sind"} vorgemerkt; der Lauf schreibt sie nach der Texterkennung.`}
       </p>
       <div className={styles.runFields}>
         <EngineSelect
@@ -195,6 +217,20 @@ function StartForm({ status, waiting }: { status: AiStatus; waiting: number }) {
               className={styles.input}
               value={model}
               onChange={(event) => setModel(event.target.value)}
+              spellCheck={false}
+            />
+          </div>
+        )}
+        {status.text && (
+          <div className={styles.field}>
+            <label htmlFor={`${id}-text`} className={styles.fieldLabel}>
+              Textmodell
+            </label>
+            <input
+              id={`${id}-text`}
+              className={styles.input}
+              value={textModel}
+              onChange={(event) => setTextModel(event.target.value)}
               spellCheck={false}
             />
           </div>
@@ -237,7 +273,7 @@ function StartForm({ status, waiting }: { status: AiStatus; waiting: number }) {
         <Button
           type="submit"
           variant="primary"
-          disabled={waiting === 0 || !pagesValid || !minutesValid || start.isPending}
+          disabled={waiting + summaries === 0 || !pagesValid || !minutesValid || start.isPending}
         >
           KI-Lauf starten
         </Button>

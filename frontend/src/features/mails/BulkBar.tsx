@@ -13,6 +13,7 @@ import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { REVIEW_KEYS, REVIEW_LABELS, TAG_PALETTE } from "../../lib/research";
+import { SummarizeButton } from "../ai/SummarizeManyDialog";
 import styles from "./BulkBar.module.css";
 
 /** Matches above which "Alle Treffer auswählen" asks first. */
@@ -141,6 +142,13 @@ export function BulkBar({
         <Button size="sm" disabled={busy} onClick={onExport}>
           Exportieren
         </Button>
+        <SummarizeButton
+          selection={
+            selection.filters
+              ? { mail_filters: selection.filters }
+              : { mail_ids: selection.ids ?? [] }
+          }
+        />
         <Button size="sm" variant="link" onClick={onClear}>
           Auswahl aufheben
         </Button>

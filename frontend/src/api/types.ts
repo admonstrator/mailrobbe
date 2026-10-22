@@ -183,6 +183,10 @@ export interface MailFilters {
   /** Milestone 20 (D248): the mail carries a photo whose position lies in this area,
    *  "west,south,east,north" (AREA_PATTERN); west above east crosses the 180th meridian. */
   photo_area?: string;
+  /** Milestone 17 (D309): a valid summary of the mail or of one of its attachments has each of
+   *  these AI tags; a theme hint for each of these theme keys. */
+  ai_tag?: number[];
+  ai_theme?: string[];
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -970,7 +974,9 @@ export interface ImportOptions {
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
-export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages"; // names: DKIM key names
+// names: DKIM key names; texts: mails and documents summarised (D300)
+export type StepUnit =
+  "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages" | "texts";
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
@@ -1552,6 +1558,7 @@ export interface DocumentFilters {
   program?: string[]; // MetadataSummary.software as stored
   protection?: DocumentProtection[]; // any of these (D233)
   text_origin?: TextOrigin[]; // where its text comes from (D185, D189)
+  ai_tag?: number[]; // a valid summary of it has each of these AI tags (D309)
 }
 
 export interface DocumentListParams extends DocumentFilters {
@@ -2746,7 +2753,7 @@ export interface MapDownloadRequest {
 // AI services (milestone 15, D180 to D189) ------------------------------------------------------
 
 export type TextOrigin = "extracted" | "ocr" | "transcript";
-export type AiCapability = "vision";
+export type AiCapability = "vision" | "text";
 export type AiProtocol = "openai" | "ollama";
 export type AiLocality = "local" | "remote";
 export type OcrEngine = "tesseract" | "vision";
@@ -2757,7 +2764,8 @@ export type AiTaskKind = "ocr" | "transcribe" | "summarize";
 export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelled";
 export type AiResultState = "valid" | "replaced" | "discarded";
 export type AiWorkList = "scanned" | "images" | "media";
-export type AiPhase = "check" | "ocr" | "transcribe" | "entities" | "signals";
+export type AiPhase = "check" | "ocr" | "transcribe" | "summarize" | "entities" | "signals";
+export type AiTarget = "document" | "mail"; // what an AI task, result or send is about (D301)
 
 export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
 export const AI_PAGE_SIZE = 50;
@@ -2833,6 +2841,11 @@ export interface AiOptions {
   max_minutes?: number; // of a recording per document and pass (D292)
   transcribe_threads?: number;
   transcribe_uncertain?: number; // lines below this mean token probability are uncertain
+  mails: number[]; // with documents: only these mails' tasks (D307)
+  text_model: string;
+  text_url: string; // "" without one
+  text_remote: boolean;
+  context_tokens: number;
 }
 
 /** Live figures of an AI run; its pages are the ocr step's. */
@@ -2843,11 +2856,12 @@ export interface AiProgress extends RunProgress {
   failed: number;
   tokens_in: number;
   tokens_out: number;
-  current: string | null; // the file name in work
+  current: string | null; // the file name in work (a mail's subject)
   unreachable_since: string | null; // a service did not answer since then (D184)
   minutes?: number; // of recordings transcribed by this run
   position?: number | null; // seconds reached in the recording in work
   duration?: number | null; // of the recording in work, once decoded
+  summaries: number; // summarize tasks done (D300)
 }
 
 /** A run of `mailrobbe ai run` (D187). */
@@ -2873,6 +2887,7 @@ export interface AiStatus {
   job: AiJob | null;
   defaults: AiOptions;
   transcription?: AiTranscriptionInfo | null; // the transcriber (D290, D291)
+  text: boolean; // a text service is configured and allowed: "Zusammenfassen" (D300)
 }
 
 /** The transcriber in the server's container (D290, D291): Parakeet and its files. */
@@ -2886,16 +2901,20 @@ export interface AiTranscriptionInfo {
   max_minutes: number;
 }
 
-/** Exactly one of work_list, document_ids and filters (D186). */
+/** OCR: exactly one of work_list, document_ids and filters (D186). Summarize: exactly one of
+ *  mail_ids, mail_filters, document_ids and filters (D308). */
 export interface AiQueueRequest {
   work_list?: AiWorkList;
   document_ids?: number[];
   filters?: DocumentFilters;
   engine?: OcrEngineChoice;
   include_logos?: boolean;
-  single?: boolean; // one document from its page: first in the queue
-  start?: boolean; // with document_ids: a run for just these documents at once (D280)
-  kind?: AiTaskKind; // only this kind; left out: OCR or transcription, what fits each document
+  single?: boolean; // one element from its page: first in the queue
+  start?: boolean; // ids: a run for just these at once (D280, D307); summarize filters: one for the queue (D308)
+  kind?: AiTaskKind; // only this kind; none: OCR or transcription, what fits each document; summarize by name
+  mail_ids?: number[];
+  mail_filters?: MailFilters; // an Akte is { collection: [id] }
+  preview?: boolean; // nothing queued: counts and the estimate only (D308)
 }
 
 /** What start did (D280): a run began; an AI run lives already and takes them next; another
@@ -2908,6 +2927,17 @@ export interface AiQueued {
   unreadable: number;
   logos: number; // images in many mails, left out
   run: AiQueuedRun | null; // with start, null without
+  short: number; // summaries: mails with little own text, tags and theme hints only (D302)
+  estimate: AiTextEstimate | null; // summaries: how long they take (D308)
+}
+
+/** How long summarising a selection takes (D188, D308). */
+export interface AiTextEstimate {
+  model: string;
+  tasks: number;
+  tokens: number;
+  seconds: number;
+  estimated: boolean; // true: by the rule of thumb, "geschätzt"
 }
 
 export interface AiDocumentRef {
@@ -2916,6 +2946,12 @@ export interface AiDocumentRef {
   kind: DocumentKind | null;
   pages: number | null;
   duration?: number | null; // seconds of a recording, once known
+}
+
+export interface AiMailRef {
+  id: number;
+  subject: string | null;
+  date: string | null;
 }
 
 export interface AiTaskParams {
@@ -2940,6 +2976,8 @@ export interface AiTaskItem {
   pages_read: number;
   pages_total: number | null;
   result_id: number | null;
+  target: AiTarget;
+  mail: AiMailRef | null;
   seconds_read?: number | null; // transcribe: seconds of the recording read so far
 }
 
@@ -2984,6 +3022,10 @@ export interface AiResultItem {
   job_id: number | null;
   discarded_by: string | null;
   discarded_at: string | null;
+  target: AiTarget;
+  mail: AiMailRef | null;
+  tags: number; // a summary's (D300); characters is its length, pages its parts
+  themes: number;
   duration?: number | null; // a transcript's; pages_* are 0 for it
   transcribed?: number | null; // seconds read
   segments?: number;
@@ -3008,6 +3050,8 @@ export interface AiSendItem {
   document: AiDocumentRef | null;
   bytes: number;
   job_id: number | null;
+  target: AiTarget;
+  mail: AiMailRef | null;
 }
 
 export interface AiSendLogPage {
@@ -3020,6 +3064,7 @@ export interface AiRunRequest {
   engine?: OcrEngineChoice;
   vision_model?: string;
   max_pages?: number;
+  text_model?: string;
   max_minutes?: number; // per recording (D292)
 }
 
@@ -3086,4 +3131,100 @@ export interface TranscriptSegment {
 export interface TranscriptView {
   result: DocumentTranscriptResult;
   segments: TranscriptSegment[]; // in time order
+}
+
+// Summaries and AI tags (milestone 17, D300 to D311) ------------------------------------------
+// Everything here is "maschinell erzeugt" (D311): shown with model and date wherever it shows.
+
+export const AI_FACET_TAGS = 20;
+
+/** Exactly one of mail and document. */
+export interface AiSummaryParams {
+  mail?: number;
+  document?: number;
+}
+
+/** An AI tag with the mails it describes (their own summary or an attachment's, D309). */
+export interface AiTagCount {
+  id: number;
+  label: string;
+  mails: number;
+}
+
+export interface AiSummaryTheme {
+  theme: string; // the key of themes.toml
+  label: string;
+  quote: string; // as it stands in the text
+  position: number | null; // character offset in the text it read; null: in its head
+}
+
+export interface AiSummaryResult {
+  id: number; // "Verwerfen" is POST /api/ai/results/{id}/discard
+  target: AiTarget;
+  summary: string; // "" when short
+  short: boolean; // little own text: tags and theme hints only (D302)
+  tags: AiTagCount[];
+  themes: AiSummaryTheme[];
+  parts_read: number;
+  parts_total: number; // more than parts_read: only the first parts (D303)
+  origin: TextOrigin | null; // a document's text it read
+  model: string | null;
+  remote: boolean;
+  prompt_version: number | null;
+  created_at: string;
+}
+
+export interface AiSummaryTask {
+  id: number;
+  status: AiTaskStatus; // waiting or running
+  parts_done: number;
+  parts_total: number | null;
+}
+
+export interface AiAttachmentSummary {
+  document_id: number;
+  name: string | null;
+  result: AiSummaryResult;
+}
+
+/** The card "KI-Zusammenfassung" (D307); asked again every 3 s while task is open. */
+export interface AiSummaryView {
+  available: boolean; // a text service is configured and allowed
+  summarizable: boolean; // the element has something to summarise
+  result: AiSummaryResult | null;
+  task: AiSummaryTask | null;
+  failed: string | null; // English: why the latest task failed, none open
+  attachments: AiAttachmentSummary[]; // a mail's attachments with a summary
+}
+
+export interface AiFacetTheme {
+  key: string;
+  label: string;
+  mails: number;
+}
+
+/** AI tags and themes among the mails of a filter (D309). */
+export interface AiFacets {
+  tags: AiTagCount[];
+  themes: AiFacetTheme[];
+  mails: number | null; // null without filters
+  sampled: boolean;
+}
+
+export interface AiTagParams {
+  id?: number[];
+  q?: string;
+  limit?: number;
+}
+
+/** One mail, the mails of a filter carrying the AI tag, or without either all of them (D310). */
+export interface AiTagAdopt {
+  mail_id?: number;
+  filters?: MailFilters;
+}
+
+export interface AiTagAdopted {
+  tag_id: number; // the team tag
+  created: boolean;
+  mails: number;
 }

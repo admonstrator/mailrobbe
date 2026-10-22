@@ -1,13 +1,26 @@
-"""The prompts of ai.toml (D189), read once, with the version every result stores."""
+"""The prompts of ai.toml (D189, D306), read once, with the versions every result stores."""
 
 import tomllib
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from typing import Any
 
 from mailrobbe.ai.model import NO_TEXT_MARK
 
 AI_FILE = Path(__file__).parent.parent / "ai.toml"
+# Where the material stands in a summary request (D306): ai.summarize writes the markers, the
+# system prompt must name them.
+MATERIAL_START = "<<<MATERIAL"
+MATERIAL_END = "MATERIAL>>>"
+# What each summary prompt must hold; ai.summarize fills the placeholders with str.replace, never
+# with str.format, so the JSON braces of the system prompt stay as written.
+_SUMMARY_NEEDS = {
+    "system": ("{themes}", "{tags}", MATERIAL_START, MATERIAL_END, '"summary"', '"tags"'),
+    "part": ("{number}", "{total}"),
+    "combine": ("{total}",),
+    "short": (),
+}
 
 
 class PromptsError(ValueError):
@@ -15,22 +28,55 @@ class PromptsError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class SummaryPrompts:
+    version: int  # ai_result.prompt_version of a summary
+    system: str  # with {themes} and {tags}
+    part: str  # before one part of a long text, with {number} and {total}
+    combine: str  # before the parts' summaries, with {total}
+    short: str  # before a mail with little own text: tags and theme hints only
+
+
+@dataclass(frozen=True, slots=True)
 class Prompts:
-    version: int  # ai_result.prompt_version
+    version: int  # ai_result.prompt_version of an OCR result
     ocr: str  # for the vision model, one page picture at a time
+    summarize: SummaryPrompts
 
 
 @cache
 def load_prompts() -> Prompts:
-    """The prompts of ai.toml; raises PromptsError when it lacks one or the OCR prompt does not
-    name the answer for a page without writing (NO_TEXT_MARK)."""
+    """The prompts of ai.toml; raises PromptsError when it lacks one, the OCR prompt does not
+    name the answer for a page without writing (NO_TEXT_MARK), or a summary prompt lacks what
+    _SUMMARY_NEEDS names."""
     with AI_FILE.open("rb") as file:
         data = tomllib.load(file)
     version, ocr = data.get("version"), data.get("ocr")
-    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+    if not _version(version):
         raise PromptsError("ai.toml: version must be a whole number from 1")
+    assert isinstance(version, int)
     if not isinstance(ocr, str) or not ocr.strip():
         raise PromptsError("ai.toml: the ocr prompt is missing")
     if NO_TEXT_MARK not in ocr:
         raise PromptsError(f"ai.toml: the ocr prompt must name the answer {NO_TEXT_MARK}")
-    return Prompts(version=version, ocr=ocr.strip())
+    return Prompts(version=version, ocr=ocr.strip(), summarize=_summarize(data.get("summarize")))
+
+
+def _version(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _summarize(table: Any) -> SummaryPrompts:
+    if not isinstance(table, dict):
+        raise PromptsError("ai.toml: the table [summarize] is missing")
+    if not _version(table.get("version")):
+        raise PromptsError("ai.toml: summarize.version must be a whole number from 1")
+    texts: dict[str, str] = {}
+    for name, needs in _SUMMARY_NEEDS.items():
+        prompt = table.get(name)
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise PromptsError(f"ai.toml: the prompt summarize.{name} is missing")
+        missing = [need for need in needs if need not in prompt]
+        if missing:
+            raise PromptsError(f"ai.toml: summarize.{name} must hold {', '.join(missing)}")
+        texts[name] = prompt.strip()
+    return SummaryPrompts(version=table["version"], **texts)

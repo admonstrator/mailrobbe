@@ -45,6 +45,8 @@ export interface DocumentListState extends Paging {
   program: string[];
   /** Where the text comes from (D185): the file, a text recognition, a transcript. */
   text_origin: TextOrigin[];
+  /** A valid summary of the document has each of these AI tags (D309). */
+  ai_tag: number[];
   sort: DocumentSort;
 }
 
@@ -66,6 +68,7 @@ export const DEFAULT_DOCUMENT_LIST_STATE: DocumentListState = {
   author: [],
   program: [],
   text_origin: [],
+  ai_tag: [],
   sort: "recent",
   cursor: null,
   page: 1,
@@ -98,6 +101,7 @@ export function parseDocumentListState(search: URLSearchParams): DocumentListSta
     author: metadataValues(search.getAll("author")),
     program: metadataValues(search.getAll("program")),
     text_origin: TEXT_ORIGINS.filter((origin) => search.getAll("text_origin").includes(origin)),
+    ai_tag: [...new Set(search.getAll("ai_tag").flatMap((value) => positiveInt(value) ?? []))],
     sort: SORTS.find((sort) => sort === search.get("sort")) ?? "recent",
   };
 }
@@ -125,6 +129,7 @@ export function toDocumentFilters(state: DocumentListState): DocumentFilters {
   if (state.author.length) filters.author = state.author;
   if (state.program.length) filters.program = state.program;
   if (state.text_origin.length) filters.text_origin = state.text_origin;
+  if (state.ai_tag.length) filters.ai_tag = state.ai_tag;
   return filters;
 }
 

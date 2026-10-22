@@ -189,7 +189,14 @@ class AiTaskKind(StrEnum):
 
     OCR = "ocr"  # text of a scanned PDF or an image
     TRANSCRIBE = "transcribe"  # text of audio and video (M16)
-    SUMMARIZE = "summarize"  # summary and tags (M17)
+    SUMMARIZE = "summarize"  # summary, tags and theme hints of a mail or document (M17, D300)
+
+
+class AiTarget(StrEnum):
+    """ai_task.target, ai_result.target and ai_send_log.target (D301): what target_sha256 names."""
+
+    DOCUMENT = "document"  # document.sha256
+    MAIL = "mail"  # mail.raw_sha256 (as the research file, D53)
 
 
 class AiTaskStatus(StrEnum):

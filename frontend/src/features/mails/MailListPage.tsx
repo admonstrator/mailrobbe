@@ -33,6 +33,7 @@ import { placesHrefOf } from "../places/urlState";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
 import { MiniTimeline } from "../timeline/MiniTimeline";
 import { hasSelection, selectionHref } from "../topics/urlState";
+import { AiFacets, useAiChipNames } from "./AiFacets";
 import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
 import { ColumnMenu } from "./ColumnMenu";
@@ -113,6 +114,7 @@ export function MailListPage() {
   const eventMail = useMailDetail(eventMailId, eventMailId > 0);
   const entityNames = useEntityChipNames(state.entity);
   const signalNames = useSignalChipNames();
+  const aiNames = useAiChipNames(state.ai_tag);
   const [picked, setPicked] = useState<Picked>({ view: "", ids: [], all: false });
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -125,6 +127,7 @@ export function MailListPage() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  const showNotice = (text: string) => setNotice({ text });
   const mboxPath = (id: number) =>
     mboxFiles.data?.find((file) => file.id === id)?.path ?? `Datei #${id}`;
   const chips = filterChips(state, page.data?.query_terms ?? [], {
@@ -139,6 +142,7 @@ export function MailListPage() {
     entity: entityNames,
     signal: signalNames,
     event: (uid) => eventMail.data?.events.find((event) => event.uid === uid)?.summary ?? undefined,
+    ...aiNames,
   });
   const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);
@@ -186,6 +190,7 @@ export function MailListPage() {
         <div className={styles.topFacets}>
           <SignalFacets state={state} onChange={setState} placement="top" />
           <EntityFacets state={state} onChange={setState} placement="top" />
+          <AiFacets state={state} onChange={setState} onNotice={showNotice} placement="top" />
         </div>
 
         {/* Chips, figures, sort and exports, and the bulk bar of a selection, stay above the
@@ -354,6 +359,7 @@ export function MailListPage() {
       <div className={styles.facets}>
         <SignalFacets state={state} onChange={setState} placement="column" />
         <EntityFacets state={state} onChange={setState} placement="column" />
+        <AiFacets state={state} onChange={setState} onNotice={showNotice} placement="column" />
       </div>
 
       {saving && (
