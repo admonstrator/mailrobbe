@@ -139,6 +139,10 @@ class DocumentTruth:
     # text, which an OCR result must contain; else None.
     ocr_marker: str | None = None
     ocr_words: tuple[str, ...] | None = None
+    # A recording with speech (milestone 16, D297): its marker word and longer words of what is
+    # said, which a transcript must contain; else None.
+    transcript_marker: str | None = None
+    transcript_words: tuple[str, ...] | None = None
 
     def as_json(self) -> dict[str, Any]:
         data = {name: getattr(self, name) for name in self.__slots__}
@@ -146,6 +150,8 @@ class DocumentTruth:
             data["members"] = list(self.members)
         if self.ocr_words is not None:
             data["ocr_words"] = list(self.ocr_words)
+        if self.transcript_words is not None:
+            data["transcript_words"] = list(self.transcript_words)
         return data
 
 
