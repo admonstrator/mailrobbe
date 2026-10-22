@@ -21,7 +21,9 @@ import {
   apiPost,
   apiPut,
   attachmentHtmlUrl,
+  socialPath,
   socialQuery,
+  type SocialTarget,
 } from "./client";
 import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
@@ -155,7 +157,6 @@ import type {
   SignalFacets,
   SignalOverview,
   SocialCard,
-  SocialParams,
   Stats,
   SuggestionPage,
   TagCreate,
@@ -172,6 +173,7 @@ import type {
   TopicTermParams,
   TopicTerms,
   TownLabel,
+  TranscriptSocialParams,
   TranscriptView,
 } from "./types";
 
@@ -207,7 +209,8 @@ export const queryKeys = {
   neighbors: (id: number, params: MailOrderParams) => ["mails", "neighbors", id, params] as const,
   mail: (id: number) => ["mail", id] as const,
   body: (id: number, format: BodyFormat) => ["mail", id, "body", format] as const,
-  socialCard: (id: number, params: SocialParams) => ["mail", id, "social", params] as const,
+  socialCard: (target: SocialTarget, params: TranscriptSocialParams) =>
+    ["social", target, params] as const,
   /** Prefix of everything a merge, an unmerge or a dismissal can change. */
   persons: ["persons"] as const,
   personPage: (params: PersonListParams) => ["persons", "page", params] as const,
@@ -339,12 +342,13 @@ export function useMailBody<F extends BodyFormat>(id: number, format: F, enabled
   });
 }
 
-/** What the social media image of these parameters blacks out (D217), beside its preview. */
-export function useSocialCard(id: number, params: SocialParams) {
+/** What the social media picture of these parameters blacks out (D217, D298), beside its
+ *  preview. */
+export function useSocialCard(target: SocialTarget, params: TranscriptSocialParams) {
   return useQuery({
-    queryKey: queryKeys.socialCard(id, params),
+    queryKey: queryKeys.socialCard(target, params),
     queryFn: ({ signal }) =>
-      apiGet<SocialCard>(`/api/mails/${id}/social`, socialQuery(params), signal),
+      apiGet<SocialCard>(socialPath(target), socialQuery(target, params), signal),
     placeholderData: keepPreviousData,
   });
 }

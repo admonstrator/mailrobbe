@@ -245,3 +245,62 @@ describe("transcripts in the document list", () => {
     expect(within(row).getByText("transkribiert").title).toBe(TRANSCRIPT_TITLE);
   });
 });
+
+describe("the picture of a transcript (D298)", () => {
+  async function share(): Promise<HTMLElement> {
+    renderApp(`/anhaenge/${recordingDocument.id}`, api(recordingDocument));
+    fireEvent.click(await within(await card()).findByRole("button", { name: "Als Bild teilen" }));
+    return await screen.findByRole("dialog", { name: "Transkript als Bild für Soziale Medien" });
+  }
+  const picture = (dialog: HTMLElement) =>
+    within(dialog).getByRole("img", { name: "Vorschau des Bildes" }).getAttribute("src");
+
+  it("draws the transcript headed by the first mail carrying it", async () => {
+    const dialog = await share();
+    expect(picture(dialog)).toBe(
+      `/api/documents/${recordingDocument.id}/social.png?shape=portrait`,
+    );
+    const download = within(dialog).getByRole("link", { name: "PNG herunterladen" });
+    expect(download.getAttribute("download")).toBe(
+      `mailrobbe-dokument-${recordingDocument.id}-social.png`,
+    );
+    // a recording has no quotes; the end of its excerpt shows its length
+    expect(within(dialog).queryByLabelText("Zitierten Text mitzeigen")).toBeNull();
+    expect(within(dialog).getByLabelText("bis").getAttribute("placeholder")).toBe("3:12");
+    await waitFor(() => expect(dialog.textContent).toContain("9 Stellen geschwärzt"));
+  });
+
+  it("shows the part of the recording typed in, and says why a time cannot be used", async () => {
+    const dialog = await share();
+    fireEvent.change(within(dialog).getByLabelText("von"), { target: { value: "1:05" } });
+    fireEvent.change(within(dialog).getByLabelText("bis"), { target: { value: "2:00" } });
+    await waitFor(() =>
+      expect(picture(dialog)).toBe(
+        `/api/documents/${recordingDocument.id}/social.png?shape=portrait&start=65&end=120`,
+      ),
+    );
+    fireEvent.change(within(dialog).getByLabelText("bis"), { target: { value: "0:30" } });
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      "Der Anfang muss vor dem Ende liegen.",
+    );
+    fireEvent.change(within(dialog).getByLabelText("bis"), { target: { value: "zwei" } });
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      "Zeiten als m:ss angeben, etwa 0:13.",
+    );
+    await waitFor(() =>
+      expect(picture(dialog)).toBe(
+        `/api/documents/${recordingDocument.id}/social.png?shape=portrait`,
+      ),
+    );
+  });
+
+  it("is offered only for a transcript with words", async () => {
+    const silent = transcribed({
+      transcript: { result: { ...transcriptResult, characters: 0, segments: 0 }, task: null },
+    });
+    renderApp(`/anhaenge/${recordingDocument.id}`, api(silent));
+    const found = await card();
+    await within(found).findByRole("button", { name: "Neu transkribieren" });
+    expect(within(found).queryByRole("button", { name: "Als Bild teilen" })).toBeNull();
+  });
+});

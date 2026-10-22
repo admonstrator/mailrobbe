@@ -60,7 +60,7 @@ export function ActionsCard({ mail, onShowRaw }: { mail: MailDetail; onShowRaw: 
       )}
       {sharing && (
         <Suspense fallback={null}>
-          <SocialDialog mailId={mail.id} onClose={() => setSharing(false)} />
+          <SocialDialog target={{ mail: mail.id }} onClose={() => setSharing(false)} />
         </Suspense>
       )}
     </FoldCard>
