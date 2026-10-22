@@ -7,7 +7,10 @@ again raises its priority instead. Higher priorities come first, then the docume
 more mails (D70): one document queued from its page (PRIORITY_SINGLE), then what a mail in an
 Akte or reviewed relevant carries (PRIORITY_FILED). Images in more than LOGO_MAILS mails are
 almost always logos of signatures and are left out unless chosen one by one or asked for.
-All functions run in the caller's transaction.
+
+Summaries (D300, D308) are queued for mails, by their raw SHA-256 (duplicates share one task),
+and for documents with a text, by their SHA-256, with the same priorities. All functions run in
+the caller's transaction.
 """
 
 from collections.abc import Sequence
@@ -22,6 +25,7 @@ from mailrobbe.ai.model import (
     LOGO_MAILS,
     PRIORITY_FILED,
     PRIORITY_SINGLE,
+    SUMMARY_MIN_WORDS,
     OcrEngineChoice,
 )
 from mailrobbe.enums import AiTaskKind, AiTaskStatus
@@ -174,3 +178,105 @@ async def task_counts(session: AsyncSession) -> dict[AiTaskKind, dict[AiTaskStat
     for kind, status, count in (await session.execute(_COUNTS)).all():
         counts[AiTaskKind(kind)][AiTaskStatus(status)] = int(count)
     return counts
+
+
+# Summaries (D300, D308) -----------------------------------------------------------------------
+
+# What can be summarised (D302): a mail with a subject or a text, a document with a SHA-256 and a
+# text of any origin.
+SUMMARIZABLE_MAIL = "(COALESCE(m.subject, '') <> '' OR COALESCE(m.body_text, '') <> '')"
+SUMMARIZABLE_DOCUMENT = "(d.sha256 IS NOT NULL AND COALESCE(d.extracted_text, '') <> '')"
+# Words of a mail's whole text: an estimate of "short" before the run splits off quotes (D302).
+_WORDS = (
+    "COALESCE(array_length(regexp_split_to_array(btrim(COALESCE(m.body_text, '')), "
+    r"'\s+'), 1), 0)"
+)
+_FILED_MAIL = """
+    (EXISTS (SELECT 1 FROM collection_mail c WHERE c.mail_sha256 = m.raw_sha256)
+     OR EXISTS (SELECT 1 FROM mail_mark k
+                WHERE k.mail_sha256 = m.raw_sha256 AND k.review = 'relevant'))
+"""
+_SUMMARY_CHOSEN = f"""
+    WITH chosen AS (
+        SELECT * FROM (
+            SELECT DISTINCT ON (m.raw_sha256) 'mail' AS target, m.raw_sha256 AS sha256,
+                CASE WHEN :single THEN {PRIORITY_SINGLE} WHEN {_FILED_MAIL} THEN {PRIORITY_FILED}
+                     ELSE 0 END AS priority,
+                length(COALESCE(m.subject, '')) + length(COALESCE(m.body_text, ''))
+                    AS characters,
+                {_WORDS} < {SUMMARY_MIN_WORDS} AS short
+            FROM mail m
+            WHERE m.id = ANY(CAST(:mail_ids AS bigint[])) AND {SUMMARIZABLE_MAIL}
+            ORDER BY m.raw_sha256, priority DESC
+        ) mails
+        UNION ALL
+        SELECT 'document', d.sha256,
+            CASE WHEN :single THEN {PRIORITY_SINGLE} WHEN {_FILED} THEN {PRIORITY_FILED}
+                 ELSE 0 END,
+            length(d.extracted_text), false
+        FROM document d
+        WHERE d.id = ANY(CAST(:document_ids AS bigint[])) AND {SUMMARIZABLE_DOCUMENT}
+    )
+"""
+_SUMMARY_PREVIEW = text(f"""
+    {_SUMMARY_CHOSEN}
+    SELECT count(*) AS contents, count(*) FILTER (WHERE short) AS short,
+        COALESCE(sum(characters), 0) AS characters,
+        (SELECT count(*) FROM mail m
+         WHERE m.id = ANY(CAST(:mail_ids AS bigint[])) AND {SUMMARIZABLE_MAIL}) AS mails,
+        (SELECT count(*) FROM document d
+         WHERE d.id = ANY(CAST(:document_ids AS bigint[])) AND {SUMMARIZABLE_DOCUMENT})
+            AS documents
+    FROM chosen
+""")
+# One open task per kind, target and content (ux_ai_task_open): an open one keeps its place and
+# takes the higher priority; xmax = 0 tells a new row from an updated one.
+_SUMMARY_INSERT = text(f"""
+    {_SUMMARY_CHOSEN}
+    INSERT INTO ai_task (kind, target, target_sha256, priority, queued_by)
+    SELECT 'summarize', target, sha256, priority, CAST(:editor AS text) FROM chosen
+    ON CONFLICT (kind, target, target_sha256) WHERE status IN ('waiting', 'running')
+    DO UPDATE SET priority = GREATEST(ai_task.priority, EXCLUDED.priority)
+    RETURNING (xmax = 0) AS inserted
+""")
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedSummaries:
+    """What enqueue_summaries did, or with preview would do."""
+
+    queued: int  # new tasks (with preview: the contents a queuing would take)
+    raised: int  # already open: priority raised (0 with preview)
+    unreadable: int  # nothing to summarise, or an unknown id (D302)
+    short: int  # contents of mails whose whole text has fewer than SUMMARY_MIN_WORDS words
+    characters: int  # of the texts queued or raised: the estimate's input (D308)
+
+
+async def enqueue_summaries(
+    session: AsyncSession,
+    *,
+    mail_ids: Sequence[int] = (),
+    document_ids: Sequence[int] = (),
+    editor: str | None = None,
+    single: bool = False,
+    preview: bool = False,
+) -> QueuedSummaries:
+    """Queue summaries of these mails and documents (D308); single is one element from its page,
+    first in the queue. With preview nothing is written."""
+    mails, documents = sorted(set(mail_ids)), sorted(set(document_ids))
+    parameters = {"mail_ids": mails, "document_ids": documents, "single": single, "editor": editor}
+    figures = (await session.execute(_SUMMARY_PREVIEW, parameters)).one()
+    given = len(mails) + len(documents)
+    unreadable = given - int(figures.mails) - int(figures.documents)
+    queued, raised = int(figures.contents), 0
+    if not preview:
+        inserted = list((await session.execute(_SUMMARY_INSERT, parameters)).scalars())
+        queued = sum(1 for new in inserted if new)
+        raised = len(inserted) - queued
+    return QueuedSummaries(
+        queued=queued,
+        raised=raised,
+        unreadable=unreadable,
+        short=int(figures.short),
+        characters=int(figures.characters),
+    )
