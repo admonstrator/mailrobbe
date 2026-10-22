@@ -787,6 +787,8 @@ _DETAIL_COLUMNS = (
     Document.metadata_device,
     Document.metadata_created,
     Document.metadata_gps,
+    Document.metadata_latitude,
+    Document.metadata_longitude,
 )
 
 
@@ -858,6 +860,8 @@ def _summary(row: Any) -> MetadataSummary:
         device=row.metadata_device,
         created=row.metadata_created,
         gps=row.metadata_gps,
+        latitude=row.metadata_latitude,  # D249
+        longitude=row.metadata_longitude,
     )
 
 
