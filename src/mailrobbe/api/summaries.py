@@ -6,8 +6,9 @@ raw_sha256, a document by its sha256 (D301). The card asks again every 3 s while
 so the view is a handful of indexed queries: the element by id, its summary (ux_ai_result_valid),
 its open task (ux_ai_task_open), the latest failed task (ix_ai_task_status reads the failed ones
 only), a mail's attachments' summaries (ix_attachment_mail_id), then the tags with the mails each
-describes and the theme hints of all these summaries at once. Nothing is read from the MBOX file
-(D302); everything shown is machine made (D311), which the card says with model and date.
+describes (api/ai_tags.tag_counts) and the theme hints of all these summaries at once. Nothing is
+read from the MBOX file (D302); everything shown is machine made (D311), which the card says with
+model and date.
 """
 
 from collections import defaultdict
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.ai.queue import SUMMARIZABLE_DOCUMENT, SUMMARIZABLE_MAIL
 from mailrobbe.api.ai import text_usable
+from mailrobbe.api.ai_tags import tag_counts
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.schemas import (
     AiAttachmentSummary,
@@ -89,34 +91,9 @@ _ATTACHMENTS = text(f"""
     ) found
     ORDER BY attachment_id
 """)
-# The tags of these summaries with the mails each describes (D309): a mail counts when a valid
-# summary of its own content or of one of its attachments' documents has the tag; duplicates
-# count, each mail once per tag.
-_TAGS = text("""
-    WITH linked AS (
-        SELECT l.result_id, t.id, t.label
-        FROM ai_tag_link l JOIN ai_tag t ON t.id = l.tag_id
-        WHERE l.result_id = ANY(CAST(:result_ids AS bigint[]))
-    ), described AS (
-        SELECT l.tag_id, r.target, r.target_sha256
-        FROM ai_tag_link l JOIN ai_result r ON r.id = l.result_id
-        WHERE l.tag_id IN (SELECT id FROM linked) AND r.kind = 'summarize' AND r.state = 'valid'
-    ), mails AS (
-        SELECT x.tag_id, m.id AS mail_id
-        FROM described x JOIN mail m ON m.raw_sha256 = x.target_sha256
-        WHERE x.target = 'mail'
-        UNION
-        SELECT x.tag_id, a.mail_id
-        FROM described x
-        JOIN document d ON d.sha256 = x.target_sha256
-        JOIN attachment a ON a.document_id = d.id
-        WHERE x.target = 'document'
-    ), counted AS (
-        SELECT tag_id, count(*) AS mails FROM mails GROUP BY tag_id
-    )
-    SELECT linked.result_id, linked.id, linked.label, COALESCE(counted.mails, 0) AS mails
-    FROM linked LEFT JOIN counted ON counted.tag_id = linked.id
-    ORDER BY linked.result_id, lower(linked.label), linked.id
+_LINKS = text("""
+    SELECT l.result_id, l.tag_id FROM ai_tag_link l
+    WHERE l.result_id = ANY(CAST(:result_ids AS bigint[]))
 """)
 _THEMES = text("""
     SELECT result_id, theme, quote, position FROM ai_theme_hint
@@ -203,11 +180,16 @@ def _result(
 
 
 async def _tags(session: AsyncSession, result_ids: Sequence[int]) -> dict[int, list[AiTagCount]]:
-    """The tags of each summary, by its label, with the mails each describes (D309)."""
+    """The tags of each summary, by its label, with the mails each describes (tag_counts, D309)."""
     found: dict[int, list[AiTagCount]] = defaultdict(list)
-    if result_ids:
-        for row in await session.execute(_TAGS, {"result_ids": list(result_ids)}):
-            found[row.result_id].append(AiTagCount(id=row.id, label=row.label, mails=row.mails))
+    if not result_ids:
+        return found
+    links = (await session.execute(_LINKS, {"result_ids": list(result_ids)})).all()
+    counts = {tag.id: tag for tag in await tag_counts(session, [row.tag_id for row in links])}
+    for row in links:
+        found[row.result_id].append(counts[row.tag_id])
+    for tags in found.values():
+        tags.sort(key=lambda tag: (tag.label.lower(), tag.id))
     return found
 
 
