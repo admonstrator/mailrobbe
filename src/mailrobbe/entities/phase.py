@@ -30,19 +30,15 @@ whose extraction raises is recorded the same way, by the worker itself.
 import asyncio
 import logging
 import multiprocessing
-import os
 import re
-import signal
 import time
 from array import array
 from collections import deque
 from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
-from multiprocessing.sharedctypes import SynchronizedArray
 from typing import Any, Literal, Protocol, cast
 
 from sqlalchemy import CursorResult, text
@@ -51,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from mailrobbe.entities.extract import extract_entities, prepare
 from mailrobbe.entities.figures import FiguresRefresh, refresh_entity_figures
 from mailrobbe.entities.model import Found, scan_version, scanned_text
-from mailrobbe.jobrun import describe, ignore_interrupts, spawning_workers
+from mailrobbe.jobrun import describe, ignore_interrupts, kill_workers, spawning_workers
 
 log = logging.getLogger(__name__)
 
@@ -344,10 +340,8 @@ _extract: Extractor | None = None
 _Outcome = list[Found] | str
 
 
-def _init_worker(extract: Extractor, pids: "SynchronizedArray[int]") -> None:
+def _init_worker(extract: Extractor) -> None:
     ignore_interrupts()
-    with pids.get_lock():
-        pids[pids[:].index(0)] = os.getpid()
     global _extract
     _extract = extract
     prepare()
@@ -370,9 +364,8 @@ class _Pool:
     def __init__(self, count: int, extract: Extractor) -> None:
         context = multiprocessing.get_context("spawn")
         self.count = count
-        self._pids: SynchronizedArray[int] = context.Array("q", count)
         self._executor = ProcessPoolExecutor(
-            count, mp_context=context, initializer=_init_worker, initargs=(extract, self._pids)
+            count, mp_context=context, initializer=_init_worker, initargs=(extract,)
         )
 
     def submit(self, texts: list[str]) -> "asyncio.Future[list[_Outcome]]":
@@ -383,11 +376,7 @@ class _Pool:
 
     def close(self, kill: bool) -> None:
         if kill:
-            # The workers are not reaped before shutdown, so their ids are still theirs.
-            for pid in self._pids[:]:
-                if pid:
-                    with suppress(ProcessLookupError, PermissionError):
-                        os.kill(pid, signal.SIGKILL)
+            kill_workers(self._executor)
         self._executor.shutdown(wait=True, cancel_futures=True)
 
 
