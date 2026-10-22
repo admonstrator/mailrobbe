@@ -25,7 +25,8 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import timedelta
 from email import encoders
 from email.message import Message
@@ -39,13 +40,15 @@ from typing import Any
 
 import msoffcrypto.format.ooxml
 import pytest
-from sqlalchemy import Row, pool, text
+from sqlalchemy import Row, make_url, pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from mailrobbe import migrate
 from mailrobbe.config import Settings
 from mailrobbe.importer.cli import run_import
 from tests.attachments.doubles import FIRST_DAY
 from tests.attachments.extract.samples import odf, pdf
+from tests.conftest import _temporary_database
 from tests.importer.doubles import write_mbox
 from tests.preview.samples import DOCX_MIME, ODT_MIME, docx, para, run
 
@@ -263,6 +266,41 @@ def import_archive(url: str, mbox_dir: Path, *, runs: int = 1, **settings: Any) 
     for _ in range(runs):
         code = asyncio.run(run_import(Settings(database_url=url, **settings), mbox_dir, 2))
         assert code == 0
+
+
+@contextmanager
+def imported(server_url: str, mbox_dir: Path, *, runs: int = 1) -> Iterator[str]:
+    """A database of its own with mbox_dir imported `runs` times, dropped afterwards."""
+    with _temporary_database(server_url) as url:
+        migrate.upgrade("head", url)
+        import_archive(url, mbox_dir, runs=runs)
+        yield url
+
+
+@contextmanager
+def copied(server_url: str, url: str) -> Iterator[str]:
+    """A copy of the database at url, which must have no open connections."""
+    with _temporary_database(server_url, make_url(url).database) as copy:
+        yield copy
+
+
+async def mail_ids(url: str) -> dict[int, int]:
+    """Mail id by index in ARCHIVE (its Message-ID), for the mails a test inserted too: those
+    without one are left out."""
+    rows = await fetch(url, "SELECT id, message_id FROM mail WHERE message_id IS NOT NULL")
+    return {int(row.message_id.strip("<>").partition("@")[0]): row.id for row in rows}
+
+
+async def documents(url: str) -> dict[str, Row[Any]]:
+    """Every document by name, with its password and its tier when one opened it."""
+    rows = await fetch(
+        url,
+        "SELECT d.*, d.kind::text AS kind_name, pw.value AS password, dp.tier::text AS tier, "
+        "dp.finding_id, dp.found_by FROM document d "
+        "LEFT JOIN document_password dp ON dp.document_id = d.id "
+        "LEFT JOIN password pw ON pw.id = dp.password_id",
+    )
+    return {row.name: row for row in rows}
 
 
 async def fetch(url: str, sql: str, **params: Any) -> list[Row[Any]]:
