@@ -83,7 +83,7 @@ RETRY_PAUSES = (2.0, 4.0, 8.0)  # after these pauses (seconds)
 REQUEST_BYTES = 16 * 1024**2  # one request fetches at most this much
 # A request fetches the gaps of up to GAP_LIMIT between the pieces it joins, the narrowest first,
 # as long as they stay within EXTRA_SHARE of the tile bytes (gap_limit; measured on the build of
-# 2026-10-22: DACH in full detail 822 requests and 2.1 % more bytes, Switzerland's streets 120
+# 2026-10-22: DACH in full detail 822 requests and 2.1 % more bytes, Switzerland's streets 135
 # and 4.9 %); between directories up to DIRECTORY_GAP.
 GAP_LIMIT = 1024**2
 EXTRA_SHARE = 0.05
