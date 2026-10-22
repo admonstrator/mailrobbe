@@ -40,10 +40,9 @@ password_separate).
 
 import base64
 import random
-from dataclasses import dataclass
 
 from mailrobbe.enums import PasswordTier
-from mailrobbe.generator.model import AttachmentSpec, PlannedMail
+from mailrobbe.generator.model import AttachmentSpec
 
 # Where a password goes, with its weight, for the mails people write.
 PLANTS: tuple[tuple[str, float], ...] = (
@@ -111,17 +110,6 @@ def choose_plant(rng: random.Random, automated: bool, room: bool) -> str:
     if plant in NEW_MAILS and not room:
         return "mail"
     return plant
-
-
-@dataclass(frozen=True, slots=True)
-class Plant:
-    """A mail the planner still owes a protected document: it passes the password on."""
-
-    kind: str  # thread, contacts, archive, attachment (a text file in the sender's reply)
-    carrier: PlannedMail  # the mail carrying the document, stripped
-    document: AttachmentSpec
-    password: str
-    due: int  # stream position from which it may be written
 
 
 # Texts ---------------------------------------------------------------------------------------
