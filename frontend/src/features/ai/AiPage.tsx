@@ -81,9 +81,15 @@ function Intro() {
         verwerfen.
       </p>
       <p>
-        Die KI bewertet nichts und fasst nichts zusammen, sie liest nur Schrift. Sie arbeitet lokal:
-        Dienste im Internet sind gesperrt, solange die .env sie nicht erlaubt. Gelesen wird nur, was
-        hier oder in der Anhangsliste vorgemerkt ist, nie das ganze Archiv.
+        Ein Textmodell fasst auf Wunsch einzelne Mails und Dokumente oder eine Auswahl zusammen und
+        vergibt Schlagwörter und Hinweise auf Themen. Zusammenfassungen sind überall als „maschinell
+        erzeugt“ gekennzeichnet, mit Modell und Datum; sie werden nicht durchsuchbar, ihre
+        Schlagwörter filtern nur die Mailliste. Jede lässt sich verwerfen.
+      </p>
+      <p>
+        Die KI bewertet nichts. Sie arbeitet lokal: Dienste im Internet sind gesperrt, solange die
+        .env sie nicht erlaubt. Gelesen wird nur, was hier, in der Anhangsliste, in der Mailliste
+        oder auf der Seite einer Mail oder eines Dokuments vorgemerkt ist, nie das ganze Archiv.
       </p>
     </Card>
   );
@@ -110,6 +116,17 @@ const CAPABILITY_LABELS: Record<AiServiceInfo["capability"], string> = {
   text: "Textmodell (zusammenfassen und verschlagworten)",
 };
 
+/** What a service's check does, and what would leave the machine with a remote one. */
+const TEST_LABELS: Record<AiServiceInfo["capability"], string> = {
+  vision: "liest ein Testbild",
+  text: "bekommt einen kurzen Testtext",
+};
+
+const SENT_LABELS: Record<AiServiceInfo["capability"], string> = {
+  vision: "Seitenbilder",
+  text: "Texte von Mails und Dokumenten",
+};
+
 function ServicesCard({ status }: { status: AiStatus }) {
   return (
     <Card aria-labelledby="ai-services-title">
@@ -130,11 +147,18 @@ function ServicesCard({ status }: { status: AiStatus }) {
           <ServiceRow key={service.capability} service={service} />
         ))}
       </ul>
-      {status.services.length === 0 && (
+      {!status.services.some((service) => service.capability === "vision") && (
         <p className={styles.muted}>
           Kein Bildmodell eingerichtet. Ohne eines liest Tesseract alles. Ein Bildmodell auf diesem
           Rechner (LM Studio oder Ollama) wird in der .env mit MAILROBBE_AI_VISION_URL und
           MAILROBBE_AI_VISION_MODEL eingetragen, etwa http://host.docker.internal:11434.
+        </p>
+      )}
+      {!status.services.some((service) => service.capability === "text") && (
+        <p className={styles.muted}>
+          Kein Textmodell eingerichtet, also keine Zusammenfassungen und Schlagwörter. Ein
+          Textmodell auf diesem Rechner wird in der .env mit MAILROBBE_AI_TEXT_URL und
+          MAILROBBE_AI_TEXT_MODEL eingetragen, etwa http://host.docker.internal:1234/v1.
         </p>
       )}
     </Card>
@@ -173,15 +197,14 @@ function ServiceRow({ service }: { service: AiServiceInfo }) {
       {service.refused !== null && (
         <p className={styles.warning}>
           {service.locality === "remote"
-            ? "Gesperrt: Dieser Dienst liegt außerhalb dieses Rechners und seines Netzes. Seitenbilder gingen damit ins Internet; erlaubt wird das nur in der .env mit MAILROBBE_AI_ALLOW_REMOTE=true."
+            ? `Gesperrt: Dieser Dienst liegt außerhalb dieses Rechners und seines Netzes. ${SENT_LABELS[service.capability]} gingen damit ins Internet; erlaubt wird das nur in der .env mit MAILROBBE_AI_ALLOW_REMOTE=true.`
             : "Gesperrt: Diese Adresse kann kein Dienst sein."}{" "}
           <span className={styles.technical}>{service.refused}</span>
         </p>
       )}
       {check.isPending && (
         <p className={styles.muted}>
-          Der Dienst wird gefragt und liest ein Testbild; das kann beim ersten Laden des Modells
-          eine Weile dauern.
+          {`Der Dienst wird gefragt und ${TEST_LABELS[service.capability]}; das kann beim ersten Laden des Modells eine Weile dauern.`}
         </p>
       )}
       {check.error && (
