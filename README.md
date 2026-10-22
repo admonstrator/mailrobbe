@@ -71,7 +71,7 @@ Ausblendregeln nehmen Newsletter, Verteiler und Systemmails aus Liste und Suche,
 
 Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert. Gültig heißt: Die Mail wurde mit dem Schlüssel der Domain unterschrieben und ist seither unverändert. Bei älteren Mails steht der Schlüssel oft nicht mehr im DNS. Dann sucht Mailrobbe unter Import, „Gelöschte Selektoren“, auf Knopfdruck weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus zwei Signaturen. Jede Signatur sagt, woher ihr Schlüssel stammt.
 
-![Mail-Detail mit DKIM-Prüfung, Prüfstatus, Schlagwort und Notiz](site/img/mail.webp)
+![Mail-Detail mit DKIM-Status, Anhängen, Prüfstatus, Schlagwort und Notiz](site/img/mail.webp)
 
 ### Personen statt Adressen
 
