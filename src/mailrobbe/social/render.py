@@ -1,8 +1,9 @@
 """One mail drawn as a picture for social media (D214): a pseudo mail client, not a screenshot.
 
-The card is a window of its own invention — a bar with three dots, the subject, an avatar, the
-participants, the date with the DKIM seal, the text, the attachments and a footer with what was
-blacked out and the mail's checksum (D61). No real client, service or organisation is imitated:
+The card is a window of its own invention — a bar with three dots and the watermark that names
+where the picture comes from, the subject, an avatar, the participants, the date with the DKIM
+seal, the text, the attachments and a footer with what was blacked out and the mail's checksum
+(D61). No real client, service or organisation is imitated:
 the look says "this is a mail" and nothing about where it was read.
 
 plan() prepares what the card shows: every text through the Redactor of redact.py, wrapped to
@@ -96,6 +97,7 @@ RECIPIENTS = 3  # recipients named per line; the rest counted
 TEXT_LIMIT = 20_000  # characters read before wrapping; no format shows more
 CHECKSUM_DIGITS = 16  # the permalink's digits (D61)
 CUT = "… Text gekürzt"
+WATERMARK = "Exportiert aus Mailrobbe (by admon.me)"  # in the window's bar (D214)
 _RUNS = re.compile(f"({BLOCK}+)")  # a line split into its bars and the text between them
 
 
@@ -122,6 +124,7 @@ class CardPlan:
     dkim: str | None
     dkim_color: RGB
     initial: str | None  # the sender's initial in the avatar; None when it is blacked out
+    watermark: str = WATERMARK  # where the picture comes from, in the window's bar
     body: list[Line] = field(default_factory=list)
     attachments: list[str] = field(default_factory=list)
     more_attachments: int = 0
@@ -227,6 +230,15 @@ def draw(card: CardPlan) -> bytes:
     bar_font = _font(REGULAR, META_SIZE)
     pen.text(
         (left + PAD + 92, top + BAR // 2), "Posteingang", font=bar_font, fill=MUTED, anchor="lm"
+    )
+    # The watermark in the bar: it names where the picture comes from, not the mail, and
+    # stands inside the window, so a picture carries it as long as it shows the mail.
+    pen.text(
+        (right - PAD, top + BAR // 2),
+        card.watermark,
+        font=_font(REGULAR, META_SIZE - 2),
+        fill=MUTED,
+        anchor="rm",
     )
 
     x = left + PAD
