@@ -2,7 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { MailSignals } from "../../api/types";
-import { mailSignals, mailSignalsForward } from "../../test/fixtures";
+import { mailSignals, mailSignalsAttachments, mailSignalsForward } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 async function signalsCard(): Promise<HTMLElement> {
@@ -95,6 +95,24 @@ describe("why a mail shows signals", () => {
     expect(out.textContent).toContain("an Thomas Weber (t.weber@post.example)");
     // 23:41 in New York, not 05:41 in the browser's Berlin.
     expect(entry(card, "Nachts").textContent).toContain("Di, 04.11.2025 23:41 (America/New_York)");
+  });
+
+  it("links the documents of the signals of concealment (D238)", async () => {
+    renderApp("/mails/184221", withSignals(mailSignalsAttachments));
+    const card = await signalsCard();
+    await within(card).findByText("Verschlüsselter Anhang");
+    const encrypted = entry(card, "Verschlüsselter Anhang");
+    expect(
+      within(encrypted).getByRole("link", { name: "Spendenliste_2019.xlsx" }).getAttribute("href"),
+    ).toBe("/anhaenge/5104");
+    const separate = entry(card, "Kennwort separat geschickt");
+    expect(separate.textContent).toContain("öffnete Angebot_Nordstahl.pdf, (ohne Dateinamen)");
+    expect(
+      within(separate)
+        .getAllByRole("link")
+        .slice(1)
+        .map((link) => link.getAttribute("href")),
+    ).toEqual(["/anhaenge/5110", "/anhaenge/5106"]);
   });
 
   it("says when no signal holds", async () => {
