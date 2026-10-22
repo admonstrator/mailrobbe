@@ -21,7 +21,13 @@ import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
-import { formatBytes, formatDateTime, formatElapsed, formatNumber } from "../../lib/format";
+import {
+  formatBytes,
+  formatClock,
+  formatDateTime,
+  formatElapsed,
+  formatNumber,
+} from "../../lib/format";
 import { Dialog } from "../persons/Dialog";
 import styles from "./AiPage.module.css";
 import {
@@ -29,10 +35,26 @@ import {
   ENGINE_LABELS,
   engineName,
   pageNumbers,
+  queueCounts,
   RESULT_STATE_LABELS,
+  TASK_KIND_LABELS,
   TASK_STATUS_LABELS,
   TASK_STATUSES,
+  transcriberName,
 } from "./labels";
+
+/** "2 von 3 Seiten", "3 Seiten", or "–" when nothing is known. */
+function pagesAmount(read: number, total: number | null): string {
+  if (total !== null) return `${formatNumber(read)} von ${formatNumber(total)} Seiten`;
+  return read > 0 ? `${formatNumber(read)} ${read === 1 ? "Seite" : "Seiten"}` : "–";
+}
+
+/** A recording's part read of its length (D293): "1:05 von 3:12", "3:12", or "–". */
+function secondsAmount(read: number | null | undefined, length: number | null | undefined): string {
+  if (read && length && read < length - 1) return `${formatClock(read)} von ${formatClock(length)}`;
+  if (length) return formatClock(length);
+  return read ? formatClock(read) : "–";
+}
 
 function DocumentCell({ document }: { document: AiDocumentRef | null }) {
   if (!document) return <span className={styles.muted}>gelöscht</span>;
@@ -92,7 +114,9 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
   const tasks = useAiTasks({ status: filter }, alive);
   const retry = useAiTaskAction("retry");
   const cancel = useAiTaskAction("cancel");
-  const counts = status.queue.ocr;
+  // Text recognition and transcription share the queue (D295).
+  const counts = queueCounts(status.queue);
+  const transcriber = transcriberName(status.transcription?.model ?? null);
   const items = tasks.data?.pages.flatMap((page) => page.items) ?? [];
   const error = retry.error ?? cancel.error;
   const toggle = (value: AiTaskStatus) =>
@@ -159,7 +183,7 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
                 <th>Dokument</th>
                 <th>Status</th>
                 <th>Verfahren</th>
-                <th className={styles.num}>Seiten</th>
+                <th className={styles.num}>Umfang</th>
                 <th>Vorgemerkt</th>
                 <th>
                   <span className="sr-only">Aktionen</span>
@@ -171,6 +195,7 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
                 <TaskRow
                   key={task.id}
                   task={task}
+                  transcriber={transcriber}
                   busy={retry.isPending || cancel.isPending}
                   onRetry={() => retry.mutate({ ids: [task.id] })}
                   onCancel={() => cancel.mutate({ ids: [task.id] })}
@@ -189,23 +214,25 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
   );
 }
 
+/** A task: its document, status, kind and engine, how much of it is read (pages, or a
+ *  recording's seconds of its length), when and by whom it was queued. */
 function TaskRow({
   task,
+  transcriber,
   busy,
   onRetry,
   onCancel,
 }: {
   task: AiTaskItem;
+  transcriber: string;
   busy: boolean;
   onRetry: () => void;
   onCancel: () => void;
 }) {
-  const pages =
-    task.pages_total !== null
-      ? `${formatNumber(task.pages_read)} von ${formatNumber(task.pages_total)}`
-      : task.pages_read > 0
-        ? formatNumber(task.pages_read)
-        : "–";
+  const transcribe = task.kind === "transcribe";
+  const amount = transcribe
+    ? secondsAmount(task.seconds_read, task.document?.duration)
+    : pagesAmount(task.pages_read, task.pages_total);
   return (
     <tr>
       <td>
@@ -221,8 +248,11 @@ function TaskRow({
           <span className={styles.muted}>{` · ${formatNumber(task.attempts)} Versuche`}</span>
         )}
       </td>
-      <td>{ENGINE_LABELS[task.engine]}</td>
-      <td className={styles.num}>{pages}</td>
+      <td>
+        {transcribe ? transcriber : ENGINE_LABELS[task.engine]}
+        <span className={styles.sub}>{TASK_KIND_LABELS[task.kind]}</span>
+      </td>
+      <td className={styles.num}>{amount}</td>
       <td className={styles.nowrap}>
         {formatDateTime(task.queued_at)}
         {task.queued_by && <span className={styles.muted}>{` · ${task.queued_by}`}</span>}
@@ -262,8 +292,8 @@ export function ResultsCard({ alive }: { alive: boolean }) {
     <Card aria-labelledby="ai-results-title">
       <CardTitle id="ai-results-title">Ergebnisse</CardTitle>
       <p className={styles.muted}>
-        Jeder erkannte Text bleibt hier verzeichnet. Verworfen geht er aus der Suche, das Dokument
-        bekommt einen früheren Text zurück oder steht wieder ohne Text da.
+        Jeder erkannte Text und jedes Transkript bleibt hier verzeichnet. Verworfen geht es aus der
+        Suche, das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da.
       </p>
       <div className={styles.chips} role="group" aria-label="Nach Zustand filtern">
         {RESULT_FILTERS.map((value) => (
@@ -289,9 +319,9 @@ export function ResultsCard({ alive }: { alive: boolean }) {
               <tr>
                 <th>Dokument</th>
                 <th>Verfahren</th>
-                <th className={styles.num}>Seiten</th>
+                <th className={styles.num}>Umfang</th>
                 <th className={styles.num}>Zeichen</th>
-                <th>Erkannt</th>
+                <th>Erstellt</th>
                 <th>Zustand</th>
                 <th>
                   <span className="sr-only">Aktionen</span>
@@ -324,10 +354,18 @@ function ResultRow({
   onDiscard: (target: DiscardTarget) => void;
 }) {
   const total = result.pages_total ?? result.pages_read;
+  const transcript = result.kind === "transcribe";
+  const lines = result.segments ?? 0;
+  const uncertain = result.uncertain_segments ?? 0;
   return (
     <tr>
       <td>
         <DocumentCell document={result.document} />
+        {transcript && lines > 0 && (
+          <span className={styles.sub}>
+            {`${formatNumber(lines)} ${lines === 1 ? "Zeile" : "Zeilen"}${uncertain > 0 ? `, davon ${formatNumber(uncertain)} unsicher` : ""}`}
+          </span>
+        )}
         {result.uncertain.length > 0 && (
           <span className={styles.sub}>{`Unsicher: ${pageNumbers(result.uncertain)}`}</span>
         )}
@@ -338,14 +376,21 @@ function ResultRow({
         )}
       </td>
       <td>
-        {engineName(result.engine, result.model)}
+        {transcript ? transcriberName(result.model) : engineName(result.engine, result.model)}
         {result.remote && <span className={cx(styles.place, styles.remote)}>Internet</span>}
+        <span className={styles.sub}>{TASK_KIND_LABELS[result.kind]}</span>
       </td>
       <td className={styles.num}>
-        {`${formatNumber(result.pages_text)} von ${formatNumber(total)}`}
+        {transcript
+          ? secondsAmount(result.transcribed, result.duration)
+          : pagesAmount(result.pages_text, total)}
       </td>
       <td className={styles.num}>
-        {result.characters > 0 ? formatNumber(result.characters) : "keine Schrift"}
+        {result.characters > 0
+          ? formatNumber(result.characters)
+          : transcript
+            ? "keine Sprache"
+            : "keine Schrift"}
       </td>
       <td className={styles.nowrap}>
         {formatDateTime(result.created_at)}
@@ -384,7 +429,13 @@ function DiscardDialog({ target, onClose }: { target: DiscardTarget; onClose: ()
   const one = "result" in target;
   return (
     <Dialog
-      title={one ? "Erkannten Text verwerfen?" : "Alle Texte dieses Laufs verwerfen?"}
+      title={
+        !one
+          ? "Alle Texte dieses Laufs verwerfen?"
+          : target.result.kind === "transcribe"
+            ? "Transkript verwerfen?"
+            : "Erkannten Text verwerfen?"
+      }
       onClose={onClose}
     >
       {done !== null ? (
@@ -395,7 +446,7 @@ function DiscardDialog({ target, onClose }: { target: DiscardTarget; onClose: ()
         <p className={styles.dialogText}>
           {one
             ? `Der Text von „${target.result.document?.name ?? "ohne Namen"}“ wird aus der Suche genommen; das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da.`
-            : `Jeder noch gültige Text, den Lauf ${formatNumber(target.job)} erkannt hat, wird aus der Suche genommen. Das lässt sich nur durch neues Erkennen rückgängig machen.`}
+            : `Jeder noch gültige Text, den Lauf ${formatNumber(target.job)} erkannt oder transkribiert hat, wird aus der Suche genommen. Das lässt sich nur durch neues Erkennen oder Transkribieren rückgängig machen.`}
         </p>
       )}
       {discard.error && (

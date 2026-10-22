@@ -7,6 +7,7 @@ import type {
   AiSendLogPage,
   AiStatus,
   AiTaskPage,
+  AiTranscriptionInfo,
   CalendarEventInfo,
   CertainMergePlan,
   CertainMergeResult,
@@ -112,6 +113,9 @@ import type {
   PlaceSummary,
   TextPlaces,
   TownLabel,
+  DocumentTranscriptResult,
+  TranscriptSegment,
+  TranscriptView,
 } from "../api/types";
 
 const person = (person_id: number, name: string | null, email: string): PersonRef => ({
@@ -4337,7 +4341,7 @@ export const mapStatusFailed: MapStatus = {
 // AI and OCR (milestone 15) ---------------------------------------------------------------------
 
 const aiDefaults: AiStatus["defaults"] = {
-  kinds: ["ocr"],
+  kinds: ["ocr", "transcribe"],
   ocr_engine: "auto",
   vision_model: "qwen2.5vl:7b",
   max_pages: 50,
@@ -4348,9 +4352,24 @@ const aiDefaults: AiStatus["defaults"] = {
   vision_url: "http://host.docker.internal:11434",
   documents: [],
   vision_remote: false,
+  max_minutes: 180,
+  transcribe_threads: 4,
+  transcribe_uncertain: 0.5,
 };
 
 const aiQueueEmpty = { waiting: 0, running: 0, done: 0, failed: 0, cancelled: 0 };
+
+/** The transcriber in the container before its first run: the model files still to load
+ *  (D290, D291). */
+export const aiTranscription: AiTranscriptionInfo = {
+  available: true,
+  model: "parakeet-tdt-0.6b-v3",
+  ready: false,
+  missing_bytes: 672_807_593,
+  total_bytes: 672_807_593,
+  threads: 4,
+  max_minutes: 180,
+};
 
 /** The AI page with a local vision model, two work lists and some queued tasks, no run. */
 export const aiStatus: AiStatus = {
@@ -4405,10 +4424,31 @@ export const aiStatus: AiStatus = {
       estimates: [],
       engine: "vision",
     },
+    {
+      key: "media",
+      documents: 38,
+      pages: 0,
+      without_pages: 0,
+      bytes: 41_200_000,
+      estimates: [
+        {
+          engine: "parakeet",
+          model: "parakeet-tdt-0.6b-v3",
+          seconds: 1_062,
+          estimated: true,
+          seconds_per_page: 0,
+          seconds_per_minute: 6,
+        },
+      ],
+      engine: "parakeet",
+      minutes: 162,
+      without_minutes: 15,
+    },
   ],
   remote_used: false,
   job: null,
   defaults: aiDefaults,
+  transcription: aiTranscription,
 };
 
 /** A remote vision service the settings refuse (D181). */
@@ -4514,6 +4554,30 @@ export const aiTaskPage: AiTaskPage = {
       pages_total: null,
       result_id: null,
     },
+    {
+      id: 305,
+      kind: "transcribe",
+      document: {
+        id: 5160,
+        name: "Sprachnachricht_Vorstand.ogg",
+        kind: "media",
+        pages: null,
+        duration: 192.4,
+      },
+      engine: "auto",
+      priority: 0,
+      status: "running",
+      attempts: 1,
+      error: null,
+      queued_by: "Mara",
+      queued_at: "2026-10-22T07:55:00Z",
+      started_at: "2026-10-22T08:01:00Z",
+      finished_at: null,
+      pages_read: 0,
+      pages_total: null,
+      result_id: null,
+      seconds_read: 65,
+    },
   ],
   next_cursor: null,
 };
@@ -4539,6 +4603,36 @@ export const aiResultPage: AiResultPage = {
       job_id: 40,
       discarded_by: null,
       discarded_at: null,
+    },
+    {
+      id: 88,
+      kind: "transcribe",
+      document: {
+        id: 5160,
+        name: "Sprachnachricht_Vorstand.ogg",
+        kind: "media",
+        pages: null,
+        duration: 192.4,
+      },
+      engine: "parakeet",
+      model: "parakeet-tdt-0.6b-v3",
+      remote: false,
+      pages_read: 0,
+      pages_text: 0,
+      pages_total: null,
+      uncertain: [],
+      failed: [],
+      characters: 312,
+      seconds: 14,
+      state: "valid",
+      created_at: "2026-10-22T09:12:00Z",
+      job_id: null,
+      discarded_by: null,
+      discarded_at: null,
+      duration: 192.4,
+      transcribed: 192.4,
+      segments: 4,
+      uncertain_segments: 1,
     },
   ],
   next_cursor: null,
@@ -4597,4 +4691,120 @@ export const scannedDocument: DocumentDetail = {
   text_status: "scanned",
   text_origin: "extracted",
   ai: { result: null, task: null },
+};
+
+// Transcripts (milestone 16) --------------------------------------------------------------------
+
+/** A run in the transcription step: 12,5 minutes transcribed, a voice message at 1:05 of 3:12. */
+export const aiJobTranscribing: AiJob = {
+  ...aiJobRunning,
+  id: 42,
+  phase: "transcribe",
+  progress: {
+    ...aiJobRunning.progress,
+    steps: [
+      doneStep("check", 2),
+      doneStep("ocr", 30),
+      {
+        ...waitingStep("transcribe"),
+        status: "running",
+        unit: "documents",
+        done: 4,
+        total: 9,
+        started_at: "2026-10-22T08:00:32Z",
+        seconds: 61,
+        rate: 0.07,
+        eta_seconds: 75,
+      },
+      waitingStep("entities"),
+      waitingStep("signals"),
+    ],
+    current: "Sprachnachricht_Vorstand.ogg",
+    minutes: 12.5,
+    position: 65,
+    duration: 192.4,
+  },
+};
+
+/** The transcript of a voice message: four lines, the third uncertain (D293). */
+export const transcriptResult: DocumentTranscriptResult = {
+  id: 88,
+  model: "parakeet-tdt-0.6b-v3",
+  created_at: "2026-10-22T09:12:00Z",
+  duration: 192.4,
+  transcribed: 192.4,
+  segments: 4,
+  uncertain: 1,
+  characters: 196,
+  audio: true,
+};
+
+export const transcriptSegments: TranscriptSegment[] = [
+  {
+    start: 0.4,
+    end: 6.1,
+    text: "Hallo Jonas, hier ist Anna vom Vorstand.",
+    confidence: 0.94,
+    uncertain: false,
+  },
+  {
+    start: 6.8,
+    end: 14.2,
+    text: "Die Sitzung mit dem Rat wird auf Donnerstag verschoben.",
+    confidence: 0.91,
+    uncertain: false,
+  },
+  {
+    start: 15,
+    end: 22.5,
+    text: "Die Spende aus Leipzig ist noch nicht gebucht.",
+    confidence: 0.42,
+    uncertain: true,
+  },
+  {
+    start: 65.3,
+    end: 71,
+    text: "Ruf mich bitte zurück, der Rat wartet.",
+    confidence: 0.88,
+    uncertain: false,
+  },
+];
+
+export const transcriptView: TranscriptView = {
+  result: transcriptResult,
+  segments: transcriptSegments,
+};
+
+/** A voice message with its transcript, played in the browser. */
+export const recordingDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5160,
+  name: "Sprachnachricht_Vorstand.ogg",
+  mime_type: "audio/ogg",
+  kind: "media",
+  size: 98_304,
+  pages: null,
+  text_status: "text",
+  text_origin: "transcript",
+  extracted_at: "2026-10-22T09:12:00Z",
+  attachment_id: 960,
+  preview: "audio",
+  metadata: { status: "empty", error: null, fields: {}, summary: null },
+  duration: 192.4,
+  transcribable: true,
+  transcript: { result: transcriptResult, task: null },
+};
+
+/** A recording nobody transcribed yet: no text, the transcriber can read it. */
+export const untranscribedDocument: DocumentDetail = {
+  ...recordingDocument,
+  id: 5161,
+  name: "Anruf_Kasse.mp3",
+  mime_type: "audio/mpeg",
+  attachment_id: 961,
+  text_status: "unsupported",
+  text_origin: "extracted",
+  extracted_at: null,
+  duration: null,
+  transcript: null,
 };
