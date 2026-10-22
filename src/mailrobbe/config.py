@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from pydantic import ByteSize, SecretStr
+from pydantic import ByteSize, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     api_count_timeout: float = 2.0
     # global_stats older than this many seconds are recomputed when the API reads them (D19).
     stats_max_age: int = 300
+    # Standard blocks (D225): a paragraph at the end of at least this many mails that are no
+    # duplicates, used by their senders twice on average, is detected as one at the next import.
+    block_min_mails: int = Field(default=25, ge=2)
 
 
 def get_settings() -> Settings:

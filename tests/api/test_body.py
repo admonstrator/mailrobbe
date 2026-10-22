@@ -3,7 +3,8 @@
 import base64
 
 from mailrobbe.api import body
-from mailrobbe.api.schemas import RAW_LIMIT, TEXT_LIMIT, HeaderField, TextSegment
+from mailrobbe.api.schemas import RAW_LIMIT, TEXT_LIMIT, HeaderField, MailText, TextSegment
+from mailrobbe.blocks.model import Paragraph, hash_hex, paragraph_hash, paragraphs
 
 HEAD = (
     b"From: Eva Berg <eva@nordwind.example>\nTo: max@elbtal.example\n"
@@ -153,3 +154,104 @@ def test_raw_is_cut_after_a_line_end() -> None:
     small = body.mail_raw(invalid)
     expected = "Subject: x\n\n" + "\N{REPLACEMENT CHARACTER}" * 2 + " broken\n"
     assert (small.raw, small.truncated, small.size) == (expected, False, len(invalid))
+
+
+# Standard blocks in the text view (D227) ---------------------------------------------------
+
+NOTICE = "Diese Nachricht ist vertraulich und nur für den Empfänger bestimmt."
+WITH_NOTICE = (
+    f"Hallo Eva,\n\npasst so, ich schicke den Vertrag morgen an alle.\n\n{NOTICE}\n\nGruß Max\n\n"
+    f"Am 1.3.2019 um 10:12 schrieb Eva:\n> Treffen am Montag wegen der Spende für den Rat?\n>\n"
+    f"> {NOTICE}\n>\n> Eva\n"
+)
+
+
+def _shown(text: str) -> tuple[MailText, list[Paragraph]]:
+    shown = body.mail_text(_mail(b"text/plain; charset=utf-8", text.encode()))
+    assert shown.text == text and shown.paragraphs == []
+    return shown, paragraphs(text)
+
+
+def test_a_standard_block_is_cut_out_of_its_segment_wherever_it_stands() -> None:
+    shown, found = _shown(WITH_NOTICE)
+    notice = paragraph_hash(NOTICE)
+    assert notice is not None
+    marked = body.with_blocks(shown, found, {notice: body.Known(True, 1234, None)})
+    block = hash_hex(notice)
+    assert [
+        (s.kind, WITH_NOTICE[s.start : s.end], s.lines, s.folded, s.block) for s in marked.segments
+    ] == [
+        (
+            "text",
+            "Hallo Eva,\n\npasst so, ich schicke den Vertrag morgen an alle.\n\n",
+            2,
+            False,
+            None,
+        ),
+        ("standard", f"{NOTICE}\n\n", 1, True, block),  # with the blank line below it
+        ("text", "Gruß Max\n\n", 1, False, None),
+        (
+            "quote",
+            "Am 1.3.2019 um 10:12 schrieb Eva:\n"
+            "> Treffen am Montag wegen der Spende für den Rat?\n>\n",
+            2,
+            True,
+            None,
+        ),
+        ("standard", f"> {NOTICE}\n>\n", 1, True, block),  # in the quote too
+        ("quote", "> Eva\n", 1, True, None),
+    ]
+    assert [
+        (p.start, p.end, p.hash, p.standard, p.mails, p.override) for p in marked.paragraphs
+    ] == [
+        (12, 61, hash_hex(found[0].hash), False, 0, None),
+        (63, 130, block, True, 1234, None),
+        (142, 225, hash_hex(found[2].hash), False, 0, None),
+        (228, 297, block, True, 1234, None),
+    ]
+    assert WITH_NOTICE[228:297] == f"> {NOTICE}"
+
+
+def test_paragraphs_carry_the_teams_choice_and_only_applied_blocks_are_cut() -> None:
+    shown, found = _shown(WITH_NOTICE)
+    first, notice = found[0].hash, found[1].hash
+    known = {
+        first: body.Known(standard=False, mails=0, override=True),  # marked, not applied yet
+        notice: body.Known(standard=True, mails=40, override=False),  # taken back, still applied
+    }
+    marked = body.with_blocks(shown, found, known)
+    assert [s.kind for s in marked.segments] == [
+        "text",
+        "standard",
+        "text",
+        "quote",
+        "standard",
+        "quote",
+    ]
+    assert [(p.standard, p.mails, p.override) for p in marked.paragraphs] == [
+        (False, 0, True),
+        (True, 40, False),
+        (False, 0, None),
+        (True, 40, False),
+    ]
+    # without blocks the segments stay those of quotes.split_text
+    plain = body.with_blocks(shown, found, {})
+    assert plain.segments == shown.segments
+    assert [p.standard for p in plain.paragraphs] == [False] * 4
+
+
+def test_a_text_that_is_one_standard_block() -> None:
+    shown, found = _shown(f"{NOTICE}\n")
+    marked = body.with_blocks(shown, found, {found[0].hash: body.Known(True, 3, None)})
+    assert marked.segments == [
+        TextSegment(
+            kind="standard",
+            start=0,
+            end=len(NOTICE) + 1,
+            lines=1,
+            folded=True,
+            block=hash_hex(found[0].hash),
+        )
+    ]
+    empty, nothing = _shown("")
+    assert nothing == [] and body.with_blocks(empty, nothing, {}).segments == empty.segments
