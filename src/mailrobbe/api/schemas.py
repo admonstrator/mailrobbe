@@ -555,6 +555,8 @@ class MailListItem(BaseModel):
     # the text of an attachment that holds a counted word was recognised by an AI run, not read
     # from its file (D189); the UI marks the hit "maschinell erkannt"
     attachment_machine: bool = False
+    # such a machine made text is a transcript of a recording (D296): "maschinell transkribiert"
+    attachment_transcript: bool = False
 
 
 class MailPage(BaseModel):
@@ -1918,7 +1920,8 @@ class DocumentSummary(BaseModel):
     programs: list[MetadataValueCount] | None = None
     protection: dict[DocumentProtection, int] | None = None  # every protection, 0 if none (D233)
     # Of them, those OCR can read (ai.queue.OCR_READABLE), logos included: what "Für KI vormerken"
-    # would queue at most (D186); None: ran out of time.
+    # would queue at most (D186), recordings the transcriber reads too (TRANSCRIBABLE, D295);
+    # None: ran out of time.
     ocr_readable: int | None = None
 
 

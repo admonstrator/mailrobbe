@@ -21,7 +21,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from mailrobbe.ai.queue import OCR_READABLE
+from mailrobbe.ai.queue import OCR_READABLE, TRANSCRIBABLE
 from mailrobbe.api import body, events, hiding, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.schemas import (
@@ -551,6 +551,22 @@ END""",
     Text,
 )
 
+# Where the transcription stands for an attachment's recording (D296, AttachmentTranscript).
+_TRANSCRIPT_STATE = literal_column(
+    f"""CASE
+    WHEN document.sha256 IS NULL THEN NULL
+    WHEN EXISTS (SELECT 1 FROM ai_task t WHERE t.kind = 'transcribe'
+                 AND t.target_sha256 = document.sha256 AND t.status IN ('waiting', 'running'))
+        THEN 'queued'
+    WHEN document.text_origin = 'transcript' THEN 'transcribed'
+    WHEN EXISTS (SELECT 1 FROM ai_result r WHERE r.kind = 'transcribe' AND r.state = 'valid'
+                 AND r.target_sha256 = document.sha256) THEN 'no_text'
+    WHEN EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {TRANSCRIBABLE})
+        THEN 'transcribable'
+END""",
+    Text,
+)
+
 
 async def _attachments(
     session: AsyncSession, mail_id: int, preview_max_size: int
@@ -584,6 +600,8 @@ async def _attachments(
             Document.metadata_latitude,
             Document.metadata_longitude,
             _OCR_STATE.label("ocr"),
+            _TRANSCRIPT_STATE.label("transcript"),
+            Document.duration,
         )
         .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == mail_id)
@@ -633,6 +651,8 @@ async def _attachments(
             path=row.path,
             members_status=row.members_status,
             ocr=row.ocr,
+            transcript=row.transcript,
+            duration=row.duration,
         )
 
     infos: dict[int, AttachmentInfo] = {}

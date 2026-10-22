@@ -24,7 +24,7 @@ attached twice counts twice. hit_count is one expression correlated to mail, whi
 mail_conditions adds after the conditions the full text indexes serve, so it runs on their
 candidates only; page_hits and mail_places run the same SQL (_own, _attached) for the mails of
 a page or the attachments of one mail, and machine_hits for the mails of a page whose words stand
-in a text an AI run recognised (D189).
+in a text an AI run recognised or transcribed (D189, D296).
 
 This module must not import filters.py, which imports it.
 """
@@ -105,16 +105,26 @@ async def page_hits(
 
 async def machine_hits(
     session: AsyncSession, mail_ids: Sequence[int], search: FullText
-) -> set[int]:
+) -> dict[int, set[TextOrigin]]:
     """The mails among mail_ids where a counted word stands in the text of an attachment whose
-    document an AI run recognised (D189), not in one read from its file."""
+    document an AI run recognised or transcribed (D189, D296), not in one read from its file;
+    each with the origins of those texts (ocr, transcript)."""
     machine = Document.text_origin != TextOrigin.EXTRACTED
     ids = literal(list(mail_ids), ARRAY(BigInteger))
-    statement = _by(search, Attachment.mail_id, and_(Attachment.mail_id == any_(ids), machine))
-    if not mail_ids or statement is None:
-        return set()
-    rows = await session.execute(statement)
-    return {mail_id for mail_id, place, count in rows if place == "attachment" and count > 0}
+    attached = _attached(search, and_(Attachment.mail_id == any_(ids), machine))
+    if not mail_ids or attached is None:
+        return {}
+    rows, documents = attached
+    statement = (
+        documents.add_columns(Attachment.mail_id, Document.text_origin, _total(rows))
+        .where(rows.c.place == "attachment")
+        .group_by(Attachment.mail_id, Document.text_origin)
+    )
+    found: dict[int, set[TextOrigin]] = {}
+    for mail_id, origin, count in await session.execute(statement):
+        if count > 0:
+            found.setdefault(mail_id, set()).add(TextOrigin(origin))
+    return found
 
 
 async def mail_places(

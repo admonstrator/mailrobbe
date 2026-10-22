@@ -219,6 +219,8 @@ def _shown_attachment(row: Row, rows: list[Row]) -> dict[str, Any]:
         "path": row["path"],
         "members_status": row["members_status"],
         "ocr": _ocr(row),
+        "transcript": _transcript(row),
+        "duration": None,  # known once a transcription decoded it (D293)
         "members": [
             _shown_attachment(member, rows)
             for member in sorted(rows, key=lambda each: each["position"])
@@ -235,6 +237,15 @@ def _ocr(row: Row) -> str | None:
     scanned = row["text_status"] == "scanned"
     picture = row["kind"] == "image" and row["text_status"] in ("unsupported", "empty")
     return "readable" if scanned or picture else None
+
+
+def _transcript(row: Row) -> str | None:
+    """AttachmentInfo.transcript of an archive no AI run has touched (D296): transcribable for
+    a recording without a text of its own, None otherwise."""
+    if row["document_sha256"] is None:
+        return None
+    recording = row["kind"] == "media" and row["text_status"] in ("unsupported", "empty")
+    return "transcribable" if recording else None
 
 
 def _metadata_summary(row: Row) -> dict[str, Any] | None:
