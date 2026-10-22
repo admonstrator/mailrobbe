@@ -1,0 +1,7 @@
+# Names of towns texts use that the lists do not have, written by hand: "Name = Name of the
+# lists", which the step places looks up instead (D242). Mostly municipalities GeoNames lists
+# only by one of their parts, and German names it does not keep.
+
+Kischinau = Chişinău
+Lancy = Grand-Lancy
+Rapperswil-Jona = Rapperswil SG
