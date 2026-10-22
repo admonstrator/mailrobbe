@@ -38,6 +38,7 @@ from mailrobbe.api.documents import (
     snippet_around,
     stem_pattern,
 )
+from mailrobbe.api.mails import BY_ID_LIMIT
 from mailrobbe.api.schemas import (
     DOCUMENT_PERSONS_LIMIT,
     SNIPPET_LENGTH,
@@ -57,7 +58,7 @@ from mailrobbe.importer.cli import run_import
 from mailrobbe.preview.kinds import preview_kind
 from tests.api.conftest import _client
 from tests.api.test_mails import Params, at, get, rows
-from tests.api.test_paging import check_jumps, walk_rows
+from tests.api.test_paging import check_jumps, keyset_pages, walk_rows
 from tests.attachments.doubles import FIRST_DAY, Attached, attachment_mail, digest
 from tests.attachments.metadata import samples
 from tests.conftest import _temporary_database
@@ -1221,6 +1222,41 @@ async def test_document_jumps_agree_with_the_keyset_pages(
             await check_jumps(
                 client, "/api/documents", [*params, ("sort", sort)], 9, numbered_last=False
             )
+
+
+async def listed(client: httpx.AsyncClient) -> int:
+    """How many documents the list shows, page by page."""
+    pages = await keyset_pages(client, "/api/documents", [], 100)
+    return sum(len(page["items"]) for page in pages)
+
+
+async def test_document_jumps_with_hidden_mails(
+    mutable_database_url: str, mutable_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A rule hides every third mail and notes keep some of them (D203), so the documents only
+    # hidden mails or duplicates carry leave the list; so does one whose mails were deleted, as a
+    # replaced file's are (D14), until finalize deletes it.
+    statements = [
+        "INSERT INTO hide_rule (id, name, automated) OVERRIDING SYSTEM VALUE"
+        " VALUES (1, 'Rundschreiben', true)",
+        "INSERT INTO mail_hidden (rule_id, mail_id) SELECT 1, id FROM mail WHERE id % 3 = 0",
+        "INSERT INTO note (mail_sha256, body) SELECT raw_sha256, 'Rat' FROM mail WHERE id % 9 = 0",
+        "DELETE FROM mail WHERE id IN (SELECT mail_id FROM attachment"
+        " WHERE document_id = (SELECT max(id) FROM document))",
+        "ANALYZE",
+    ]
+    before = await listed(mutable_client)
+    for statement in statements:
+        await rows(mutable_database_url, statement)
+    assert await listed(mutable_client) < before
+    # The documents failing the hidden mails as a list of ids, and beyond it as the EXISTS.
+    cases = [(paging.FORWARD_ROWS, filters.WALK_ROWS, BY_ID_LIMIT), (0, 5, 10**6), (0, 5, 0)]
+    for forward_rows, walk, by_id in cases:
+        monkeypatch.setattr(paging, "FORWARD_ROWS", forward_rows)
+        walk_rows(monkeypatch, walk)
+        monkeypatch.setattr(documents, "BY_ID_LIMIT", by_id)
+        for params in ([], [("sort", "mails")], [("kind", "pdf")], [("q", "Angebot")]):
+            await check_jumps(mutable_client, "/api/documents", params, 9, numbered_last=False)
 
 
 async def test_the_summary_of_the_generated_archive(

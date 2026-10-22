@@ -116,6 +116,13 @@ async def _counted(session: AsyncSession, settings: Settings, count: Executable)
         return None
 
 
+async def custom_plans(session: AsyncSession) -> None:
+    """Plans the rest of the request's statements for their parameters. A list of ids a jump
+    tests (`id != ALL(...)`) is hashed in a plan made for its values only; the generic plan a
+    prepared statement may switch to tests it element by element, for every row passed."""
+    await session.execute(select(func.set_config("plan_cache_mode", "force_custom_plan", True)))
+
+
 async def _total(session: AsyncSession, count: Executable) -> int:
     return int((await session.execute(count)).scalar_one())
 

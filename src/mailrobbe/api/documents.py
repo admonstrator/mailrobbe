@@ -14,7 +14,10 @@ each sort walks its index (ix_document_first_date, ix_document_mails, ix_documen
 With conditions on mails and no search words the walk is bounded as the mail list's
 (filters.first_ids): the next WALK_ROWS documents in order, then, when they hold too few matches,
 every match sorted; matches cluster (one year's documents, one person's), and PostgreSQL's
-estimate assumes they do not.
+estimate assumes they do not. A jump to a page by number (D193, api/paging.py) reads by OFFSET;
+without conditions on mails, the test that remains (a carrier that is no duplicate and not
+hidden, D222) becomes the list of the few documents failing it (_by_id), so that counting and a
+page far into the list read document alone.
 
 A snippet is found in PostgreSQL, so that only its surroundings leave the database: the search
 words as typed become one regular expression, any case written out as character classes (the
@@ -59,6 +62,7 @@ from sqlalchemy import (
     Select,
     SQLColumnExpression,
     Text,
+    all_,
     any_,
     cast,
     exists,
@@ -66,9 +70,11 @@ from sqlalchemy import (
     func,
     literal,
     literal_column,
+    or_,
     select,
     text,
     true,
+    union,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import DBAPIError
@@ -93,7 +99,12 @@ from mailrobbe.api.fulltext import (
     word_regex_python,
 )
 from mailrobbe.api.hits import mail_places
-from mailrobbe.api.mails import _QUERY_CANCELED, _count_budget, _unless_canceled
+from mailrobbe.api.mails import (
+    _QUERY_CANCELED,
+    BY_ID_LIMIT,
+    _count_budget,
+    _unless_canceled,
+)
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
 from mailrobbe.api.query import QueryError, parse_query
 from mailrobbe.api.schemas import (
@@ -137,6 +148,7 @@ from mailrobbe.db.models import (
     Attachment,
     Document,
     Mail,
+    MailHidden,
     Participation,
     Person,
 )
@@ -195,13 +207,12 @@ _ITEM_COLUMNS = (
 
 
 def document_conditions(
-    filters: DocumentFilters, internal: Sequence[str], *, walk: bool = False
+    filters: DocumentFilters, internal: Sequence[str], *, walk: bool = False, carried: bool = True
 ) -> list[ColumnElement[bool]]:
     """Every condition of the filters (D74) on document; FilterError for an unusable one.
 
-    The conditions on mails become one EXISTS, which PostgreSQL may turn into a join over every
-    carrying mail; with walk, a subquery it runs for one document at a time instead, for the
-    bounded walk of _first_ids.
+    The conditions on mails become one test of the carrying mails (_carried); carried False
+    leaves it out, for a jump that tests it by the document's id instead (_by_id).
     """
     where: list[ColumnElement[bool]] = []
     if filters.q.strip():
@@ -227,27 +238,33 @@ def document_conditions(
         external=filters.external,
     )
     on_mail = mail_conditions(mail_filters, (), internal)
-    if not on_mail:
-        return where
-    carrying = (  # one carrying mail that is no duplicate meets them all
+    if on_mail and carried:
+        where.append(_carried(on_mail, walk=walk))
+    return where
+
+
+def _carried(on_mail: Sequence[ColumnElement[bool]], *, walk: bool = False) -> ColumnElement[bool]:
+    """One carrying mail that is no duplicate meets every condition of on_mail: an EXISTS, which
+    PostgreSQL may turn into a join over every carrying mail; with walk, a subquery it runs for
+    one document at a time instead, for the bounded walk of _first_ids."""
+    carrying = (
         Attachment.document_id == Document.id,
         Mail.id == Attachment.mail_id,
         Mail.is_duplicate_of.is_(None),
         *on_mail,
     )
     if not walk:
-        where.append(exists().where(*carrying))
-        return where
+        return exists().where(*carrying)
     one = select(true()).select_from(Attachment, Mail).where(*carrying).limit(1)
-    where.append(func.coalesce(one.scalar_subquery(), false()))  # scalar: never hashed in full
-    return where
+    return func.coalesce(one.scalar_subquery(), false())  # scalar: never hashed in full
 
 
 def _where(
-    filters: DocumentFilters, internal_setting: str, *, walk: bool = False
+    filters: DocumentFilters, internal_setting: str, *, walk: bool = False, carried: bool = True
 ) -> list[ColumnElement[bool]]:
     try:
-        return document_conditions(filters, internal_domains(internal_setting), walk=walk)
+        internal = internal_domains(internal_setting)
+        return document_conditions(filters, internal, walk=walk, carried=carried)
     except FilterError as error:
         raise api_error(400, "invalid_filter", str(error)) from error
 
@@ -312,6 +329,11 @@ async def list_documents(
     if paging.wanted(params.page, params.last):  # D193
         if cursor is not None:
             raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
+        # Within the first WALK_ROWS rows the EXISTS is tested as the rows are walked.
+        far = not params.last and (params.page or 1) * params.limit > WALK_ROWS
+        plain = await _by_id(session) if far and not _on_mails(params) else None
+        if plain is not None:  # the where that read and the count below see
+            where = [*_where(params, settings.internal_domains, carried=False), *plain]
         count = select(func.count()).select_from(Document).where(*where)
         jumped = await paging.jump(
             session, settings, read, count, page=params.page, last=params.last, limit=params.limit
@@ -378,9 +400,39 @@ async def list_documents(
 
 
 def _on_mails(filters: DocumentFilters) -> bool:
-    """Conditions on the carrying mails apply (the EXISTS of document_conditions)."""
+    """Conditions on the carrying mails apply beyond the hidden mails (D222)."""
     on_mails = (filters.date_from, filters.date_to, filters.person)
     return filters.external or any(value is not None for value in on_mails)
+
+
+async def _by_id(session: AsyncSession) -> list[ColumnElement[bool]] | None:
+    """The test of the carrying mails a list without conditions on them still has (a carrier
+    that is no duplicate and not hidden) as a test of the document's id, as mails._by_id does
+    for the mail list: only a document that a duplicate or a hidden mail carries, or none, can
+    fail it, so those are tested one by one and the failing ones listed. Counting then reads
+    document alone and a page far into the list is a sort of it, where PostgreSQL would join
+    every carrying mail. None for more than BY_ID_LIMIT failing documents."""
+    touched = union(
+        select(Mail.id).where(Mail.is_duplicate_of.is_not(None)), select(MailHidden.mail_id)
+    )
+    carrying = select(Attachment.document_id).where(Attachment.mail_id.in_(touched))
+    # A document whose mails were all deleted (a replaced file, D14) lost its first mail with
+    # them (ON DELETE SET NULL) and lasts until finalize deletes it (attachments.documents).
+    candidates = (
+        select(Document.id)
+        .where(or_(Document.id.in_(carrying), Document.first_mail_id.is_(None)))
+        .cte("candidates")
+        .prefix_with("MATERIALIZED")  # so that the test below runs for them alone
+    )
+    carried = _carried(mail_conditions(MailFilters(), (), ()), walk=True)
+    failing = select(candidates.c.id).where(~ClauseAdapter(candidates).traverse(carried))
+    ids = list(await session.scalars(failing.limit(BY_ID_LIMIT + 1)))
+    if len(ids) > BY_ID_LIMIT:
+        return None
+    if not ids:
+        return []
+    await paging.custom_plans(session)
+    return [Document.id != all_(literal(sorted(ids), ARRAY(BigInteger)))]
 
 
 async def _first_ids(

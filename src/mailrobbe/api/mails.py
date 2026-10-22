@@ -89,6 +89,7 @@ from mailrobbe.db.models import (
     Tag,
 )
 from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.hiding.model import kept
 from mailrobbe.persons.labels import attach_labels, label_text, labelled_persons
 from mailrobbe.persons.roots import member_ids
 from mailrobbe.signals.model import rules
@@ -266,7 +267,8 @@ async def _jump(
     where: Sequence[ColumnElement[bool]],
 ) -> paging.Jump:
     """The ids of the page a jump names (D193); where with its research filters resolved."""
-    plain = await _by_id(session, where) if unfiltered(where) else None
+    far = not params.last and (params.page or 1) * params.limit > WALK_ROWS  # beyond the walk
+    plain = await _by_id(session, where) if far and unfiltered(where) else None
 
     async def read(offset: int, limit: int, reverse: bool) -> list[int]:
         if offset + limit <= WALK_ROWS:  # the bounded walk, or every match when it runs out
@@ -304,13 +306,16 @@ async def _by_id(
     BY_ID_LIMIT hidden mails, whose list would weigh more than the walk it saves."""
     if not where:
         return []
-    listed = aliased(MailHidden)  # apart from the mail_hidden that VISIBLE reads
-    hidden = select(listed.mail_id).distinct().join(Mail, Mail.id == listed.mail_id)
-    hidden = hidden.where(*(~condition for condition in where)).limit(BY_ID_LIMIT + 1)
-    ids = list(await session.scalars(hidden))
+    # A mail of mail_hidden fails VISIBLE unless it is kept (hiding.model); ~VISIBLE itself
+    # would test every mail of the archive for a row in mail_hidden.
+    hidden = select(MailHidden.mail_id).distinct().join(Mail, Mail.id == MailHidden.mail_id)
+    ids = list(await session.scalars(hidden.where(~kept()).limit(BY_ID_LIMIT + 1)))
     if len(ids) > BY_ID_LIMIT:
         return None
-    return [Mail.id != all_(literal(sorted(ids), ARRAY(BigInteger)))] if ids else []
+    if not ids:
+        return []
+    await paging.custom_plans(session)
+    return [Mail.id != all_(literal(sorted(ids), ARRAY(BigInteger)))]
 
 
 async def _found_through_attachments(
