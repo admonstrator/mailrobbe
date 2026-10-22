@@ -1331,6 +1331,43 @@ export interface ExportInfo {
   download_url: string;
 }
 
+// Social media image (D214 to D217) -------------------------------------------------------------
+// One mail as a PNG that looks like a mail client, with the persons in it blacked out before
+// anything is drawn. The picture is made for the request and stored nowhere.
+
+export type CardShape = "square" | "wide" | "portrait";
+
+export type RedactionKind = "participant" | "contact" | "name" | "organization" | "term";
+
+export const SOCIAL_TERMS_LIMIT = 20; // own terms per image
+export const SOCIAL_TERM_LIMIT = 200; // characters of one term
+
+export interface SocialParams {
+  shape?: CardShape;
+  participants?: boolean; // From, To, Cc and Bcc with their names and labels
+  contacts?: boolean; // addresses, phone numbers, IBANs and account numbers in the text
+  names?: boolean; // persons' names in the text
+  organizations?: boolean; // organisations, places, URLs and domains in the text
+  terms?: string[]; // the team's own terms
+  quotes?: boolean; // show the quoted text too
+  dkim?: boolean; // the DKIM seal beside the date
+  checksum?: boolean; // the first 16 digits of the mail's SHA-256 in the footer
+}
+
+export interface SocialRedaction {
+  places: number;
+  kind: RedactionKind;
+}
+
+export interface SocialCard {
+  width: number;
+  height: number;
+  places: number; // places blacked out, over every text of the card
+  redactions: SocialRedaction[]; // by category, in the order of RedactionKind
+  lines: number; // lines of the text the card shows
+  truncated: boolean; // the text does not fit the format and is cut
+}
+
 // Attachments and documents (milestone 9, D70 to D77) -------------------------------------------
 
 export const DOCUMENT_NAMES_LIMIT = 20;

@@ -2,7 +2,7 @@
 // the editor's name on writes (D54), and contract errors as ApiError.
 
 import { EDITOR_HEADER, editorHeader, getEditor } from "../lib/editor";
-import type { ApiErrorDetail, ErrorCode } from "./types";
+import type { ApiErrorDetail, ErrorCode, SocialParams } from "./types";
 
 type ParamValue = string | number | boolean | null | undefined | readonly (string | number)[];
 /** A parameter object such as MailListParams. */
@@ -126,6 +126,34 @@ export function attachmentHtmlUrl(attachmentId: number): string {
 /** Audio or video for a media element, with Range requests (D123). */
 export function attachmentMediaUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/media`;
+}
+
+/** The query of a social media image (D214): every switch is written out, since the API blacks
+ *  out by default and buildQuery would drop a false one. */
+export function socialQuery(params: SocialParams): Record<string, string | readonly string[]> {
+  const query: Record<string, string | readonly string[]> = {};
+  if (params.shape) query.shape = params.shape;
+  for (const key of SOCIAL_SWITCHES) {
+    const value = params[key];
+    if (value !== undefined) query[key] = value ? "true" : "false";
+  }
+  if (params.terms?.length) query.terms = params.terms;
+  return query;
+}
+
+const SOCIAL_SWITCHES = [
+  "participants",
+  "contacts",
+  "names",
+  "organizations",
+  "quotes",
+  "dkim",
+  "checksum",
+] as const;
+
+/** The PNG of one mail for social media (D214), drawn for this request. */
+export function socialImageUrl(mailId: number, params: SocialParams): string {
+  return withQuery(`/api/mails/${mailId}/social.png`, socialQuery(params));
 }
 
 /** The PDF viewer's page (D121): pdf.js on an opaque origin, given the PDF by postMessage. */

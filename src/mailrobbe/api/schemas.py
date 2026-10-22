@@ -18,6 +18,8 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/mails/{id}/body?format=headers     MailHeaders
     GET  /api/mails/{id}/body?format=raw         MailRaw
     GET  /api/mails/{id}/eml                     message/rfc822 download
+    GET  /api/mails/{id}/social?SocialParams     SocialCard: what the image blacks out (D214)
+    GET  /api/mails/{id}/social.png?SocialParams image/png of the same card
     POST /api/mails/{id}/dkim/recheck            MailDkim, after checking the mail again
     GET  /api/persons?PersonListParams           PersonPage (D31)
     GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, the open ones of a tier
@@ -172,7 +174,7 @@ Every other GET path outside /api serves the frontend (index.html for client-sid
 """
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -206,6 +208,7 @@ from mailrobbe.enums import (
 from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
 from mailrobbe.persons.suggestions import SuggestionReason
 from mailrobbe.preview.kinds import PreviewKind
+from mailrobbe.social.model import TERM_LIMIT, TERMS_LIMIT, CardShape, RedactionKind
 
 # Tag colours (D57): the UI maps each to a fixed pair of background and text colours.
 TagColor = Literal["blue", "teal", "green", "amber", "red", "pink", "violet", "gray"]
@@ -1648,6 +1651,44 @@ class ExportInfo(BaseModel):
     manifest_sha256: str | None
     downloaded_at: datetime | None
     download_url: str  # /api/exports/{id}/download
+
+
+# Social media image (D214 to D217) -------------------------------------------------------------
+#
+# One mail as a PNG that looks like a mail client, with the persons in it blacked out before
+# anything is drawn (D216). The picture is made for the request and stored nowhere.
+
+
+class SocialParams(BaseModel):
+    """What the image shows and what it blacks out; the defaults are those of D215."""
+
+    shape: CardShape = CardShape.PORTRAIT
+    participants: bool = True  # From, To, Cc and Bcc with their names and labels (D156)
+    contacts: bool = True  # addresses, phone numbers, IBANs and account numbers in the text
+    names: bool = True  # persons' names in the text
+    organizations: bool = False  # organisations, places, URLs and domains in the text
+    terms: list[Annotated[str, Field(max_length=TERM_LIMIT)]] = Field(
+        default_factory=list, max_length=TERMS_LIMIT
+    )  # the team's own terms, blacked out wherever they stand
+    quotes: bool = False  # show the quoted text too
+    dkim: bool = True  # the DKIM seal beside the date
+    checksum: bool = True  # the first 16 digits of the mail's SHA-256 in the footer (D61)
+
+
+class SocialRedaction(BaseModel):
+    places: int  # places blacked out
+    kind: RedactionKind
+
+
+class SocialCard(BaseModel):
+    """What the image of the same parameters holds, for the dialog beside the preview (D217)."""
+
+    width: int
+    height: int
+    places: int  # places blacked out, over every text of the card
+    redactions: list[SocialRedaction]  # by category, in the order of RedactionKind
+    lines: int  # lines of the text the card shows
+    truncated: bool  # the text does not fit the format and is cut
 
 
 # Attachments and documents (milestone 9, D70 to D77) -----------------------------------------

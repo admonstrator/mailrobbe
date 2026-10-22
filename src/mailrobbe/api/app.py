@@ -28,6 +28,7 @@ from mailrobbe.api import (
     processes,
     research,
     signals,
+    social,
     stats,
     timeline,
     topics,
@@ -78,6 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(marks.router)  # before detail: /api/mails/bulk is no mail id
     app.include_router(notes.router)
     app.include_router(exports.router)
+    app.include_router(social.router)  # before detail: /api/mails/{id}/social.png is its own
     app.include_router(entities.router)  # before detail: /api/mails/facets is no mail id
     app.include_router(signals.router)  # before detail: /api/mails/signals is no mail id
     app.include_router(detail.router)

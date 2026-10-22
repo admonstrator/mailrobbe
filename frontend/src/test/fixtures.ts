@@ -81,6 +81,7 @@ import type {
   SignalInfo,
   SignalKey,
   SignalOverview,
+  SocialCard,
   SignalReason,
   Stats,
   StepProgress,
@@ -1624,6 +1625,20 @@ export const exports: ExportInfo[] = [
     download_url: "/api/exports/3/download",
   },
 ];
+
+/** What the social media image of the mail detail blacks out (D217). */
+export const socialCard: SocialCard = {
+  width: 1080,
+  height: 1350,
+  places: 9,
+  redactions: [
+    { kind: "participant", places: 4 },
+    { kind: "contact", places: 3 },
+    { kind: "name", places: 2 },
+  ],
+  lines: 18,
+  truncated: false,
+};
 
 export const permalink: PermalinkTarget = {
   mail_id: mailDetail.id,

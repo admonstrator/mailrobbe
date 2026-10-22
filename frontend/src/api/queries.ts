@@ -21,6 +21,7 @@ import {
   apiPost,
   apiPut,
   attachmentHtmlUrl,
+  socialQuery,
 } from "./client";
 import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
@@ -127,6 +128,8 @@ import type {
   SelectorSummary,
   SignalFacets,
   SignalOverview,
+  SocialCard,
+  SocialParams,
   Stats,
   SuggestionPage,
   TagCreate,
@@ -175,6 +178,7 @@ export const queryKeys = {
   neighbors: (id: number, params: MailOrderParams) => ["mails", "neighbors", id, params] as const,
   mail: (id: number) => ["mail", id] as const,
   body: (id: number, format: BodyFormat) => ["mail", id, "body", format] as const,
+  socialCard: (id: number, params: SocialParams) => ["mail", id, "social", params] as const,
   /** Prefix of everything a merge, an unmerge or a dismissal can change. */
   persons: ["persons"] as const,
   personPage: (params: PersonListParams) => ["persons", "page", params] as const,
@@ -284,6 +288,16 @@ export function useMailBody<F extends BodyFormat>(id: number, format: F, enabled
     queryFn: ({ signal }) => apiGet<BodyResponse[F]>(`/api/mails/${id}/body`, { format }, signal),
     enabled,
     staleTime: Infinity,
+  });
+}
+
+/** What the social media image of these parameters blacks out (D217), beside its preview. */
+export function useSocialCard(id: number, params: SocialParams) {
+  return useQuery({
+    queryKey: queryKeys.socialCard(id, params),
+    queryFn: ({ signal }) =>
+      apiGet<SocialCard>(`/api/mails/${id}/social`, socialQuery(params), signal),
+    placeholderData: keepPreviousData,
   });
 }
 
