@@ -452,6 +452,14 @@ h3 {
   filter: brightness(0.92);
 }
 
+.contact {
+  margin: 32px 0 0;
+}
+
+.fingerprint {
+  font-size: 14px;
+}
+
 /* Lightbox */
 
 .shot {
