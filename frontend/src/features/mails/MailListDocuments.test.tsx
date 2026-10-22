@@ -37,7 +37,7 @@ describe("mail list and attachments", () => {
           }
         : fixtureApi(call),
     );
-    const heard = await screen.findByText("im Anhang · maschinell transkribiert");
+    const heard = await screen.findByText("im Anhang · transkribiert");
     expect(heard.getAttribute("title")).toBe(
       "Suchbegriff steht im Text eines Anhangs, maschinell transkribiert (KI)",
     );

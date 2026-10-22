@@ -271,7 +271,7 @@ export function MailTable({
                       {inAttachment && (
                         <span className={styles.inAttachment} title={inAttachment}>
                           {mail.attachment_transcript
-                            ? "im Anhang · maschinell transkribiert"
+                            ? "im Anhang · transkribiert"
                             : mail.attachment_machine
                               ? "im Anhang · maschinell erkannt"
                               : "im Anhang"}
