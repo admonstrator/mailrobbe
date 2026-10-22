@@ -13,7 +13,14 @@ import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { formatDate, formatNumber } from "../../lib/format";
 import { EngineSelect } from "../ai/EngineSelect";
-import { aiErrorText, engineName, machineLine, pageNumbers, queuedText } from "../ai/labels";
+import {
+  aiErrorText,
+  engineName,
+  machineLine,
+  pageNumbers,
+  queuedText,
+  startedText,
+} from "../ai/labels";
 import { Dialog } from "../persons/Dialog";
 import styles from "./DocumentOcr.module.css";
 
@@ -29,13 +36,14 @@ export function OcrBar({ document }: { document: DocumentDetail }) {
   const enqueue = useEnqueueAi();
   if (!result && !task && !document.ocr_readable) return null;
 
+  // Starts a run for just this document at once (D280).
   const queue = (engine: OcrEngineChoice) =>
     enqueue.mutate(
-      { document_ids: [document.id], single: true, engine },
+      { document_ids: [document.id], single: true, engine, start: true },
       {
-        onSuccess: () => {
+        onSuccess: (queued) => {
           setDialog(null);
-          setNotice("Vorgemerkt: Der nächste KI-Lauf liest dieses Dokument zuerst.");
+          setNotice(startedText(queued));
         },
         onError: (error) => setNotice(aiErrorText(error)),
       },
@@ -124,9 +132,8 @@ function AgainDialog({
   return (
     <Dialog title="Text neu erkennen?" onClose={onClose}>
       <p className={styles.text}>
-        Der nächste KI-Lauf liest das Dokument noch einmal, vor allen anderen. Sein neuer Text
-        ersetzt den bisherigen erst, wenn er Schrift gefunden hat; der bisherige bleibt bis dahin
-        durchsuchbar.
+        Ein KI-Lauf liest das Dokument gleich noch einmal. Sein neuer Text ersetzt den bisherigen
+        erst, wenn er Schrift gefunden hat; der bisherige bleibt bis dahin durchsuchbar.
       </p>
       <EngineSelect id={id} value={chosen} vision={vision} onChange={setEngine} />
       <div className={styles.foot}>
@@ -136,7 +143,7 @@ function AgainDialog({
           disabled={pending || status.isPending}
           onClick={() => onQueue(chosen)}
         >
-          Vormerken
+          Jetzt erkennen
         </Button>
       </div>
     </Dialog>

@@ -393,6 +393,10 @@ export interface Participant extends PersonRef {
  *  video in the media elements. */
 export type PreviewKind = "image" | "pdf" | "html" | "audio" | "video";
 
+/** Where the text recognition stands for an attachment's document (D280); null: OCR has
+ *  nothing to do with it. */
+export type AttachmentOcr = "readable" | "queued" | "recognised" | "no_text";
+
 export interface AttachmentInfo {
   id: number;
   filename: string | null;
@@ -413,6 +417,7 @@ export interface AttachmentInfo {
   /** A container (ZIP, 7z, attached mail): whether it was unpacked, and its entries that became
    *  documents, in the container's order (D231); null and [] for any other attachment. */
   members_status?: DocumentMembersStatus | null;
+  ocr?: AttachmentOcr | null; // the text recognition of its document (D280)
   members?: AttachmentInfo[];
 }
 
@@ -2800,6 +2805,7 @@ export interface AiOptions {
   uncertain: number;
   concurrency: number;
   tesseract_workers: number;
+  documents: number[]; // only these documents' tasks (D280); empty: the whole queue
   vision_url: string; // "" without one
   vision_remote: boolean;
 }
@@ -2848,13 +2854,19 @@ export interface AiQueueRequest {
   engine?: OcrEngineChoice;
   include_logos?: boolean;
   single?: boolean; // one document from its page: first in the queue
+  start?: boolean; // with document_ids: a run for just these documents at once (D280)
 }
+
+/** What start did (D280): a run began; an AI run lives already and takes them next; another
+ *  run (an import) keeps it from starting, so they wait in the queue. */
+export type AiQueuedRun = "started" | "running" | "busy";
 
 export interface AiQueued {
   queued: number;
   raised: number; // already open: priority and engine updated
   unreadable: number;
   logos: number; // images in many mails, left out
+  run: AiQueuedRun | null; // with start, null without
 }
 
 export interface AiDocumentRef {

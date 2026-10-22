@@ -249,20 +249,25 @@ class _Task:
 _REQUEUE = text("""
     UPDATE ai_task SET status = 'waiting' WHERE status = 'running' AND kind = 'ocr'
 """)
-_WAITING = text("""
+# A run for some documents only (AiOptions.documents) leaves the other tasks waiting.
+_ONLY = (
+    "(cardinality(CAST(:documents AS bigint[])) = 0 OR {task}.target_sha256 IN "
+    "(SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
+)
+_WAITING = text(f"""
     SELECT count(*) AS tasks,
         COALESCE(sum(GREATEST(0, LEAST(COALESCE(d.pages, 1), :max_pages)
             - jsonb_array_length(COALESCE(t.partial -> 'pages', '[]'::jsonb)))), 0) AS pages,
         count(*) FILTER (WHERE t.engine = 'vision') AS vision,
         count(*) FILTER (WHERE t.engine = 'auto') AS auto
     FROM ai_task t LEFT JOIN document d ON d.sha256 = t.target_sha256
-    WHERE t.kind = 'ocr' AND t.status = 'waiting'
+    WHERE t.kind = 'ocr' AND t.status = 'waiting' AND {_ONLY.format(task="t")}
 """)
-_TAKE = text("""
+_TAKE = text(f"""
     UPDATE ai_task t SET status = 'running', job_id = :job_id, started_at = now()
     WHERE t.id = (
         SELECT w.id FROM ai_task w LEFT JOIN document d ON d.sha256 = w.target_sha256
-        WHERE w.kind = 'ocr' AND w.status = 'waiting'
+        WHERE w.kind = 'ocr' AND w.status = 'waiting' AND {_ONLY.format(task="w")}
         ORDER BY w.priority DESC, d.mails DESC NULLS LAST, w.id
         LIMIT 1 FOR UPDATE OF w SKIP LOCKED)
     RETURNING t.id, t.target_sha256, t.engine, t.partial
@@ -393,7 +398,10 @@ class _Run:
                 requeued = (await session.execute(_REQUEUE)).rowcount  # type: ignore[attr-defined]
                 reapplied = await reapply_results(session)
                 waiting = (
-                    await session.execute(_WAITING, {"max_pages": self.options.max_pages})
+                    await session.execute(
+                        _WAITING,
+                        {"max_pages": self.options.max_pages, "documents": self.options.documents},
+                    )
                 ).one()
             if requeued:
                 log.warning("%d tasks left running by an earlier run wait again", requeued)
@@ -494,7 +502,8 @@ class _Run:
         """The next waiting task, now running in this run; a task without its document fails."""
         while True:
             async with self.sessionmaker.begin() as session:
-                row = (await session.execute(_TAKE, {"job_id": self.job.job_id})).first()
+                parameters = {"job_id": self.job.job_id, "documents": self.options.documents}
+                row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:
                     return None
                 document = (

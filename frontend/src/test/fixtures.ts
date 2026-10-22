@@ -4346,6 +4346,7 @@ const aiDefaults: AiStatus["defaults"] = {
   concurrency: 1,
   tesseract_workers: 4,
   vision_url: "http://host.docker.internal:11434",
+  documents: [],
   vision_remote: false,
 };
 

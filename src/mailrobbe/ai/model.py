@@ -221,6 +221,7 @@ class AiOptions(BaseModel):
     uncertain: float = 60.0
     concurrency: int = 1  # requests per service at once
     tesseract_workers: int = 1  # pages Tesseract reads at once
+    documents: list[int] = []  # only the tasks of these documents (one started from its page)
     vision_url: str = ""  # display_url of the vision service, "" without one
     vision_remote: bool = False
 

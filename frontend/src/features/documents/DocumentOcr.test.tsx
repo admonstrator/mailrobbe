@@ -15,7 +15,8 @@ function api(call: ApiCall): unknown {
     return { text: "Vorstandssitzung 6. März\nQuittung", truncated: false, text_status: "text" };
   }
   if (path === "/api/ai/status") return aiStatus;
-  if (path === "/api/ai/tasks") return { queued: 1, raised: 0, unreadable: 0, logos: 0 };
+  if (path === "/api/ai/tasks")
+    return { queued: 1, raised: 0, unreadable: 0, logos: 0, run: "started" };
   if (path === "/api/ai/results/77/discard") return { changed: 1 };
   if (path === "/api/documents/summary") return { ...documentSummary, ocr_readable: 214 };
   return fixtureApi(call);
@@ -39,13 +40,13 @@ describe("text recognition on a document", () => {
     expect(await within(card).findByText(/Vorstandssitzung/)).toBeTruthy();
   });
 
-  it("queues a new recognition with the chosen engine, first in line", async () => {
+  it("recognises again at once with the chosen engine", async () => {
     const { calls } = renderApp(`/anhaenge/${ocrDocument.id}`, api);
     const card = await screen.findByRole("region", { name: "Erkannter Text" });
     fireEvent.click(within(card).getByRole("button", { name: "Neu erkennen" }));
     const dialog = await screen.findByRole("dialog", { name: "Text neu erkennen?" });
     // The engines come with the AI status; until then the button waits.
-    const queue = within(dialog).getByRole("button", { name: "Vormerken" });
+    const queue = within(dialog).getByRole("button", { name: "Jetzt erkennen" });
     await waitFor(() => expect(queue).toHaveProperty("disabled", false));
     fireEvent.click(queue);
     await waitFor(() => expect(posts(calls, "/api/ai/tasks")).toHaveLength(1));
@@ -53,6 +54,7 @@ describe("text recognition on a document", () => {
       document_ids: [ocrDocument.id],
       single: true,
       engine: "vision",
+      start: true,
     });
   });
 
@@ -66,16 +68,17 @@ describe("text recognition on a document", () => {
     expect(posts(calls, "/api/ai/results/77/discard")).toHaveLength(1);
   });
 
-  it("offers Text erkennen for a scan without a text", async () => {
+  it("starts the recognition of a scan without a text at once", async () => {
     const { calls } = renderApp(`/anhaenge/${scannedDocument.id}`, api);
     const card = await screen.findByRole("region", { name: "Texterkennung" });
     expect(within(card).queryByRole("button", { name: "Text anzeigen" })).toBeNull();
     fireEvent.click(within(card).getByRole("button", { name: "Text erkennen" }));
-    expect(await within(card).findByText(/Vorgemerkt: Der nächste KI-Lauf/)).toBeTruthy();
+    expect(await within(card).findByText(/Die Texterkennung läuft/)).toBeTruthy();
     expect(posts(calls, "/api/ai/tasks")[0].body).toEqual({
       document_ids: [scannedDocument.id],
       single: true,
       engine: "auto",
+      start: true,
     });
   });
 

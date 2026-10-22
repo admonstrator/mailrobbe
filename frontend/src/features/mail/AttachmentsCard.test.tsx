@@ -372,3 +372,64 @@ describe("protected and packed attachments of a mail (D231, D233)", () => {
     expect(await screen.findByRole("button", { name: "Belege/Beleg_6.pdf" })).toBeTruthy();
   });
 });
+
+describe("text recognition from a mail's attachments", () => {
+  const scan: AttachmentInfo = {
+    ...pdf,
+    id: 904,
+    filename: "Scan_0042.pdf",
+    document_id: 4042,
+    text_status: "scanned",
+    ocr: "readable",
+  };
+
+  it("starts a run for just that document at once", async () => {
+    const started = { ...scan, ocr: "queued" as const };
+    let queued = false;
+    const { calls } = renderApp("/mails/184221", (call) => {
+      if (call.url.pathname === "/api/ai/tasks") {
+        queued = true;
+        return { queued: 1, raised: 0, unreadable: 0, logos: 0, run: "started" };
+      }
+      return withAttachments([queued ? started : scan, sheet])(call);
+    });
+    const card = await attachmentsCard();
+    fireEvent.click(within(card).getByRole("button", { name: "Text von Scan_0042.pdf erkennen" }));
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url.pathname === "/api/ai/tasks")).toHaveLength(1),
+    );
+    expect(calls.find((call) => call.url.pathname === "/api/ai/tasks")!.body).toEqual({
+      document_ids: [4042],
+      single: true,
+      start: true,
+    });
+    // The mail is asked again and the row says the recognition is under way.
+    expect(await within(card).findByText("Texterkennung läuft")).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: /erkennen$/ })).toBeNull();
+  });
+
+  it("says when an import keeps the run from starting", async () => {
+    renderApp("/mails/184221", (call) =>
+      call.url.pathname === "/api/ai/tasks"
+        ? { queued: 1, raised: 0, unreadable: 0, logos: 0, run: "busy" }
+        : withAttachments([scan, sheet])(call),
+    );
+    const card = await attachmentsCard();
+    fireEvent.click(within(card).getByRole("button", { name: "Text von Scan_0042.pdf erkennen" }));
+    expect(await within(card).findByText(/Gerade läuft ein Import/)).toBeTruthy();
+  });
+
+  it("marks recognised texts and files without writing, and offers nothing else", async () => {
+    renderApp(
+      "/mails/184221",
+      withAttachments([
+        { ...scan, ocr: "recognised" },
+        { ...photo, ocr: "no_text" },
+      ]),
+    );
+    const card = await attachmentsCard();
+    expect(within(item(card, "Scan_0042.pdf")).getByText("Text maschinell erkannt")).toBeTruthy();
+    expect(within(item(card, "IMG_0412.jpg")).getByText("keine Schrift erkannt")).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: /erkennen$/ })).toBeNull();
+  });
+});

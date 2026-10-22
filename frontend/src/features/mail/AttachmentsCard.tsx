@@ -2,12 +2,14 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { attachmentContentUrl } from "../../api/client";
+import { useEnqueueAi } from "../../api/queries";
 import type { AttachmentHit, AttachmentInfo, DocumentKind, MetadataSummary } from "../../api/types";
 import { Button } from "../../components/Button";
 import { FoldCard } from "../../components/FoldCard";
 import { Highlighted, type SearchMarks } from "../../components/Highlighted";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatDate, formatNumber } from "../../lib/format";
+import { aiErrorText, startedText } from "../ai/labels";
 import { KindIcon } from "../documents/KindIcon";
 import {
   KIND_LABELS,
@@ -18,7 +20,7 @@ import {
   PROTECTION_TITLES,
   statusNote,
 } from "../documents/labels";
-import { MachineMark } from "../documents/MachineMark";
+import { MACHINE_TITLE, MachineMark } from "../documents/MachineMark";
 import { ProtectionMark } from "../documents/ProtectionMark";
 import { documentPath } from "../documents/urlState";
 import { photoPosition, PhotoPosition } from "../places/PhotoPosition";
@@ -205,6 +207,9 @@ export function AttachmentsCard({
                     {documentLinkText(attachment.document_mails)}
                   </Link>
                 )}
+                {attachment.ocr === "readable" && attachment.document_id !== null && (
+                  <RecognizeButton documentId={attachment.document_id} name={name} />
+                )}
                 {position && attachment !== mapped && (
                   <button
                     type="button"
@@ -260,7 +265,61 @@ function Notes({ attachment }: { attachment: AttachmentInfo }) {
         </span>
       )}
       {note && <span className={styles.status}>{note}</span>}
+      {attachment.ocr && attachment.ocr !== "readable" && (
+        <span className={styles.status} title={OCR_TITLES[attachment.ocr]}>
+          {OCR_NOTES[attachment.ocr]}
+        </span>
+      )}
     </>
+  );
+}
+
+// What the text recognition of an attachment's document did (D280), after its size.
+const OCR_NOTES = {
+  queued: "Texterkennung läuft",
+  recognised: "Text maschinell erkannt",
+  no_text: "keine Schrift erkannt",
+} as const;
+const OCR_TITLES = {
+  queued: "Ein KI-Lauf liest die Datei; die Liste zeigt das Ergebnis, sobald er fertig ist.",
+  recognised: MACHINE_TITLE,
+  no_text: "Die Texterkennung hat in der Datei keine Schrift gefunden.",
+} as const;
+
+/** "Text erkennen" for a scan or picture without a text: starts a run for just this document
+ *  (D280); the row then says "Texterkennung läuft" until it is done. */
+function RecognizeButton({ documentId, name }: { documentId: number; name: string }) {
+  const enqueue = useEnqueueAi();
+  const [notice, setNotice] = useState<string | null>(null);
+  if (notice) {
+    return (
+      <span className={styles.downloadOnly} role="status">
+        {notice}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={styles.open}
+      disabled={enqueue.isPending}
+      aria-label={`Text von ${name} erkennen`}
+      onClick={() =>
+        enqueue.mutate(
+          { document_ids: [documentId], single: true, start: true },
+          {
+            onSuccess: (queued) => {
+              if (queued.run !== "started" && queued.run !== "running") {
+                setNotice(startedText(queued));
+              }
+            },
+            onError: (error) => setNotice(aiErrorText(error)),
+          },
+        )
+      }
+    >
+      Text erkennen
+    </button>
   );
 }
 

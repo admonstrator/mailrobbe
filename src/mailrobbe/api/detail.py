@@ -21,6 +21,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from mailrobbe.ai.queue import OCR_READABLE
 from mailrobbe.api import body, events, hiding, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.schemas import (
@@ -535,6 +536,22 @@ async def _originals(session: AsyncSession, hashes: set[str]) -> dict[str, int]:
     return {sha: mail_id for sha, mail_id in rows}
 
 
+# Where the text recognition stands for an attachment's document (D280, AttachmentOcr).
+_OCR_STATE = literal_column(
+    f"""CASE
+    WHEN document.sha256 IS NULL THEN NULL
+    WHEN EXISTS (SELECT 1 FROM ai_task t WHERE t.kind = 'ocr' AND t.target_sha256 = document.sha256
+                 AND t.status IN ('waiting', 'running')) THEN 'queued'
+    WHEN document.text_origin = 'ocr' THEN 'recognised'
+    WHEN EXISTS (SELECT 1 FROM ai_result r WHERE r.kind = 'ocr' AND r.state = 'valid'
+                 AND r.target_sha256 = document.sha256) THEN 'no_text'
+    WHEN EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {OCR_READABLE})
+        THEN 'readable'
+END""",
+    Text,
+)
+
+
 async def _attachments(
     session: AsyncSession, mail_id: int, preview_max_size: int
 ) -> list[AttachmentInfo]:
@@ -566,6 +583,7 @@ async def _attachments(
             Document.members_status,
             Document.metadata_latitude,
             Document.metadata_longitude,
+            _OCR_STATE.label("ocr"),
         )
         .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == mail_id)
@@ -614,6 +632,7 @@ async def _attachments(
             protection=row.protection,
             path=row.path,
             members_status=row.members_status,
+            ocr=row.ocr,
         )
 
     infos: dict[int, AttachmentInfo] = {}

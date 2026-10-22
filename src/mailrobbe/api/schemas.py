@@ -209,7 +209,8 @@ X-Mailrobbe-Editor (D54):
     POST /api/ai/services/{capability}/check     ServiceCheck: the service asked and tested
                                                  now; 404 not_found without one
     POST /api/ai/tasks                           AiQueueRequest -> AiQueued (D186); 400
-                                                 invalid_selection, too_many_documents
+                                                 invalid_selection, too_many_documents; with
+                                                 start a run for just these documents (D280)
     GET  /api/ai/tasks?AiTaskParams              AiTaskPage, newest first
     POST /api/ai/tasks/retry                     AiTaskAction -> AiChanged: failed and cancelled
                                                  ones queued again
@@ -745,6 +746,12 @@ class MetadataSummary(BaseModel):
     longitude: float | None = None
 
 
+# Where the text recognition stands for an attachment's document (D280): OCR can read it and
+# nothing has yet; a task is open; its text was recognised; it was read and holds no writing.
+# None: OCR has nothing to do with it (a text of its own, no SHA-256, no document yet).
+AttachmentOcr = Literal["readable", "queued", "recognised", "no_text"]
+
+
 class AttachmentInfo(BaseModel):
     id: int
     filename: str | None
@@ -766,6 +773,7 @@ class AttachmentInfo(BaseModel):
     # documents, in the container's order (D231); None and [] for any other attachment.
     members_status: DocumentMembersStatus | None = None
     members: list["AttachmentInfo"] = []
+    ocr: AttachmentOcr | None = None  # the text recognition of its document (D280)
 
 
 class ThreadMail(BaseModel):
@@ -3097,6 +3105,14 @@ class AiQueueRequest(BaseModel):
     engine: OcrEngineChoice = "auto"
     include_logos: bool = False  # images in more than LOGO_MAILS mails too
     single: bool = False  # one document from its page: first in the queue, a logo too
+    # With document_ids: start a run reading only these documents at once (D280).
+    start: bool = False
+
+
+# What start did (D280): a run for these documents began; an AI run is alive already and takes
+# them next (single puts them first); another run (an import) keeps it from starting, so they
+# wait in the queue.
+AiQueuedRun = Literal["started", "running", "busy"]
 
 
 class AiQueued(BaseModel):
@@ -3106,6 +3122,7 @@ class AiQueued(BaseModel):
     raised: int  # already open: priority and engine updated
     unreadable: int  # not readable by OCR: a text of its own, no SHA-256, unknown id
     logos: int  # images in more than LOGO_MAILS mails, left out
+    run: AiQueuedRun | None = None  # with start, None without
 
 
 class AiDocumentRef(BaseModel):

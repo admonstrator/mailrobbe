@@ -110,7 +110,8 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
                 "d.metadata_author, d.metadata_modified_by, d.metadata_program, "
                 "d.metadata_device, d.metadata_created, d.metadata_gps, d.metadata_latitude, "
                 "d.metadata_longitude, d.protection::text AS protection, "
-                "d.members_status::text AS members_status FROM attachment a "
+                "d.members_status::text AS members_status, d.sha256 AS document_sha256 "
+                "FROM attachment a "
                 "LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
             ):
                 attachments[row["mail_id"]].append(row)
@@ -217,12 +218,23 @@ def _shown_attachment(row: Row, rows: list[Row]) -> dict[str, Any]:
         "protection": row["protection"],
         "path": row["path"],
         "members_status": row["members_status"],
+        "ocr": _ocr(row),
         "members": [
             _shown_attachment(member, rows)
             for member in sorted(rows, key=lambda each: each["position"])
             if member["container_id"] == row["id"]
         ],
     }
+
+
+def _ocr(row: Row) -> str | None:
+    """AttachmentInfo.ocr of an archive no AI run has touched (D280): readable for a scanned PDF
+    and an image without a text of its own, None otherwise."""
+    if row["document_sha256"] is None:
+        return None
+    scanned = row["text_status"] == "scanned"
+    picture = row["kind"] == "image" and row["text_status"] in ("unsupported", "empty")
+    return "readable" if scanned or picture else None
 
 
 def _metadata_summary(row: Row) -> dict[str, Any] | None:

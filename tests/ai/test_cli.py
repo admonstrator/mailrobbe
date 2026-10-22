@@ -57,6 +57,10 @@ def test_the_command_line_overrides_the_settings() -> None:
             "5",
             "--concurrency",
             "2",
+            "--document",
+            "9",
+            "--document",
+            "4",
         ]
     )
     assert args.origin is JobOrigin.UI
@@ -70,6 +74,7 @@ def test_the_command_line_overrides_the_settings() -> None:
             "vision_model": "anderes",
             "max_pages": 5,
             "concurrency": 2,
+            "documents": [4, 9],
         }
     )
     assert found.vision_url == VISION_URL and "geheim" not in found.model_dump_json()
