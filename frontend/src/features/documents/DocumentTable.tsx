@@ -16,6 +16,7 @@ import {
   pagesText,
   statusNote,
 } from "./labels";
+import { MachineMark } from "./MachineMark";
 import { ContainedMark, ProtectionMark } from "./ProtectionMark";
 import { documentPath } from "./urlState";
 
@@ -108,6 +109,7 @@ export function DocumentTable({
                     )}
                     {doc.protection && <ProtectionMark protection={doc.protection} />}
                     {doc.contained && <ContainedMark />}
+                    {doc.text_origin && doc.text_origin !== "extracted" && <MachineMark short />}
                     <StatusLabel status={doc.text_status} />
                   </span>
                   {doc.snippet && (

@@ -14,6 +14,9 @@ as written; content streams are deflated. Encrypted PDFs use the standard securi
 revision 4 with AES-128 (AESV2), with a user password, as Acrobat writes them. Scanned PDFs
 have pages that show only an image.
 
+Set text (milestone 15): scanned pages, photos of a page and posters drawn with Pillow in the
+DejaVu fonts of the PDF export, so OCR has words to find (text_picture).
+
 Pictures: PNGs drawn here, JPEGs from the photos in media/, some with the EXIF of a phone or
 camera and its GPS position (exif_segment); noise where every decoder skips it (a private PNG
 chunk, JPEG comment segments) brings them to the planned size and makes each one a file of its
@@ -37,6 +40,7 @@ from xml.sax.saxutils import escape, quoteattr
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from PIL import Image, ImageDraw, ImageFont
 
 from mailrobbe.generator.model import PhotoGps
 
@@ -205,11 +209,12 @@ def pdf(
     *,
     size: int = 0,
     password: str | None = None,
-    images: Sequence[int] = (),
+    images: Sequence[int | bytes] = (),
 ) -> bytes:
     """A PDF with one page per entry of `pages` (lines of text, the first one bold on page 1).
 
-    `images` gives, per page, the size of a picture the page shows instead of text (scans);
+    `images` gives, per page, the picture the page shows instead of text (scans): the size of
+    filler behind a JPEG magic number, or a grey JPEG of 1240 x 1754 pixels (scan_page);
     `password` encrypts the file with that user password; an unreferenced stream of noise
     brings the file to about `size` bytes.
     """
@@ -234,7 +239,8 @@ def pdf(
         if images:
             image = number
             number += 1
-            picture = filler(rng, images[index], _JPEG)
+            given = images[index]
+            picture = given if isinstance(given, bytes) else filler(rng, given, _JPEG)
             objects[image] = _stream(
                 b"<< /Type /XObject /Subtype /Image /Width 1240 /Height 1754 "
                 b"/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode >>",
@@ -989,11 +995,20 @@ def _png_chunk(kind: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
 
 
-def jpeg(rng: random.Random, size: int, *, damaged: bool = False, exif: bytes = b"") -> bytes:
-    """A photo of media/ (made with ffmpeg) of about `size` bytes: comment segments of noise
-    after its JFIF header (and its EXIF, exif_segment) make up the rest, so every photo has
-    bytes of its own. A damaged one stops inside them, before the frame header."""
-    photo = fixture(f"jpeg-{rng.randint(1, _PHOTOS)}.jpeg")
+def jpeg(
+    rng: random.Random,
+    size: int,
+    *,
+    damaged: bool = False,
+    exif: bytes = b"",
+    photo: bytes | None = None,
+) -> bytes:
+    """A photo of media/ (made with ffmpeg), or the given JFIF photo, of about `size` bytes:
+    comment segments of noise after its JFIF header (and its EXIF, exif_segment) make up the
+    rest, so every photo has bytes of its own. A damaged one stops inside them, before the
+    frame header."""
+    if photo is None:
+        photo = fixture(f"jpeg-{rng.randint(1, _PHOTOS)}.jpeg")
     start = 4 + int.from_bytes(photo[4:6], "big")  # behind SOI and APP0
     pad = max(size - len(photo) - len(exif), 64)
     noise = filler(rng, pad - 4 * -(-pad // (_COMMENT + 4)), b"")
@@ -1004,6 +1019,70 @@ def jpeg(rng: random.Random, size: int, *, damaged: bool = False, exif: bytes = 
     if damaged:
         return photo[:start] + exif + comments[: rng.randint(5, len(comments) - 1)]
     return photo[:start] + exif + comments + photo[start:]
+
+
+# Set text (milestone 15) ---------------------------------------------------------------------
+
+FONT_DIR = Path(__file__).parent.parent / "export" / "fonts"  # DejaVu, as the PDF export
+SCAN_SIZE = (1240, 1754)  # an A4 page at 150 dpi, as pdf() declares its scan pictures
+_SCAN_FONT = 28  # pixels: about 13 points at 150 dpi, which Tesseract reads well
+
+
+def text_picture(
+    lines: Sequence[str],
+    size: tuple[int, int],
+    *,
+    font: int,
+    mode: str = "L",
+    paper: int | tuple[int, int, int] = 255,
+    ink: int | tuple[int, int, int] = 0,
+) -> Image.Image:
+    """A page of set text: the lines from the top left in DejaVu Sans (the first one bold), on
+    paper of that colour; lines that do not fit are left out."""
+    image = Image.new(mode, size, paper)
+    draw = ImageDraw.Draw(image)
+    plain = ImageFont.truetype(str(FONT_DIR / "DejaVuSans.ttf"), font)
+    bold = ImageFont.truetype(str(FONT_DIR / "DejaVuSans-Bold.ttf"), font)
+    margin = size[0] // 10
+    y = margin
+    for index, line in enumerate(lines):
+        face = bold if index == 0 else plain
+        if y + font > size[1] - margin:
+            break
+        draw.text((margin, y), line, font=face, fill=ink)
+        y += round(font * (2.0 if index == 0 else 1.5))
+    return image
+
+
+def scan_page(lines: Sequence[str]) -> bytes:
+    """A scanned page of set text: a grey JPEG of SCAN_SIZE, as pdf() embeds it."""
+    out = io.BytesIO()
+    text_picture(lines, SCAN_SIZE, font=_SCAN_FONT).save(out, "JPEG", quality=70)
+    return out.getvalue()
+
+
+def document_photo(lines: Sequence[str], rng: random.Random, size: int, exif: bytes) -> bytes:
+    """A phone photo of a page of set text, about `size` bytes (jpeg's padding and EXIF)."""
+    out = io.BytesIO()
+    page = text_picture(
+        lines, (1200, 1600), font=34, mode="RGB", paper=(244, 240, 228), ink=(28, 28, 36)
+    )
+    page.save(out, "JPEG", quality=80)
+    return jpeg(rng, size, exif=exif, photo=out.getvalue())
+
+
+def poster(lines: Sequence[str], rng: random.Random, size: int) -> bytes:
+    """A PNG poster of set text, about `size` bytes: noise in a private chunk behind the header
+    makes up the rest, as png() does."""
+    out = io.BytesIO()
+    picture = text_picture(
+        lines, (1200, 1500), font=44, mode="RGB", paper=(250, 236, 120), ink=(20, 20, 70)
+    )
+    picture.save(out, "PNG")
+    data = out.getvalue()
+    head = 8 + 12 + 13  # the signature and the IHDR chunk
+    noise = filler(rng, max(size - len(data) - 12, 64), b"")
+    return data[:head] + _png_chunk(_PNG_PADDING, noise) + data[head:]
 
 
 # EXIF (D241) --------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { DbActivity, StepProgress } from "../../api/types";
+import type { DbActivity, JobKind, StepProgress } from "../../api/types";
 import { CheckIcon, CrossIcon, MinusIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -31,11 +31,14 @@ export function StepList({
   alive,
   age,
   database,
+  kind,
 }: {
   steps: StepProgress[];
   alive: boolean;
   age: number;
   database: DbActivity | null;
+  /** The run's kind, for steps whose key another kind uses for another step. */
+  kind?: JobKind;
 }) {
   const quiet = alive ? steps.findLastIndex((s) => s.status === "running" && s.unit === null) : -1;
   return (
@@ -52,7 +55,7 @@ export function StepList({
             </span>
             <span className={styles.text}>
               <span className={cx(styles.label, quietState(state) && styles.quiet)}>
-                {stepLabel(step.key)}
+                {stepLabel(step.key, kind)}
               </span>
               <span className={styles.detail}>
                 {stepDetail(step, state, extra)}
@@ -63,7 +66,7 @@ export function StepList({
               <span
                 className={styles.bar}
                 role="progressbar"
-                aria-label={stepLabel(step.key)}
+                aria-label={stepLabel(step.key, kind)}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.floor(share * 100)}

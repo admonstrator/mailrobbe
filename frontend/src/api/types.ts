@@ -125,7 +125,8 @@ export type ErrorCode =
   | "page_too_far" // 400: a jump to a page did not answer within the count budget (D193)
   | "not_locked" // 409: the document is not locked, or (decrypted) has no password found yet
   | "decrypt_failed" // 422: the found password did not decrypt it; message says why
-  | "map_off"; // 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
+  | "map_off" // 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
+  | "too_many_documents"; // 400: a selection for the AI queue above AI_QUEUE_LIMIT (D186)
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -259,6 +260,8 @@ export interface MailListItem {
   event: EventKey | null; // the kind of the mail's first calendar event (D155)
   /** q has full text words: where they occur (D176); null otherwise. */
   hits: MailHitCounts | null;
+  /** The text of an attachment holding a counted word was recognised by an AI run (D189). */
+  attachment_machine?: boolean;
 }
 
 export interface MailPage {
@@ -911,7 +914,7 @@ export interface GraphSize {
 
 export const ERROR_PAGE_SIZE = 50;
 
-export type JobKind = "import" | "dkim" | "dkim_keys" | "map";
+export type JobKind = "import" | "dkim" | "dkim_keys" | "map" | "ai";
 export type JobStatus = "running" | "done" | "stopped" | "failed";
 export type JobOrigin = "cli" | "ui";
 export type ImportPhase =
@@ -955,7 +958,7 @@ export interface ImportOptions {
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
-export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains" | "places"; // names: DKIM key names
+export type StepUnit = "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages"; // names: DKIM key names
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
@@ -1074,6 +1077,7 @@ export interface ImportStatus {
   dkim_job: DkimJob | null;
   defaults: ImportOptions;
   keys_job: DkimKeysJob | null; // the latest dkim-keys run (D101)
+  ai_job?: AiJob | null; // the latest AI run (D187), which an import waits for
 }
 
 export interface FailReasonCount {
@@ -1528,6 +1532,7 @@ export interface DocumentFilters {
   author?: string[];
   program?: string[]; // MetadataSummary.software as stored
   protection?: DocumentProtection[]; // any of these (D233)
+  text_origin?: TextOrigin[]; // where its text comes from (D185, D189)
 }
 
 export interface DocumentListParams extends DocumentFilters {
@@ -1555,6 +1560,7 @@ export interface DocumentListItem {
   snippet: string | null; // with full text words in q: text around the first literal match
   protection?: DocumentProtection | null; // D233
   contained?: boolean; // it was found inside a container (D231)
+  text_origin?: TextOrigin; // ocr: its text is machine made (D189)
 }
 
 export interface DocumentPage {
@@ -1581,6 +1587,8 @@ export interface DocumentSummary {
   authors: MetadataValueCount[] | null;
   programs: MetadataValueCount[] | null;
   protection?: Partial<Record<DocumentProtection, number>> | null; // every one present (D233)
+  /** Of them, those OCR can read, logos included (D186); null: ran out of time. */
+  ocr_readable?: number | null;
 }
 
 export interface DocumentNameCount {
@@ -1628,6 +1636,9 @@ export interface DocumentDetail {
   password?: DocumentPassword | null;
   members?: DocumentMembers | null; // a container's entries (D231); null otherwise
   containers?: DocumentContainerRef[]; // where it was found inside (D231)
+  text_origin?: TextOrigin; // D185
+  ai?: DocumentAi | null; // its OCR result and open task (D189)
+  ocr_readable?: boolean; // OCR can read it: "Text erkennen"
 }
 
 export type DocumentMetadataStatus =
@@ -1676,6 +1687,8 @@ export interface AttachmentHit {
   snippet: string | null;
   /** Its document's text holds a word (D176). */
   in_text: boolean;
+  /** That text was recognised by an AI run (D189). */
+  machine?: boolean;
 }
 
 /** Where the full text words of a mail list's q occur in one mail (D79). */
@@ -2706,4 +2719,272 @@ export interface MapDownloadRequest {
   region: MapRegionKey;
   detail: MapDetailKey;
   bbox?: BBox; // region view only
+}
+
+// AI services (milestone 15, D180 to D189) ------------------------------------------------------
+
+export type TextOrigin = "extracted" | "ocr" | "transcript";
+export type AiCapability = "vision";
+export type AiProtocol = "openai" | "ollama";
+export type AiLocality = "local" | "remote";
+export type OcrEngine = "tesseract" | "vision";
+export type OcrEngineChoice = "auto" | "tesseract" | "vision";
+export type AiTaskKind = "ocr" | "transcribe" | "summarize";
+export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelled";
+export type AiResultState = "valid" | "replaced" | "discarded";
+export type AiWorkList = "scanned" | "images";
+export type AiPhase = "check" | "ocr" | "entities" | "signals";
+
+export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
+export const AI_PAGE_SIZE = 50;
+
+/** One configured service as the settings name it, not asked (D180, D181). */
+export interface AiServiceInfo {
+  capability: AiCapability;
+  url: string; // without credentials
+  model: string; // "" when not set
+  protocol: AiProtocol | "auto";
+  locality: AiLocality | null; // null: the URL can never name a service
+  refused: string | null; // English: why the settings forbid it
+  key: boolean; // a key is set (never shown)
+}
+
+export interface AiServiceModel {
+  name: string;
+  vision: boolean | null;
+}
+
+/** What asking a service and running its test found (ai.model.ServiceCheck). */
+export interface ServiceCheck {
+  capability: AiCapability;
+  url: string;
+  locality: AiLocality | null;
+  refused: string | null;
+  reachable: boolean | null; // null: not asked
+  protocol: AiProtocol | null;
+  models: AiServiceModel[];
+  model: string;
+  model_found: boolean | null; // null: the service lists no models
+  test: "passed" | "failed" | null;
+  test_detail: string | null; // English: what came back, or why it failed
+  seconds: number | null;
+  error: string | null; // English
+  checked_at: string | null;
+}
+
+export interface AiEstimate {
+  engine: OcrEngine;
+  model: string; // "" for Tesseract
+  seconds: number;
+  estimated: boolean; // true: by the rule of thumb, "geschätzt"
+  seconds_per_page: number;
+}
+
+export interface AiWorkListInfo {
+  key: AiWorkList;
+  documents: number;
+  pages: number; // pages known; an image counts as one
+  without_pages: number; // documents whose pages are not known
+  bytes: number;
+  estimates: AiEstimate[]; // Tesseract always, the vision model when usable
+  engine: OcrEngine; // the engine "auto" takes for this list
+}
+
+/** What an AI run works with (job.options of kind ai); the defaults of a start. */
+export interface AiOptions {
+  kinds: AiTaskKind[];
+  ocr_engine: OcrEngineChoice;
+  vision_model: string;
+  max_pages: number;
+  languages: string;
+  uncertain: number;
+  concurrency: number;
+  tesseract_workers: number;
+  vision_url: string; // "" without one
+  vision_remote: boolean;
+}
+
+/** Live figures of an AI run; its pages are the ocr step's. */
+export interface AiProgress extends RunProgress {
+  queued: number;
+  done: number;
+  no_text: number;
+  failed: number;
+  tokens_in: number;
+  tokens_out: number;
+  current: string | null; // the file name in work
+  unreachable_since: string | null; // a service did not answer since then (D184)
+}
+
+/** A run of `mailrobbe ai run` (D187). */
+export interface AiJob extends JobInfo {
+  kind: "ai";
+  phase: AiPhase | null;
+  options: AiOptions;
+  progress: AiProgress;
+}
+
+export interface AiStatus {
+  enabled: boolean; // OCR is always possible: Tesseract runs in the container
+  vision: boolean; // a vision model is configured and allowed
+  tesseract: boolean;
+  ocr_languages: string;
+  services: AiServiceInfo[];
+  allow_remote: boolean;
+  remote_token_budget: number;
+  ocr_engine: OcrEngineChoice;
+  queue: Record<AiTaskKind, Record<AiTaskStatus, number>>;
+  work_lists: AiWorkListInfo[]; // scanned, then images
+  remote_used: boolean; // "Gesendet" is shown
+  job: AiJob | null;
+  defaults: AiOptions;
+}
+
+/** Exactly one of work_list, document_ids and filters (D186). */
+export interface AiQueueRequest {
+  work_list?: AiWorkList;
+  document_ids?: number[];
+  filters?: DocumentFilters;
+  engine?: OcrEngineChoice;
+  include_logos?: boolean;
+  single?: boolean; // one document from its page: first in the queue
+}
+
+export interface AiQueued {
+  queued: number;
+  raised: number; // already open: priority and engine updated
+  unreadable: number;
+  logos: number; // images in many mails, left out
+}
+
+export interface AiDocumentRef {
+  id: number;
+  name: string | null;
+  kind: DocumentKind | null;
+  pages: number | null;
+}
+
+export interface AiTaskParams {
+  status?: AiTaskStatus[];
+  cursor?: string;
+  limit?: number;
+}
+
+export interface AiTaskItem {
+  id: number;
+  kind: AiTaskKind;
+  document: AiDocumentRef | null;
+  engine: OcrEngineChoice;
+  priority: number;
+  status: AiTaskStatus;
+  attempts: number;
+  error: string | null; // English
+  queued_by: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  pages_read: number;
+  pages_total: number | null;
+  result_id: number | null;
+}
+
+export interface AiTaskPage {
+  items: AiTaskItem[];
+  next_cursor: string | null;
+}
+
+/** Retry or cancel: these tasks, or every one with all. */
+export interface AiTaskAction {
+  ids?: number[];
+  all?: boolean;
+}
+
+export interface AiChanged {
+  changed: number;
+}
+
+export interface AiResultParams {
+  state?: AiResultState[];
+  job_id?: number;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface AiResultItem {
+  id: number;
+  kind: AiTaskKind;
+  document: AiDocumentRef | null;
+  engine: string; // tesseract, vision or mixed
+  model: string | null;
+  remote: boolean;
+  pages_read: number;
+  pages_text: number;
+  pages_total: number | null;
+  uncertain: number[];
+  failed: number[];
+  characters: number;
+  seconds: number;
+  state: AiResultState;
+  created_at: string;
+  job_id: number | null;
+  discarded_by: string | null;
+  discarded_at: string | null;
+}
+
+export interface AiResultPage {
+  items: AiResultItem[];
+  next_cursor: string | null;
+}
+
+export interface AiSendLogParams {
+  cursor?: string;
+  limit?: number;
+}
+
+export interface AiSendItem {
+  id: number;
+  sent_at: string;
+  service_url: string;
+  kind: AiTaskKind;
+  document: AiDocumentRef | null;
+  bytes: number;
+  job_id: number | null;
+}
+
+export interface AiSendLogPage {
+  items: AiSendItem[];
+  next_cursor: string | null;
+  total: number;
+}
+
+export interface AiRunRequest {
+  engine?: OcrEngineChoice;
+  vision_model?: string;
+  max_pages?: number;
+}
+
+export interface DocumentAiResult {
+  id: number;
+  engine: string; // tesseract, vision or mixed
+  model: string | null;
+  remote: boolean;
+  created_at: string;
+  pages_total: number | null;
+  pages_read: number;
+  pages_text: number;
+  uncertain: number[];
+  failed: number[];
+  characters: number; // 0: no writing found
+}
+
+export interface DocumentAiTask {
+  id: number;
+  status: AiTaskStatus; // waiting or running
+  engine: OcrEngineChoice;
+  pages_read: number;
+}
+
+export interface DocumentAi {
+  result: DocumentAiResult | null;
+  task: DocumentAiTask | null;
 }

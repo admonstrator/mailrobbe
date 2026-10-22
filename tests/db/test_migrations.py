@@ -16,6 +16,9 @@ from mailrobbe import migrate
 from mailrobbe.db import models  # noqa: F401  (registers all tables on the metadata)
 from mailrobbe.db.base import Base
 from mailrobbe.enums import (
+    AiResultState,
+    AiTaskKind,
+    AiTaskStatus,
     AliasTier,
     DkimStatus,
     DnsStatus,
@@ -34,6 +37,7 @@ from mailrobbe.enums import (
     PasswordTier,
     PersonKind,
     ReviewStatus,
+    TextOrigin,
 )
 
 TABLES = {
@@ -99,6 +103,10 @@ TABLES = {
     "password",
     "password_finding",
     "document_password",
+    "ai_result",
+    "ai_task",
+    "ai_calibration",
+    "ai_send_log",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -115,7 +123,7 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
         DocumentMetadataStatus,
         ["pending", "found", "empty", "unsupported", "too_large", "failed"],
     ),
-    "job_kind": (JobKind, ["import", "dkim", "dkim_keys", "map"]),
+    "job_kind": (JobKind, ["import", "dkim", "dkim_keys", "map", "ai"]),
     "job_status": (JobStatus, ["running", "done", "stopped", "failed"]),
     "review_status": (ReviewStatus, ["seen", "relevant", "irrelevant"]),
     "key_origin": (KeyOrigin, ["dns", "observed", "documented", "reconstructed"]),
@@ -179,6 +187,10 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
         PasswordTier,
         ["manual", "mail", "thread", "contacts", "attachments", "opened", "archive", "typed"],
     ),
+    "text_origin": (TextOrigin, ["extracted", "ocr", "transcript"]),
+    "ai_task_kind": (AiTaskKind, ["ocr", "transcribe", "summarize"]),
+    "ai_task_status": (AiTaskStatus, ["waiting", "running", "done", "failed", "cancelled"]),
+    "ai_result_state": (AiResultState, ["valid", "replaced", "discarded"]),
 }
 
 # pg_get_indexdef() output: method, column order and operator class in one string.
@@ -276,7 +288,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0018"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0019"
 
 
 @pytest.mark.db
@@ -463,6 +475,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0018' WHERE alembic_version.version_num = '0017'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0019' WHERE alembic_version.version_num = '0018'"
         in sql
     )
 

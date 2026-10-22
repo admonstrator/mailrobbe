@@ -415,6 +415,17 @@ async def test_external_needs_the_internal_domains(client: httpx.AsyncClient) ->
         assert error["detail"]["code"] == "invalid_filter"
 
 
+async def test_an_import_reads_every_text_from_its_file(client: httpx.AsyncClient) -> None:
+    """Before any AI run every text comes from its file (D185); tests/api/test_ai.py has the
+    machine made ones."""
+    found = await get(client, "/api/documents", [("text_origin", "ocr")])
+    assert found["items"] == []
+    listed = await get(client, "/api/documents", [("text_origin", "extracted")])
+    assert listed["items"] and {item["text_origin"] for item in listed["items"]} == {"extracted"}
+    error = await get(client, "/api/documents", [("text_origin", "guessed")], status=422)
+    assert error["detail"]
+
+
 # Sorts, items and snippets (crafted) ----------------------------------------------------------
 
 
@@ -599,6 +610,7 @@ async def test_the_summary_falls_back_to_a_bounded_count(
         "authors": None,
         "programs": None,
         "protection": None,
+        "ocr_readable": None,
     }
     summary = await get(crafted_client, "/api/documents/summary")
     assert summary == {"total": len(CONTENTS), "exact": True, **nothing}
@@ -623,6 +635,7 @@ async def test_the_summary_runs_out_of_time(crafted: Crafted) -> None:
                     "authors": None,
                     "programs": None,
                     "protection": None,
+                    "ocr_readable": None,
                 }
                 values = [("field", "author")]
                 assert await get(client, "/api/documents/metadata-values", values) == {
@@ -1066,6 +1079,7 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
                 "in_name": False,
                 "snippet": UEBERSICHT.strip(),
                 "in_text": True,
+                "machine": False,
             }
         ],
         "whole_word": False,
@@ -1082,7 +1096,13 @@ async def test_the_hits_of_one_mail_say_where_the_words_occur(
         "stems": ["foto"],
         "in_mail": False,
         "attachments": [
-            {"attachment_id": foto, "in_name": True, "snippet": None, "in_text": False}
+            {
+                "attachment_id": foto,
+                "in_name": True,
+                "snippet": None,
+                "in_text": False,
+                "machine": False,
+            }
         ],
         "whole_word": False,
         "in_subject": False,
@@ -1204,6 +1224,7 @@ async def test_items_against_sql(client: httpx.AsyncClient, imported_database_ur
             "snippet": None,
             "protection": row.protection,
             "contained": row.contained,
+            "text_origin": "extracted",
         }
     assert any(item.first_sender for item in listed)
 

@@ -47,6 +47,10 @@ images by their first bytes, which the document page shows in an <img>. An opene
 The protection and the containers (milestone 19) come from api/protected.py: the list's filter
 and marks, the page's password with where it was found, a container's entries and the
 containers a document was found in.
+
+A text an AI run recognised (D185) is a document's text like any other, marked by its
+text_origin: the list filters and marks it, the page names its result and open task (D189), and
+the hits of one mail flag it as machine made. The queue and the results are api/ai.py's.
 """
 
 import asyncio
@@ -88,6 +92,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.util import ClauseAdapter
 
+from mailrobbe.ai.queue import OCR_READABLE
 from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import MailId, mail_senders
@@ -128,6 +133,9 @@ from mailrobbe.api.schemas import (
     METADATA_VALUES_LIMIT,
     SNIPPET_LENGTH,
     AttachmentHit,
+    DocumentAi,
+    DocumentAiResult,
+    DocumentAiTask,
     DocumentDetail,
     DocumentFilters,
     DocumentListItem,
@@ -168,10 +176,12 @@ from mailrobbe.db.models import (
     Person,
 )
 from mailrobbe.enums import (
+    AiTaskStatus,
     DocumentKind,
     DocumentProtection,
     DocumentTextStatus,
     ParticipationRole,
+    TextOrigin,
 )
 from mailrobbe.persons.labels import attach_labels
 from mailrobbe.persons.roots import ROOT
@@ -221,6 +231,7 @@ _ITEM_COLUMNS = (
     Document.last_date,
     Document.first_mail_id,
     Document.protection,
+    Document.text_origin,
 )
 
 
@@ -253,6 +264,8 @@ def document_conditions(
         where.append(Document.metadata_author.in_(sorted(set(filters.author))))
     if filters.program:
         where.append(Document.metadata_program.in_(sorted(set(filters.program))))
+    if filters.text_origin:
+        where.append(Document.text_origin.in_(sorted(set(filters.text_origin))))
     mail_filters = MailFilters(
         date_from=filters.date_from,
         date_to=filters.date_to,
@@ -417,6 +430,7 @@ async def list_documents(
                 snippet=snippets.get(row.id),
                 protection=row.protection,
                 contained=row.id in contained,
+                text_origin=row.text_origin,
             )
             for row in rows
         ],
@@ -658,6 +672,7 @@ async def mail_hits(
         if document is not None
     }
     texts = [documents[attachment] for attachment, hit in attached.items() if hit.attachment]
+    machine = await _machine_texts(session, texts)
     in_texts = [words for words, fields in counted if "attachment" in fields]
     snippets = await _hit_snippets(session, search.whole_word, in_texts, stems, texts)
     return MailHits(
@@ -669,6 +684,7 @@ async def mail_hits(
                 attachment_id=attachment,
                 in_name=hit.filename > 0,
                 in_text=hit.attachment > 0,
+                machine=hit.attachment > 0 and documents[attachment] in machine,
                 snippet=snippets.get(documents[attachment]) if hit.attachment else None,
             )
             for attachment, hit in sorted(attached.items())
@@ -679,6 +695,17 @@ async def mail_hits(
         in_body=counts.body > 0,
         counts=counts,
     )
+
+
+async def _machine_texts(session: AsyncSession, ids: Sequence[int]) -> set[int]:
+    """The documents among ids whose text an AI run recognised (D189)."""
+    if not ids:
+        return set()
+    statement = select(Document.id).where(
+        Document.id == any_(literal(sorted(set(ids)), ARRAY(BigInteger))),
+        Document.text_origin != TextOrigin.EXTRACTED,
+    )
+    return set(await session.scalars(statement))
 
 
 def _typed(counted: Sequence[Words]) -> list[str]:
@@ -714,8 +741,10 @@ async def summary(
 ) -> DocumentSummary:
     where = _where(filters, settings.internal_domains)
     await _count_budget(session, settings)
+    # OCR reads scans and images (D186): only their groups can hold readable documents
+    readable = func.count().filter(READABLE)
     counts = (
-        select(Document.kind, Document.text_status, Document.protection, func.count())
+        select(Document.kind, Document.text_status, Document.protection, func.count(), readable)
         .where(*where)
         .group_by(Document.kind, Document.text_status, Document.protection)
     )
@@ -724,7 +753,7 @@ async def summary(
         kinds = dict.fromkeys(DocumentKind, 0)
         statuses = dict.fromkeys(DocumentTextStatus, 0)
         protections = dict.fromkeys(DocumentProtection, 0)
-        for kind, status, protection, count in rows:
+        for kind, status, protection, count, _ in rows:
             if kind is not None:
                 kinds[kind] += count
             statuses[status] += count
@@ -738,6 +767,7 @@ async def summary(
             protection=protections,
             authors=await _metadata_values(session, where, Document.metadata_author),
             programs=await _metadata_values(session, where, Document.metadata_program),
+            ocr_readable=sum(row[4] for row in rows),
         )
     bounded = select(Document.id).where(*where).limit(COUNT_LIMIT + 1).subquery()
     row = await _unless_canceled(session, select(func.count()).select_from(bounded))
@@ -823,6 +853,7 @@ _DETAIL_COLUMNS = (
     Document.members_error,
     Document.metadata_latitude,
     Document.metadata_longitude,
+    Document.text_origin,
 )
 
 
@@ -881,9 +912,19 @@ async def document_detail(
         password=await found_password(session, document_id) if opened else None,
         members=await container_members(session, document),
         containers=await containers_of(session, document_id),
+        text_origin=document.text_origin,
+        ai=await document_ai(session, document.sha256),
+        ocr_readable=await _ocr_readable(session, document_id),
     )
     await attach_labels(session, detail)
     return detail
+
+
+async def _ocr_readable(session: AsyncSession, document_id: int) -> bool:
+    statement = text(
+        f"SELECT EXISTS (SELECT 1 FROM document d WHERE d.id = :id AND {OCR_READABLE})"
+    )
+    return bool(await session.scalar(statement, {"id": document_id}))
 
 
 def _metadata(document: Any) -> DocumentMetadata:
@@ -1016,6 +1057,70 @@ async def mail_persons(
         return [PersonCount(person=people[row.root], mails=row.mails) for row in selected[:limit]]
 
     return counts(senders), len(senders), counts(recipients), len(recipients)
+
+
+# AI texts (milestone 15, D185, D189) --------------------------------------------------------
+
+# Documents OCR can read (ai.queue.OCR_READABLE), as a condition on statements over document.
+READABLE = text(f"EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {OCR_READABLE})")
+# What a result says about its pages (ai.model.OcrPage in ai_result.pages), without its text.
+RESULT_FIGURES = """
+    r.id, r.kind::text AS kind, r.target_sha256, r.engine, r.model, r.remote, r.pages_total,
+    r.seconds, r.state::text AS state, r.created_at, r.job_id, r.discarded_by, r.discarded_at,
+    char_length(r.body) AS characters, jsonb_array_length(r.pages) AS pages_read,
+    (SELECT count(*) FROM jsonb_array_elements(r.pages) p
+     WHERE COALESCE(p->>'text', '') <> '') AS pages_text,
+    ARRAY(SELECT (p->>'number')::int FROM jsonb_array_elements(r.pages) p
+          WHERE (p->>'uncertain')::boolean ORDER BY 1) AS uncertain,
+    ARRAY(SELECT (p->>'number')::int FROM jsonb_array_elements(r.pages) p
+          WHERE p->>'error' IS NOT NULL ORDER BY 1) AS failed
+"""
+_VALID_RESULT = text(f"""
+    SELECT {RESULT_FIGURES} FROM ai_result r
+    WHERE r.kind = 'ocr' AND r.target_sha256 = :sha256 AND r.state = 'valid'
+""")
+_OPEN_TASK = text("""
+    SELECT id, status::text AS status, engine,
+        COALESCE(jsonb_array_length(partial->'pages'), 0) AS pages_read
+    FROM ai_task
+    WHERE kind = 'ocr' AND target_sha256 = :sha256 AND status IN ('waiting', 'running')
+""")
+
+
+async def document_ai(session: AsyncSession, sha256: str | None) -> DocumentAi | None:
+    """The valid OCR result and the open task of a document's content (D189); None without
+    either, or without a SHA-256 (D18)."""
+    if sha256 is None:
+        return None
+    result = (await session.execute(_VALID_RESULT, {"sha256": sha256})).first()
+    task = (await session.execute(_OPEN_TASK, {"sha256": sha256})).first()
+    if result is None and task is None:
+        return None
+    return DocumentAi(
+        result=None
+        if result is None
+        else DocumentAiResult(
+            id=result.id,
+            engine=result.engine,
+            model=result.model,
+            remote=result.remote,
+            created_at=result.created_at,
+            pages_total=result.pages_total,
+            pages_read=result.pages_read,
+            pages_text=result.pages_text,
+            uncertain=list(result.uncertain),
+            failed=list(result.failed),
+            characters=result.characters,
+        ),
+        task=None
+        if task is None
+        else DocumentAiTask(
+            id=task.id,
+            status=AiTaskStatus(task.status),
+            engine=task.engine,
+            pages_read=task.pages_read,
+        ),
+    )
 
 
 # Downloads -----------------------------------------------------------------------------------

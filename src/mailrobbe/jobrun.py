@@ -32,7 +32,7 @@ import signal
 import threading
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterator
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -59,6 +59,7 @@ from mailrobbe.jobs import (
     db_activity,
     end_job,
     end_leftovers,
+    job_alive,
     lock_sharers,
     report_job,
 )
@@ -76,12 +77,19 @@ _BUSY = {
     JobKind.DKIM: "another DKIM check is running",
     JobKind.DKIM_KEYS: "another DKIM check or key search is running",
     JobKind.MAP: "another map download is running",
+    JobKind.AI: "another AI run is running",
 }
 _ABORTED = {
     JobKind.IMPORT: "aborted: run `mailrobbe import` again to continue",
     JobKind.DKIM: "aborted: the mails checked so far are stored",
     JobKind.DKIM_KEYS: "aborted: the keys and mails stored so far stay",
     JobKind.MAP: "aborted: run `mailrobbe map download` again to continue",
+    JobKind.AI: "aborted: run `mailrobbe ai run` again to continue",
+}
+# Why a run does not start while a run of another kind it excludes is alive (D187).
+_EXCLUDED = {
+    JobKind.IMPORT: "an import is running: start the AI run after it",
+    JobKind.AI: "an AI run is running: stop it before an import",
 }
 _ERRORS = (OSError, SQLAlchemyError)
 
@@ -192,8 +200,12 @@ async def job_run(
     *,
     phase: str,
     figures: Figures,
+    excluded: Collection[JobKind] = (),
 ) -> AsyncIterator[JobRun]:
     """A run of this kind from its lock to its recorded end; raises RunRefused when it cannot start.
+
+    excluded: kinds whose live runs this one refuses to start beside (an import and an AI run,
+    D187); checked once the lock is taken, so of two starting at once at least one refuses.
 
     The body calls JobRun.end; when it raises instead, the run ends failed with the error as its
     message and the error propagates.
@@ -209,6 +221,11 @@ async def job_run(
         await connection.commit()  # the lock belongs to the connection, not to the transaction
         if not locked:
             raise RunRefused(_BUSY[kind])
+        for other in excluded:
+            alive = await job_alive(connection, other)
+            await connection.commit()
+            if alive:
+                raise RunRefused(_EXCLUDED.get(other, f"a run of kind {other} is running"))
         problem = await _schema_problem(connection, engine)
         if problem is not None:
             raise RunRefused(problem)

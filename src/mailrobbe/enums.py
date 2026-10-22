@@ -117,6 +117,7 @@ class JobKind(StrEnum):
     DKIM = "dkim"  # mailrobbe dkim
     DKIM_KEYS = "dkim_keys"  # mailrobbe dkim-keys: keys of deleted selectors (D101)
     MAP = "map"  # mailrobbe map download: the detail map (D246)
+    AI = "ai"  # mailrobbe ai run: the queued AI tasks (D187)
 
 
 class JobStatus(StrEnum):
@@ -173,6 +174,40 @@ class DocumentTextStatus(StrEnum):
     FAILED = "failed"  # the file is damaged or the extractor failed; text_error says why
     TIMEOUT = "timeout"  # stopped at the time limit; the text read until then is kept
     UNREADABLE = "unreadable"  # its MBOX file is missing or changed; tried again next import
+
+
+class TextOrigin(StrEnum):
+    """document.text_origin (D185): where a document's searchable text comes from."""
+
+    EXTRACTED = "extracted"  # read from the file by the import (D72), or no text at all
+    OCR = "ocr"  # recognised from page images by an AI run (mailrobbe.ai), see ai_result_id
+    TRANSCRIPT = "transcript"  # transcribed from audio by an AI run (M16)
+
+
+class AiTaskKind(StrEnum):
+    """ai_task.kind and ai_result.kind: what an AI run does with a document or mail (D186)."""
+
+    OCR = "ocr"  # text of a scanned PDF or an image
+    TRANSCRIBE = "transcribe"  # text of audio and video (M16)
+    SUMMARIZE = "summarize"  # summary and tags (M17)
+
+
+class AiTaskStatus(StrEnum):
+    """ai_task.status (D186)."""
+
+    WAITING = "waiting"
+    RUNNING = "running"  # taken by the run job_id; back to waiting when that run stops
+    DONE = "done"  # result_id holds what it gave, also "no text"
+    FAILED = "failed"  # after AI_TASK_ATTEMPTS attempts, or at once when it cannot succeed
+    CANCELLED = "cancelled"  # taken off the queue by hand
+
+
+class AiResultState(StrEnum):
+    """ai_result.state (D185)."""
+
+    VALID = "valid"  # the one in use for its kind and content
+    REPLACED = "replaced"  # a newer result of the same kind and content took its place
+    DISCARDED = "discarded"  # thrown away by hand, discarded_by and discarded_at say who
 
 
 class DocumentMetadataStatus(StrEnum):

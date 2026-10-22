@@ -20,6 +20,14 @@ const withDocument = (patch: Partial<typeof documentDetail>) => (call: ApiCall) 
 const hash = documentDetail.sha256!;
 
 describe("document page", () => {
+  it("marks a text an AI run recognised in the header", async () => {
+    renderApp("/anhaenge/5101", withDocument({ text_origin: "ocr" }));
+
+    expect(await screen.findByText("maschinell erkannt")).toBeTruthy();
+    expect(screen.getByText(/^Der Text wurde aus den Seitenbildern erkannt/)).toBeTruthy();
+    expect(screen.queryByText(/^Der Text ist ausgelesen/)).toBeNull();
+  });
+
   it("shows what the document is, its figures, names and persons", async () => {
     renderApp("/anhaenge/5101");
 

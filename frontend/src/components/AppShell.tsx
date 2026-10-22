@@ -23,6 +23,7 @@ const NAVIGATION = [
   { to: "/akten", label: "Akten" },
   { to: "/ausgeblendet", label: "Ausgeblendet" },
   { to: "/import", label: "Import" },
+  { to: "/ki", label: "KI" },
 ];
 
 /** The frame of every screen: header with logo, navigation, global search and figures. */

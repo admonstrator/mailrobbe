@@ -88,7 +88,7 @@ describe("document list", () => {
         .closest("label")!.textContent,
     ).toBe("Gescannt (ohne Text)6.904");
     expect(
-      within(filters).getByText(/Ohne Textebene: Die Volltextsuche findet sie nicht/),
+      within(filters).getByText(/Ohne Textebene: Die Volltextsuche findet sie erst/),
     ).toBeTruthy();
     // Rare statuses appear once documents have them; "pending" has none here.
     expect(within(filters).getByRole("checkbox", { name: /Zeitüberschreitung/ })).toBeTruthy();

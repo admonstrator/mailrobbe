@@ -1,6 +1,7 @@
 import { Navigate, type RouteObject } from "react-router";
 
 import { AppShell } from "./components/AppShell";
+import { AiRoute } from "./features/ai/lazyPages";
 import { BlockDetailRoute, BlocksRoute } from "./features/blocks/lazyPages";
 import { DocumentDetailRoute, DocumentListRoute } from "./features/documents/lazyPages";
 import { EntityDetailRoute, EntityListRoute } from "./features/entities/lazyPages";
@@ -47,6 +48,7 @@ export const routes: RouteObject[] = [
       { path: "/ausgeblendet/bloecke/:hash", element: <BlockDetailRoute /> },
       { path: "/m/:hash", element: <PermalinkPage /> },
       { path: "/import", element: <ImportPage /> },
+      { path: "/ki", element: <AiRoute /> },
       { path: "/import/selektoren", element: <SelectorListRoute /> },
       { path: "/import/selektoren/:name", element: <SelectorDetailRoute /> },
       { path: "*", element: <NotFoundPage /> },

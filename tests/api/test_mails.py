@@ -475,6 +475,7 @@ async def test_items_show_the_mail_and_its_participants(
             "near_count": 0,
             "event": mail.event,
             "hits": None,
+            "attachment_machine": False,
         }
 
 

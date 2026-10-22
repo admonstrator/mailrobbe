@@ -8,6 +8,7 @@ from sqlalchemy import event, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from mailrobbe.api import (
+    ai,
     auth,
     blocks,
     detail,
@@ -100,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(blocks.router)
     app.include_router(places.router)
     app.include_router(maps.router)
+    app.include_router(ai.router)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

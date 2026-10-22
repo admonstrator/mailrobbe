@@ -14,6 +14,7 @@ import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { DebouncedInput } from "./DebouncedInput";
+import { AiQueueButton } from "./DocumentOcr";
 import { DocumentFilterColumn } from "./DocumentFilterColumn";
 import styles from "./DocumentListPage.module.css";
 import { DocumentTable } from "./DocumentTable";
@@ -96,6 +97,9 @@ export function DocumentListPage() {
             <span className={styles.total} aria-live="polite">
               {totalText(summary.data, hasDocumentFilters(state))}
             </span>
+            {hasDocumentFilters(state) && (
+              <AiQueueButton filters={filters} summary={summary.data} />
+            )}
           </div>
 
           <div className={styles.toolbar}>

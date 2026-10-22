@@ -18,6 +18,7 @@ import {
   PROTECTION_TITLES,
   statusNote,
 } from "../documents/labels";
+import { MachineMark } from "../documents/MachineMark";
 import { ProtectionMark } from "../documents/ProtectionMark";
 import { documentPath } from "../documents/urlState";
 import { photoPosition, PhotoPosition } from "../places/PhotoPosition";
@@ -41,10 +42,21 @@ function documentLinkText(mails: number | null): string {
 
 /** Where an attachment holds a search word (D79): the text around it, or the name. */
 function hitText(hit: AttachmentHit, marks: SearchMarks | undefined) {
-  if (hit.snippet !== null) return <Highlighted text={`…${hit.snippet}…`} marks={marks} />;
-  return hit.in_name && !hit.in_text
-    ? "Suchwort im Dateinamen"
-    : "Suchwort im Text, in einer anderen Wortform";
+  const found =
+    hit.snippet !== null ? (
+      <Highlighted text={`…${hit.snippet}…`} marks={marks} />
+    ) : hit.in_name && !hit.in_text ? (
+      "Suchwort im Dateinamen"
+    ) : (
+      "Suchwort im Text, in einer anderen Wortform"
+    );
+  if (!hit.machine) return found;
+  // the text was recognised by an AI run, not read from the file (D189)
+  return (
+    <>
+      {found} <MachineMark />
+    </>
+  );
 }
 
 /** What the file says about itself, in one line (D167): "Autor Peter Hofmann · Microsoft Word ·

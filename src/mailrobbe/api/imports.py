@@ -30,10 +30,13 @@ from sqlalchemy import ColumnElement, func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from mailrobbe import aggregates, jobs
+from mailrobbe.ai.model import AiOptions, AiProgress
 from mailrobbe.api import processes
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.query import DKIM_KEYS
 from mailrobbe.api.schemas import (
+    AiJob,
+    AiPhase,
     DkimJob,
     DkimKeysJob,
     DkimPhase,
@@ -112,6 +115,7 @@ async def import_status(session: Session, settings: AppSettings) -> ImportStatus
     import_row = await jobs.latest_job(session, JobKind.IMPORT)
     dkim_row = await jobs.latest_job(session, JobKind.DKIM)
     keys_row = await jobs.latest_job(session, JobKind.DKIM_KEYS)
+    ai_row = await jobs.latest_job(session, JobKind.AI)
     return ImportStatus(
         mbox_dir=str(settings.mbox_dir),
         mbox_dir_ok=_mbox_dir_ok(settings),
@@ -121,6 +125,7 @@ async def import_status(session: Session, settings: AppSettings) -> ImportStatus
         dkim_job=None if dkim_row is None else await _dkim_job(session, settings, dkim_row),
         keys_job=None if keys_row is None else await _keys_job(session, settings, keys_row),
         defaults=_defaults(settings, import_row),
+        ai_job=None if ai_row is None else await ai_job(session, settings, ai_row),
     )
 
 
@@ -204,6 +209,18 @@ async def _keys_job(session: AsyncSession, settings: Settings, job: Job) -> Dkim
             "phase": job.phase if job.phase in get_args(DkimKeysPhase) else None,
             "options": options,
             "progress": _valid(DkimKeysProgress, job.progress) or DkimKeysProgress(),
+        }
+    )
+
+
+async def ai_job(session: AsyncSession, settings: Settings, job: Job) -> AiJob:
+    """An AI run (D187) as the dashboard and the AI page show it."""
+    return AiJob.model_validate(
+        await _job_fields(session, job)
+        | {
+            "phase": job.phase if job.phase in get_args(AiPhase) else None,
+            "options": _valid(AiOptions, job.options) or AiOptions.from_settings(settings),
+            "progress": _valid(AiProgress, job.progress) or AiProgress(),
         }
     )
 
