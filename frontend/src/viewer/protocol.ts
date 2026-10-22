@@ -20,7 +20,7 @@ export interface PdfMessage {
 /** What either side says when the viewer could not show a PDF. */
 export const FAILURE_TEXTS: Record<FailReason, string> = {
   encrypted:
-    "Dieses PDF ist mit einem Passwort geschützt. Herunterladen und mit dem Passwort öffnen.",
+    "Dieses PDF ist mit einem Kennwort geschützt. Herunterladen und mit dem Kennwort öffnen.",
   damaged: "Das PDF ist beschädigt und lässt sich nicht anzeigen.",
   error: "Das PDF ließ sich nicht anzeigen. Herunterladen geht trotzdem.",
 };
