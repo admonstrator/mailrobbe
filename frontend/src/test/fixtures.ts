@@ -92,6 +92,19 @@ import type {
   TopicState,
   TopicTerm,
   TopicTerms,
+  DetailMap,
+  EventPlaces,
+  MapJob,
+  MapStatus,
+  PhotoDetail,
+  PhotoList,
+  PhotoListItem,
+  PhotoPoint,
+  PhotoPoints,
+  PlaceMail,
+  PlaceSummary,
+  TextPlaces,
+  TownLabel,
 } from "../api/types";
 
 const person = (person_id: number, name: string | null, email: string): PersonRef => ({
@@ -3542,4 +3555,527 @@ export const mergeLogPage: MergeLogPage = {
   ],
   next_cursor: null,
   total: 3,
+};
+
+// Places (milestone 20, D240 to D249) ---------------------------------------------------------
+
+/** The towns the overview map labels (D244): capitals and the larger towns of the DACH lists. */
+export const towns: TownLabel[] = [
+  {
+    name: "Berlin",
+    lat: 52.52437,
+    lon: 13.41053,
+    population: 3_426_354,
+    country: "DE",
+    capital: true,
+  },
+  {
+    name: "Wien",
+    lat: 48.20849,
+    lon: 16.37208,
+    population: 1_691_468,
+    country: "AT",
+    capital: true,
+  },
+  { name: "Bern", lat: 46.94809, lon: 7.44744, population: 121_631, country: "CH", capital: true },
+  { name: "Vaduz", lat: 47.14151, lon: 9.52154, population: 5_197, country: "LI", capital: true },
+  {
+    name: "Hamburg",
+    lat: 53.57532,
+    lon: 10.01534,
+    population: 1_739_117,
+    country: "DE",
+    capital: false,
+  },
+  {
+    name: "München",
+    lat: 48.13743,
+    lon: 11.57549,
+    population: 1_260_391,
+    country: "DE",
+    capital: false,
+  },
+  { name: "Köln", lat: 50.93333, lon: 6.95, population: 963_395, country: "DE", capital: false },
+  {
+    name: "Frankfurt am Main",
+    lat: 50.11552,
+    lon: 8.68417,
+    population: 650_000,
+    country: "DE",
+    capital: false,
+  },
+  { name: "Zürich", lat: 47.36667, lon: 8.55, population: 341_730, country: "CH", capital: false },
+  {
+    name: "Leipzig",
+    lat: 51.33962,
+    lon: 12.37129,
+    population: 504_971,
+    country: "DE",
+    capital: false,
+  },
+  {
+    name: "Dresden",
+    lat: 51.05089,
+    lon: 13.73832,
+    population: 486_854,
+    country: "DE",
+    capital: false,
+  },
+  {
+    name: "Hannover",
+    lat: 52.37052,
+    lon: 9.73322,
+    population: 515_140,
+    country: "DE",
+    capital: false,
+  },
+  { name: "Graz", lat: 47.06667, lon: 15.45, population: 222_326, country: "AT", capital: false },
+  {
+    name: "Erfurt",
+    lat: 50.9787,
+    lon: 11.03283,
+    population: 203_254,
+    country: "DE",
+    capital: false,
+  },
+  {
+    name: "Weimar",
+    lat: 50.9803,
+    lon: 11.32903,
+    population: 64_726,
+    country: "DE",
+    capital: false,
+  },
+  {
+    name: "Lübeck",
+    lat: 53.86893,
+    lon: 10.68729,
+    population: 212_207,
+    country: "DE",
+    capital: false,
+  },
+];
+
+/** Photos around a town, spread on a small spiral so that they bundle when zoomed out. */
+function photosAround(first: number, count: number, lat: number, lon: number): PhotoPoint[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: first + index,
+    lat: Math.round((lat + 0.004 * index * Math.cos(index * 2.4)) * 1e5) / 1e5,
+    lon: Math.round((lon + 0.006 * index * Math.sin(index * 2.4)) * 1e5) / 1e5,
+  }));
+}
+
+/** The photo of the document page (imageDocument) and the one near Weimar the panels open. */
+export const hamburgPhoto: PhotoPoint = { id: 5105, lat: 53.5438333, lon: 9.9661667 };
+export const weimarPhoto: PhotoPoint = { id: 5107, lat: 50.99512, lon: 11.35201 };
+
+export const photoPoints: PhotoPoints = {
+  points: [
+    hamburgPhoto,
+    weimarPhoto,
+    ...photosAround(6001, 38, 53.55, 10.0),
+    ...photosAround(6101, 24, 52.52, 13.4),
+    ...photosAround(6201, 12, 50.98, 11.33),
+    ...photosAround(6301, 17, 48.14, 11.58),
+    ...photosAround(6401, 6, 47.37, 8.54),
+    ...photosAround(6501, 4, 48.21, 16.37),
+    { id: 6601, lat: 54.3233, lon: 10.1228 },
+    { id: 6602, lat: 51.0504, lon: 13.7373 },
+  ],
+  total: 105,
+  truncated: false,
+};
+
+/** More photos than the map draws (PHOTO_POINT_LIMIT). */
+export const photoPointsTruncated: PhotoPoints = { ...photoPoints, total: 23_456, truncated: true };
+
+const placeMail = (
+  id: number,
+  date: string,
+  subject: string,
+  sender: PersonRef,
+  recipients: PersonRef[],
+  recipient_count = recipients.length,
+): PlaceMail => ({ id, date, subject, sender, recipients, recipient_count });
+
+export const photoDetail: PhotoDetail = {
+  document_id: 5107,
+  attachment_id: 9107,
+  name: "IMG_3310.jpg",
+  mime_type: "image/jpeg",
+  preview: "image",
+  latitude: 50.99512,
+  longitude: 11.35201,
+  altitude: 236.5,
+  taken_at: "2026-06-14T09:12:44Z",
+  taken_text: null,
+  device: "Apple iPhone 13 mini",
+  nearest: {
+    name: "Weimar",
+    region: "Thüringen",
+    country: "DE",
+    distance_km: 2.3,
+    direction: "NO",
+  },
+  mails: [
+    placeMail(184060, "2026-06-14T18:40:00Z", "Fotos vom Ortstermin", sofia, [anna, jonas]),
+    placeMail(184071, "2026-06-16T08:02:00Z", "WG: Fotos vom Ortstermin", anna, [peter], 3),
+  ],
+  mail_count: 2,
+};
+
+/** A photo whose file gives a time without a zone and no device. */
+export const photoDetailLocal: PhotoDetail = {
+  ...photoDetail,
+  document_id: 5105,
+  attachment_id: 9105,
+  name: "IMG_2041.jpg",
+  latitude: 53.5438333,
+  longitude: 9.9661667,
+  altitude: null,
+  taken_at: null,
+  taken_text: "2026-10-02T14:31:07",
+  device: null,
+  nearest: {
+    name: "Hamburg",
+    region: "Hamburg",
+    country: "DE",
+    distance_km: 0.3,
+    direction: null,
+  },
+  mails: [placeMail(184221, "2026-10-02T15:10:00Z", "Bilder vom Hafen", sofia, [anna])],
+  mail_count: 1,
+};
+
+const listedPhoto = (
+  document_id: number,
+  name: string,
+  latitude: number,
+  longitude: number,
+  taken_at: string | null,
+  distance_km: number | null,
+): PhotoListItem => ({
+  document_id,
+  attachment_id: document_id + 4000,
+  name,
+  latitude,
+  longitude,
+  taken_at,
+  device: "Apple iPhone 13 mini",
+  distance_km,
+  first_mail: null,
+});
+
+/** "Fotos im Umkreis" of photoDetail: itself first, then the nearest. */
+export const photosNearby: PhotoList = {
+  items: [
+    listedPhoto(5107, "IMG_3310.jpg", 50.99512, 11.35201, "2026-06-14T09:12:44Z", 0),
+    listedPhoto(6201, "IMG_3311.jpg", 50.98, 11.33, "2026-06-14T09:14:02Z", 1.8),
+    listedPhoto(6202, "IMG_3315.jpg", 50.9828, 11.3352, "2026-06-14T09:31:40Z", 2.0),
+  ],
+  total: 3,
+  truncated: false,
+};
+
+/** "Fotos dieses Geräts" of photoDetail, by capture time. */
+export const photosOfDevice: PhotoList = {
+  items: [
+    listedPhoto(6101, "IMG_2980.jpg", 52.52, 13.4, "2026-04-02T16:20:00Z", null),
+    listedPhoto(5107, "IMG_3310.jpg", 50.99512, 11.35201, "2026-06-14T09:12:44Z", null),
+    listedPhoto(6202, "IMG_3315.jpg", 50.9828, 11.3352, "2026-06-14T09:31:40Z", null),
+  ],
+  total: 3,
+  truncated: false,
+};
+
+export const textPlaces: TextPlaces = {
+  places: [
+    {
+      entity_id: 353,
+      label: "Berlin",
+      place: "Berlin, DE",
+      detail: "city",
+      lat: 52.52437,
+      lon: 13.41053,
+      mails: 412,
+    },
+    {
+      entity_id: 351,
+      label: "Köln",
+      place: "Köln, Nordrhein-Westfalen, DE",
+      detail: "city",
+      lat: 50.93333,
+      lon: 6.95,
+      mails: 188,
+    },
+    {
+      entity_id: 354,
+      label: "Frankfurt",
+      place: "Frankfurt am Main, Hessen, DE",
+      detail: "city",
+      lat: 50.11552,
+      lon: 8.68417,
+      mails: 96,
+    },
+    {
+      entity_id: 355,
+      label: "Wien",
+      place: "Wien, AT",
+      detail: "city",
+      lat: 48.20849,
+      lon: 16.37208,
+      mails: 41,
+    },
+    {
+      entity_id: 352,
+      label: "Schweiz",
+      place: "Schweiz",
+      detail: "country",
+      lat: 46.80237,
+      lon: 8.22667,
+      mails: 23,
+    },
+    {
+      entity_id: 356,
+      label: "Weimar",
+      place: "Weimar, Thüringen, DE",
+      detail: "city",
+      lat: 50.9803,
+      lon: 11.32903,
+      mails: 9,
+    },
+  ],
+  total: 6,
+  exact: true,
+};
+
+/** More places than the map draws, counted over a sample (D87). */
+export const textPlacesSampled: TextPlaces = { ...textPlaces, total: 2_345, exact: false };
+
+export const eventPlaces: EventPlaces = {
+  places: [
+    {
+      lat: 53.55073,
+      lon: 9.99302,
+      place: "Hamburg, DE",
+      locations: ["Hamburg, Hotel am Hafen, Saal 2", "20457 Hamburg"],
+      events: 3,
+      first: "2026-03-10T09:00:00Z",
+      last: "2026-09-22T13:00:00Z",
+      samples: [
+        {
+          event_id: 902,
+          mail_id: 184190,
+          kind: "request",
+          summary: "Abstimmung Rahmenvereinbarung",
+          location: "Hamburg, Hotel am Hafen, Saal 2",
+          starts_at: "2026-09-22T13:00:00Z",
+          starts_local: null,
+          all_day: false,
+          uid: "040000008200E00074C5B7101A82E008",
+        },
+        {
+          event_id: 901,
+          mail_id: 184133,
+          kind: "cancel",
+          summary: "Workshop Netzausbau",
+          location: "20457 Hamburg",
+          starts_at: null,
+          starts_local: "2026-03-10T09:00:00",
+          all_day: false,
+          uid: null,
+        },
+      ],
+    },
+    {
+      lat: 48.13743,
+      lon: 11.57549,
+      place: "München, Bayern, DE",
+      locations: ["München"],
+      events: 1,
+      first: "2026-05-04T00:00:00Z",
+      last: "2026-05-04T00:00:00Z",
+      samples: [
+        {
+          event_id: 903,
+          mail_id: 184071,
+          kind: "request",
+          summary: "Messe Energie",
+          location: "München",
+          starts_at: null,
+          starts_local: "2026-05-04",
+          all_day: true,
+          uid: null,
+        },
+      ],
+    },
+  ],
+  total: 2,
+};
+
+export const placeSummary: PlaceSummary = {
+  photos: 105,
+  photos_dated: 98,
+  devices: [
+    { device: "Apple iPhone 13 mini", photos: 61 },
+    { device: "Canon EOS 80D", photos: 38 },
+    { device: "Samsung SM-G991B", photos: 6 },
+  ],
+  texts: { found: 1_204, ambiguous: 37, unknown: 212, waiting: 0 },
+  events: { found: 18, ambiguous: 1, unknown: 9, waiting: 0 },
+  outdated: false,
+  computed_at: "2026-10-21T02:10:00Z",
+};
+
+const MB = 1024 ** 2;
+const GB = 1024 ** 3;
+
+/** The map status without a detail map, downloads offered (D245). */
+export const mapStatus: MapStatus = {
+  offered: true,
+  source_host: "build.protomaps.com",
+  detail_map: null,
+  partial: null,
+  regions: [
+    {
+      key: "de",
+      bbox: [5.87, 47.27, 15.04, 55.06],
+      sizes: { overview: 210 * MB, streets: 3.5 * GB, full: 7.2 * GB },
+    },
+    {
+      key: "at",
+      bbox: [9.53, 46.37, 17.16, 49.02],
+      sizes: { overview: 60 * MB, streets: 1.1 * GB, full: 2.2 * GB },
+    },
+    {
+      key: "ch",
+      bbox: [5.96, 45.82, 10.49, 47.81],
+      sizes: { overview: 40 * MB, streets: 0.7 * GB, full: 1.5 * GB },
+    },
+    {
+      key: "dach",
+      bbox: [5.87, 45.82, 17.16, 55.06],
+      sizes: { overview: 300 * MB, streets: 5.2 * GB, full: 10.8 * GB },
+    },
+  ],
+  details: [
+    { key: "overview", max_zoom: 10 },
+    { key: "streets", max_zoom: 14 },
+    { key: "full", max_zoom: 15 },
+  ],
+  size_hints_build: "2026-10-22",
+  free_bytes: 120 * GB,
+  job: null,
+};
+
+/** The server offers no downloads (MAILROBBE_MAP_SOURCE=off). */
+export const mapStatusOff: MapStatus = { ...mapStatus, offered: false, source_host: null };
+
+export const detailMap: DetailMap = {
+  url: "/api/map/tiles/detail.pmtiles",
+  region: "de",
+  bbox: [5.87, 47.27, 15.04, 55.06],
+  detail: "streets",
+  max_zoom: 14,
+  build: "20261021",
+  source_url: "https://build.protomaps.com/20261021.pmtiles",
+  size: 3.4 * GB,
+  tiles: 1_604_221,
+  downloaded_at: "2026-10-22T06:40:00Z",
+};
+
+export const mapStatusDetail: MapStatus = { ...mapStatus, detail_map: detailMap };
+
+/** A download of Germany with streets while it runs (D246). */
+export const mapJobRunning: MapJob = {
+  id: 21,
+  kind: "map",
+  origin: "ui",
+  status: "running",
+  alive: true,
+  stop_requested: false,
+  started_at: "2026-10-22T08:00:00Z",
+  updated_at: "2026-10-22T08:21:12Z",
+  report_age_seconds: 1.2,
+  finished_at: null,
+  message: null,
+  leftover: null,
+  phase: "download",
+  options: {
+    region: "de",
+    detail: "streets",
+    bbox: [5.87, 47.27, 15.04, 55.06],
+    max_zoom: 14,
+    source: "protomaps",
+  },
+  progress: {
+    source_url: "https://build.protomaps.com/20261021.pmtiles",
+    build: "20261021",
+    tiles: 612_400,
+    bytes_total: 3.4 * GB,
+    bytes_done: 1.3 * GB,
+    continued_bytes: 0,
+    steps: [
+      {
+        key: "directories",
+        status: "done",
+        unit: null,
+        done: 0,
+        total: null,
+        started_at: "2026-10-22T08:00:00Z",
+        seconds: 41,
+        rate: null,
+        eta_seconds: null,
+      },
+      {
+        key: "tiles",
+        status: "running",
+        unit: "bytes",
+        done: 1.3 * GB,
+        total: 3.4 * GB,
+        started_at: "2026-10-22T08:00:41Z",
+        seconds: 1231,
+        rate: 1.1 * MB,
+        eta_seconds: 1960,
+      },
+      waitingStep("finish"),
+    ],
+    database: null,
+  },
+};
+
+export const mapStatusRunning: MapStatus = { ...mapStatus, job: mapJobRunning };
+
+/** A download stopped halfway: the same choice continues it. */
+export const mapStatusPartial: MapStatus = {
+  ...mapStatus,
+  partial: {
+    region: "at",
+    bbox: [9.53, 46.37, 17.16, 49.02],
+    detail: "full",
+    build: "20261021",
+    bytes_done: 0.9 * GB,
+    bytes_total: 2.2 * GB,
+  },
+  job: {
+    ...mapJobRunning,
+    id: 20,
+    status: "stopped",
+    alive: false,
+    finished_at: "2026-10-22T07:30:00Z",
+    options: { ...mapJobRunning.options, region: "at", detail: "full", max_zoom: 15 },
+  },
+};
+
+/** The latest download failed after its retries. */
+export const mapStatusFailed: MapStatus = {
+  ...mapStatus,
+  job: {
+    ...mapJobRunning,
+    id: 19,
+    status: "failed",
+    alive: false,
+    finished_at: "2026-10-22T07:10:00Z",
+    message: "range request failed three times: HTTP 503 from build.protomaps.com",
+  },
 };

@@ -4,6 +4,7 @@
 
 import { buildQuery } from "../../api/client";
 import {
+  AREA_PATTERN,
   BLOCK_HASH_PATTERN,
   BODY_PARTS,
   EVENT_KEYS,
@@ -80,6 +81,9 @@ export interface ListState {
   include_hidden: boolean;
   body_part: BodyPart;
   block: string | null;
+  /** Milestone 20 (D248): the mail carries a photo inside this area of the map,
+   *  "west,south,east,north". */
+  photo_area: string | null;
   sort: SortOrder;
   /** The page (D193): a step's cursor, the page's number or "last", the page size. */
   cursor: string | null;
@@ -125,6 +129,7 @@ export const DEFAULT_LIST_STATE: ListState = {
   include_hidden: false,
   body_part: "clean",
   block: null,
+  photo_area: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -167,6 +172,15 @@ export function isSignalKey(value: string): value is SignalKey {
   return (
     (MAIL_SIGNAL_KINDS as readonly string[]).includes(value) || /^term:[a-z0-9_-]+$/.test(value)
   );
+}
+
+/** An area of the map as photo_area takes it (D248): west, south, east and north in degrees,
+ *  south below north; west above east crosses the 180th meridian. */
+export function isArea(value: string): boolean {
+  if (!AREA_PATTERN.test(value)) return false;
+  const [west, south, east, north] = value.split(",").map(Number);
+  const longitude = (x: number) => x >= -180 && x <= 180;
+  return longitude(west) && longitude(east) && south >= -90 && north <= 90 && south < north;
 }
 
 /** The places among values in the order of SEARCH_FIELDS, once each; all four is the same as
@@ -218,6 +232,8 @@ export function parseListState(search: URLSearchParams): ListState {
   state.body_part = BODY_PARTS.find((part) => part === search.get("body_part")) ?? "clean";
   const block = search.get("block");
   state.block = block && BLOCK_HASH_PATTERN.test(block) ? block : null;
+  const area = search.get("photo_area");
+  state.photo_area = area && isArea(area) ? area : null;
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   return { ...state, ...parsePaging(search) };
@@ -256,6 +272,7 @@ export function toFilters(state: ListState): MailFilters {
   if (state.include_hidden) filters.include_hidden = true;
   if (state.body_part !== "clean") filters.body_part = state.body_part;
   if (state.block) filters.block = state.block;
+  if (state.photo_area) filters.photo_area = state.photo_area;
   return filters;
 }
 
