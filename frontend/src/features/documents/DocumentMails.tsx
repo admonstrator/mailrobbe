@@ -2,14 +2,14 @@ import { Link } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useMailPage } from "../../api/queries";
-import { PAGE_SIZE, type DocumentDetail } from "../../api/types";
+import type { DocumentDetail } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { Pagination } from "../../components/Pagination";
+import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
-import { formatNumber } from "../../lib/format";
+import { edgePages, FIRST_PAGE, listPagination } from "../../lib/paging";
 import type { ColumnChoice } from "../mails/columns";
 import { listSearch, toListParams } from "../mails/listState";
 import { MailTable } from "../mails/MailTable";
@@ -34,7 +34,6 @@ export function DocumentMails({
 }) {
   const list = documentMailList(document.id, state);
   const page = useMailPage(toListParams(list));
-  const first = (state.page - 1) * PAGE_SIZE + 1;
 
   return (
     <Card className={styles.card} aria-labelledby="document-mails-title">
@@ -55,11 +54,13 @@ export function DocumentMails({
           <Spinner label="Mails werden geladen" />
         </div>
       ) : page.isError ? (
-        page.error instanceof ApiError && page.error.code === "invalid_cursor" ? (
+        page.error instanceof ApiError && page.error.code === "page_too_far" ? (
+          <PageTooFar {...edgePages(state, href)} />
+        ) : page.error instanceof ApiError && page.error.code === "invalid_cursor" ? (
           <ErrorState
             title="Diese Seite gibt es nicht mehr."
             actions={
-              <Link to={href({ cursor: null, page: 1 })} className={buttonClass()}>
+              <Link to={href({ ...state, ...FIRST_PAGE })} className={buttonClass()}>
                 Zur ersten Seite
               </Link>
             }
@@ -89,21 +90,13 @@ export function DocumentMails({
           />
           <div className={styles.paging}>
             <Pagination
-              range={`${formatNumber(first)}–${formatNumber(first + page.data.items.length - 1)} von ${formatNumber(document.mails)}`}
-              prev={
-                page.data.prev_cursor
-                  ? href(
-                      state.page === 2
-                        ? { cursor: null, page: 1 }
-                        : { cursor: page.data.prev_cursor, page: state.page - 1 },
-                    )
-                  : null
-              }
-              next={
-                page.data.next_cursor
-                  ? href({ cursor: page.data.next_cursor, page: state.page + 1 })
-                  : null
-              }
+              {...listPagination(
+                state,
+                page.data,
+                page.data.items.length,
+                { count: document.mails, exact: true },
+                href,
+              )}
             />
           </div>
         </>

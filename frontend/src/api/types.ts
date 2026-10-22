@@ -119,7 +119,8 @@ export type ErrorCode =
   | "archive_off" // 409: the key archive is switched off
   | "merge_undone" // 409: the merge, or every merge of the batch, was undone already (D163)
   | "invalid_rule" // 400: a hide rule without any criterion, or one that cannot be used (D221)
-  | "invalid_block"; // 400: a sample that is no paragraph of this hash, or none where needed
+  | "invalid_block" // 400: a sample that is no paragraph of this hash, or none where needed
+  | "page_too_far"; // 400: a jump to a page did not answer within the count budget (D193)
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -182,6 +183,10 @@ export interface MailOrderParams extends MailFilters {
 export interface MailListParams extends MailOrderParams {
   cursor?: string;
   limit?: number;
+  /** A jump instead of a cursor (D193): this page (from 1) of `limit` mails, a page beyond the
+   *  end being the last one; or with last the last `limit` mails, read from the end. */
+  page?: number;
+  last?: boolean;
 }
 
 // Mail list -------------------------------------------------------------------------------------
@@ -253,6 +258,9 @@ export interface MailPage {
   next_cursor: string | null;
   prev_cursor: string | null;
   query_terms: QueryTerm[];
+  /** The page's number (D193): 1 for the first page, the page a jump read; null after a cursor
+   *  and for the last page read from the end (last). */
+  page?: number | null;
 }
 
 export interface MailSummary {
@@ -582,6 +590,8 @@ export interface PersonListParams {
   sort?: PersonSort;
   cursor?: string;
   limit?: number;
+  page?: number; // a jump instead of a cursor (D193), as in MailListParams
+  last?: boolean;
 }
 
 export interface ContactListParams {
@@ -635,6 +645,7 @@ export interface PersonPage {
   next_cursor: string | null;
   prev_cursor: string | null;
   total: number;
+  page?: number | null; // as MailPage.page (D193)
 }
 
 export interface Contact {
@@ -1369,6 +1380,8 @@ export interface DocumentListParams extends DocumentFilters {
   sort?: DocumentSort;
   cursor?: string;
   limit?: number;
+  page?: number; // a jump instead of a cursor (D193), as in MailListParams
+  last?: boolean;
 }
 
 export interface DocumentListItem {
@@ -1392,6 +1405,7 @@ export interface DocumentPage {
   items: DocumentListItem[];
   next_cursor: string | null;
   prev_cursor: string | null;
+  page?: number | null; // as MailPage.page (D193); DocumentSummary has the total
 }
 
 export const METADATA_VALUES_LIMIT = 20; // authors and programs in DocumentSummary
@@ -1834,6 +1848,8 @@ export interface EntityListParams {
   sort?: EntitySort;
   cursor?: string;
   limit?: number;
+  page?: number; // a jump instead of a cursor (D193), as in MailListParams
+  last?: boolean;
 }
 
 export interface EntityListItem extends EntityRef {
@@ -1849,6 +1865,12 @@ export interface EntityPage {
   items: EntityListItem[];
   next_cursor: string | null;
   prev_cursor: string | null;
+  page?: number | null; // as MailPage.page (D193)
+  /** With q, detail or a value bound: the matching entities, counted under the count budget
+   *  of D19 (exact false: at least total; total null: even the bounded count ran out of time).
+   *  Without them total is null, as EntitySummary.kinds counts the list (D193). */
+  total?: number | null;
+  exact?: boolean;
 }
 
 export interface EntitySummary {

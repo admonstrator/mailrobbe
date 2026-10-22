@@ -3,15 +3,16 @@ import { Link, useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useDocumentPage, useDocumentSummary, useStats } from "../../api/queries";
-import { PAGE_SIZE, type DocumentSort, type DocumentSummary } from "../../api/types";
+import type { DocumentSort, DocumentSummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
-import { Pagination } from "../../components/Pagination";
+import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { DebouncedInput } from "./DebouncedInput";
 import { DocumentFilterColumn } from "./DocumentFilterColumn";
 import styles from "./DocumentListPage.module.css";
@@ -163,21 +164,13 @@ export function DocumentListPage() {
 
         {page.data && page.data.items.length > 0 && (
           <Pagination
-            range={rangeText(state, page.data.items.length, summary.data)}
-            prev={
-              page.data.prev_cursor
-                ? documentListHref(previousPage(state, page.data.prev_cursor))
-                : null
-            }
-            next={
-              page.data.next_cursor
-                ? documentListHref({
-                    ...state,
-                    cursor: page.data.next_cursor,
-                    page: state.page + 1,
-                  })
-                : null
-            }
+            {...listPagination(
+              state,
+              page.data,
+              page.data.items.length,
+              documentTotal(summary.data),
+              documentListHref,
+            )}
           />
         )}
       </main>
@@ -185,23 +178,9 @@ export function DocumentListPage() {
   );
 }
 
-function previousPage(state: DocumentListState, cursor: string): DocumentListState {
-  // The page before the second one is the first: without cursor, as the list starts.
-  return state.page === 2
-    ? { ...state, cursor: null, page: 1 }
-    : { ...state, cursor, page: Math.max(1, state.page - 1) };
-}
-
-/** "1–50 von 78.110", "51–100 von mehr als 10.000", or just the range while the total is open. */
-function rangeText(
-  state: DocumentListState,
-  count: number,
-  summary: DocumentSummary | undefined,
-): string {
-  const first = (state.page - 1) * PAGE_SIZE + 1;
-  const range = `${formatNumber(first)}–${formatNumber(first + count - 1)}`;
-  const total = totalNumber(summary);
-  return total === null ? range : `${range} von ${total}`;
+/** The list's length as DocumentSummary counts it, for the page numbers (D193). */
+function documentTotal(summary: DocumentSummary | undefined): Total | null {
+  return summary && summary.total !== null ? { count: summary.total, exact: summary.exact } : null;
 }
 
 function PageError({
@@ -214,6 +193,7 @@ function PageError({
   onRetry: () => void;
 }) {
   const code = error instanceof ApiError ? error.code : null;
+  if (code === "page_too_far") return <PageTooFar {...edgePages(state, documentListHref)} />;
   if (code === "invalid_cursor") {
     return (
       <ErrorState
