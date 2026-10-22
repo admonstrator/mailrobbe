@@ -265,7 +265,7 @@ class AiOptions(BaseModel):
     vision_remote: bool = False
     max_minutes: int = 180  # of a recording per document and pass (D292)
     transcribe_threads: int = 4  # CPU threads of the transcriber
-    transcribe_uncertain: float = 0.5  # lines below this mean token probability are uncertain
+    transcribe_uncertain: float = 0.8  # lines below this mean token probability are uncertain
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AiOptions":

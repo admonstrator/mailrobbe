@@ -208,7 +208,7 @@ export function DiscardDialog({
 }
 
 /** "Für KI vormerken" for the document list's current filter (D186): offered when the filter
- *  holds documents OCR can read, with their count and a confirmation. */
+ *  holds documents OCR or the transcriber can read (D295), with their count and a confirmation. */
 export function AiQueueButton({
   filters,
   summary,
@@ -249,7 +249,7 @@ function QueueDialog({
   const noun = readable === 1 ? "Dokument" : "Dokumente";
 
   return (
-    <Dialog title="Für die Texterkennung vormerken?" onClose={onClose}>
+    <Dialog title="Für KI vormerken?" onClose={onClose}>
       {done ? (
         <>
           <p className={styles.text} role="status">
@@ -267,7 +267,7 @@ function QueueDialog({
       ) : (
         <>
           <p className={styles.text}>
-            {`${formatNumber(readable)} ${noun} dieser Auswahl kann die Texterkennung lesen: gescannte PDFs und Bilder ohne eigenen Text. Ihr Text wird als „maschinell erkannt“ gekennzeichnet und lässt sich wieder verwerfen.`}
+            {`${formatNumber(readable)} ${noun} dieser Auswahl ${readable === 1 ? "kann" : "können"} Texterkennung oder Transkription lesen: gescannte PDFs und Bilder ohne eigenen Text, Aufnahmen und Videos mit Ton. Ihr Text wird als maschinell erkannt oder transkribiert gekennzeichnet und lässt sich wieder verwerfen.`}
           </p>
           <EngineSelect id={id} value={chosen} vision={vision} onChange={setEngine} />
           <Checkbox checked={logos} onChange={setLogos}>

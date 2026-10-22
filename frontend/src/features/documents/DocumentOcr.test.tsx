@@ -105,7 +105,7 @@ describe("text source in the document list", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Für KI vormerken" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "Für die Texterkennung vormerken?",
+      name: "Für KI vormerken?",
     });
     const queue = within(dialog).getByRole("button", { name: "214 Dokumente vormerken" });
     await waitFor(() => expect(queue).toHaveProperty("disabled", false));

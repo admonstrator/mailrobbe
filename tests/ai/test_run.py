@@ -1002,7 +1002,7 @@ async def test_recordings_are_transcribed_and_searchable(archive: Archive, datab
     assert voice.result_options == {
         "max_minutes": 180,
         "threads": 3,
-        "uncertain": 0.5,
+        "uncertain": 0.8,
         "audio": True,
     }
     found = await rows(

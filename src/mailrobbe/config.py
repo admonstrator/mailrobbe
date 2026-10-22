@@ -117,7 +117,7 @@ class Settings(BaseSettings):
     ai_model_dir: Path = Path("data/models")
     ai_transcribe_max_minutes: int = Field(default=180, ge=1)
     ai_transcribe_threads: int = Field(default=0, ge=0)
-    ai_transcribe_uncertain: float = Field(default=0.5, ge=0, le=1)
+    ai_transcribe_uncertain: float = Field(default=0.8, ge=0, le=1)
 
 
 def get_settings() -> Settings:

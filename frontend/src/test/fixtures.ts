@@ -4354,7 +4354,7 @@ const aiDefaults: AiStatus["defaults"] = {
   vision_remote: false,
   max_minutes: 180,
   transcribe_threads: 4,
-  transcribe_uncertain: 0.5,
+  transcribe_uncertain: 0.8,
 };
 
 const aiQueueEmpty = { waiting: 0, running: 0, done: 0, failed: 0, cancelled: 0 };
