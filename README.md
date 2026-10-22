@@ -7,26 +7,42 @@
 
 <h1>Mailrobbe</h1>
 
-**Große Mailarchive durchsuchen, prüfen und verstehen.**
+**Mail-Leaks und große Mailarchive recherchieren: durchsuchen, prüfen, belegen.**
 
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsors-EA4AAA?style=for-the-badge&logo=github)](https://github.com/sponsors/admonstrator) [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/admon) [![PayPal](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://paypal.me/aaronviehl) [![Ko-fi](https://img.shields.io/badge/Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/admon)
 
 Hinter Mailrobbe steht kein Konzern, sondern admon, viel Hartnäckigkeit und eine bedenkliche Menge Energydrinks.<br>
 Wenn es dir eine Recherche leichter gemacht hat, freut sich die Weiterentwicklung über deine Unterstützung.
 
-[Website](https://mailrobbe.admon.me/) | [Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Schnellstart](#schnellstart) | [Häufige Fragen](#häufige-fragen)
+Wünsche, Lob und Kritik gern per Mail an [hey@admon.me](mailto:hey@admon.me), auf Wunsch verschlüsselt mit [diesem PGP-Schlüssel](https://github.com/admonstrator/Admonstrator/blob/main/pgp/hey@admon.me.asc).<br>
+<sub>Fingerabdruck `C2D7 EB96 8E27 4D5F 1B24  1B04 95E1 6BDE A94F 50A4`</sub>
+
+[Website](https://mailrobbe.admon.me/) | [Für wen](#für-wen) | [Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Schnellstart](#schnellstart) | [Häufige Fragen](#häufige-fragen)
 
 </div>
 
 ---
 
-Mailrobbe liest MBOX-Exporte mit Hunderttausenden Mails ein, prüft die Echtheit jeder Mail, zeigt, wer mit wem wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge, wenn das Kennwort irgendwo im Archiv steht. Gebaut ist es für Recherchen, für Leute, die in einem Berg aus Mails schnell die richtigen finden müssen, ohne vorher Datenbanken zu studieren.
+Mailrobbe ist ein Recherchewerkzeug für Journalistinnen und Journalisten, Redaktionen und Rechercheteams. Es ist für Mailbestände gebaut, die niemand von vorn bis hinten lesen kann: ein Leak, der Postfach-Export einer Quelle, Hunderttausende Mails in MBOX-Dateien. Mailrobbe macht sie durchsuchbar, auch in den Anhängen, prüft per DKIM, welche Mails nachweislich unverändert sind, zeigt, wer mit wem wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge, wenn das Kennwort irgendwo im Archiv steht.
 
-Es läuft auf dem eigenen Rechner im Browser, ohne Cloud und ohne Konto. Die Mails bleiben unverändert in ihren Dateien. Und bewertet wird nichts: Mailrobbe zeigt, wo sich das Lesen lohnen kann. Lesen und entscheiden muss das Team.
+Das Material bleibt im Haus: Mailrobbe läuft auf dem eigenen Rechner im Browser, ohne Cloud und ohne Konto, und die Mails bleiben unverändert in ihren Dateien. Jede Fundstelle führt zurück zur Originalmail. Und bewertet wird nichts: Mailrobbe zeigt, wo sich das Lesen lohnen kann. Lesen, prüfen und entscheiden muss die Redaktion.
 
 ![Die Mailliste mit Suche, Filtern, Kennzahlen, Signalen und Entitäten](site/img/mailliste.webp)
 
 <sub>Alle Bilder hier und auf der [Website](https://mailrobbe.admon.me/) zeigen ein erfundenes Testarchiv, keine echten Mails.</sub>
+
+---
+
+## Für wen
+
+Für Recherchen, bei denen ein großer Mailbestand im Kern der Geschichte steht:
+
+- **Leaks und Postfach-Exporte**, zu groß zum Durchlesen, oft mit Anhängen, gepackten Archiven und Kennwörtern.
+- **Veröffentlichen mit Beleg.** Bevor eine Mail zitiert wird, zeigt DKIM, ob sie unverändert ist. Der Export liefert Originalmails, PDFs und Prüfsummen für Justiziariat und Anwälte.
+- **Personen und Netzwerke:** wer mit wem, wer wusste was wann, wer hinter welcher Adresse steckt.
+- **Teams**, die gemeinsam sichten, markieren und Funde sammeln, ohne Material in eine Cloud zu laden.
+
+Fürs eigene Postfach ist das zu viel Werkzeug. Dafür reicht das Mailprogramm.
 
 ---
 
@@ -35,7 +51,7 @@ Es läuft auf dem eigenen Rechner im Browser, ohne Cloud und ohne Konto. Die Mai
 | Frage | Wo in Mailrobbe |
 | --- | --- |
 | Wo steht ein Begriff, auch in PDFs, Tabellen und ZIP-Dateien? | Suchfeld oben, das Suchmenü daneben grenzt ein |
-| Ist diese Mail echt? | DKIM-Prüfung im Mail-Detail, Filter nach DKIM-Status |
+| Ist diese Mail echt und unverändert? | DKIM-Siegel und DKIM-Prüfung im Mail-Detail, Filter nach DKIM-Status |
 | Wer hat mit wem wie oft geschrieben? | Karte, Top-Kontakte im Personenprofil |
 | Wer steckt hinter mehreren Adressen? | Alias-Vorschläge unter Personen |
 | Wer wusste was wann? | Zeitachse: Verlauf, Ausreißer, Verstummen, erste Erwähnung |
@@ -46,8 +62,8 @@ Es läuft auf dem eigenen Rechner im Browser, ohne Cloud und ohne Konto. Die Mai
 | Welche Beträge, Konten und Namen tauchen auf? | Entitäten, Facetten neben der Mailliste |
 | Wo wurden Fotos gemacht, welche Orte fallen? | Orte |
 | Wie halte ich Funde im Team fest? | Prüfstatus, Notizen, Schlagworte und Akten an jeder Mail |
-| Wie gebe ich Belege an Anwälte weiter? | Export als ZIP mit Originalmails, PDFs und Prüfsummen |
-| Wie zeige ich eine Mail öffentlich? | „Als Bild für Soziale Medien“, mit Schwärzungen |
+| Wie gehen Belege ans Justiziariat oder an Anwälte? | Export als ZIP mit Originalmails, PDFs und Prüfsummen |
+| Wie zeige ich eine Mail im Artikel oder in sozialen Medien? | Mail-Detail, Aktionen: „Als Bild für Soziale Medien“, mit Schwärzungen |
 
 ---
 
@@ -61,7 +77,7 @@ Ein Suchfeld für Betreff, Mailtext, den Text der Anhänge und Dateinamen, auch 
 
 ### Lesen ohne Ballast
 
-Zitierter Verlauf, Weiterleitungen und Signaturen sind eingeklappt, die Fundstellen markiert, auch im eingeklappten Teil. Die Pfeiltasten blättern durch die Treffer. Text, HTML, Kopfzeilen und Rohmail liest Mailrobbe bei jedem Öffnen frisch aus der Originaldatei; HTML-Mails laufen abgeschottet, ohne Skripte und ohne Nachladen von außen. Kalendereinladungen erscheinen als Termin mit den Antworten der Eingeladenen.
+Eine Mail sieht aus wie im Mailprogramm: Kopf, Text, Anhänge darunter. DKIM-Prüfung und technische Angaben bleiben eingeklappt, bis man sie braucht, und jeder Block merkt sich, ob er offen war. Zitierter Verlauf, Weiterleitungen und Signaturen sind eingeklappt, die Fundstellen markiert, auch im eingeklappten Teil. Die Pfeiltasten blättern durch die Treffer. Text, HTML, Kopfzeilen und Rohmail liest Mailrobbe bei jedem Öffnen frisch aus der Originaldatei; HTML-Mails laufen abgeschottet, ohne Skripte und ohne Nachladen von außen. Kalendereinladungen erscheinen als Termin mit den Antworten der Eingeladenen.
 
 ### Newsletter und Signaturen loswerden
 
@@ -69,9 +85,9 @@ Ausblendregeln nehmen Newsletter, Verteiler und Systemmails aus Liste und Suche,
 
 ### Echtheit prüfen statt vermuten
 
-Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert. Gültig heißt: Die Mail wurde mit dem Schlüssel der Domain unterschrieben und ist seither unverändert. Bei älteren Mails steht der Schlüssel oft nicht mehr im DNS. Dann sucht Mailrobbe unter Import, „Gelöschte Selektoren“, auf Knopfdruck weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus zwei Signaturen. Jede Signatur sagt, woher ihr Schlüssel stammt.
+Bevor eine Mail zitiert wird, will man wissen, ob sie so verschickt wurde. Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert; das Siegel oben in der Mail zeigt das Ergebnis, ein Klick darauf die Prüfung mit Domain, Selektor und Schlüssel. Gültig heißt: Die Mail wurde mit dem Schlüssel der Domain unterschrieben und ist seither unverändert. Bei älteren Mails steht der Schlüssel oft nicht mehr im DNS. Dann sucht Mailrobbe unter Import, „Gelöschte Selektoren“, auf Knopfdruck weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus zwei Signaturen. Jede Signatur sagt, woher ihr Schlüssel stammt.
 
-![Mail-Detail mit DKIM-Status, Anhängen, Prüfstatus, Schlagwort und Notiz](site/img/mail.webp)
+![Mail-Detail mit aufgeklappter DKIM-Prüfung, Anhängen, Prüfstatus, Schlagwort und Notiz](site/img/mail.webp)
 
 ### Personen statt Adressen
 
@@ -107,7 +123,7 @@ Fotos nach ihren GPS-Daten, Orte, die Mails und Anhänge nennen, und die Orte vo
 
 ### Im Team festhalten und weitergeben
 
-Prüfstatus, Markierung, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen an der Mail und sind für alle sichtbar, die mit demselben Mailrobbe arbeiten. Der Export packt bis zu 2.000 Mails in ein ZIP für Anwälte: Originalmails, PDFs, Manifest und Prüfsummen. Und „Als Bild für Soziale Medien“ macht aus einer Mail ein PNG im Look eines Mailprogramms, mit geschwärzten Beteiligten, Adressen, Telefonnummern und Namen. Geschwärzt wird im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr.
+Prüfstatus, Markierung, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen an der Mail und sind für alle sichtbar, die mit demselben Mailrobbe arbeiten. Der Export packt bis zu 2.000 Mails in ein ZIP für Justiziariat und Anwälte: Originalmails, PDFs, Manifest und Prüfsummen. Und „Als Bild für Soziale Medien“ unter den Aktionen einer Mail macht aus ihr ein PNG für Artikel und soziale Medien im Look eines Mailprogramms, mit geschwärzten Beteiligten, Adressen, Telefonnummern und Namen. Geschwärzt wird im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr.
 
 Mehr Bilder gibt es auf der [Website](https://mailrobbe.admon.me/).
 
@@ -238,7 +254,7 @@ Nein. Die MBOX-Dateien sind schreibgeschützt eingebunden, die Datenbank hält n
 
 ### „Geht dabei etwas ins Internet?“
 
-Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es das Schlüsselarchiv ZK Email und lädt die Detailkarte herunter. Inhalte aus dem Archiv verlassen den Rechner nicht; DNS und Schlüsselarchiv erfahren nur Namen von Domains und Selektoren. Wer auch keine DNS-Abfragen will, importiert mit `docker compose run --rm -e MAILROBBE_DKIM_OFFLINE=1 backend mailrobbe import`.
+Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es das Schlüsselarchiv ZK Email und lädt die Detailkarte herunter. Inhalte aus dem Archiv verlassen den Rechner nicht. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains und Selektoren gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails da gerade geprüft werden. Wer das vermeiden will, importiert ohne DNS-Abfragen mit `docker compose run --rm -e MAILROBBE_DKIM_OFFLINE=1 backend mailrobbe import` und prüft später mit `docker compose run --rm backend mailrobbe dkim` nach, wann und über welche DNS-Server (`MAILROBBE_DKIM_NAMESERVERS`) es passt.
 
 ### „Beweist ‚DKIM gültig‘, wer die Mail geschrieben hat?“
 
@@ -268,7 +284,7 @@ Ja. Alle, die denselben Mailrobbe im Browser öffnen, sehen dieselbe Rechercheak
 
 ### „Ich habe einen Fehler gefunden. Und jetzt?“
 
-Ein [Issue](https://github.com/admonstrator/mailrobbe/issues) aufmachen, mit möglichst genauer Beschreibung und ohne echte Mails im Anhang. Wer den Fehler gleich selbst behebt, schickt einen Pull Request. Willkommen ist jeder, vom Gelegenheitsbastler bis zu den Leuten, die beim Wort „Speicherverwaltung“ leuchtende Augen bekommen.
+Ein [Issue](https://github.com/admonstrator/mailrobbe/issues) aufmachen, mit möglichst genauer Beschreibung und ohne echte Mails im Anhang. Wer den Fehler nur mit echtem Material zeigen kann, schreibt lieber verschlüsselt an [hey@admon.me](mailto:hey@admon.me) ([PGP-Schlüssel](https://github.com/admonstrator/Admonstrator/blob/main/pgp/hey@admon.me.asc)). Wer den Fehler gleich selbst behebt, schickt einen Pull Request. Willkommen ist jeder, vom Gelegenheitsbastler bis zu den Leuten, die beim Wort „Speicherverwaltung“ leuchtende Augen bekommen.
 
 ---
 
@@ -288,7 +304,7 @@ Was es nicht kann: entscheiden, ob etwas wahr, wichtig oder strafbar ist. Das bl
 
 <div align="center">
 
-**Mailrobbe ist von admon, für Recherchen in großen Mailarchiven.**
+**Mailrobbe ist von admon, für Recherchen in Mail-Leaks und großen Mailarchiven.**
 
 Wenn es dir nützt, freut sich das Repository über einen Stern.
 
