@@ -82,7 +82,8 @@ _RETRY = text("""
       AND (CAST(:ids AS bigint[]) IS NULL OR t.id = ANY(CAST(:ids AS bigint[])))
       AND (CAST(:kind AS text) IS NULL OR t.kind = CAST(:kind AS ai_task_kind))
       AND NOT EXISTS (SELECT 1 FROM ai_task o
-                      WHERE o.kind = t.kind AND o.target_sha256 = t.target_sha256
+                      WHERE o.kind = t.kind AND o.target = t.target
+                        AND o.target_sha256 = t.target_sha256
                         AND o.status IN ('waiting', 'running'))
 """)
 _CANCEL = text("""
