@@ -1,9 +1,11 @@
 # Generator media
 
 Recordings and photos the test data generator attaches to mails (`generator.documents`,
-`RECORDING_FORMS`; `generator.fileformats.jpeg`). They are synthetic: tones, a warbling
-"voice" of two harmonics with a syllable rhythm, ffmpeg's test patterns (`testsrc2`, `testsrc`,
-`mandelbrot`) and a pattern of sines. No recording, picture or voice of anybody is in them.
+`RECORDING_FORMS`, `SPOKEN`; `generator.fileformats.jpeg`). They are synthetic: tones, a
+warbling "voice" of two harmonics with a syllable rhythm, German sentences of the formant
+synthesizer espeak-ng (the `spoken-*` files, see below), ffmpeg's test patterns (`testsrc2`,
+`testsrc`, `smptebars`, `mandelbrot`) and a pattern of sines. No recording, picture or voice of
+anybody is in them.
 
 Browsers play all of them except `wma-1.wma` (Windows Media Audio in ASF) and `avi-1.avi`
 (MPEG-4 Part 2 and MP3 in AVI), which stand for the attachments that are download only.
@@ -90,3 +92,43 @@ ffmpeg $B -f lavfi -i "nullsrc=size=320x240,geq=r='128+100*sin(X/23)':g='128+100
 | `webm-2.webm` | VP9 and Opus in WebM |
 | `avi-1.avi` | MPEG-4 Part 2 (XVID) and MP3 in AVI: browsers do not play it |
 | `jpeg-1.jpeg` to `jpeg-3.jpeg` | baseline JPEG (JFIF, 320x240): the photos `fileformats.jpeg` pads |
+
+## Speech
+
+The `spoken-*` files say a few German sentences of an association's everyday life with one
+marker word each (`documents.SPOKEN`, D297), so a transcript can be checked: a share of the
+generated recordings of their forms carries one of them instead of a tone, and the manifest
+lists its `transcript_marker` and `transcript_words`. The voice is espeak-ng's, a formant
+synthesizer (no recording of a person, unlike its MBROLA voices); the transcriber hears it well
+enough at these bitrates, less so at lower ones (an MP3 at 24 kbit/s lost the marker word, AAC at
+24 kbit/s whole phrases). They were made once with espeak-ng 1.51 and the ffmpeg above (Ubuntu
+24.04 packages `espeak-ng 1.51+dfsg-12build1`, `ffmpeg 7:6.1.1-3ubuntu5`), with `B` and `S` as
+above, by:
+
+```sh
+say() {  # $1 voice and pitch, $2 the text: WAV (22,050 Hz mono) on stdout
+  espeak-ng $1 -s 150 --stdout "$2"
+}
+T1="Hallo, hier ist kurz der Vorstand. Die Sitzung am Donnerstag wird auf nächste Woche verschoben, weil der Saal belegt ist. Das Stichwort für die Einladung ist Sonnenblume. Bitte gib das an alle Mitglieder weiter."
+T2="Guten Tag, ich rufe wegen der Spende vom letzten Monat an. Der Betrag ist auf dem Vereinskonto noch nicht gebucht worden. Auf der Überweisung stand das Wort Schneemann. Bitte rufen Sie mich morgen zurück."
+T3="Hallo zusammen, unser Fest im Garten findet am Samstag statt. Wir brauchen noch Getränke und Tische. Das Motto in diesem Jahr ist Schmetterling. Bitte meldet euch bis Freitag."
+T4="Willkommen zur Mitgliederversammlung. Heute sprechen wir über den Haushalt und die Wahl des Vorstands. Der Kassenwart stellt den Bericht vor. Unser Projekt heißt dieses Jahr Kirschbaum."
+T5="Wir stehen hier vor unserem neuen Haus. Die Handwerker sind fast fertig, nur das Dach fehlt noch. Neben dem Eingang steht eine große Windmühle aus Holz. Die Eröffnung feiern wir im Mai."
+
+say "-v de" "$T1" | ffmpeg $B -i - $S -ac 1 -ar 16000 -c:a libopus -b:a 16k -application voip spoken-1.ogg
+say "-v de+m3" "$T2" | ffmpeg $B -i - $S -ac 1 -c:a libmp3lame -b:a 32k spoken-2.mp3
+say "-v de -p 75" "$T3" | ffmpeg $B -i - $S -ac 1 -c:a aac -b:a 48k -movflags +faststart spoken-3.m4a
+H264="-c:v libx264 -pix_fmt yuv420p -preset veryslow -crf 40 -g 60 -c:a aac -b:a 24k -ac 1 -shortest"
+say "-v de" "$T4" | ffmpeg $B -f lavfi -i "smptebars=size=192x108:rate=6" -i - \
+  $S $H264 -profile:v baseline -movflags +faststart spoken-4.mp4
+say "-v de+m3" "$T5" | ffmpeg $B -f lavfi -i "smptehdbars=size=108x192:rate=6" -i - \
+  $S $H264 -profile:v main -f mov spoken-5.mov
+```
+
+| File | Content |
+| --- | --- |
+| `spoken-1.ogg` | 14 s, Opus at 16 kbit/s in Ogg (16 kHz mono): a voice message, marker Sonnenblume |
+| `spoken-2.mp3` | 13 s, MP3 at 32 kbit/s (22.05 kHz mono): a recorded call, marker Schneemann |
+| `spoken-3.m4a` | 12 s, AAC-LC at 48 kbit/s in MP4, brand `M4A `, a higher voice: marker Schmetterling |
+| `spoken-4.mp4` | 12 s, colour bars in H.264 (baseline) with AAC, index first: marker Kirschbaum |
+| `spoken-5.mov` | 12 s, portrait colour bars in H.264 (main) with AAC in QuickTime, index last: marker Windmühle |
