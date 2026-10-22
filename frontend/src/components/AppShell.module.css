@@ -99,6 +99,65 @@
   background: var(--color-accent);
 }
 
+/* A menu of the navigation (D312): its button looks like a link, its panel opens below the header. */
+.menu {
+  display: flex;
+}
+
+.menuButton {
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chevron {
+  transition: transform var(--transition-fast);
+}
+
+.menuButton[aria-expanded="true"] .chevron {
+  transform: rotate(180deg);
+}
+
+.panel {
+  position: fixed;
+  top: calc(var(--header-height) - 4px);
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 220px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+
+.panelOpen {
+  display: flex;
+}
+
+.panelLink,
+.panelLink:hover {
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.panelLink:hover {
+  background: var(--color-field);
+}
+
+.panelLink.active,
+.panelLink.active:hover {
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
 .figures {
   display: flex;
   flex-shrink: 0;
@@ -169,10 +228,10 @@
 /* The header keeps one row of --header-height (the map's height and every sticky part depend on it), so on narrower screens
    its parts give way in steps: first the totals, then spacing and the editor's label, then the
    words of the logo and of the import state, whose dot and title stay, and last the spacing of
-   the navigation. With ten entries and the search menu's button every step leaves the search
-   field at least 50 px above its minimum, room for a running import's longer state (measured
-   from 1024 to 2560 px). */
-@media (max-width: 1799px) {
+   the navigation. With four links and two menus (D312) every step leaves the search field at
+   least 200 px wide down to 1024 px, room for a running import's longer state and a long editor
+   name (measured from 1024 to 2560 px). */
+@media (max-width: 1599px) {
   .count {
     display: none;
   }
@@ -193,7 +252,7 @@
   }
 }
 
-@media (max-width: 1359px) {
+@media (max-width: 1199px) {
   .logoText,
   .importText {
     position: absolute;
