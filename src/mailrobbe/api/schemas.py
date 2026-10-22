@@ -20,6 +20,9 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/mails/{id}/eml                     message/rfc822 download
     GET  /api/mails/{id}/social?SocialParams     SocialCard: what the image blacks out (D214)
     GET  /api/mails/{id}/social.png?SocialParams image/png of the same card
+    GET  /api/documents/{id}/social?TranscriptSocialParams      SocialCard of a transcribed
+                                                 recording, with the mail it came with (D298)
+    GET  /api/documents/{id}/social.png?TranscriptSocialParams  image/png of the same card
     POST /api/mails/{id}/dkim/recheck            MailDkim, after checking the mail again
     GET  /api/persons?PersonListParams           PersonPage (D31)
     GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, the open ones of a tier
@@ -257,9 +260,9 @@ Every other GET path outside /api serves the frontend (index.html for client-sid
 """
 
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from mailrobbe.ai.model import (
     AiEngine,
@@ -1830,6 +1833,22 @@ class SocialParams(BaseModel):
     quotes: bool = False  # show the quoted text too
     dkim: bool = True  # the DKIM seal beside the date
     checksum: bool = True  # the first 16 digits of the mail's SHA-256 in the footer (D61)
+
+
+class TranscriptSocialParams(SocialParams):
+    """The picture of a transcribed recording (D298): the attachment it was opened from, whose
+    mail heads the card, and the part of the recording whose lines it shows."""
+
+    # The mail detail's attachment; None: the first mail carrying the document (document page).
+    attachment: int | None = Field(default=None, ge=-(2**63), le=2**63 - 1)
+    start: float | None = Field(default=None, ge=0)  # seconds: lines still spoken after it
+    end: float | None = Field(default=None, gt=0)  # seconds: lines begun before it
+
+    @model_validator(mode="after")
+    def _in_order(self) -> Self:
+        if self.start is not None and self.end is not None and self.start >= self.end:
+            raise ValueError("start must lie before end")
+        return self
 
 
 class SocialRedaction(BaseModel):

@@ -261,6 +261,7 @@ export function AttachmentsCard({
               ? open.document_id
               : null
           }
+          shareable={open.transcript === "transcribed"}
           marks={marks}
           onClose={() => setOpen(null)}
         />
