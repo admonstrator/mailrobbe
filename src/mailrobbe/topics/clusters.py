@@ -27,8 +27,9 @@
                 tsv once; a search per cluster would read the mails of each through ix_mail_tsv,
                 a quarter of the archive for a cluster of five common terms, a hundred times.
 
-Every step is in a fixed order, so the same archive gives the same clusters. find_clusters runs
-inside the transaction of the topics phase and only reads.
+Both passes read mail.tsv without the standard blocks (model.TOPIC_WEIGHTS), as the vocabulary
+does. Every step is in a fixed order, so the same archive gives the same clusters. find_clusters
+runs inside the transaction of the topics phase and only reads.
 """
 
 import asyncio
@@ -52,31 +53,34 @@ from mailrobbe.topics.model import (
     LINK_MIN_MAILS,
     LINK_MIN_NPMI,
     MAIL_MAX_TERMS,
+    TOPIC_WEIGHTS,
     Cluster,
     Term,
 )
 
 _PARTITION = 10_000  # mails per batch of the stream
 
-# Each mail's candidates; mails with fewer than two or more than :most do not count.
-_CANDIDATES = text("""
+# Each mail's candidates, its standard blocks left out as in the vocabulary; mails with fewer
+# than two or more than :most do not count.
+_CANDIDATES = text(f"""
     SELECT found FROM mail m CROSS JOIN LATERAL (
-        SELECT array_agg(u.lexeme) AS found FROM unnest(tsvector_to_array(m.tsv)) AS u(lexeme)
+        SELECT array_agg(u.lexeme) AS found
+        FROM unnest(tsvector_to_array(ts_filter(m.tsv, {TOPIC_WEIGHTS}))) AS u(lexeme)
         WHERE u.lexeme = ANY(CAST(:candidates AS text[]))
     ) AS s
     WHERE m.is_duplicate_of IS NULL AND cardinality(found) BETWEEN 2 AND :most
 """)
 
-# Per cluster and UTC month (NULL: undated) the mails holding any of the clusters' lexemes, each
-# owned by one cluster (:owners, in the order of :lexemes).
-_MAILS = text("""
+# Per cluster and UTC month (NULL: undated) the mails holding any of the clusters' lexemes
+# outside their standard blocks, each owned by one cluster (:owners, in the order of :lexemes).
+_MAILS = text(f"""
     SELECT s.cluster, date_trunc('month', m.date_utc AT TIME ZONE 'UTC')::date AS month,
         count(*) AS mails, min(m.date_utc) AS first_date, max(m.date_utc) AS last_date
     FROM mail m CROSS JOIN LATERAL (
         SELECT DISTINCT
             (CAST(:owners AS integer[]))[array_position(CAST(:lexemes AS text[]), u.lexeme)]
                 AS cluster
-        FROM unnest(tsvector_to_array(m.tsv)) AS u(lexeme)
+        FROM unnest(tsvector_to_array(ts_filter(m.tsv, {TOPIC_WEIGHTS}))) AS u(lexeme)
         WHERE u.lexeme = ANY(CAST(:lexemes AS text[]))
     ) AS s
     WHERE m.is_duplicate_of IS NULL
