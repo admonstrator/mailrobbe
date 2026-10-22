@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { documentPage } from "../../test/fixtures";
+import { aiFacets, documentPage } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const listCalls = (calls: ApiCall[]) =>
@@ -441,5 +441,58 @@ describe("protected and packed documents in the list (D231, D233)", () => {
     const plain = row("Aenderungsprotokoll.xlsx");
     expect(within(plain).queryByRole("img", { name: /Verschlüsselt/ })).toBeNull();
     expect(within(plain).queryByText("ausgepackt")).toBeNull();
+  });
+});
+
+describe("AI tags in the document list (D309)", () => {
+  /** The fixture backend with the AI tags: the most used ones, by id and by part of the name. */
+  function aiTagApi(call: ApiCall): unknown {
+    const { pathname, searchParams } = call.url;
+    if (pathname !== "/api/ai/tags") return fixtureApi(call);
+    const ids = searchParams.getAll("id").map(Number);
+    if (ids.length) return aiFacets.tags.filter((tag) => ids.includes(tag.id));
+    const q = (searchParams.get("q") ?? "").toLowerCase();
+    return aiFacets.tags.filter((tag) => tag.label.toLowerCase().includes(q));
+  }
+
+  it("offers the most used AI tags and finds others by name, kept in the URL", async () => {
+    const { router, calls } = renderApp("/anhaenge", aiTagApi);
+    const spende = await within(column()).findByRole("checkbox", { name: "Spende" });
+    const group = spende.closest("fieldset")!;
+    expect(group.querySelector("legend")!.textContent).toContain("KI-Schlagwort");
+    expect(within(group).getByText("Maschinell erzeugt, aus den Zusammenfassungen.")).toBeTruthy();
+
+    fireEvent.click(spende);
+    expect(router.state.location.search).toBe("?ai_tag=12");
+    expect(
+      await within(column()).findByRole("button", { name: "KI-Schlagwort entfernen: Spende" }),
+    ).toBeTruthy();
+    await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?ai_tag=12"));
+
+    fireEvent.change(within(column()).getByRole("searchbox", { name: "KI-Schlagwort suchen" }), {
+      target: { value: "vorstand" },
+    });
+    fireEvent.click(await within(column()).findByRole("checkbox", { name: "Vorstandssitzung" }));
+    expect(new URLSearchParams(router.state.location.search).getAll("ai_tag")).toEqual([
+      "12",
+      "31",
+    ]);
+    expect(calls.some((call) => call.url.search === "?q=vorstand&limit=8")).toBe(true);
+
+    fireEvent.click(
+      await within(column()).findByRole("button", { name: "KI-Schlagwort entfernen: Spende" }),
+    );
+    expect(router.state.location.search).toBe("?ai_tag=31");
+  });
+
+  it("is left out while the archive has no AI tags", async () => {
+    const { calls } = renderApp("/anhaenge", (call) =>
+      call.url.pathname === "/api/ai/tags" ? [] : fixtureApi(call),
+    );
+    await screen.findByRole("link", { name: "Rahmenvereinbarung_2026_final.pdf" });
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.pathname === "/api/ai/tags")).toBe(true),
+    );
+    expect(within(column()).queryByText("KI-Schlagwort")).toBeNull();
   });
 });

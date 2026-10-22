@@ -37,6 +37,7 @@ const full: DocumentListState = {
   author: ["Peter Hofmann", "Müller & Söhne"],
   program: ["Microsoft Word"],
   text_origin: ["ocr", "transcript"],
+  ai_tag: [12, 5],
   sort: "mails",
   cursor: "eyJrIjoxfQ",
   page: 3,
@@ -72,6 +73,7 @@ describe("document list state in the URL", () => {
       "author",
       "program",
       "text_origin",
+      "ai_tag",
       "sort",
       "cursor",
       "limit",
@@ -97,12 +99,17 @@ describe("document list state in the URL", () => {
         "shared=yes",
         "page=x",
         "limit=0",
+        "ai_tag=0",
+        "ai_tag=x",
+        "ai_tag=7",
+        "ai_tag=7",
       ].join("&"),
     );
     expect(state).toEqual({
       ...DEFAULT_DOCUMENT_LIST_STATE,
       kind: ["pdf", "spreadsheet"],
       protection: ["locked", "open"],
+      ai_tag: [7],
     });
   });
 
