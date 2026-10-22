@@ -1561,18 +1561,20 @@ class AiResult(Base):
         Index(
             "ux_ai_result_valid",
             "kind",
+            "target",
             "target_sha256",
             unique=True,
             postgresql_where=text("state = 'valid'"),
         ),
         Index("ix_ai_result_job", "job_id"),
+        CheckConstraint("target IN ('document', 'mail')", name="target"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     kind: Mapped[AiTaskKind] = mapped_column(ai_task_kind_enum)
-    target_sha256: Mapped[str] = mapped_column(Text)  # document.sha256 (mail.raw_sha256 in M17)
-    engine: Mapped[str] = mapped_column(Text)  # "tesseract", "vision" or "mixed" (ai.model)
-    model: Mapped[str | None] = mapped_column(Text)  # the vision model; None for Tesseract only
+    target_sha256: Mapped[str] = mapped_column(Text)  # document.sha256 or mail.raw_sha256
+    engine: Mapped[str] = mapped_column(Text)  # "tesseract", "vision", "mixed" or "text" (ai.model)
+    model: Mapped[str | None] = mapped_column(Text)  # the model; None for Tesseract only
     service_url: Mapped[str | None] = mapped_column(Text)  # without credentials
     remote: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))  # D181
     prompt_version: Mapped[int | None] = mapped_column(SmallInteger)  # of ai.toml (D189)
@@ -1590,6 +1592,8 @@ class AiResult(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     discarded_by: Mapped[str | None] = mapped_column(Text)  # D54
     discarded_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    # What target_sha256 names (migration 0021, D301): enums.AiTarget.
+    target: Mapped[str] = mapped_column(Text, server_default="document")
 
 
 class AiTask(Base):
@@ -1598,9 +1602,11 @@ class AiTask(Base):
     __tablename__ = "ai_task"
     __table_args__ = (
         CheckConstraint("engine IN ('auto', 'tesseract', 'vision')", name="engine"),
+        CheckConstraint("target IN ('document', 'mail')", name="target"),
         Index(
             "ux_ai_task_open",
             "kind",
+            "target",
             "target_sha256",
             unique=True,
             postgresql_where=text("status IN ('waiting', 'running')"),
@@ -1635,6 +1641,7 @@ class AiTask(Base):
     result_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("ai_result.id", ondelete="SET NULL")
     )
+    target: Mapped[str] = mapped_column(Text, server_default="document")  # enums.AiTarget (D301)
 
 
 class AiCalibration(Base):
@@ -1656,7 +1663,10 @@ class AiSendLog(Base):
     """What went to a service outside the own machine and network, when, where (D181)."""
 
     __tablename__ = "ai_send_log"
-    __table_args__ = (Index("ix_ai_send_log_sent_at", "sent_at"),)
+    __table_args__ = (
+        Index("ix_ai_send_log_sent_at", "sent_at"),
+        CheckConstraint("target IN ('document', 'mail')", name="target"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     sent_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
@@ -1667,3 +1677,54 @@ class AiSendLog(Base):
     job_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("job.id", ondelete="SET NULL")
     )
+    target: Mapped[str] = mapped_column(Text, server_default="document")  # enums.AiTarget (D301)
+
+
+# AI summaries and tags (migration 0021, D300 to D311): hung on ai_result, so a discarded or
+# replaced result takes its tags and hints with it from every view (they read valid results only).
+
+
+class AiTag(Base):
+    """An AI tag (D305): what a summary suggested, by its normalised key (ai.summarize)."""
+
+    __tablename__ = "ai_tag"
+    __table_args__ = (Index("ux_ai_tag_key", "key", unique=True),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    key: Mapped[str] = mapped_column(Text)  # ai.model.tag_key: case, umlauts and spaces folded
+    label: Mapped[str] = mapped_column(Text)  # the spelling it was first given
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class AiTagLink(Base):
+    """A summary's AI tags."""
+
+    __tablename__ = "ai_tag_link"
+    __table_args__ = (Index("ix_ai_tag_link_tag_id", "tag_id"),)
+
+    result_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ai_result.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ai_tag.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+class AiThemeHint(Base):
+    """A theme of themes.toml a summary named, with the quote found in the text it read (D304)."""
+
+    __tablename__ = "ai_theme_hint"
+    __table_args__ = (
+        Index("ix_ai_theme_hint_result_id", "result_id"),
+        Index("ix_ai_theme_hint_theme", "theme"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    result_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ai_result.id", ondelete="CASCADE")
+    )
+    theme: Mapped[str] = mapped_column(Text)  # a theme key of themes.toml
+    quote: Mapped[str] = mapped_column(Text)  # as it stands in the text
+    # Its character offset in the text the summary read (mail.body_text or the document's
+    # extracted_text); None when it stands only in the subject or the file name.
+    position: Mapped[int | None] = mapped_column(Integer)

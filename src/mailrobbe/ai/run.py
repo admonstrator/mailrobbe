@@ -357,9 +357,11 @@ class _Run:
         try:
             await self._check()
             await self._ocr()
+            await self._summarize()
             code = EXIT_OK
             self.summary.status, self.summary.message = JobStatus.DONE, self._line()
         except _Ended as ended:
+            self.job.steps.skip("summarize")  # contract: ai.summarize fills the step (D300)
             code = ended.exit_code
             self.summary.status = ended.status
             self.summary.message = f"{self._line()}; {ended.message}"
@@ -893,6 +895,12 @@ class _Run:
     def _failed(self) -> None:
         self.summary.failed += 1
         self.progress.failed += 1
+
+    # summarize ---------------------------------------------------------------------------------
+
+    async def _summarize(self) -> None:
+        """The waiting summarize tasks (ai.summarize, D300 to D311); contract: not built yet."""
+        self.job.steps.skip("summarize")
 
     # entities and signals ----------------------------------------------------------------------
 

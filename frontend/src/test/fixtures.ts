@@ -4348,6 +4348,11 @@ const aiDefaults: AiStatus["defaults"] = {
   vision_url: "http://host.docker.internal:11434",
   documents: [],
   vision_remote: false,
+  mails: [],
+  text_model: "",
+  text_url: "",
+  text_remote: false,
+  context_tokens: 8192,
 };
 
 const aiQueueEmpty = { waiting: 0, running: 0, done: 0, failed: 0, cancelled: 0 };
@@ -4409,6 +4414,7 @@ export const aiStatus: AiStatus = {
   remote_used: false,
   job: null,
   defaults: aiDefaults,
+  text: false,
 };
 
 /** A remote vision service the settings refuse (D181). */
@@ -4469,6 +4475,7 @@ export const aiJobRunning: AiJob = {
     tokens_out: 0,
     current: "Scan_20180306_7499.pdf",
     unreachable_since: null,
+    summaries: 0,
   },
 };
 
@@ -4496,6 +4503,8 @@ export const aiTaskPage: AiTaskPage = {
       pages_read: 0,
       pages_total: 3,
       result_id: null,
+      target: "document",
+      mail: null,
     },
     {
       id: 298,
@@ -4513,6 +4522,8 @@ export const aiTaskPage: AiTaskPage = {
       pages_read: 0,
       pages_total: null,
       result_id: null,
+      target: "document",
+      mail: null,
     },
   ],
   next_cursor: null,
@@ -4539,6 +4550,10 @@ export const aiResultPage: AiResultPage = {
       job_id: 40,
       discarded_by: null,
       discarded_at: null,
+      target: "document",
+      mail: null,
+      tags: 0,
+      themes: 0,
     },
   ],
   next_cursor: null,
@@ -4554,6 +4569,8 @@ export const aiSendLogPage: AiSendLogPage = {
       document: { id: 5150, name: "Scan_20180306_7499.pdf", kind: "pdf", pages: 3 },
       bytes: 412_331,
       job_id: 40,
+      target: "document",
+      mail: null,
     },
   ],
   next_cursor: null,

@@ -107,6 +107,7 @@ function Content({ status }: { status: AiStatus }) {
 
 const CAPABILITY_LABELS: Record<AiServiceInfo["capability"], string> = {
   vision: "Bildmodell (Bilder und Seiten lesen)",
+  text: "Textmodell (zusammenfassen und verschlagworten)",
 };
 
 function ServicesCard({ status }: { status: AiStatus }) {

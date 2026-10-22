@@ -88,6 +88,13 @@ services:
       MAILROBBE_AI_OCR_MAX_PAGES: ${MAILROBBE_AI_OCR_MAX_PAGES:-}
       MAILROBBE_AI_OCR_LANGUAGES: ${MAILROBBE_AI_OCR_LANGUAGES:-}
       MAILROBBE_AI_OCR_UNCERTAIN: ${MAILROBBE_AI_OCR_UNCERTAIN:-}
+      # Summaries and AI tags (D300): a text model, e.g. the same LM Studio with another model;
+      # CONTEXT_TOKENS is the context it was loaded with. Empty: no "Zusammenfassen".
+      MAILROBBE_AI_TEXT_URL: ${MAILROBBE_AI_TEXT_URL:-}
+      MAILROBBE_AI_TEXT_MODEL: ${MAILROBBE_AI_TEXT_MODEL:-}
+      MAILROBBE_AI_TEXT_KEY: ${MAILROBBE_AI_TEXT_KEY:-}
+      MAILROBBE_AI_TEXT_PROTOCOL: ${MAILROBBE_AI_TEXT_PROTOCOL:-}
+      MAILROBBE_AI_CONTEXT_TOKENS: ${MAILROBBE_AI_CONTEXT_TOKENS:-}
     # host.docker.internal on Linux too (Docker Desktop has it already); there the service must
     # listen on the Docker bridge, Ollama for example with OLLAMA_HOST=0.0.0.0.
     extra_hosts:
