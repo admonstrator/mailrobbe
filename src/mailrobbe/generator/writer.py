@@ -162,7 +162,7 @@ def manifest_record(
         thread_index=planned.thread_index,
         list_id=planned.list_id,
         automated=planned.automated,
-        attachments=len(planned.attachments),
+        attachments=len(mail.documents),
         dkim={"expected": mail.dkim.expected.value, "signatures": signatures},
         faults={fault.value: variant for fault, variant in sorted(mail.faults.items())},
         duplicate_of=mail.duplicate_of,

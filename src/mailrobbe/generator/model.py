@@ -311,7 +311,7 @@ class ManifestRecord:
     thread_index: int | None
     list_id: str | None
     automated: bool
-    attachments: int
+    attachments: int  # top-level parts mime_parts counts, == len(documents) (a .eml counts as one)
     dkim: dict[str, Any]  # {"expected": str, "signatures": [{domain, selector, ...}]}
     faults: dict[str, str]
     duplicate_of: int | None
