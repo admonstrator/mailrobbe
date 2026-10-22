@@ -283,9 +283,15 @@ h3 {
 }
 
 .features,
+.ai,
 .install,
 .support {
   padding: 64px 0;
+}
+
+.ai .intro {
+  margin-bottom: 32px;
+  text-align: center;
 }
 
 .feature {

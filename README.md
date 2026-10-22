@@ -23,7 +23,7 @@ Wünsche, Lob und Kritik gern per Mail an [hey@admon.me](mailto:hey@admon.me), a
 
 ---
 
-Mailrobbe ist ein Recherchewerkzeug für Journalistinnen und Journalisten, Redaktionen und Rechercheteams. Es ist für Mailbestände gebaut, die niemand von vorn bis hinten lesen kann: ein Leak, der Postfach-Export einer Quelle, Hunderttausende Mails in MBOX-Dateien. Mailrobbe macht sie durchsuchbar, auch in den Anhängen, prüft per DKIM, welche Mails nachweislich unverändert sind, zeigt, wer mit wem wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge, wenn das Kennwort irgendwo im Archiv steht.
+Mailrobbe ist ein Recherchewerkzeug für Journalistinnen und Journalisten, Redaktionen und Rechercheteams. Es ist für Mailbestände gebaut, die niemand von vorn bis hinten lesen kann: ein Leak, der Postfach-Export einer Quelle, Hunderttausende Mails in MBOX-Dateien. Mailrobbe macht sie durchsuchbar, auch in den Anhängen, prüft per DKIM, welche Mails nachweislich unverändert sind, zeigt, wer mit wem wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge, wenn das Kennwort irgendwo im Archiv steht. Scans, Sprachnachrichten und lange Texte erschließt auf Wunsch eine KI, die ebenfalls auf dem eigenen Rechner läuft.
 
 Das Material bleibt im Haus: Mailrobbe läuft auf dem eigenen Rechner im Browser, ohne Cloud und ohne Konto, und die Mails bleiben unverändert in ihren Dateien. Jede Fundstelle führt zurück zur Originalmail. Und bewertet wird nichts: Mailrobbe zeigt, wo sich das Lesen lohnen kann. Lesen, prüfen und entscheiden muss die Redaktion.
 
@@ -52,15 +52,17 @@ Fürs eigene Postfach ist das zu viel Werkzeug. Dafür reicht das Mailprogramm.
 | --- | --- |
 | Wo steht ein Begriff, auch in PDFs, Tabellen und ZIP-Dateien? | Suchfeld oben, das Suchmenü daneben grenzt ein |
 | Ist diese Mail echt und unverändert? | DKIM-Siegel und DKIM-Prüfung im Mail-Detail, Filter nach DKIM-Status |
-| Wer hat mit wem wie oft geschrieben? | Karte, Top-Kontakte im Personenprofil |
+| Wer hat mit wem wie oft geschrieben? | Auswerten › Karte, Top-Kontakte im Personenprofil |
 | Wer steckt hinter mehreren Adressen? | Alias-Vorschläge unter Personen |
-| Wer wusste was wann? | Zeitachse: Verlauf, Ausreißer, Verstummen, erste Erwähnung |
-| Worüber wurde wann auffällig viel geschrieben? | Themen |
-| Welche Mails lese ich zuerst? | Signale, Recherchethemen unter Akten |
-| Wie werde ich Newsletter und Systemmails los? | Ausgeblendet |
+| Wer wusste was wann? | Auswerten › Zeitachse: Verlauf, Ausreißer, Verstummen, erste Erwähnung |
+| Worüber wurde wann auffällig viel geschrieben? | Auswerten › Themen |
+| Welche Mails lese ich zuerst? | Auswerten › Signale, Recherchethemen unter Akten |
+| Wie werde ich Newsletter und Systemmails los? | System › Ausgeblendet |
 | Was steht in einem verschlüsselten Anhang? | Anhänge, Filter „Verschlüsselt“ |
-| Welche Beträge, Konten und Namen tauchen auf? | Entitäten, Facetten neben der Mailliste |
-| Wo wurden Fotos gemacht, welche Orte fallen? | Orte |
+| Was steht in Scans, Fotos von Dokumenten und Sprachnachrichten? | „Text erkennen“ und „Transkribieren“ an Datei und Mail, ganze Listen unter System › KI |
+| Worum geht es, ohne alles zu lesen? | „Zusammenfassen“ an Mail, Dokument und Akte |
+| Welche Beträge, Konten und Namen tauchen auf? | Auswerten › Entitäten, Facetten neben der Mailliste |
+| Wo wurden Fotos gemacht, welche Orte fallen? | Auswerten › Orte |
 | Wie halte ich Funde im Team fest? | Prüfstatus, Notizen, Schlagworte und Akten an jeder Mail |
 | Wie gehen Belege ans Justiziariat oder an Anwälte? | Export als ZIP mit Originalmails, PDFs und Prüfsummen |
 | Wie zeige ich eine Mail im Artikel oder in sozialen Medien? | Mail-Detail, Aktionen: „Als Bild für Soziale Medien“, mit Schwärzungen |
@@ -111,9 +113,13 @@ Die Zeitachse zeigt jede Suche über die Zeit, auf Wunsch je Person, markiert Au
 
 Jedes Dokument steht einmal in der Liste, auch wenn es durch viele Mails gewandert ist, mit der Antwort, wer es wann an wen geschickt hat. PDFs, Word-Dateien, Bilder, Audio und Video zeigt Mailrobbe direkt im Browser. Die Dokumentseite verrät, was die Datei über sich selbst sagt: Kamera, Aufnahmezeit und GPS eines Fotos, Autor und Programm eines PDFs, Kommentare und Änderungen in Word.
 
-### Gescannte Seiten und Sprachnachrichten
+### KI auf dem eigenen Rechner
 
-Gescannte PDFs und abfotografierte Dokumente liest die Texterkennung, Sprachnachrichten, Aufnahmen und Videos schreibt die Transkription mit. Beides läuft im Container auf dem eigenen Rechner, für eine einzelne Datei direkt von ihrer Seite oder aus der Mail heraus, für ganze Listen unter „KI“. Das Ergebnis findet die Volltextsuche wie jeden anderen Text, gekennzeichnet als maschinell erkannt oder transkribiert. Ein Transkript zeigt jede Zeile mit ihrer Zeit, ein Klick auf die Zeit spielt die Aufnahme ab dieser Stelle. Transkribiert wird mit Parakeet von NVIDIA (CC-BY-4.0), das Deutsch, Englisch und 23 weitere europäische Sprachen versteht; eine Stunde Aufnahme braucht je nach Rechner einige Minuten.
+Gescannte PDFs und abfotografierte Dokumente liest die Texterkennung, Sprachnachrichten, Aufnahmen und Videos schreibt die Transkription mit. Beides läuft im Container auf dem eigenen Rechner, für eine einzelne Datei direkt von ihrer Seite oder aus der Mail heraus, für ganze Listen unter System › KI. Das Ergebnis findet die Volltextsuche wie jeden anderen Text, gekennzeichnet als maschinell erkannt oder transkribiert. Ein Transkript zeigt jede Zeile mit ihrer Zeit, ein Klick auf die Zeit spielt die Aufnahme ab dieser Stelle. Transkribiert wird mit Parakeet von NVIDIA (CC-BY-4.0), das Deutsch, Englisch und 23 weitere europäische Sprachen versteht; eine Stunde Aufnahme braucht je nach Rechner einige Minuten.
+
+„Zusammenfassen“ an einer Mail, einem Dokument oder für alle Mails einer Akte lässt ein Sprachmodell kurz sagen, worum es geht, mit bis zu sechs KI-Schlagwörtern und Hinweisen auf die Recherchethemen. Jeder Hinweis braucht ein wörtliches Zitat aus dem Text, sonst verwirft Mailrobbe ihn. Anweisungen, die im Material selbst stehen, soll das Modell nicht befolgen; es hat keine Werkzeuge, und die Zitate werden nachgeprüft. Schlimmstenfalls wird eine Zusammenfassung falsch, und dafür steht „Maschinell erzeugt“ mit Modell und Datum darüber. Die KI-Schlagwörter bleiben getrennt von denen des Teams und filtern die Mailliste mit einem Klick; ins Team übernimmt sie nur ein Mensch.
+
+Das Sprachmodell für Zusammenfassungen und, wer mag, ein Bildmodell für Handschrift und schlechte Scans laufen neben Mailrobbe auf dem eigenen Rechner, etwa in LM Studio oder Ollama. Dienste im Internet lehnt Mailrobbe ab, solange man sie nicht ausdrücklich erlaubt, und dann nur mit Obergrenze und einem Protokoll jeder Anfrage. Die KI bewertet nichts und entscheidet nichts. Sie sortiert vor, lesen muss die Redaktion.
 
 ### Verschlüsselte Anhänge öffnen
 
@@ -159,8 +165,8 @@ docker compose up -d --build
 Dann geht es so weiter:
 
 1. **Einlesen.** http://127.0.0.1:8000/import öffnen und „Import starten“ klicken. Das Dashboard zeigt Fortschritt und Restzeit. „Pausieren“ hält an, der nächste Start macht dort weiter. MBOX-Dateien erkennt Mailrobbe am Inhalt, auch in Unterordnern.
-2. **Aufräumen.** Unter „Ausgeblendet“ Newsletter und Systemmails per Regel aus Liste und Suche nehmen, unter „Personen“ die sicheren Alias-Vorschläge zusammenführen.
-3. **Einsteigen.** Unter „Akten“, Reiter „Themen“, stehen Wortfelder und fertige Suchen. „Signale“, „Themen“ und „Entitäten“ bieten weitere Einstiege.
+2. **Aufräumen.** Unter System › Ausgeblendet Newsletter und Systemmails per Regel aus Liste und Suche nehmen, unter „Personen“ die sicheren Alias-Vorschläge zusammenführen.
+3. **Einsteigen.** Unter „Akten“, Reiter „Themen“, stehen Wortfelder und fertige Suchen. „Signale“, „Themen“ und „Entitäten“ im Menü „Auswerten“ bieten weitere Einstiege, „KI“ im Menü „System“ macht Scans und Sprachnachrichten durchsuchbar.
 4. **Festhalten.** Oben rechts den eigenen Namen eintragen, dann Prüfstatus, Notizen, Schlagworte und Akten vergeben, einzeln oder für alle Treffer einer Suche.
 
 ### Aktualisieren
@@ -187,6 +193,10 @@ Einstellungen stehen in der Datei `.env` neben `docker-compose.yml`, eine Zeile 
 | `MAILROBBE_BLOCK_MIN_MAILS` | ab wie vielen Mails ein Absatz am Ende als Standardblock gilt (Voreinstellung 25) |
 | `MAILROBBE_IMPORT_WORKERS` | Prozesse für den Import (Voreinstellung: Zahl der Kerne, höchstens 8) |
 | `MAILROBBE_DKIM_NAMESERVERS` | eigene DNS-Server für die DKIM-Schlüssel, kommagetrennt |
+| `MAILROBBE_AI_TEXT_URL`, `MAILROBBE_AI_TEXT_MODEL` | Sprachmodell für „Zusammenfassen“, etwa `http://host.docker.internal:1234/v1` für LM Studio oder `http://host.docker.internal:11434` für Ollama; leer: kein Zusammenfassen |
+| `MAILROBBE_AI_CONTEXT_TOKENS` | Kontextlänge, mit der das Sprachmodell geladen ist (Voreinstellung 4096); längere Texte fasst Mailrobbe in Teilen zusammen |
+| `MAILROBBE_AI_VISION_URL`, `MAILROBBE_AI_VISION_MODEL` | Bildmodell für die Texterkennung, genauso angegeben; leer: nur Tesseract |
+| `MAILROBBE_AI_ALLOW_REMOTE` | `true` erlaubt KI-Dienste außerhalb des eigenen Rechners und Netzes; ohne bleibt alles lokal |
 | `MAILROBBE_AI_TRANSCRIBE_THREADS` | Rechenkerne für die Transkription (Voreinstellung: Zahl der Kerne, höchstens 4) |
 | `MAILROBBE_AI_TRANSCRIBE_MAX_MINUTES` | wie viele Minuten einer Aufnahme ein Lauf höchstens transkribiert (Voreinstellung 180) |
 | `MAILROBBE_MAP_HOST_DIR` | Ordner für die Detailkarte (bis 10 GB) außerhalb von Docker, etwa `./data/maps` |
@@ -260,7 +270,11 @@ Nein. Die MBOX-Dateien sind schreibgeschützt eingebunden, die Datenbank hält n
 
 ### „Geht dabei etwas ins Internet?“
 
-Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es das Schlüsselarchiv ZK Email, lädt die Detailkarte herunter und beim ersten Transkribieren einmal das Sprachmodell von Hugging Face (etwa 670 MB, im Docker-Volume `mailrobbe_models`; ohne Netz lassen sich die Dateien auch von Hand dorthin kopieren, die Seite „KI“ sagt, was fehlt). Inhalte aus dem Archiv verlassen den Rechner nicht, es sei denn, man richtet für die Texterkennung ausdrücklich einen KI-Dienst außerhalb des eigenen Netzes ein. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains und Selektoren gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails da gerade geprüft werden. Wer das vermeiden will, importiert ohne DNS-Abfragen mit `docker compose run --rm -e MAILROBBE_DKIM_OFFLINE=1 backend mailrobbe import` und prüft später mit `docker compose run --rm backend mailrobbe dkim` nach, wann und über welche DNS-Server (`MAILROBBE_DKIM_NAMESERVERS`) es passt.
+Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es das Schlüsselarchiv ZK Email, lädt die Detailkarte herunter und beim ersten Transkribieren einmal das Sprachmodell von Hugging Face (etwa 670 MB, im Docker-Volume `mailrobbe_models`; ohne Netz lassen sich die Dateien auch von Hand dorthin kopieren, die Seite „KI“ sagt, was fehlt). Inhalte aus dem Archiv verlassen den Rechner nicht, es sei denn, man richtet für Texterkennung oder Zusammenfassungen ausdrücklich einen KI-Dienst außerhalb des eigenen Netzes ein. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains und Selektoren gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails da gerade geprüft werden. Wer das vermeiden will, importiert ohne DNS-Abfragen mit `docker compose run --rm -e MAILROBBE_DKIM_OFFLINE=1 backend mailrobbe import` und prüft später mit `docker compose run --rm backend mailrobbe dkim` nach, wann und über welche DNS-Server (`MAILROBBE_DKIM_NAMESERVERS`) es passt.
+
+### „Liest da eine KI meine Mails?“
+
+Nur wenn man sie lässt, und nur für das, was man auswählt. Texterkennung mit Tesseract und Transkription laufen im Container, Zusammenfassungen und das Bildmodell nur mit einem Dienst, den man selbst einrichtet, im Normalfall auf dem eigenen Rechner. Was eine Maschine geschrieben hat, ist überall als maschinell gekennzeichnet, mit Modell und Datum. Ob eine Mail wichtig, wahr oder strafbar ist, sagt keine KI in Mailrobbe.
 
 ### „Beweist ‚DKIM gültig‘, wer die Mail geschrieben hat?“
 
