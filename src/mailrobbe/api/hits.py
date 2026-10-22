@@ -23,7 +23,8 @@ documents only those of the mail's attachments: every attachment row counts, so 
 attached twice counts twice. hit_count is one expression correlated to mail, which
 mail_conditions adds after the conditions the full text indexes serve, so it runs on their
 candidates only; page_hits and mail_places run the same SQL (_own, _attached) for the mails of
-a page or the attachments of one mail.
+a page or the attachments of one mail, and machine_hits for the mails of a page whose words stand
+in a text an AI run recognised (D189).
 
 This module must not import filters.py, which imports it.
 """
@@ -39,6 +40,7 @@ from sqlalchemy import (
     Integer,
     Select,
     Text,
+    and_,
     any_,
     cast,
     func,
@@ -64,6 +66,7 @@ from mailrobbe.api.fulltext import (
 )
 from mailrobbe.api.schemas import MailHitCounts, SearchField
 from mailrobbe.db.models import Attachment, Document, Mail
+from mailrobbe.enums import TextOrigin
 
 _Select = Select[*tuple[Any, ...]]
 _Rows = _Select | CompoundSelect[*tuple[Any, ...]]
@@ -98,6 +101,20 @@ async def page_hits(
         for mail_id, place, count in await session.execute(_union(statements)):
             found[mail_id][place] += count
     return {mail_id: MailHitCounts(**counts) for mail_id, counts in found.items()}
+
+
+async def machine_hits(
+    session: AsyncSession, mail_ids: Sequence[int], search: FullText
+) -> set[int]:
+    """The mails among mail_ids where a counted word stands in the text of an attachment whose
+    document an AI run recognised (D189), not in one read from its file."""
+    machine = Document.text_origin != TextOrigin.EXTRACTED
+    ids = literal(list(mail_ids), ARRAY(BigInteger))
+    statement = _by(search, Attachment.mail_id, and_(Attachment.mail_id == any_(ids), machine))
+    if not mail_ids or statement is None:
+        return set()
+    rows = await session.execute(statement)
+    return {mail_id for mail_id, place, count in rows if place == "attachment" and count > 0}
 
 
 async def mail_places(
