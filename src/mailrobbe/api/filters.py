@@ -9,7 +9,9 @@ attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL O
 (full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
 mail's own text alone. The entity and amount filters (D86) take the same two forms over the
 mentions of the mail and of its attachments' documents (_mentioned), the signal filter (D136)
-over the rows the last signals phase stored in mail_signal (_signal). Near duplicates (D153),
+over the rows the last signals phase stored in mail_signal (_signal), the AI tags and themes
+(D309) over the valid summaries of the mail and of its attachments' documents (_summarized),
+by content, so that duplicates match like their originals. Near duplicates (D153),
 calendar events (D155) and photos in an area of the map (D248) are EXISTS subqueries on
 mail_near, calendar_event and attachment with its document.
 
@@ -62,6 +64,7 @@ from sqlalchemy import (
     ScalarSelect,
     Select,
     SQLColumnExpression,
+    Subquery,
     Text,
     UnaryExpression,
     and_,
@@ -113,6 +116,9 @@ from mailrobbe.blocks.model import parse_hash
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TIMESTAMPTZ,
+    AiResult,
+    AiTagLink,
+    AiThemeHint,
     Attachment,
     CalendarEvent,
     CollectionMail,
@@ -130,11 +136,19 @@ from mailrobbe.db.models import (
     Participation,
     Person,
 )
-from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
+from mailrobbe.enums import (
+    AiTarget,
+    DkimStatus,
+    EntityContext,
+    EntityKind,
+    ParticipationRole,
+    ReviewStatus,
+)
 from mailrobbe.hiding.model import visible
 from mailrobbe.persons.labels import label_matches
 from mailrobbe.places.model import BBox
 from mailrobbe.signals.model import signal_keys
+from mailrobbe.themes import load_themes
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
 _NO_DATE = literal_column("'-infinity'::timestamp with time zone", TIMESTAMPTZ)
@@ -241,6 +255,9 @@ def mail_conditions(
         where.append(_mentions_amount(filters.amount_min, filters.amount_context))
     # Signals (D136): each listed signal.
     where += [_signal(key) for key in sorted(set(filters.signal))]
+    # Milestone 17 (D309): each listed AI tag and theme, from the valid summaries.
+    where += [_ai_tagged(tag_id) for tag_id in sorted(set(filters.ai_tag))]
+    where += [_ai_theme(key) for key in sorted(set(filters.ai_theme))]
     # Near duplicates (D153) and calendar events (D155).
     if filters.near_group is not None:
         where.append(_near(MailNear.group_id == filters.near_group))
@@ -708,6 +725,125 @@ def _signal(key: str) -> ColumnElement[bool]:
     )
     _WALK_FORMS[found] = func.coalesce(held, false())
     return found
+
+
+# AI tags and themes (D309) -------------------------------------------------------------------
+
+_Mark = type[AiTagLink] | type[AiThemeHint]
+
+
+def valid_summary(target: AiTarget) -> list[ColumnElement[bool]]:
+    """The conditions on ai_result of a valid summary of a mail or of a document (D301). Written
+    as literals, so that ux_ai_result_valid, which holds the valid results only, serves a
+    generic plan as well."""
+    return [
+        AiResult.kind == literal_column("'summarize'"),
+        AiResult.target == literal_column(f"'{target.value}'"),
+        AiResult.state == literal_column("'valid'"),
+    ]
+
+
+def _mark_key(mark: _Mark) -> QueryableAttribute[Any]:
+    """What a mark names: the AI tag of a link, the theme key of a hint."""
+    return AiTagLink.tag_id if mark is AiTagLink else AiThemeHint.theme
+
+
+def described_mails(mark: _Mark, name: str = "described") -> Subquery:
+    """Columns key (ai_tag_link.tag_id or ai_theme_hint.theme) and mail_id: a row per mark of a
+    valid summary and mail it describes (D309), the mails of the summary's content (raw_sha256,
+    so duplicates count like their original, D301) and the mails carrying the summarised
+    document (sha256), as entities.mentions counts a document for every mail carrying it (D80).
+    A mail can appear several times for one key; count DISTINCT mail_id.
+
+    The one definition the filters and every count of AI tags and themes read (api/ai_tags.py).
+    A condition on key or mail_id reaches both branches of the UNION ALL, so PostgreSQL reads
+    the marks of one tag or theme (ix_ai_tag_link_tag_id, ix_ai_theme_hint_theme) outward, or
+    the summaries of some mails (ux_ai_result_valid) and then their marks, never all of them.
+    """
+    mail = aliased(Mail, name="summarized_mail")
+    key = _mark_key(mark).label("key")
+    own = (
+        select(key, mail.id.label("mail_id"))
+        .select_from(mark)
+        .join(AiResult, AiResult.id == mark.result_id)
+        .join(mail, mail.raw_sha256 == AiResult.target_sha256)
+        .where(*valid_summary(AiTarget.MAIL))
+    )
+    attached = (
+        select(key, Attachment.mail_id)
+        .select_from(mark)
+        .join(AiResult, AiResult.id == mark.result_id)
+        .join(Document, Document.sha256 == AiResult.target_sha256)
+        .join(Attachment, Attachment.document_id == Document.id)
+        .where(*valid_summary(AiTarget.DOCUMENT))
+    )
+    return union_all(own, attached).subquery(name)
+
+
+def _ai_tagged(tag_id: int) -> ColumnElement[bool]:
+    """A valid summary of the mail or of one of its attachments' documents has the AI tag; an id
+    beyond bigint names none and matches nothing."""
+    if tag_id not in _BIGINT:
+        return false()
+    return _summarized(AiTagLink, tag_id)
+
+
+def _ai_theme(key: str) -> ColumnElement[bool]:
+    """Such a summary has a hint of the theme, a key of themes.toml."""
+    if key not in {theme.key for theme in load_themes()}:
+        raise FilterError(f"unknown theme: {key}")
+    return _summarized(AiThemeHint, key)
+
+
+def _summarized(mark: _Mark, value: int | str) -> ColumnElement[bool]:
+    """A mark naming value (an AI tag's link, a theme hint) describes the mail (described_mails).
+
+    Two forms, as for _mentioned. For a set of mails a semi join with described_mails for the
+    value, from the marks outward: cheap for a rare tag, and never a pass over mail or
+    ai_result. first_ids's walk looks up the summary of each mail it passes and those of its
+    attachments' documents (ux_ai_result_valid), then their marks, so that it never collects
+    the mails of a common tag to fill a page.
+    """
+    named = _mark_key(mark) == value
+    marked = described_mails(mark)
+    found = Mail.id.in_(select(marked.c.mail_id).where(marked.c.key == value))
+    in_own = (
+        select(true())
+        .select_from(AiResult)
+        .join(mark, mark.result_id == AiResult.id)
+        .where(AiResult.target_sha256 == Mail.raw_sha256, *valid_summary(AiTarget.MAIL), named)
+        .limit(1)
+        .scalar_subquery()
+    )
+    in_attachment = (
+        select(true())
+        .select_from(Attachment)
+        .join(Document, Document.id == Attachment.document_id)
+        .join(AiResult, AiResult.target_sha256 == Document.sha256)
+        .join(mark, mark.result_id == AiResult.id)
+        .where(Attachment.mail_id == Mail.id, *valid_summary(AiTarget.DOCUMENT), named)
+        .limit(1)
+        .scalar_subquery()
+    )
+    # has_attachments is true exactly for mails with attachment rows (importer.model)
+    _WALK_FORMS[found] = or_(
+        func.coalesce(in_own, false()),
+        and_(Mail.has_attachments, func.coalesce(in_attachment, false())),
+    )
+    return found
+
+
+def document_ai_tagged(tag_id: int) -> ColumnElement[bool]:
+    """The document list's ai_tag (D309): a valid summary of the document has the AI tag; a
+    semi join from the tag's links to the contents of their results."""
+    if tag_id not in _BIGINT:
+        return false()
+    summarized = (
+        select(AiResult.target_sha256)
+        .join(AiTagLink, AiTagLink.result_id == AiResult.id)
+        .where(AiTagLink.tag_id == tag_id, *valid_summary(AiTarget.DOCUMENT))
+    )
+    return Document.sha256.in_(summarized)
 
 
 # Near duplicates (D153) and calendar events (D155) -------------------------------------------
