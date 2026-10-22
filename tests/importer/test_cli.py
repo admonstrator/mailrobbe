@@ -116,6 +116,8 @@ def test_an_import_exits_0_and_a_second_run_finds_nothing_to_do(
     }
     near = {step.key: step.status for step in second.steps if step.key.startswith("near_")}
     assert near == {"near_texts": "skipped", "near_groups": "done"}  # fingerprints kept (D158)
+    # Nothing waits for a point and the lists are those of the first run (D242).
+    assert {step.key: step.status for step in second.steps}["places"] == "skipped"
 
 
 @pytest.mark.db
