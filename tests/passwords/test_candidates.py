@@ -120,6 +120,12 @@ def test_the_longest_value() -> None:
     assert values(f"Kennwort: {longest}") == [longest]
 
 
+def test_a_candidate_does_not_swallow_the_next_keyword() -> None:
+    text = "Das Kennwort für Bericht.zip von neulich:\nKennwort: qcmg5uu3dk"
+    assert values(text)[-1] == "qcmg5uu3dk"
+    assert values("Zugangsdaten für Vertrag.zip:\nZugangscode: Verein2025!")[-1] == "Verein2025!"
+
+
 def test_prose_after_a_keyword_is_a_candidate_too() -> None:
     """No guessing (D207): a wrong candidate costs one try, the file decides."""
     assert values("Das Kennwort schicke ich dir morgen.") == ["schicke"]

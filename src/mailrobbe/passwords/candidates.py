@@ -38,8 +38,11 @@ _KEYWORDS = (
 # white space or quotes; after such a word the candidate may stand on the next line. Up to four
 # words may stand between the keyword and such a separator ("Passwort für das ZIP lautet: X").
 # The keyword stands at a word boundary; "pass" does not fire inside "passen" (\b after it). A word
-# longer than PASSWORD_MAX_LENGTH is no candidate, not even its beginning.
+# longer than PASSWORD_MAX_LENGTH is no candidate, not even its beginning. Every keyword starts a
+# match of its own, so one candidate never swallows the next keyword ("Das Kennwort für die Datei
+# von neulich:" on one line, "Kennwort: X" on the next).
 _KEYWORD = "|".join(sorted(_KEYWORDS, key=len, reverse=True))
+_KEYWORD_AT = re.compile(rf"\b(?:{_KEYWORD})\b", re.IGNORECASE)
 _SEPARATOR = r"(?:(?:ist|lautet|is)\b|=|:)[ \t]*"
 _CHARACTER = r"[^\s\"'»«„“”‚‘’`()\[\]<>]"  # noqa: RUF001 - of a password, up to these quotes
 _CANDIDATE = re.compile(
@@ -67,7 +70,10 @@ def candidates(text: str) -> Iterator[Candidate]:
     lines = text.splitlines()
     joined = "\n".join(lines)
     seen: set[str] = set()
-    for match in _CANDIDATE.finditer(joined):
+    for keyword in _KEYWORD_AT.finditer(joined):
+        match = _CANDIDATE.match(joined, keyword.start())
+        if match is None:
+            continue
         raw = match.group("value")
         context = _context(joined, match.start(), match.end())
         for value in (raw, raw.rstrip(_TRAILING)):
