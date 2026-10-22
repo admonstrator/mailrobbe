@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import threading
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -561,6 +561,23 @@ async def test_a_task_fails_after_three_attempts(archive: Archive, database: str
     assert (await document(database, "Flyer.pdf")).origin == "extracted"
 
 
+async def test_an_unreadable_file_is_an_attempt(
+    archive: Archive, database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await queue(database, "Flyer.pdf")
+
+    def gone(mbox_dir: Path, source: Any) -> bytes:
+        raise FileNotFoundError(f"{source.path} is not there")
+
+    monkeypatch.setattr(ai_run, "read_attachment", gone)
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings), engines=Fake().engines())
+    assert result.summary.failed == 1
+    flyer = (await tasks(database))["Flyer.pdf"]
+    assert (flyer.status, flyer.attempts) == ("failed", 3)
+    assert flyer.error == "unreadable: FileNotFoundError: ai.mbox is not there"
+
+
 async def test_a_page_with_invalid_answers_is_kept_with_its_error(
     archive: Archive, database: str
 ) -> None:
@@ -603,6 +620,30 @@ async def test_an_unreachable_service_is_waited_for_and_fails_nothing(
     assert caplog.text.count(f"waiting for {VISION_URL}") == 2
     job = await latest(database)
     assert AiProgress.model_validate(job.progress).unreachable_since is None
+
+
+async def test_the_check_waits_for_a_service_tasks_need(
+    archive: Archive, database: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    await queue(database, "Foto.jpg", engine="vision")
+    fake = Fake()
+    asked = 0
+
+    def check(service: Service, settings: Settings, *, test: bool) -> ServiceCheck:
+        nonlocal asked
+        asked += 1
+        found = fake.check(service, settings, test=test)
+        if asked == 1:
+            return found.model_copy(update={"reachable": False, "error": "connection refused"})
+        return found
+
+    settings = settings_for(database, archive, ai_vision_url=VISION_URL, ai_vision_model="m")
+    with caplog.at_level(logging.WARNING):
+        result = await run_ai(
+            settings, options_for(settings), engines=replace(fake.engines(), check=check)
+        )
+    assert result.exit_code == 0 and result.summary.done == 1 and asked == 2
+    assert f"waiting for {VISION_URL} (connection refused)" in caplog.text
 
 
 async def test_a_service_silent_too_long_stops_the_run(

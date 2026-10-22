@@ -61,6 +61,7 @@ from mailrobbe.ai.model import (
     Service,
     ServiceCheck,
     configured_services,
+    locality,
     page_text,
     refusal,
 )
@@ -425,7 +426,7 @@ class _Run:
             problem = refusal(service, self.settings)
         if problem is None:
             assert service is not None
-            check = await asyncio.to_thread(self.engines.check, service, self.settings, test=False)
+            check = await self._ask(service, needed)
             if check.refused:
                 problem = check.refused
             elif check.model_found is False:
@@ -434,14 +435,12 @@ class _Run:
                     f"{service.display_url} does not offer the model {service.model}",
                     EXIT_FAILED,
                 )
-            elif not check.reachable and not needed:
+            elif not check.reachable:
                 problem = f"{service.display_url} does not answer: {check.error or 'no answer'}"
-            else:  # one tasks need is waited for when it does not answer
+            else:
                 self.vision = service
-                self.protocol = check.protocol or (
-                    None if service.protocol == "auto" else service.protocol
-                )
-                self.remote = check.locality == "remote"
+                self.protocol = check.protocol
+                self.remote = locality(service.url) == "remote"  # refusal() allowed it
                 self.summary.vision = service.display_url
                 where = "outside this machine" if self.remote else "local"
                 log.info("vision: %s, model %s (%s)", service.display_url, service.model, where)
@@ -449,6 +448,20 @@ class _Run:
         if needed:
             raise _Ended(JobStatus.FAILED, f"tasks need the vision model: {problem}", EXIT_FAILED)
         log.warning("everything goes to Tesseract: %s", problem)
+
+    async def _ask(self, service: Service, needed: bool) -> ServiceCheck:
+        """The service's check (without the test picture); one tasks need is waited for while
+        it does not answer, so that its protocol and models are known before a task is taken."""
+        pause = WAIT_FIRST
+        while True:
+            check = await asyncio.to_thread(self.engines.check, service, self.settings, test=False)
+            if check.reachable or check.refused or not needed:
+                self._answered()
+                return check
+            await self._wait(service, check.error or "no answer", pause)
+            if self.job.stop.is_set():
+                raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+            pause = min(pause * 2, WAIT_MAX)
 
     # ocr ---------------------------------------------------------------------------------------
 
@@ -701,7 +714,7 @@ class _Run:
                     timeout=self.settings.ai_timeout,
                 )
             except errors.unreachable as error:
-                await self._wait(service, error, pause)
+                await self._wait(service, describe(error), pause)
                 pause = min(pause * 2, WAIT_MAX)
                 continue
             except errors.model_missing as error:
@@ -748,7 +761,7 @@ class _Run:
                 },
             )
 
-    async def _wait(self, service: Service, error: Exception, pause: float) -> None:
+    async def _wait(self, service: Service, reason: str, pause: float) -> None:
         """Wait for a service that did not answer; _Ended after WAIT_LIMIT or on a stop."""
         now = time.monotonic()
         if self.unanswered is None:
@@ -761,10 +774,7 @@ class _Run:
                 EXIT_FAILED,
             )
         log.warning(
-            "waiting for %s (%s), asking again in %.0f s",
-            service.display_url,
-            describe(error),
-            pause,
+            "waiting for %s (%s), asking again in %.0f s", service.display_url, reason, pause
         )
         try:
             await asyncio.wait_for(self.job.stop.wait(), pause)
