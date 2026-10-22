@@ -17,13 +17,14 @@ What the full text search finds for "Neger", by place (whole words / German stem
     9  -            -            -                -             nothing
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import format_datetime
 from pathlib import Path
 
 # (sender, recipient, subject, body, [(file name, text)])
-CASES: list[tuple[str, str, str, str, list[tuple[str, str]]]] = [
+Case = tuple[str, str, str, str, list[tuple[str, str]]]
+CASES: list[Case] = [
     (
         "karl.huber@verein.example",
         "vorstand@verein.example",
@@ -107,24 +108,30 @@ CASES: list[tuple[str, str, str, str, list[tuple[str, str]]]] = [
 ]
 
 
-def message_id(index: int) -> str:
-    return f"<case-{index}@verein.example>"
+def message_id(index: int, name: str = "case") -> str:
+    return f"<{name}-{index}@verein.example>"
 
 
 def write_search_cases(path: Path) -> None:
     """CASES as one MBOX file at path."""
+    write_cases(path, CASES)
+
+
+def write_cases(path: Path, cases: list[Case], name: str = "case") -> None:
+    """cases as one MBOX file at path, the Message-ID of each message_id(N, name) for its index
+    N, one day apart from 1 March 2021 on."""
     lines: list[bytes] = []
-    for index, (sender, recipient, subject, body, attachments) in enumerate(CASES):
+    for index, (sender, recipient, subject, body, attachments) in enumerate(cases):
         message = EmailMessage()
         message["From"] = sender
         message["To"] = recipient
         message["Subject"] = subject
-        message["Date"] = format_datetime(datetime(2021, 3, 1 + index, 10, tzinfo=UTC))
-        message["Message-ID"] = message_id(index)
+        message["Date"] = format_datetime(datetime(2021, 3, 1, 10, tzinfo=UTC) + timedelta(index))
+        message["Message-ID"] = message_id(index, name)
         message.set_content(body + "\n")
-        for name, text in attachments:
+        for filename, text in attachments:
             data = (text + "\n").encode()
-            message.add_attachment(data, maintype="text", subtype="plain", filename=name)
+            message.add_attachment(data, maintype="text", subtype="plain", filename=filename)
         lines.append(f"From {sender} Mon Mar  1 10:00:00 2021\n".encode())
         for line in message.as_bytes().splitlines(keepends=True):
             lines.append(b">" + line if line.lstrip(b">").startswith(b"From ") else line)

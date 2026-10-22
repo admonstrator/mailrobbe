@@ -6,7 +6,8 @@ tables them; every search there is read through the bounded walk (pages of two) 
 collection of every match (one page). On the generated archive the expected mails come from SQL
 written apart from api/filters.py, for each path that takes mail_conditions: the list's pages in
 both orders, with the walk and with every match collected, the summary, the CSV, the timeline
-and a selection by filters. A search without the options sends the SQL of before D171.
+and a selection by filters. A search of the whole text (body_part full, D226) without the other
+options sends the SQL of before D171; the default and own weigh the mail's side only.
 """
 
 from collections.abc import AsyncIterator
@@ -221,16 +222,56 @@ WALK_BEFORE_D171 = (
 @pytest.mark.parametrize(
     "options",
     [
-        MailFilters(),
-        MailFilters(scope=["subject", "body", "attachment", "filename"], whole_word=False),
+        MailFilters(body_part="full"),
+        MailFilters(
+            scope=["subject", "body", "attachment", "filename"], whole_word=False, body_part="full"
+        ),
     ],
-    ids=["default", "every-place"],
+    ids=["whole-text", "every-place"],
 )
-def test_a_search_without_options_sends_the_sql_of_before(options: MailFilters) -> None:
+def test_a_search_of_the_whole_text_sends_the_sql_of_before(options: MailFilters) -> None:
     condition, visible = filters.mail_conditions(options, parse_query("Neger"), [])
     assert visible is filters.VISIBLE
     assert sql(condition) == BEFORE_D171
     assert sql(filters._WALK_FORMS[condition]) == WALK_BEFORE_D171
+
+
+SPENDE = "websearch_to_tsquery('german'::regconfig, 'Spende')"
+
+
+@pytest.mark.parametrize(
+    ("options", "weights"),
+    [(MailFilters(), "ABC"), (MailFilters(body_part="own"), "AB")],
+    ids=["default", "own"],
+)
+def test_the_parts_weigh_the_mails_side_only(options: MailFilters, weights: str) -> None:
+    """D226: the default and own send the SQL of the whole text, the mail's query restricted to
+    the weights of the subject and the parts; the documents' side is untouched."""
+    whole = filters.mail_conditions(MailFilters(body_part="full"), parse_query("Spende"), [])[0]
+    condition = filters.mail_conditions(options, parse_query("Spende"), [])[0]
+    weighted = (
+        f"CAST(regexp_replace(CAST({SPENDE} AS TEXT), '(''(?:[^'']|'''')*'')', '\\1:{weights}',"
+        " 'g') AS TSQUERY)"
+    )
+    mail_side = f"(mail.tsv @@ {SPENDE})"
+    for form in (sql, lambda found: sql(filters._WALK_FORMS[found])):
+        expected = form(whole).replace(mail_side, f"(mail.tsv @@ {weighted})", 1)
+        assert expected != form(whole)
+        assert form(condition) == expected
+
+
+@pytest.mark.parametrize("distance", [1, 3])
+def test_a_proximity_term_is_one_query_of_its_distances(distance: int) -> None:
+    """D229: "a b"~N is a query of its own, an OR of both orders at every distance up to N + 1
+    lexemes apart, on the mail's side and on the documents'."""
+    q = f'"Spende bar"~{distance}'
+    condition = filters.mail_conditions(MailFilters(body_part="full"), parse_query(q), [])[0]
+    written = sql(condition)
+    phrases = 2 * (distance + 1)
+    assert written.count("tsquery_phrase(") == 2 * phrases  # the mail's side and the documents'
+    for apart in range(1, distance + 2):
+        assert written.count(f", {apart})") == 4
+    assert "websearch_to_tsquery" not in written
 
 
 @pytest.mark.parametrize(
@@ -253,10 +294,12 @@ FIRST_MESSAGE_ID = (
     " ORDER BY id LIMIT 1"
 )
 
-# Whole words as D173 has them: the stem in the tsvector, then the word as written in the text.
+# Whole words as D173 has them: the stem in the tsvector, then the word as written in the text,
+# both without the standard blocks as the default body_part has them (D226; the same as the
+# whole tsvector and text while the blocks step has marked none).
 SUBJECT_OR_TEXT = (
-    "tsv @@ websearch_to_tsquery('german', 'Angebot')"
-    " AND (subject ~* :angebot OR body_text ~* :angebot)"
+    "ts_filter(tsv, '{a,b,c}') @@ websearch_to_tsquery('german', 'Angebot')"
+    " AND (subject ~* :angebot OR mailrobbe_cut(body_text, blocks) ~* :angebot)"
 )
 PDF_FILE = (
     "EXISTS (SELECT 1 FROM attachment a JOIN document d ON d.id = a.document_id"

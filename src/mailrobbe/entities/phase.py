@@ -7,7 +7,8 @@ scanned for entities, and its mentions replace the earlier ones.
                 lose their mentions first. waiting() counts it for the import's step.
     batches     at most BATCH_TEXTS texts or BATCH_BYTES bytes of them; a larger text is a batch
                 of its own, never joined with others. The main process reads a batch's texts
-                (one query) and hands them to the pool.
+                (one query), a mail's with its standard blocks blanked (without_blocks, D205),
+                and hands them to the pool.
     workers     spawned processes, as many as the import has; each reads the gazetteers and word
                 lists once (extract.prepare) and extracts each text of a batch on its own.
     store       the results in the order the batches were handed out, one transaction each: new
@@ -30,6 +31,7 @@ import asyncio
 import logging
 import multiprocessing
 import os
+import re
 import signal
 import time
 from array import array
@@ -57,6 +59,7 @@ BATCH_TEXTS = 500  # texts per batch and transaction at most
 BATCH_BYTES = 4_000_000  # bytes of text per batch at most (a larger text is a batch alone)
 QUEUED = 2  # batches handed to the pool per worker, so that no worker waits for the next
 _DIED = "the worker process died while scanning it"
+_BLANKED = re.compile(r"[^\n]")  # what a standard block's text loses (without_blocks)
 
 Source = Literal["mail", "document"]
 
@@ -99,7 +102,7 @@ _FORGET_GONE = text(f"""
 """)
 _TEXTS = {
     "mail": text("""
-        SELECT id, subject, body_text FROM mail WHERE id = ANY(CAST(:ids AS bigint[]))
+        SELECT id, subject, body_text, blocks FROM mail WHERE id = ANY(CAST(:ids AS bigint[]))
     """),
     "document": text(f"""
         SELECT d.id, d.extracted_text, d.extracted_at FROM document d
@@ -193,6 +196,24 @@ async def waiting(session: AsyncSession) -> Waiting:
         bytes=int(rows["mail"].bytes) + int(rows["document"].bytes),
         gone=rows["gone"].texts,
     )
+
+
+def without_blocks(body_text: str | None, blocks: Iterable[Any]) -> str | None:
+    """A mail's stored text as the phase scans it (D205): in its standard blocks (mail.blocks,
+    ranges of character offsets) every character but a line break becomes a space, so that
+    nothing in them is found and every position stays the stored text's. The blocks step
+    deletes the scans of the mails whose blocks change, so that they are scanned again."""
+    if not body_text:
+        return body_text
+    pieces: list[str] = []
+    start = 0
+    for block in blocks:
+        lower = max(start, block.lower or 0)
+        upper = len(body_text) if block.upper is None else min(block.upper, len(body_text))
+        if lower < upper:
+            pieces += [body_text[start:lower], _BLANKED.sub(" ", body_text[lower:upper])]
+            start = upper
+    return "".join([*pieces, body_text[start:]]) if pieces else body_text
 
 
 @dataclass(slots=True)
@@ -451,7 +472,8 @@ class _Scan:
                 continue
             batch.read.append(text_id)
             if batch.source == "mail":
-                batch.texts.append(scanned_text(row.subject, row.body_text))
+                body = without_blocks(row.body_text, row.blocks or ())
+                batch.texts.append(scanned_text(row.subject, body))
             else:
                 batch.texts.append(row.extracted_text)
                 batch.extracted_at.append(row.extracted_at)

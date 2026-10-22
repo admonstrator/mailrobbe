@@ -2,8 +2,9 @@
 
 Stems lose umlauts and endings ("ruckmeld"), so a term is shown as the spelling of its lexeme
 that the mails use most ("Rückmeldung"), which is also the word the mail list searches for. The
-pass reads the subject and text of every mail that is no duplicate once, in id order and in
-batches of a server-side cursor, removes e-mail addresses and links, and counts every word of
+pass reads the subject and text of every mail that is no duplicate once, the text without its
+standard blocks as the terms are (mailrobbe_cut, D205), in id order and in batches of a
+server-side cursor, removes e-mail addresses and links, and counts every word of
 MIN_LENGTH to MAX_LENGTH letters as written. Whenever PENDING_SPELLINGS spellings wait, and at the
 end, their lowercase forms not stemmed yet are stemmed with ts_lexize('german_stem'), the
 dictionary mail.tsv takes words through, STEM_BATCH per statement; the counts of spellings whose
@@ -41,7 +42,11 @@ _ADDRESSES = re.compile(r"(?<!\S)\S*?(?:@|://|www\.)\S*", re.IGNORECASE)
 # digits is a number to it ("abc123").
 _WORD = re.compile(rf"(?<![^\W_])[^\W\d_]{{{MIN_LENGTH},{MAX_LENGTH}}}(?![^\W_])")
 
-_TEXTS = text("SELECT subject, body_text FROM mail WHERE is_duplicate_of IS NULL ORDER BY id")
+# The stored text without its standard blocks (D205), whose spellings would outweigh the rest.
+_TEXTS = text("""
+    SELECT subject, mailrobbe_cut(body_text, blocks) FROM mail
+    WHERE is_duplicate_of IS NULL ORDER BY id
+""")
 _STEMS = text("""
     SELECT w, (ts_lexize('german_stem', w))[1] FROM unnest(CAST(:words AS text[])) AS w
 """)
