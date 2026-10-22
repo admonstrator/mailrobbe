@@ -1,0 +1,85 @@
+/* The AI facets look like the entity and signal facets (EntityFacets.module.css), one group per
+   panel; above the table the two share a line where they fit. */
+section.top {
+  flex: 1 1 340px;
+}
+
+/* The mark of machine made tags and hints (D311), small before the scope of the counts. */
+.scope {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.machine {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0 7px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.body {
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  transition: opacity 0.15s;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+/* The quiet action of a tag chip, where an entity's chip has its page. */
+button.adopt {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* A theme's chip has no second part. */
+button.alone {
+  border-radius: 999px;
+  padding-right: 9px;
+}
+
+.text,
+.hint,
+.warning {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hint {
+  color: var(--color-muted);
+}
+
+.warning {
+  color: var(--color-no-key-text);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}

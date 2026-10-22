@@ -84,6 +84,10 @@ export interface ListState {
   /** Milestone 20 (D248): the mail carries a photo inside this area of the map,
    *  "west,south,east,north". */
   photo_area: string | null;
+  /** Milestone 17 (D309): a valid summary of the mail or of an attachment's document has each of
+   *  these AI tags and a hint of each of these themes (keys of themes.toml). */
+  ai_tag: number[];
+  ai_theme: string[];
   sort: SortOrder;
   /** The page (D193): a step's cursor, the page's number or "last", the page size. */
   cursor: string | null;
@@ -130,6 +134,8 @@ export const DEFAULT_LIST_STATE: ListState = {
   body_part: "clean",
   block: null,
   photo_area: null,
+  ai_tag: [],
+  ai_theme: [],
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -172,6 +178,12 @@ export function isSignalKey(value: string): value is SignalKey {
   return (
     (MAIL_SIGNAL_KINDS as readonly string[]).includes(value) || /^term:[a-z0-9_-]+$/.test(value)
   );
+}
+
+/** A theme key as ai_theme takes it (D309); which themes exist the API knows, an unknown one is
+ *  its invalid_filter. */
+export function isThemeKey(value: string): boolean {
+  return /^[a-z0-9_-]+$/.test(value);
 }
 
 /** An area of the map as photo_area takes it (D248): west, south, east and north in degrees,
@@ -234,6 +246,8 @@ export function parseListState(search: URLSearchParams): ListState {
   state.block = block && BLOCK_HASH_PATTERN.test(block) ? block : null;
   const area = search.get("photo_area");
   state.photo_area = area && isArea(area) ? area : null;
+  state.ai_tag = ids(search, "ai_tag");
+  state.ai_theme = unique(search.getAll("ai_theme").filter(isThemeKey));
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
   return { ...state, ...parsePaging(search) };
@@ -273,6 +287,8 @@ export function toFilters(state: ListState): MailFilters {
   if (state.body_part !== "clean") filters.body_part = state.body_part;
   if (state.block) filters.block = state.block;
   if (state.photo_area) filters.photo_area = state.photo_area;
+  if (state.ai_tag.length) filters.ai_tag = state.ai_tag;
+  if (state.ai_theme.length) filters.ai_theme = state.ai_theme;
   return filters;
 }
 

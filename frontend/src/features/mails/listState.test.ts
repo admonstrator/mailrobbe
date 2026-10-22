@@ -57,6 +57,8 @@ const full: ListState = {
   body_part: "own",
   block: "00ff00ff00ff00ff",
   photo_area: "5.87,47.27,15.04,55.06",
+  ai_tag: [12, 5],
+  ai_theme: ["gewalt", "spenden"],
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -116,6 +118,8 @@ describe("list state in the URL", () => {
       "body_part",
       "block",
       "photo_area",
+      "ai_tag",
+      "ai_theme",
       "sort",
       "cursor",
       "limit",
@@ -187,6 +191,18 @@ describe("list state in the URL", () => {
       "entity=31&entity=7&amount_min=0&amount_context=cash&amount_context=donation",
     );
     expect(parse("amount_min=2500.5").amount_min).toBe(2500.5);
+    expect(withoutSidebarFilters(state)).toEqual(DEFAULT_LIST_STATE);
+  });
+
+  it("carries the AI tags and themes with the API's names (D309)", () => {
+    const state = parse(
+      "ai_tag=12&ai_tag=5&ai_tag=12&ai_tag=0&ai_tag=x&ai_theme=gewalt&ai_theme=Gewalt&ai_theme=gewalt&ai_theme=spenden",
+    );
+    expect(state.ai_tag).toEqual([12, 5]);
+    expect(state.ai_theme).toEqual(["gewalt", "spenden"]);
+    expect(toFilters(state)).toEqual({ ai_tag: [12, 5], ai_theme: ["gewalt", "spenden"] });
+    expect(search(state)).toBe("ai_tag=12&ai_tag=5&ai_theme=gewalt&ai_theme=spenden");
+    expect(hasFilters(state)).toBe(true);
     expect(withoutSidebarFilters(state)).toEqual(DEFAULT_LIST_STATE);
   });
 

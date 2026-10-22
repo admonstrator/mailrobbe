@@ -267,4 +267,36 @@ describe("filterChips", () => {
       "Signal: Wortfeld spenden",
     ]);
   });
+
+  it("names each AI tag by its label and each theme by its name, and drops it alone (D309)", () => {
+    const state: ListState = {
+      ...DEFAULT_LIST_STATE,
+      ai_tag: [12, 99],
+      ai_theme: ["spenden", "unbekannt"],
+      cursor: "abc",
+      page: 2,
+    };
+    const chips = filterChips(state, [], {
+      ...names,
+      aiTag: (id) => (id === 12 ? "Spende" : undefined),
+      aiTheme: (key) =>
+        key === "spenden" ? { name: "Spendenaffären", color: "green" } : undefined,
+    });
+    expect(chips.map((chip) => [chip.label, chip.color])).toEqual([
+      ["KI-Schlagwort: Spende", undefined],
+      ["KI-Schlagwort #99", undefined],
+      ["KI-Thema: Spendenaffären", "green"],
+      ["KI-Thema: unbekannt", undefined],
+    ]);
+    expect(chips[0].next).toMatchObject({ ai_tag: [99], ai_theme: state.ai_theme, page: 1 });
+    expect(chips[0].next.cursor).toBeNull();
+    expect(chips[2].next).toMatchObject({ ai_tag: state.ai_tag, ai_theme: ["unbekannt"] });
+    // Without names (the timeline's chips) by id and key.
+    expect(filterChips(state, [], names).map((chip) => chip.label)).toEqual([
+      "KI-Schlagwort #12",
+      "KI-Schlagwort #99",
+      "KI-Thema: spenden",
+      "KI-Thema: unbekannt",
+    ]);
+  });
 });

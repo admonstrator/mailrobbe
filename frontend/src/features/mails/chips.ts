@@ -43,6 +43,10 @@ export interface ChipNames {
   signal?: (key: SignalKey) => { name: string; color?: TagColor };
   /** The summary of a calendar event (D155), by its UID. */
   event?: (uid: string) => string | undefined;
+  /** An AI tag's label (D309), by its id. */
+  aiTag?: (id: number) => string | undefined;
+  /** A theme's name and colour (D309), by its key. */
+  aiTheme?: (key: string) => { name: string; color?: TagColor } | undefined;
 }
 
 /** The kinds of calendar mails (D155), also in the filter column and the detail card. */
@@ -320,6 +324,24 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: "event_uid",
       label: summary ? `Termin: ${summary}` : "Ein Termin",
       next: withFilters(state, { event_uid: null }),
+    });
+  }
+  // Milestone 17 (D309): what the summaries say, machine made (D311).
+  for (const id of state.ai_tag) {
+    const label = names.aiTag?.(id);
+    chips.push({
+      id: `ai_tag-${id}`,
+      label: label ? `KI-Schlagwort: ${label}` : `KI-Schlagwort #${id}`,
+      next: withFilters(state, { ai_tag: state.ai_tag.filter((other) => other !== id) }),
+    });
+  }
+  for (const key of state.ai_theme) {
+    const theme = names.aiTheme?.(key);
+    chips.push({
+      id: `ai_theme-${key}`,
+      label: `KI-Thema: ${theme?.name ?? key}`,
+      color: theme?.color,
+      next: withFilters(state, { ai_theme: state.ai_theme.filter((other) => other !== key) }),
     });
   }
   // The view of the page "Orte" (D248).

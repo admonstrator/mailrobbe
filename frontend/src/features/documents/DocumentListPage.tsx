@@ -19,6 +19,7 @@ import { DocumentFilterColumn } from "./DocumentFilterColumn";
 import styles from "./DocumentListPage.module.css";
 import { DocumentTable } from "./DocumentTable";
 import { highlightTerms } from "../../lib/highlight";
+import { SummarizeButton } from "../ai/SummarizeManyDialog";
 import { useBarHeight } from "../mails/useBarHeight";
 import { SORT_LABELS } from "./labels";
 import {
@@ -98,7 +99,10 @@ export function DocumentListPage() {
               {totalText(summary.data, hasDocumentFilters(state))}
             </span>
             {hasDocumentFilters(state) && (
-              <AiQueueButton filters={filters} summary={summary.data} />
+              <>
+                <AiQueueButton filters={filters} summary={summary.data} />
+                <SummarizeButton selection={{ filters }} />
+              </>
             )}
           </div>
 
