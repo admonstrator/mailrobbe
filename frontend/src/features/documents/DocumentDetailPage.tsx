@@ -15,6 +15,7 @@ import { AttachmentPreview } from "../preview/AttachmentPreview";
 import { ContentsCard } from "./ContentsCard";
 import styles from "./DocumentDetailPage.module.css";
 import { DocumentMails } from "./DocumentMails";
+import { RecognizeButton } from "./DocumentOcr";
 import {
   DocumentContainers,
   DocumentNames,
@@ -214,6 +215,7 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
         </div>
         <div className={styles.downloads}>
           <Download document={document} />
+          <RecognizeButton document={document} />
           <DecryptedDownload document={document} />
         </div>
       </div>
@@ -310,6 +312,7 @@ function CompactDocument({ document }: { document: DocumentDetail }) {
       </span>
       <span className={styles.compactMeta}>{documentMeta(document).join(" · ")}</span>
       <Download document={document} size="sm" />
+      <RecognizeButton document={document} size="sm" />
     </>
   );
 }

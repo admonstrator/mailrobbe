@@ -26,7 +26,8 @@ import styles from "./DocumentOcr.module.css";
 
 /** What the text recognition did and can do for one document (D189), in its text card: the line
  *  "Maschinell erkannt · Tesseract · Datum · n von m Seiten" with the uncertain and failed pages,
- *  an open task ("vorgemerkt", "läuft"), and "Text erkennen", "Neu erkennen" and "Verwerfen".
+ *  an open task ("vorgemerkt", "läuft"), and "Neu erkennen" and "Verwerfen" ("Text erkennen"
+ *  sits beside the download, RecognizeButton).
  *  Nothing for a document OCR cannot read and that has no result. */
 export function OcrBar({ document }: { document: DocumentDetail }) {
   const result = document.ai?.result ?? null;
@@ -82,11 +83,6 @@ export function OcrBar({ document }: { document: DocumentDetail }) {
         </p>
       ) : (
         <div className={styles.actions}>
-          {!result && document.ocr_readable && (
-            <Button size="sm" disabled={enqueue.isPending} onClick={() => queue("auto")}>
-              Text erkennen
-            </Button>
-          )}
           {result && (
             <>
               <Button size="sm" onClick={() => setDialog("again")}>
@@ -111,6 +107,39 @@ export function OcrBar({ document }: { document: DocumentDetail }) {
         <DiscardDialog resultId={result.id} onClose={() => setDialog(null)} onDone={setNotice} />
       )}
     </div>
+  );
+}
+
+/** "Text erkennen" beside the download for a document OCR can read and nothing has read yet:
+ *  starts a run for just this document (D280); its text card then follows the run. */
+export function RecognizeButton({ document, size }: { document: DocumentDetail; size?: "sm" }) {
+  const enqueue = useEnqueueAi();
+  const [notice, setNotice] = useState<string | null>(null);
+  if (!document.ocr_readable || document.ai?.result || document.ai?.task) return null;
+  return (
+    <>
+      <Button
+        size={size}
+        disabled={enqueue.isPending}
+        title={notice ?? "Liest die Schrift der Seiten jetzt mit der Texterkennung"}
+        onClick={() =>
+          enqueue.mutate(
+            { document_ids: [document.id], single: true, engine: "auto", start: true },
+            {
+              onSuccess: (queued) => setNotice(startedText(queued)),
+              onError: (error) => setNotice(aiErrorText(error)),
+            },
+          )
+        }
+      >
+        Text erkennen
+      </Button>
+      {notice && size === undefined && (
+        <span className={styles.note} role="status">
+          {notice}
+        </span>
+      )}
+    </>
   );
 }
 
