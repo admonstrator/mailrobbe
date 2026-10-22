@@ -26,7 +26,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 from functools import lru_cache
 
-from mailrobbe.generator import documents, invitations
+from mailrobbe.enums import DocumentTextStatus
+from mailrobbe.generator import documents, invitations, protection
 from mailrobbe.generator import vocabulary as vocab
 from mailrobbe.generator.model import (
     Address,
@@ -49,6 +50,8 @@ def render(planned: PlannedMail) -> RenderedMail:
     rng = stage_rng(planned.seed, "render")
     style = _STYLES.get(planned.client, _STYLES["webmail"])
     charset = _charset(planned, rng)
+    if planned.encrypted is not None:
+        return _encrypted_mail(planned, style, charset, rng)
     root = _structure(planned, style, charset, rng)
     chunks = [_headers(planned, style, charset, rng).encode("ascii")]
     _emit(root, chunks)
@@ -72,7 +75,76 @@ def render(planned: PlannedMail) -> RenderedMail:
         if spec.document is not None and spec.document.form == "ics"
     ]
     rendered.calendar = events
+    rendered.encrypted = planned.encrypted
+    rendered.signals = sorted(planned.signals)
+    rendered.passwords = list(planned.passwords)
     return rendered
+
+
+def _encrypted_mail(
+    planned: PlannedMail, style: "_Style", charset: str, rng: random.Random
+) -> RenderedMail:
+    """A mail encrypted as a whole (D238): S/MIME (one application/pkcs7-mime part) or PGP/MIME
+    (multipart/encrypted with an application/pgp-encrypted part and an octet-stream part of
+    armoured noise). Its content is noise; the signal needs only the attachment's type."""
+    header = _headers(planned, style, charset, rng).encode("ascii")
+    if planned.encrypted == "smime":
+        spec = planned.attachments[0]
+        payload = protection.encrypted_payload(rng, "smime", spec.size)
+        leaf = (
+            "Content-Type: application/pkcs7-mime; smime-type=enveloped-data;"
+            f'{style.fold}name="smime.p7m"\n'
+            "Content-Transfer-Encoding: base64\n"
+            'Content-Disposition: attachment; filename="smime.p7m"\n\n'
+        ).encode("ascii")
+        raw = header + leaf + base64.encodebytes(payload)
+        truths = [_opaque_truth("smime.p7m", "application/pkcs7-mime", payload)]
+    else:
+        boundary = _boundary(planned.client, rng)
+        version = b"Version: 1\n"
+        spec = planned.attachments[-1]
+        payload = protection.armoured(protection.encrypted_payload(rng, "pgp", spec.size))
+        raw = (
+            header
+            + (
+                f"Content-Type: multipart/encrypted;{style.fold}"
+                f'protocol="application/pgp-encrypted";{style.fold}boundary="{boundary}"\n\n'
+                f"--{boundary}\n"
+                "Content-Type: application/pgp-encrypted\nContent-Disposition: attachment\n\n"
+            ).encode("ascii")
+            # the CRLF before a boundary belongs to the delimiter (RFC 2046), so each part body
+            # is followed by its own newline and then the separating one the boundary consumes
+            + version
+            + b"\n"
+            + (
+                f"--{boundary}\n"
+                f'Content-Type: application/octet-stream;{style.fold}name="encrypted.asc"\n'
+                "Content-Transfer-Encoding: 7bit\n"
+                'Content-Disposition: attachment; filename="encrypted.asc"\n\n'
+            ).encode("ascii")
+            + payload
+            + b"\n"
+            + f"--{boundary}--\n".encode("ascii")
+        )
+        truths = [
+            _opaque_truth(None, "application/pgp-encrypted", version),
+            _opaque_truth("encrypted.asc", "application/octet-stream", payload),
+        ]
+    rendered = RenderedMail(planned, raw, planned.message_id)
+    rendered.documents = truths
+    rendered.encrypted = planned.encrypted
+    rendered.signals = sorted(planned.signals)
+    return rendered
+
+
+def _opaque_truth(filename: str | None, mime_type: str, data: bytes) -> DocumentTruth:
+    """The truth of an encrypted mail's part: what the extraction makes of opaque bytes."""
+    kind = documents.classify_kind(filename, mime_type, data)
+    preview, media_type = documents.preview_of(kind, filename, mime_type, len(data))
+    return DocumentTruth(
+        hashlib.sha256(data).hexdigest(), filename, kind.value,
+        DocumentTextStatus.UNSUPPORTED.value, None, None, len(data), preview, media_type,
+    )  # fmt: skip
 
 
 def _truth(spec: AttachmentSpec) -> DocumentTruth:
@@ -173,6 +245,7 @@ class Text:
     closing: list[str]
     signature: list[str] = field(default_factory=list)
     links: list[tuple[str, str]] = field(default_factory=list)  # (label, URL)
+    extra: list[str] = field(default_factory=list)  # verbatim lines below (a password, D235)
 
     def lines(self, delimiter: bool) -> list[str]:
         out: list[str] = []
@@ -186,6 +259,8 @@ class Text:
         if self.signature:
             out += ["", "-- "] if delimiter else [""]
             out += self.signature
+        if self.extra:
+            out += ["", *self.extra]
         return out
 
 
@@ -216,6 +291,8 @@ def person_names(address: Address | None) -> tuple[str, str] | None:
 def compose(mail: PlannedMail) -> Text:
     """Own text of a mail. A pure function of the plan, so a reply can quote it exactly."""
     rng = stage_rng(mail.seed, "render-text")
+    if mail.note is not None and mail.note.alone:  # a mail written only to pass a password on
+        return _note_only(mail, rng)
     if mail.calendar is not None:  # the text of an invitation, answer or cancellation
         return Text(None, [], invitations.body_lines(mail, rng))
     german = mail.language == "de"
@@ -286,7 +363,24 @@ def compose(mail: PlannedMail) -> Text:
     signed = bool(signature) and sender is not None and signature[0] == sender[1]
     if sender and (colleague or not signed):  # no full name twice above the signature
         closing.append(sender[0] if colleague or signed or rng.random() < 0.4 else sender[1])
-    return Text(greeting, _paragraphs(filled, rng), closing, signature)
+    extra = list(mail.note.lines) if mail.note is not None else []
+    return Text(greeting, _paragraphs(filled, rng), closing, signature, extra=extra)
+
+
+def _note_only(mail: PlannedMail, rng: random.Random) -> Text:
+    """A short mail whose only point is the note it carries (a separate password, D235)."""
+    assert mail.note is not None
+    german = mail.language == "de"
+    names = person_names(mail.to[0]) if len(mail.to) == 1 else None
+    if names is not None:
+        greeting = f"{'Hallo' if german else 'Hi'} {names[0]},"
+    else:
+        greeting = "Hallo zusammen," if german else "Hi all,"
+    closing = [rng.choice(vocab.CLOSINGS_DE_INFORMAL if german else vocab.CLOSINGS_EN)]
+    sender = person_names(mail.sender)
+    if sender:
+        closing.append(sender[0])
+    return Text(greeting, [], closing, extra=list(mail.note.lines))
 
 
 def _paragraphs(sentences: list[str], rng: random.Random) -> list[str]:
@@ -774,6 +868,8 @@ def _html(
     if text.signature:
         signature = "<br>\n".join(esc(line) for line in text.signature)
         blocks.append(f'<div class="signature">{signature}</div>')
+    if text.extra:
+        blocks.append("<p>" + "<br>\n".join(esc(line) for line in text.extra) + "</p>")
     blocks += [f'<p><img src="cid:{cid}" alt="{esc(cid.partition("@")[0])}"></p>' for cid in cids]
     if quote:
         body = "<br>\n".join(esc(line.removeprefix(">").removeprefix(" ")) for line in quote[1:])

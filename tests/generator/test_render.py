@@ -51,6 +51,8 @@ def test_parses_without_defects(parsed: list[tuple[RenderedMail, EmailMessage]])
             header = message[name]
             if header is not None:
                 assert not header.defects, (name, header.defects)
+        if _mail.encrypted is not None:
+            continue  # an encrypted mail (D238) has only opaque parts, no readable body
         body = message.get_body(("plain", "html"))
         assert body is not None
         assert isinstance(body, EmailMessage)
@@ -108,6 +110,8 @@ def test_attachments_as_planned(parsed: list[tuple[RenderedMail, EmailMessage]])
     document order with its decoded size and SHA-256; filler keeps its planned size."""
     with_files = with_documents = 0
     for mail, message in parsed:
+        if mail.encrypted is not None:
+            continue  # encrypted mails carry opaque parts, checked by test_encrypted_mails
         files = [part for part in message.walk() if part.get_filename()]
         planned = mail.planned.attachments
         assert sorted(part.get_filename() or "" for part in files) == sorted(
@@ -126,6 +130,36 @@ def test_attachments_as_planned(parsed: list[tuple[RenderedMail, EmailMessage]])
         with_documents += any(spec.document is not None for spec in planned)
     assert with_files > 0.08 * len(parsed)
     assert with_documents > 0.8 * with_files
+
+
+def test_encrypted_mails(gen_plan: list[PlannedMail]) -> None:
+    """A mail encrypted as a whole (D238) is well formed S/MIME or PGP/MIME, carries the
+    encrypted_mail signal and no password, and its documents state every opaque part."""
+    rendered = [render(mail) for mail in gen_plan if mail.encrypted is not None]
+    encrypted = [(mail, _parse(mail.raw)) for mail in rendered]
+    assert encrypted
+    kinds = Counter(mail.encrypted for mail, _ in encrypted)
+    assert kinds["smime"] and kinds["pgp"]
+    for mail, message in encrypted:
+        assert mail.signals == ["encrypted_mail"]
+        assert not mail.passwords
+        for part in message.walk():
+            assert not part.defects, part.defects
+        opaque = [part for part in message.walk() if part.get_content_maintype() != "multipart"]
+        if mail.encrypted == "smime":
+            assert message.get_content_type() == "application/pkcs7-mime"
+            assert [part.get_content_type() for part in opaque] == ["application/pkcs7-mime"]
+        else:
+            assert message.get_content_type() == "multipart/encrypted"
+            assert message.get_param("protocol") == "application/pgp-encrypted"
+            assert [part.get_content_type() for part in opaque] == [
+                "application/pgp-encrypted",
+                "application/octet-stream",
+            ]
+        for part, truth in zip(opaque, mail.documents, strict=True):
+            payload = part.get_payload(decode=True)
+            assert isinstance(payload, bytes)
+            assert (len(payload), hashlib.sha256(payload).hexdigest()) == (truth.size, truth.sha256)
 
 
 def test_large_attachment(parsed: list[tuple[RenderedMail, EmailMessage]]) -> None:

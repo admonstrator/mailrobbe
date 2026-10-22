@@ -168,6 +168,9 @@ def manifest_record(
         duplicate_of=mail.duplicate_of,
         documents=[truth.as_json() for truth in mail.documents],
         calendar=None if mail.calendar is None else [truth.as_json() for truth in mail.calendar],
+        encrypted=mail.encrypted,
+        signals=list(mail.signals),
+        passwords=list(mail.passwords),
     )
 
 
