@@ -102,11 +102,10 @@ describe("selector list", () => {
     fireEvent.change(field, { target: { value: " verein " } });
     await waitFor(() => expect(router.state.location.search).toBe("?q=verein"));
     expect(router.state.historyAction).toBe("REPLACE");
-    expect(
-      await screen.findByRole("link", { name: "k1._domainkey.verein-nord.example" }),
-    ).toBeTruthy();
-    expect(listCalls(calls).at(-1)!.url.search).toBe("?q=verein");
-    expect(screen.getByText("1 Selektor gefunden")).toBeTruthy();
+    // the name is on the first page too: wait for the search's own answer
+    await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?q=verein"));
+    expect(await screen.findByText("1 Selektor gefunden")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "k1._domainkey.verein-nord.example" })).toBeTruthy();
 
     fireEvent.change(field, { target: { value: "nirgendwo" } });
     expect(await screen.findByText("Kein Selektor gefunden")).toBeTruthy();
