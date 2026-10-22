@@ -10,7 +10,13 @@ import { CompactBar, useScrolledPast } from "../../components/CompactBar";
 import { ErrorState } from "../../components/ErrorState";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
-import { formatBytes, formatDate, formatDateTime, formatNumber } from "../../lib/format";
+import {
+  formatBytes,
+  formatClock,
+  formatDate,
+  formatDateTime,
+  formatNumber,
+} from "../../lib/format";
 import { AttachmentPreview } from "../preview/AttachmentPreview";
 import { ContentsCard } from "./ContentsCard";
 import styles from "./DocumentDetailPage.module.css";
@@ -28,6 +34,7 @@ import { KindIcon } from "./KindIcon";
 import { MachineMark } from "./MachineMark";
 import { MetadataCard } from "./MetadataCard";
 import { ProtectionCard } from "./ProtectionCard";
+import { TranscriptCard } from "./TranscriptCard";
 import {
   documentName,
   hasStoredText,
@@ -104,6 +111,9 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
   };
   // Scrolled past the header, a compact bar keeps name and download in view (D166).
   const [header, compact] = useScrolledPast<HTMLElement>();
+  // The player of a recording, which the transcript's times play from (D296).
+  const [player, setPlayer] = useState<HTMLMediaElement | null>(null);
+  const transcript = Boolean(document.transcribable || document.transcript);
 
   return (
     <div className={styles.columns}>
@@ -117,13 +127,16 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
         {document.protection && <ProtectionCard document={document} />}
         <DocumentTiles document={document} />
         {document.preview && document.preview !== "image" && document.protection !== "locked" && (
-          <PreviewCard document={document} kind={document.preview} />
+          <PreviewCard document={document} kind={document.preview} onMedia={setPlayer} />
         )}
+        {/* A recording's transcript in place of the text card, below its player (D296). */}
+        {transcript && <TranscriptCard document={document} player={player} />}
         {document.members && <ContentsCard document={document} members={document.members} />}
         <DocumentMails document={document} state={state} href={href} />
-        {(hasStoredText(document.text_status) || document.ocr_readable || document.ai) && (
-          <DocumentTextCard document={document} />
-        )}
+        {!transcript &&
+          (hasStoredText(document.text_status) || document.ocr_readable || document.ai) && (
+            <DocumentTextCard document={document} />
+          )}
       </main>
       <aside className={styles.side} aria-label="Zum Dokument">
         {document.preview === "image" && <DocumentPreview key={document.id} document={document} />}
@@ -151,11 +164,12 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
   );
 }
 
-/** "PDF · 14 Seiten · 168 KB" */
+/** "PDF · 14 Seiten · 168 KB", "Audio/Video · 3:12 · 96 KB" */
 function documentMeta(document: DocumentDetail): string[] {
   return [
     document.kind ? KIND_LABELS[document.kind] : "Art unbekannt",
     document.pages !== null && pagesText(document.pages),
+    typeof document.duration === "number" && formatClock(document.duration),
     formatBytes(document.size),
   ].filter((part) => part !== false);
 }
@@ -204,6 +218,7 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
   const machine =
     (document.text_origin === "ocr" || document.text_origin === "transcript") &&
     document.text_status === "text";
+  const heard = machine && document.text_origin === "transcript";
 
   return (
     <Card ref={ref} className={styles.header}>
@@ -276,19 +291,21 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
               ) : (
                 <StatusLabel status={document.text_status} />
               )}
-              {machine && <MachineMark />}
+              {machine && <MachineMark transcript={heard} />}
               {document.extracted_at && (
                 <span
                   className={styles.muted}
-                >{`${machine ? "erkannt" : "ausgelesen"} ${formatDateTime(
+                >{`${heard ? "transkribiert" : machine ? "erkannt" : "ausgelesen"} ${formatDateTime(
                   document.extracted_at,
                 )}`}</span>
               )}
             </span>
             <span>
-              {machine
-                ? "Der Text wurde aus den Seitenbildern erkannt (siehe „Erkannter Text“); die Volltextsuche findet das Dokument über seine Wörter."
-                : TEXT_STATUS_TEXTS[document.text_status]}
+              {heard
+                ? "Der Text wurde maschinell aus dem Ton der Aufnahme transkribiert (siehe „Transkript“); die Volltextsuche findet das Dokument über seine Wörter."
+                : machine
+                  ? "Der Text wurde aus den Seitenbildern erkannt (siehe „Erkannter Text“); die Volltextsuche findet das Dokument über seine Wörter."
+                  : TEXT_STATUS_TEXTS[document.text_status]}
               {document.text_status === "text" &&
                 document.text_truncated &&
                 " Gespeichert sind die ersten 400.000 Zeichen."}
@@ -318,8 +335,16 @@ function CompactDocument({ document }: { document: DocumentDetail }) {
 }
 
 /** The document as the browser shows it (D120): PDF, Word, audio and video; an image keeps its
- *  card beside. */
-function PreviewCard({ document, kind }: { document: DocumentDetail; kind: PreviewKind }) {
+ *  card beside. onMedia gets the player of a recording. */
+function PreviewCard({
+  document,
+  kind,
+  onMedia,
+}: {
+  document: DocumentDetail;
+  kind: PreviewKind;
+  onMedia: (player: HTMLMediaElement | null) => void;
+}) {
   return (
     <Card aria-labelledby="document-view-title">
       <CardTitle id="document-view-title">Vorschau</CardTitle>
@@ -328,6 +353,7 @@ function PreviewCard({ document, kind }: { document: DocumentDetail; kind: Previ
         kind={kind}
         name={documentName(document.name)}
         decrypted={document.protection === "open"}
+        onMedia={onMedia}
       />
     </Card>
   );

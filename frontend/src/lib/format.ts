@@ -70,6 +70,16 @@ export function formatElapsed(seconds: number): string {
   return rest ? `${hours} ${rest} min` : hours;
 }
 
+/** A place in a recording as a player shows it (D296): "0:07", "12:45", from an hour on
+ *  "1:02:09"; seconds cut, not rounded, so a line never shows a time after its start. */
+export function formatClock(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const two = (value: number) => String(value).padStart(2, "0");
+  const minutes = Math.floor((whole % 3600) / 60);
+  if (whole < 3600) return `${minutes}:${two(whole % 60)}`;
+  return `${Math.floor(whole / 3600)}:${two(minutes)}:${two(whole % 60)}`;
+}
+
 type Parts = Record<Intl.DateTimeFormatPartTypes, string>;
 
 function partsOf(format: Intl.DateTimeFormat, date: Date): Parts {

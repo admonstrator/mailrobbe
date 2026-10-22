@@ -8,7 +8,7 @@ import { Button } from "../../components/Button";
 import { FoldCard } from "../../components/FoldCard";
 import { Highlighted, type SearchMarks } from "../../components/Highlighted";
 import { cx } from "../../lib/cx";
-import { formatBytes, formatDate, formatNumber } from "../../lib/format";
+import { formatBytes, formatClock, formatDate, formatNumber } from "../../lib/format";
 import { aiErrorText, startedText } from "../ai/labels";
 import { KindIcon } from "../documents/KindIcon";
 import {
@@ -20,7 +20,7 @@ import {
   PROTECTION_TITLES,
   statusNote,
 } from "../documents/labels";
-import { MACHINE_TITLE, MachineMark } from "../documents/MachineMark";
+import { MACHINE_TITLE, MachineMark, TRANSCRIPT_TITLE } from "../documents/MachineMark";
 import { ProtectionMark } from "../documents/ProtectionMark";
 import { documentPath } from "../documents/urlState";
 import { photoPosition, PhotoPosition } from "../places/PhotoPosition";
@@ -42,21 +42,27 @@ function documentLinkText(mails: number | null): string {
     : `auch in ${formatNumber(others)} weiteren Mails`;
 }
 
-/** Where an attachment holds a search word (D79): the text around it, or the name. */
-function hitText(hit: AttachmentHit, marks: SearchMarks | undefined) {
+/** Whether an attachment's text is its recording's transcript (D296). */
+const transcribed = (attachment: AttachmentInfo) => attachment.transcript === "transcribed";
+
+/** Where an attachment holds a search word (D79): the text around it, or the name; a transcript
+ *  says so (D296). */
+function hitText(hit: AttachmentHit, marks: SearchMarks | undefined, transcript: boolean) {
   const found =
     hit.snippet !== null ? (
       <Highlighted text={`…${hit.snippet}…`} marks={marks} />
     ) : hit.in_name && !hit.in_text ? (
       "Suchwort im Dateinamen"
+    ) : transcript ? (
+      "Suchwort im Transkript, in einer anderen Wortform"
     ) : (
       "Suchwort im Text, in einer anderen Wortform"
     );
   if (!hit.machine) return found;
-  // the text was recognised by an AI run, not read from the file (D189)
+  // the text was recognised or transcribed by an AI run, not read from the file (D189, D296)
   return (
     <>
-      {found} <MachineMark />
+      {found} <MachineMark transcript={transcript} />
     </>
   );
 }
@@ -152,6 +158,12 @@ export function AttachmentsCard({
                 <span className={styles.meta}>
                   <span title={attachment.mime_type}>{KIND_LABELS[kind]}</span>
                   {attachment.pages !== null && ` · ${pagesText(attachment.pages)}`}
+                  {typeof attachment.duration === "number" && (
+                    <>
+                      {" · "}
+                      <span title="Länge der Aufnahme">{formatClock(attachment.duration)}</span>
+                    </>
+                  )}
                   {` · ${formatBytes(attachment.size)} · `}
                   {attachment.sha256 ? (
                     <span title={attachment.sha256}>SHA-256 {attachment.sha256.slice(0, 4)}…</span>
@@ -165,7 +177,11 @@ export function AttachmentsCard({
                     {described}
                   </span>
                 )}
-                {hit && <span className={styles.hitText}>{hitText(hit, marks)}</span>}
+                {hit && (
+                  <span className={styles.hitText}>
+                    {hitText(hit, marks, transcribed(attachment))}
+                  </span>
+                )}
                 {position && attachment === mapped && (
                   <span className={styles.position}>
                     <PhotoPosition documentId={attachment.document_id} position={position} />
@@ -208,7 +224,10 @@ export function AttachmentsCard({
                   </Link>
                 )}
                 {attachment.ocr === "readable" && attachment.document_id !== null && (
-                  <RecognizeButton documentId={attachment.document_id} name={name} />
+                  <AiButton documentId={attachment.document_id} name={name} kind="ocr" />
+                )}
+                {attachment.transcript === "transcribable" && attachment.document_id !== null && (
+                  <AiButton documentId={attachment.document_id} name={name} kind="transcribe" />
                 )}
                 {position && attachment !== mapped && (
                   <button
@@ -236,6 +255,13 @@ export function AttachmentsCard({
           kind={open.preview}
           name={open.filename || "(ohne Namen)"}
           decrypted={open.protection === "open"}
+          // the lines of its transcript below the player, the search words marked (D296)
+          transcriptOf={
+            open.transcript === "transcribed" || open.transcript === "no_text"
+              ? open.document_id
+              : null
+          }
+          marks={marks}
           onClose={() => setOpen(null)}
         />
       )}
@@ -270,6 +296,11 @@ function Notes({ attachment }: { attachment: AttachmentInfo }) {
           {OCR_NOTES[attachment.ocr]}
         </span>
       )}
+      {attachment.transcript && attachment.transcript !== "transcribable" && (
+        <span className={styles.status} title={TRANSCRIPT_TITLES[attachment.transcript]}>
+          {TRANSCRIPT_NOTES[attachment.transcript]}
+        </span>
+      )}
     </>
   );
 }
@@ -286,9 +317,31 @@ const OCR_TITLES = {
   no_text: "Die Texterkennung hat in der Datei keine Schrift gefunden.",
 } as const;
 
-/** "Text erkennen" for a scan or picture without a text: starts a run for just this document
- *  (D280); the row then says "Texterkennung läuft" until it is done. */
-function RecognizeButton({ documentId, name }: { documentId: number; name: string }) {
+// The same for the transcription of a recording (D296).
+const TRANSCRIPT_NOTES = {
+  queued: "Transkript wird erstellt",
+  transcribed: "transkribiert",
+  no_text: "keine Sprache erkannt",
+} as const;
+const TRANSCRIPT_TITLES = {
+  queued:
+    "Ein KI-Lauf transkribiert die Aufnahme; die Liste zeigt das Ergebnis, sobald er fertig ist.",
+  transcribed: TRANSCRIPT_TITLE,
+  no_text: "Die Transkription hat in der Aufnahme keine Sprache gefunden.",
+} as const;
+
+/** "Text erkennen" for a scan or picture without a text, "Transkribieren" for a recording: starts
+ *  a run for just this document (D280, D295); the row then says "Texterkennung läuft" or
+ *  "Transkript wird erstellt" until it is done. */
+function AiButton({
+  documentId,
+  name,
+  kind,
+}: {
+  documentId: number;
+  name: string;
+  kind: "ocr" | "transcribe";
+}) {
   const enqueue = useEnqueueAi();
   const [notice, setNotice] = useState<string | null>(null);
   if (notice) {
@@ -298,19 +351,25 @@ function RecognizeButton({ documentId, name }: { documentId: number; name: strin
       </span>
     );
   }
+  const ocr = kind === "ocr";
   return (
     <button
       type="button"
       className={styles.open}
       disabled={enqueue.isPending}
-      aria-label={`Text von ${name} erkennen`}
+      aria-label={ocr ? `Text von ${name} erkennen` : `${name} transkribieren`}
       onClick={() =>
         enqueue.mutate(
-          { document_ids: [documentId], single: true, start: true },
+          {
+            document_ids: [documentId],
+            single: true,
+            start: true,
+            ...(ocr ? {} : { kind: "transcribe" as const }),
+          },
           {
             onSuccess: (queued) => {
               if (queued.run !== "started" && queued.run !== "running") {
-                setNotice(startedText(queued));
+                setNotice(startedText(queued, kind));
               }
             },
             onError: (error) => setNotice(aiErrorText(error)),
@@ -318,7 +377,7 @@ function RecognizeButton({ documentId, name }: { documentId: number; name: strin
         )
       }
     >
-      Text erkennen
+      {ocr ? "Text erkennen" : "Transkribieren"}
     </button>
   );
 }
@@ -380,7 +439,11 @@ function Members({
                     {formatBytes(member.size)}
                     <Notes attachment={member} />
                   </span>
-                  {hit && <span className={styles.hitText}>{hitText(hit, marks)}</span>}
+                  {hit && (
+                    <span className={styles.hitText}>
+                      {hitText(hit, marks, transcribed(member))}
+                    </span>
+                  )}
                 </span>
               </li>
             );

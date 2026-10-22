@@ -94,7 +94,7 @@ from mailrobbe.db.models import (
     Person,
     Tag,
 )
-from mailrobbe.enums import DkimStatus, ParticipationRole
+from mailrobbe.enums import DkimStatus, ParticipationRole, TextOrigin
 from mailrobbe.hiding import model as hiding
 from mailrobbe.persons.labels import attach_labels, label_text, labelled_persons
 from mailrobbe.persons.roots import member_ids
@@ -244,9 +244,11 @@ async def list_mails(
             itself, attached = counts.subject + counts.body, counts.attachment + counts.filename
             item.attachment_match = itself == 0 and attached > 0
         in_texts = [item.id for item in items if hits[item.id].attachment > 0]
-        machine = await machine_hits(session, in_texts, search)  # D189
+        machine = await machine_hits(session, in_texts, search)  # D189, D296
         for item in items:
-            item.attachment_machine = item.id in machine
+            origins = machine.get(item.id, set())
+            item.attachment_machine = bool(origins)
+            item.attachment_transcript = TextOrigin.TRANSCRIPT in origins
     else:
         through_attachments = await _found_through_attachments(session, terms, ids)
         for item in items:
