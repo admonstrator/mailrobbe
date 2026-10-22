@@ -188,7 +188,8 @@ class ServiceCheck(BaseModel):
     models: list[ServiceModel] = []
     model: str = ""  # the configured one
     model_found: bool | None = None  # None: the service lists no models
-    # The real test (D180): a picture with a known word, read back by the model.
+    # The real test (D180): a picture with a known word, read back by the model; for text a short
+    # text whose summary by the answer schema must name the word (D300).
     test: Literal["passed", "failed"] | None = None
     test_detail: str | None = None  # English: what came back, or why it failed
     seconds: float | None = None  # of the test
@@ -311,7 +312,9 @@ class ThemeHint(BaseModel):
 
     theme: str  # a theme key of themes.toml
     quote: str  # as it stands in the text (its spelling, not the model's)
-    position: int | None = None  # character offset in SummaryInput.text; None: in the head only
+    # Character offset in the stored text (mail.body_text, document.extracted_text); None: it
+    # stands only in the head (subject, file name) or in a line the input added ("Weitergeleitet:").
+    position: int | None = None
 
 
 class SummaryPart(BaseModel):

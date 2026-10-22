@@ -5,7 +5,9 @@
               waiting tasks need or may use is checked: refused (D181), reachable, its model
               offered. A missing model, or a vision service tasks need and cannot have, stops the
               run before it takes a task; one "auto" could use and cannot leaves everything to
-              Tesseract, whose languages are checked too
+              Tesseract, whose languages are checked too. The text service is checked when
+              summaries wait: a missing model stops the run, one that is not set, refused, or
+              (while OCR tasks wait too) not answering leaves the summaries waiting
     ocr       the waiting OCR tasks one at a time, highest priority first, then the documents
               carried by most mails (D186): the bytes read from the MBOX file, pages rendered in
               small batches from the first page not read yet (ai.ocr.render, a child process),
@@ -13,8 +15,14 @@
               committed, so a stop loses at most the pages in work; at most max_pages pages per
               document and pass. Then store.store_ocr_result, the task done, ai_calibration
               updated
+    summarize the waiting summaries of mails and documents one at a time (ai.summarize.step,
+              D300 to D306), after OCR so a text recognised in this run is what they read; a long
+              text part by part, each part kept, so a stop continues at the next part
     entities  the entities phase of the import (D84), which also computes the entity figures,
     signals   and the signals phase (D135), when a document's text changed in this run
+
+A run started for some documents or mails (AiOptions.documents, AiOptions.mails, D280, D307)
+takes only their tasks, of every kind, and leaves the rest of the queue waiting.
 
 The engine of a task (D182) is its own, or for "auto" the run's choice; "auto" reads a PDF with
 Tesseract and an image with the vision model when one is usable, and reads a Tesseract page that
@@ -27,8 +35,8 @@ task fails after AI_TASK_ATTEMPTS attempts. A service that does not answer fails
 page waits WAIT_FIRST seconds, doubling up to WAIT_MAX, and after WAIT_LIMIT without an answer
 the run stops. A missing model or a missing Tesseract stops the run. A stop request (dashboard,
 Ctrl-C, SIGTERM) ends the run between pages; the task in work waits again with its pages. A
-remote vision service (D181) logs every request in ai_send_log, and the run stops once its
-tokens exceed MAILROBBE_AI_REMOTE_TOKEN_BUDGET. Keys are never logged or stored.
+remote vision or text service (D181) logs every request in ai_send_log, and the run stops once
+its tokens exceed MAILROBBE_AI_REMOTE_TOKEN_BUDGET. Keys are never logged or stored.
 
 The recognisers and the service check are ai.ocr and ai.services, reached through Engines so the
 tests hand in doubles.
@@ -68,6 +76,7 @@ from mailrobbe.ai.model import (
 from mailrobbe.ai.ocr import render, tesseract, vision
 from mailrobbe.ai.prompts import load_prompts
 from mailrobbe.ai.store import reapply_results, store_ocr_result
+from mailrobbe.ai.summarize.step import SummarizeStep
 from mailrobbe.attachments.content import AttachmentChanged, document_sources, read_attachment
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
@@ -173,6 +182,10 @@ class AiSummary:
     tokens_out: int = 0
     vision: str | None = None  # display URL of the vision service the run used
     elapsed_seconds: float = 0.0
+    summaries_queued: int = 0  # summarize tasks waiting at the start (D300)
+    summaries: int = 0  # summaries stored
+    summaries_failed: int = 0
+    text: str | None = None  # display URL of the text service the run used
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,14 +258,18 @@ class _Task:
     data: bytes = b""
 
 
-# Tasks a run that died left running: holding the lock, no other run is alive (D187).
-_REQUEUE = text("""
-    UPDATE ai_task SET status = 'waiting' WHERE status = 'running' AND kind = 'ocr'
-""")
-# A run for some documents only (AiOptions.documents) leaves the other tasks waiting.
+# Tasks a run that died left running, of every kind: holding the lock, no other run is alive
+# (D187).
+_REQUEUE = text("UPDATE ai_task SET status = 'waiting' WHERE status = 'running'")
+# A run for some documents or mails only (AiOptions.documents, AiOptions.mails) leaves the other
+# tasks waiting, of every kind: a run for one mail reads no document (ai.summarize.step too).
 _ONLY = (
-    "(cardinality(CAST(:documents AS bigint[])) = 0 OR {task}.target_sha256 IN "
-    "(SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
+    "((cardinality(CAST(:documents AS bigint[])) = 0"
+    " AND cardinality(CAST(:mails AS bigint[])) = 0)"
+    " OR ({task}.target = 'document' AND {task}.target_sha256 IN"
+    " (SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
+    " OR ({task}.target = 'mail' AND {task}.target_sha256 IN"
+    " (SELECT raw_sha256 FROM mail WHERE id = ANY(CAST(:mails AS bigint[])))))"
 )
 _WAITING = text(f"""
     SELECT count(*) AS tasks,
@@ -346,6 +363,7 @@ class _Run:
         self.unanswered: float | None = None  # monotonic: since when no service answered
         self.pages_waiting = 0  # the ocr step's total at its start
         self._prompts: Any = None
+        self.summaries = SummarizeStep(self, _ONLY)
 
     @property
     def engines(self) -> Engines:
@@ -361,7 +379,8 @@ class _Run:
             code = EXIT_OK
             self.summary.status, self.summary.message = JobStatus.DONE, self._line()
         except _Ended as ended:
-            self.job.steps.skip("summarize")  # contract: ai.summarize fills the step (D300)
+            if not self.summaries.begun:
+                self.job.steps.skip("summarize")
             code = ended.exit_code
             self.summary.status = ended.status
             self.summary.message = f"{self._line()}; {ended.message}"
@@ -388,6 +407,13 @@ class _Run:
             f"{summary.failed} failed, {summary.pages} pages, "
             f"{summary.documents} documents with a new text"
         )
+        if self.summaries.problem is not None:
+            line += f", {summary.summaries_queued} summaries wait: {self.summaries.problem}"
+        elif summary.summaries_queued:
+            line += (
+                f", {summary.summaries} of {summary.summaries_queued} texts summarised "
+                f"({summary.summaries_failed} failed)"
+            )
         if summary.tokens_in or summary.tokens_out:
             line += f", {summary.tokens_in + summary.tokens_out} tokens"
         return line
@@ -402,7 +428,11 @@ class _Run:
                 waiting = (
                     await session.execute(
                         _WAITING,
-                        {"max_pages": self.options.max_pages, "documents": self.options.documents},
+                        {
+                            "max_pages": self.options.max_pages,
+                            "documents": self.options.documents,
+                            "mails": self.options.mails,
+                        },
                     )
                 ).one()
             if requeued:
@@ -422,6 +452,7 @@ class _Run:
                     await asyncio.to_thread(self.engines.languages, self.options.languages)
                 except self.engines.errors.tesseract_missing as error:
                     raise _Ended(JobStatus.FAILED, describe(error), EXIT_FAILED) from None
+            await self._check_text()
         self.pages_waiting = int(waiting.pages)
 
     async def _check_vision(self, needed: bool) -> None:
@@ -464,6 +495,37 @@ class _Run:
             raise _Ended(JobStatus.FAILED, f"tasks need the vision model: {problem}", EXIT_FAILED)
         log.warning("everything goes to Tesseract: %s", problem)
 
+    async def _check_text(self) -> None:
+        """Make the text service usable for the waiting summaries or say why they wait (D300);
+        raises _Ended when its model is missing. One that does not answer is waited for unless
+        OCR tasks wait too."""
+        if not await self.summaries.count():
+            return
+        service = configured_services(self.settings).get("text")
+        if service is not None and self.options.text_model:
+            service = replace(service, model=self.options.text_model)
+        if service is None:
+            problem = "no text service is configured (MAILROBBE_AI_TEXT_URL)"
+        elif not service.model:
+            problem = f"no text model is set for {service.display_url} (MAILROBBE_AI_TEXT_MODEL)"
+        else:
+            problem = refusal(service, self.settings) or ""
+        if not problem:
+            assert service is not None
+            # Waited for when only summaries wait; OCR tasks do not wait for it, the summaries do.
+            check = await self._ask(service, needed=not self.progress.queued)
+            if check.model_found is False:
+                raise _Ended(
+                    JobStatus.FAILED,
+                    f"{service.display_url} does not offer the model {service.model}",
+                    EXIT_FAILED,
+                )
+            if not check.refused and check.protocol is not None:
+                self.summaries.use(service, check.protocol)
+                return
+            problem = check.refused or f"{service.display_url}: {check.error or 'no answer'}"
+        self.summaries.leave(problem)
+
     async def _ask(self, service: Service, needed: bool) -> ServiceCheck:
         """The service's check (without the test picture); one tasks need is waited for while
         it does not answer, so that its protocol and models are known before a task is taken."""
@@ -504,7 +566,11 @@ class _Run:
         """The next waiting task, now running in this run; a task without its document fails."""
         while True:
             async with self.sessionmaker.begin() as session:
-                parameters = {"job_id": self.job.job_id, "documents": self.options.documents}
+                parameters = {
+                    "job_id": self.job.job_id,
+                    "documents": self.options.documents,
+                    "mails": self.options.mails,
+                }
                 row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:
                     return None
@@ -899,8 +965,45 @@ class _Run:
     # summarize ---------------------------------------------------------------------------------
 
     async def _summarize(self) -> None:
-        """The waiting summarize tasks (ai.summarize, D300 to D311); contract: not built yet."""
-        self.job.steps.skip("summarize")
+        """The waiting summarize tasks one at a time (ai.summarize.step, D300 to D306)."""
+        step = self.summaries
+        if step.service is None:  # none waits, or no usable text service (_check_text)
+            self.job.steps.skip("summarize")
+            return
+        self.job.set_phase("summarize")
+        ended = None
+        with self.job.steps.step("summarize", unit="texts", total=step.waiting) as counter:
+            step.begun = True
+            try:
+                while not self.job.stop.is_set():
+                    task = await step.take(counter)
+                    if task is None:
+                        break
+                    await step.work(task, counter)
+            except _Ended as error:  # the step ends stopped or done, not failed
+                ended = error
+        if ended is not None:
+            raise ended
+        if self.job.stop.is_set():
+            raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+
+    async def _answer[T](self, service: Service, call: Callable[[], T]) -> T:
+        """What call() gives in a thread once service answers (D184): one that does not answer
+        is waited for, a missing model or a stop request ends the run."""
+        pause = WAIT_FIRST
+        while True:
+            if self.job.stop.is_set():
+                raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+            try:
+                found = await asyncio.to_thread(call)
+            except services.Unreachable as error:
+                await self._wait(service, describe(error), pause)
+                pause = min(pause * 2, WAIT_MAX)
+                continue
+            except services.ModelMissing as error:
+                raise _Ended(JobStatus.FAILED, describe(error), EXIT_FAILED) from None
+            self._answered()
+            return found
 
     # entities and signals ----------------------------------------------------------------------
 

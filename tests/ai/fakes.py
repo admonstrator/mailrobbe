@@ -9,10 +9,12 @@ service (plain, or LM Studio with /api/v0/models) or Ollama.
 
 Everything is configurable on the FakeService while it runs, so a test can change the answer
 between requests: `models` (name -> vision, None: the service does not tell), `answer` (or
-`answers`, a list taken one per chat request before `answer`), `finish` ("stop", "length"),
+`answers`, a list taken one per chat request before `answer`; or `respond`, a function making
+the answer from the request's JSON body, before both), `finish` ("stop", "length"),
 `delay` (seconds before each chat answer), `status` and `body` (an error answer of every chat
-request), `tokens` (prompt and answer tokens it reports). It records every request (method,
-path, headers, JSON body) in `requests`.
+request), `tokens` (prompt and answer tokens it reports), `refuse_schema` (an OpenAI flavour
+answers a chat request with `response_format` with 400, as a service without structured answers
+does). It records every request (method, path, headers, JSON body) in `requests`.
 
 The OpenAI flavours serve below /v1 (fake.url ends in /v1); "lmstudio" answers unknown paths with
 200 and an error JSON as LM Studio does, "openai" with 404. A request to a model that is not
@@ -23,13 +25,13 @@ import base64
 import json
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Literal
 
-from mailrobbe.ai.model import Protocol, Service
+from mailrobbe.ai.model import Capability, Protocol, Service
 
 Flavour = Literal["openai", "lmstudio", "ollama"]
 
@@ -48,11 +50,13 @@ class FakeService:
     models: dict[str, bool | None] = field(default_factory=lambda: {"vision-model": True})
     answer: str = "Erkannter Text"
     answers: list[str] = field(default_factory=list)
+    respond: Callable[[Any], str] | None = None
     finish: str = "stop"
     delay: float = 0.0
     status: int | None = None
     body: str = '{"error": "fake failure"}'
     tokens: tuple[int, int] = (1200, 40)
+    refuse_schema: bool = False
     requests: list[Recorded] = field(default_factory=list)
     port: int = 0
 
@@ -65,11 +69,18 @@ class FakeService:
     def protocol(self) -> Protocol:
         return "ollama" if self.flavour == "ollama" else "openai"
 
-    def service(self, model: str | None = None, *, key: str = "", auto: bool = True) -> Service:
-        """A vision Service at this fake, with the first model unless one is named; protocol
-        "auto" unless `auto` is False."""
+    def service(
+        self,
+        model: str | None = None,
+        *,
+        key: str = "",
+        auto: bool = True,
+        capability: Capability = "vision",
+    ) -> Service:
+        """A vision Service (or one of capability) at this fake, with the first model unless one
+        is named; protocol "auto" unless `auto` is False."""
         return Service(
-            capability="vision",
+            capability=capability,
             url=self.url,
             model=next(iter(self.models), "") if model is None else model,
             protocol="auto" if auto else self.protocol,
@@ -95,7 +106,9 @@ class FakeService:
                         found.append(base64.b64decode(url.partition(",")[2]))
         return found
 
-    def next_answer(self) -> str:
+    def next_answer(self, body: Any = None) -> str:
+        if self.respond is not None:
+            return self.respond(body)
         return self.answers.pop(0) if self.answers else self.answer
 
 
@@ -161,12 +174,16 @@ def _handler(fake: FakeService) -> type[BaseHTTPRequestHandler]:
             elif path == "/v1/chat/completions" and body is not None:
                 if self._chat_failure(body["model"]):
                     return
+                if fake.refuse_schema and "response_format" in body:
+                    error = {"error": {"message": "'response_format' is not supported"}}
+                    self._send(400, error)
+                    return
                 self._send(
                     200,
                     {
                         "choices": [
                             {
-                                "message": {"role": "assistant", "content": fake.next_answer()},
+                                "message": {"role": "assistant", "content": fake.next_answer(body)},
                                 "finish_reason": fake.finish,
                             }
                         ],
@@ -198,7 +215,7 @@ def _handler(fake: FakeService) -> type[BaseHTTPRequestHandler]:
                     200,
                     {
                         "model": body["model"],
-                        "message": {"role": "assistant", "content": fake.next_answer()},
+                        "message": {"role": "assistant", "content": fake.next_answer(body)},
                         "done": True,
                         "done_reason": fake.finish,
                         "prompt_eval_count": fake.tokens[0],
