@@ -1,0 +1,19 @@
+.card {
+  gap: 8px;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.steps summary {
+  color: var(--color-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+}
