@@ -549,7 +549,9 @@ class _Run:
             if task.partial.pages_total is not None:
                 last = min(last, task.partial.pages_total)
             if first > last:
-                break
+                break  # read to the end of the pass: stored even when a stop arrived
+            if self.job.stop.is_set():
+                raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
             count = min(max(RENDER_BATCH, self._workers(primary)), last - first + 1)
             rendering = await self._render(task, primary, first, count)
             task.partial.pages_total = rendering.pages_total
@@ -557,8 +559,6 @@ class _Run:
             if not pages:
                 break  # nothing more to render
             await self._read_pages(task, pages, primary, reread, counter)
-            if self.job.stop.is_set():
-                raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
         await self._finish(task)
 
     @staticmethod

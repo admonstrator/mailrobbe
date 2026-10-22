@@ -436,22 +436,26 @@ async def test_without_a_usable_vision_service_auto_reads_everything_with_tesser
     assert "everything goes to Tesseract: http://127.0.0.1:9/v1 does not answer" in caplog.text
 
 
-async def test_a_stopped_run_continues_at_the_next_page(archive: Archive, database: str) -> None:
-    await queue(database, "Scan.pdf")
-    release = threading.Event()
+def holding(number: int) -> tuple[Reader, threading.Event, threading.Event]:
+    """A Tesseract reader that holds page number until released; and the events."""
+    reading, release = threading.Event(), threading.Event()
 
-    def slow(name: str, number: int) -> OcrPage:
-        if number == 2:
+    def slow(name: str, page: int) -> OcrPage:
+        if page == number:
+            reading.set()
             assert release.wait(10)
-        return tesseract_page(name, number)
+        return tesseract_page(name, page)
 
-    fake = Fake(tesseract_reader=slow)
-    settings = settings_for(database, archive)
-    running = asyncio.create_task(run_ai(settings, options_for(settings), engines=fake.engines()))
+    return slow, reading, release
+
+
+async def stopped_while_reading(
+    database: str, reading: threading.Event, release: threading.Event, run: Any
+) -> ai_run.AiRun:
+    """Run, ask it to stop as the dashboard does while a page is read, then let the page end."""
+    running = asyncio.create_task(run)
     async with asyncio.timeout(10):
-        while not (task := (await tasks(database)).get("Scan.pdf")) or not task.partial.get(
-            "pages"
-        ):
+        while not reading.is_set():
             await asyncio.sleep(0.02)
     engine = create_async_engine(database, poolclass=pool.NullPool)
     async with engine.begin() as connection:
@@ -460,7 +464,16 @@ async def test_a_stopped_run_continues_at_the_next_page(archive: Archive, databa
     await engine.dispose()
     await asyncio.sleep(0.3)  # the run reads the request at its next report
     release.set()
-    first = await asyncio.wait_for(running, 10)
+    return await asyncio.wait_for(running, 10)
+
+
+async def test_a_stopped_run_continues_at_the_next_page(archive: Archive, database: str) -> None:
+    await queue(database, "Scan.pdf")
+    slow, reading, release = holding(2)
+    fake = Fake(tesseract_reader=slow)
+    settings = settings_for(database, archive)
+    run = run_ai(settings, options_for(settings), engines=fake.engines())
+    first = await stopped_while_reading(database, reading, release, run)
 
     assert first.exit_code == jobrun.EXIT_INTERRUPTED
     assert first.summary.status == "stopped" and first.summary.pages == 2
@@ -484,6 +497,20 @@ async def test_a_stopped_run_continues_at_the_next_page(archive: Archive, databa
     scanned = await document(database, "Scan.pdf")
     assert [page["number"] for page in scanned.read] == [1, 2, 3]
     assert (await tasks(database))["Scan.pdf"].status == "done"
+
+
+async def test_a_stop_during_the_last_page_stores_the_document(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Flyer.pdf", "Scan.pdf")
+    slow, reading, release = holding(1)
+    settings = settings_for(database, archive)
+    run = run_ai(settings, options_for(settings), engines=Fake(tesseract_reader=slow).engines())
+    result = await stopped_while_reading(database, reading, release, run)
+    assert result.exit_code == jobrun.EXIT_INTERRUPTED and result.summary.done == 1
+    queued = await tasks(database)
+    assert (queued["Flyer.pdf"].status, queued["Scan.pdf"].status) == ("done", "waiting")
+    assert (await document(database, "Flyer.pdf")).extracted_text == "Flyer.pdf 1"
 
 
 async def test_a_pass_reads_at_most_max_pages_and_the_next_continues(
