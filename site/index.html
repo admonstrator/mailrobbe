@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Mailrobbe: große Mailarchive für Recherchen erschließen</title>
+    <title>Mailrobbe: Mail-Leaks und große Mailarchive recherchieren</title>
     <meta
       name="description"
-      content="Mailrobbe liest große MBOX-Archive ein, prüft die Echtheit jeder Mail per DKIM, zeigt, wer mit wem wann worüber geschrieben hat, und läuft lokal auf dem eigenen Rechner."
+      content="Ein Recherchewerkzeug für Redaktionen und Rechercheteams: Mailrobbe macht Mail-Leaks und große MBOX-Archive durchsuchbar, prüft per DKIM, welche Mails unverändert sind, zeigt, wer mit wem wann worüber geschrieben hat, und läuft lokal auf dem eigenen Rechner."
     />
     <meta property="og:title" content="Mailrobbe" />
     <meta
       property="og:description"
-      content="Große Mailarchive durchsuchen, prüfen und verstehen. Für Recherchen, lokal auf dem eigenen Rechner."
+      content="Mail-Leaks und große Mailarchive recherchieren: durchsuchen, prüfen, belegen. Für Redaktionen und Rechercheteams, lokal auf dem eigenen Rechner."
     />
     <meta property="og:image" content="https://mailrobbe.admon.me/img/mailliste.webp" />
     <meta name="theme-color" content="#1d5bd6" />
@@ -44,12 +44,14 @@
               <img src="logo-wordmark.svg" alt="Mailrobbe" width="420" height="105" />
             </picture>
           </h1>
-          <p class="lead">Große Mailarchive durchsuchen, prüfen und verstehen.</p>
+          <p class="lead">Mail-Leaks und große Mailarchive recherchieren: durchsuchen, prüfen, belegen.</p>
           <p class="intro">
-            Mailrobbe liest MBOX-Exporte mit Hunderttausenden Mails ein, prüft die Echtheit jeder
-            Mail, zeigt, wer mit wem wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge,
-            wenn das Kennwort irgendwo im Archiv steht. Es läuft auf dem eigenen Rechner im Browser,
-            ohne Cloud und ohne Konto.
+            Ein Recherchewerkzeug für Journalistinnen und Journalisten, Redaktionen und
+            Rechercheteams, gebaut für Mailbestände, die niemand von vorn bis hinten lesen kann: ein
+            Leak, der Postfach-Export einer Quelle, Hunderttausende Mails in MBOX-Dateien. Mailrobbe
+            macht sie durchsuchbar, prüft per DKIM, welche Mails unverändert sind, zeigt, wer mit wem
+            wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge, wenn das Kennwort
+            irgendwo im Archiv steht. Alles auf dem eigenen Rechner, ohne Cloud und ohne Konto.
           </p>
           <div class="actions">
             <a class="button primary" href="#installieren">So geht es los</a>
@@ -70,20 +72,20 @@
       <section class="facts" aria-label="Grundsätze">
         <div class="wrap grid four">
           <div>
-            <h2>400.000 Mails</h2>
-            <p>Gebaut für Archive dieser Größe. Listen und Filter antworten im Lasttest in Millisekunden.</p>
+            <h2>Für Leaks gebaut</h2>
+            <p>Getestet mit 400.000 Mails, samt Anhängen, gepackten Archiven und Kennwörtern. Listen und Filter antworten in Millisekunden.</p>
           </div>
           <div>
-            <h2>Nichts verändert</h2>
-            <p>Die Originaldateien bleiben unangetastet. Was angezeigt wird, prüft Mailrobbe gegen die Prüfsumme vom Import.</p>
+            <h2>Belegbar</h2>
+            <p>Die Originaldateien bleiben unangetastet. Jede Fundstelle führt zur Originalmail, geprüft gegen die Prüfsumme vom Import.</p>
           </div>
           <div>
-            <h2>Lokal</h2>
-            <p>Läuft auf dem eigenen Rechner. Inhalte aus dem Archiv verlassen ihn nicht.</p>
+            <h2>Bleibt im Haus</h2>
+            <p>Läuft auf dem eigenen Rechner, ohne Cloud und ohne Konto. Inhalte aus dem Archiv verlassen ihn nicht.</p>
           </div>
           <div>
             <h2>Bewertet nichts</h2>
-            <p>Mailrobbe zeigt, wo sich das Lesen lohnen kann. Lesen und entscheiden muss das Team.</p>
+            <p>Mailrobbe zeigt, wo sich das Lesen lohnen kann. Lesen, prüfen und entscheiden muss die Redaktion.</p>
           </div>
         </div>
       </section>
@@ -110,10 +112,10 @@
             <div class="text">
               <h3>Lesen ohne Ballast</h3>
               <p>
-                Zitierter Verlauf, Weiterleitungen und Signaturen sind eingeklappt, die Fundstellen
-                markiert, auch im eingeklappten Teil. Die Pfeiltasten blättern durch die Treffer.
-                Text, HTML, Kopfzeilen und Rohmail liest Mailrobbe bei jedem Öffnen frisch aus der
-                Originaldatei.
+                Eine Mail sieht aus wie im Mailprogramm. Zitierter Verlauf, Weiterleitungen und
+                Signaturen sind eingeklappt, die Fundstellen markiert, auch im eingeklappten Teil. Die
+                Pfeiltasten blättern durch die Treffer. Text, HTML, Kopfzeilen und Rohmail liest
+                Mailrobbe bei jedem Öffnen frisch aus der Originaldatei.
               </p>
               <p class="where">Mail-Detail</p>
             </div>
@@ -124,15 +126,16 @@
             <div class="text">
               <h3>Echtheit prüfen statt vermuten</h3>
               <p>
-                Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert. Gültig heißt: Die
+                Bevor eine Mail zitiert wird, will man wissen, ob sie so verschickt wurde. Jede
+                DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert. Gültig heißt: Die
                 Mail wurde mit dem Schlüssel der Domain unterschrieben und ist seither unverändert. Ist
                 der Schlüssel heute aus dem DNS verschwunden, sucht Mailrobbe ihn auf Knopfdruck
                 weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus
                 zwei Signaturen.
               </p>
-              <p class="where">Mail-Detail, Filter „DKIM-Status“, Import: „Gelöschte Selektoren“</p>
+              <p class="where">Mail-Detail: Klick auf das DKIM-Siegel, Filter „DKIM-Status“, Import: „Gelöschte Selektoren“</p>
             </div>
-            <a class="shot" href="img/mail.webp"><img src="img/mail.webp" alt="Mail-Detail mit DKIM-Status, Anhängen, Prüfstatus, Schlagwort und Notiz" width="2160" height="1350" loading="lazy" /></a>
+            <a class="shot" href="img/mail.webp"><img src="img/mail.webp" alt="Mail-Detail mit aufgeklappter DKIM-Prüfung, Anhängen, Prüfstatus, Schlagwort und Notiz" width="2160" height="1350" loading="lazy" /></a>
           </article>
 
           <article class="feature">
@@ -247,8 +250,9 @@
               <h3>Im Team festhalten</h3>
               <p>
                 Prüfstatus, Markierung, Notizen, Schlagworte und Akten hängen an der Mail und sind
-                für alle im Team sichtbar. Eine Akte sammelt die Mails zu einer Frage und geht als
-                ZIP an Anwälte: Originalmails, PDFs, Manifest und Prüfsummen.
+                für das ganze Rechercheteam sichtbar. Eine Akte sammelt die Mails zu einer Frage und
+                geht als ZIP an Justiziariat und Anwälte: Originalmails, PDFs, Manifest und
+                Prüfsummen.
               </p>
               <p class="where">Akten</p>
             </div>
@@ -259,11 +263,11 @@
             <div class="text">
               <h3>Zeigen, ohne preiszugeben</h3>
               <p>
-                Aus jeder Mail wird auf Wunsch ein Bild für soziale Medien im Look eines
-                Mailprogramms. Beteiligte, Adressen, Telefonnummern, IBANs und Namen sind geschwärzt,
+                Aus jeder Mail wird auf Wunsch ein Bild für den Artikel oder für soziale Medien, im
+                Look eines Mailprogramms. Beteiligte, Adressen, Telefonnummern, IBANs und Namen sind geschwärzt,
                 und zwar im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr.
               </p>
-              <p class="where">Mail-Detail, „Als Bild für Soziale Medien“</p>
+              <p class="where">Mail-Detail, Aktionen: „Als Bild für Soziale Medien“</p>
             </div>
             <a class="shot" href="img/social.webp"><img src="img/social.webp" alt="Dialog für das Bild für soziale Medien mit geschwärzter Vorschau" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -350,7 +354,7 @@ docker compose up -d --build</code></pre>
           </details>
           <details>
             <summary>Geht dabei etwas ins Internet?</summary>
-            <p>Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es ein öffentliches Schlüsselarchiv und lädt die Detailkarte herunter. Inhalte aus dem Archiv verlassen den Rechner nicht.</p>
+            <p>Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es ein öffentliches Schlüsselarchiv und lädt die Detailkarte herunter. Inhalte aus dem Archiv verlassen den Rechner nicht. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails geprüft werden. Wie man ohne DNS-Abfragen importiert und später gezielt nachprüft, steht in der <a href="https://github.com/admonstrator/mailrobbe#geht-dabei-etwas-ins-internet">README</a>.</p>
           </details>
           <details>
             <summary>Beweist „DKIM gültig“, wer die Mail geschrieben hat?</summary>
@@ -373,7 +377,7 @@ docker compose up -d --build</code></pre>
 
       <section id="unterstuetzen" class="support">
         <div class="wrap narrow">
-          <h2 class="section-title">Unterstützen</h2>
+          <h2 class="section-title">Unterstützen und Kontakt</h2>
           <p>Hinter Mailrobbe steht kein Konzern, sondern admon, viel Hartnäckigkeit und eine bedenkliche Menge Energydrinks. Wer es nützlich findet, kann die Weiterentwicklung unterstützen, mit einem Kaffee, einem Energydrink oder einfach einem Stern auf GitHub.</p>
           <div class="donate">
             <a class="button sponsor" href="https://github.com/sponsors/admonstrator">GitHub Sponsors</a>
@@ -381,13 +385,18 @@ docker compose up -d --build</code></pre>
             <a class="button kofi" href="https://ko-fi.com/admon">Ko-fi</a>
             <a class="button paypal" href="https://paypal.me/aaronviehl">PayPal</a>
           </div>
+          <p class="contact">
+            Wünsche, Lob und Kritik gern per Mail an <a href="mailto:hey@admon.me">hey@admon.me</a>,
+            auf Wunsch verschlüsselt mit <a href="https://github.com/admonstrator/Admonstrator/blob/main/pgp/hey@admon.me.asc">diesem PGP-Schlüssel</a>.<br />
+            <span class="fingerprint">Fingerabdruck <code>C2D7 EB96 8E27 4D5F 1B24 1B04 95E1 6BDE A94F 50A4</code></span>
+          </p>
         </div>
       </section>
     </main>
 
     <footer class="foot">
       <div class="wrap">
-        <p><strong>Mailrobbe ist von admon, für Recherchen in großen Mailarchiven.</strong></p>
+        <p><strong>Mailrobbe ist von admon, für Recherchen in Mail-Leaks und großen Mailarchiven.</strong></p>
         <p><a href="https://github.com/admonstrator/mailrobbe">Quellcode auf GitHub</a> · Alle Bilder zeigen erfundene Testdaten.</p>
       </div>
     </footer>
