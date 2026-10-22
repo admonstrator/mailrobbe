@@ -33,6 +33,9 @@ FULL = bench.Samples(
     document_id=12,
     text_document_id=13,
     document_words=["spenden", "quittung"],
+    photos=30,
+    photo_id=14,
+    photo_point=(52.52, 179.8),
 )
 
 
@@ -50,7 +53,7 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
     found, skipped = bench.scenarios(FULL)
     names = [scenario.name for scenario in found]
     assert skipped == []
-    assert len(names) == len(set(names)) == 58
+    assert len(names) == len(set(names)) == 68
     paths = {scenario.name: scenario.paths for scenario in found}
     assert paths["mail list, next page"] == ("/api/mails?cursor=abc",)
     assert paths["filter full text word"] == ("/api/mails?q=vertrag", "/api/mails?q=angebot")
@@ -83,6 +86,20 @@ def test_every_scenario_has_a_sample_of_a_full_archive() -> None:
         "/api/mails?q=spenden",
         "/api/mails?q=quittung",
     )
+    assert paths["map photos, one year"] == (
+        "/api/places/photos?date_from=2021-01-01&date_to=2021-12-31",
+    )
+    assert paths["photo detail"] == ("/api/places/photos/14",)
+    assert paths["photos around a point"] == (
+        "/api/places/photo-list?lat=52.52&lon=179.8&radius_km=10",
+    )
+    assert paths["map places from texts, one year"] == (
+        "/api/places/texts?date_from=2021-01-01&date_to=2021-12-31",
+    )
+    # half a degree around the photo, cut at the 180th meridian
+    assert paths["mails in a map area"] == (
+        "/api/mails?photo_area=179.3000%2C52.0200%2C180.0000%2C53.0200",
+    )
     with_export, _ = bench.scenarios(FULL, with_export=True)
     assert with_export[-1].name == "CSV export, every mail"
 
@@ -99,13 +116,18 @@ def test_an_empty_archive_skips_what_needs_a_sample() -> None:
         "summary, unfiltered",
         "summary, dkim=pass",
         "research overview",
+        "places summary",
+        "map photos, unfiltered",
+        "photos by capture time",
+        "map places from texts, unfiltered",
+        "map places of invitations",
         "import status",
         "import summary",
         "import errors",
     ]
     assert "profile, top person" in skipped and "documents, newest first" in skipped
-    assert "filter tag" in skipped
-    assert len(found) + len(skipped) == 58
+    assert "filter tag" in skipped and "photo detail" in skipped
+    assert len(found) + len(skipped) == 68
 
 
 def test_table_rows_mark_slow_and_failed_scenarios() -> None:
