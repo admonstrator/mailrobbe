@@ -6,6 +6,7 @@ import type {
   DbActivity,
   DkimKey,
   ImportErrorKind,
+  JobKind,
   MboxStatus,
   ScanResult,
   StepProgress,
@@ -68,7 +69,18 @@ export const STEP_LABELS: Record<string, string> = {
   finish: "Detailkarte fertigstellen",
 };
 
-export const stepLabel = (key: string) => STEP_LABELS[key] ?? key;
+/** The steps of an AI run (D187), whose keys the other runs use for other steps. */
+export const AI_STEP_LABELS: Record<string, string> = {
+  check: "Dienste prüfen",
+  ocr: "Texterkennung",
+  entities: "Entitäten erkennen",
+  entity_figures: "Kennzahlen der Entitäten",
+  signals: "Signale berechnen",
+};
+
+/** The German label of a step; kind tells apart the runs whose keys name different steps. */
+export const stepLabel = (key: string, kind?: JobKind) =>
+  (kind === "ai" ? AI_STEP_LABELS[key] : undefined) ?? STEP_LABELS[key] ?? key;
 
 const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string, of: string]> = {
   mails: ["Mail", "Mails", "Mails"],
@@ -76,6 +88,7 @@ const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string,
   names: ["Selektor", "Selektoren", "Selektoren"],
   domains: ["Domain", "Domains", "Domains"],
   places: ["Ort", "Orte", "Orten"],
+  pages: ["Seite", "Seiten", "Seiten"],
 };
 
 const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });

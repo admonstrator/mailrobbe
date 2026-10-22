@@ -9,6 +9,7 @@ import type {
   DocumentSort,
   DocumentTextStatus,
   PasswordTier,
+  TextOrigin,
 } from "../../api/types";
 import { formatNumber } from "../../lib/format";
 
@@ -257,3 +258,13 @@ export function passwordOrigin(tier: PasswordTier, editor: string | null): strin
       return "Gefunden anderswo im Archiv";
   }
 }
+
+// Machine made texts (D185, D189) ---------------------------------------------------------------
+
+/** Where a document's text comes from (D185), as the filter "Textquelle" names it. */
+export const TEXT_ORIGINS: readonly TextOrigin[] = ["extracted", "ocr", "transcript"];
+export const TEXT_ORIGIN_LABELS: Record<TextOrigin, string> = {
+  extracted: "Datei",
+  ocr: "Texterkennung",
+  transcript: "Transkript",
+};

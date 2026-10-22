@@ -1,0 +1,60 @@
+/* The text recognition of one document (D189) in its text card, and its dialogs. */
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  background: var(--color-hover);
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.note,
+.warning,
+.task,
+.text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.note,
+.task {
+  color: var(--color-muted);
+}
+
+.warning {
+  color: var(--color-no-key-text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.actions:empty {
+  display: none;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.link {
+  margin-right: auto;
+  font-size: 13px;
+}
