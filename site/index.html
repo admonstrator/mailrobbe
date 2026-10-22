@@ -27,6 +27,7 @@
         </a>
         <nav aria-label="Seitennavigation">
           <a href="#funktionen">Funktionen</a>
+          <a href="#ki">KI</a>
           <a href="#installieren">Installieren</a>
           <a href="#fragen">Fragen</a>
           <a href="#unterstuetzen">Unterstützen</a>
@@ -51,7 +52,8 @@
             Leak, der Postfach-Export einer Quelle, Hunderttausende Mails in MBOX-Dateien. Mailrobbe
             macht sie durchsuchbar, prüft per DKIM, welche Mails unverändert sind, zeigt, wer mit wem
             wann worüber geschrieben hat, und öffnet verschlüsselte Anhänge, wenn das Kennwort
-            irgendwo im Archiv steht. Alles auf dem eigenen Rechner, ohne Cloud und ohne Konto.
+            irgendwo im Archiv steht. Scans und Sprachnachrichten liest auf Wunsch eine KI mit. Alles auf
+            dem eigenen Rechner, ohne Cloud und ohne Konto.
           </p>
           <div class="actions">
             <a class="button primary" href="#installieren">So geht es los</a>
@@ -133,7 +135,7 @@
                 weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus
                 zwei Signaturen.
               </p>
-              <p class="where">Mail-Detail: Klick auf das DKIM-Siegel, Filter „DKIM-Status“, Import: „Gelöschte Selektoren“</p>
+              <p class="where">Mail-Detail: Klick auf das DKIM-Siegel, Filter „DKIM-Status“, System › Import: „Gelöschte Selektoren“</p>
             </div>
             <a class="shot" href="img/mail.webp"><img src="img/mail.webp" alt="Mail-Detail mit aufgeklappter DKIM-Prüfung, Anhängen, Prüfstatus, Schlagwort und Notiz" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -147,7 +149,7 @@
                 und zeigt jede Regel vorher an. Rechtshinweise und Signaturen, die unter vielen Mails
                 stehen, erkennt es als Standardblöcke und lässt sie bei der Suche weg.
               </p>
-              <p class="where">Ausgeblendet</p>
+              <p class="where">System › Ausgeblendet</p>
             </div>
             <a class="shot" href="img/ausgeblendet.webp"><img src="img/ausgeblendet.webp" alt="Ausblendregeln mit Vorschlägen für Verteiler und automatische Absender" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -173,7 +175,7 @@
                 Die Beziehungskarte zeigt, wer mit wem wie oft geschrieben hat: um eine Person herum,
                 für die aktivsten des Archivs oder zwischen zwei Domains, auf Wunsch Jahr für Jahr. Ein Klick auf eine Verbindung öffnet die Mails dazwischen.
               </p>
-              <p class="where">Karte</p>
+              <p class="where">Auswerten › Karte</p>
             </div>
             <a class="shot" href="img/karte.webp"><img src="img/karte.webp" alt="Beziehungskarte der 50 aktivsten Personen, nach Domain eingefärbt" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -186,7 +188,7 @@
                 viele oder wenige Mails sind markiert, ebenso Personen, die plötzlich verstummen. Für
                 einen Begriff listet sie, wer ihn wann zuerst geschrieben oder bekommen hat.
               </p>
-              <p class="where">Zeitachse</p>
+              <p class="where">Auswerten › Zeitachse</p>
             </div>
             <a class="shot" href="img/zeitachse.webp"><img src="img/zeitachse.webp" alt="Zeitachse mit sechs Personen, Ausreißern und einer verstummten Person" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -199,7 +201,7 @@
                 deutlich häufiger vorkommen als im übrigen Archiv, und Gruppen von Wörtern, die oft
                 zusammen stehen. Jede Zahl steht dabei, jedes Wort führt zu seinen Mails.
               </p>
-              <p class="where">Themen</p>
+              <p class="where">Auswerten › Themen</p>
             </div>
             <a class="shot" href="img/themen.webp"><img src="img/themen.webp" alt="Auffällige Begriffe je Monat" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -213,7 +215,7 @@
                 Nacht, Begriffe aus den Recherchethemen, verschlüsselte Anhänge. Jede Mail sagt,
                 warum. Beweisen tun Signale nichts.
               </p>
-              <p class="where">Signale, Facetten neben der Mailliste</p>
+              <p class="where">Auswerten › Signale, Facetten neben der Mailliste</p>
             </div>
             <a class="shot" href="img/signale.webp"><img src="img/signale.webp" alt="Signalübersicht mit Zahlen je Signal und den häufigsten Absendern" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -240,7 +242,7 @@
                 Terminen liegen auf einer eingebauten Karte, die kein Internet braucht. Eine
                 Detailkarte mit Straßen lädt Mailrobbe auf Knopfdruck einmal herunter.
               </p>
-              <p class="where">Orte</p>
+              <p class="where">Auswerten › Orte</p>
             </div>
             <a class="shot" href="img/orte.webp"><img src="img/orte.webp" alt="Karte mit Fotos, Orten aus Texten und Terminen" width="2160" height="1350" loading="lazy" /></a>
           </article>
@@ -271,6 +273,36 @@
             </div>
             <a class="shot" href="img/social.webp"><img src="img/social.webp" alt="Dialog für das Bild für soziale Medien mit geschwärzter Vorschau" width="2160" height="1350" loading="lazy" /></a>
           </article>
+        </div>
+      </section>
+
+      <section id="ki" class="ai">
+        <div class="wrap">
+          <h2 class="section-title">KI auf dem eigenen Rechner</h2>
+          <p class="intro">
+            Für das, was keine Suche findet, weil es nicht als Text vorliegt oder zu lang zum Lesen
+            ist. Gestartet wird für eine Datei, eine Mail, eine Akte oder eine Auswahl, nie für das
+            ganze Archiv auf einmal.
+          </p>
+          <div class="grid three">
+            <div class="card">
+              <h3>Texterkennung</h3>
+              <p>Gescannte PDFs und abfotografierte Dokumente werden durchsuchbar. Tesseract läuft im Container, ein Bildmodell in LM Studio oder Ollama liest auch Handschrift und schlechte Scans.</p>
+            </div>
+            <div class="card">
+              <h3>Transkription</h3>
+              <p>Sprachnachrichten, Aufnahmen und Videos als Text mit Zeitmarken, durchsuchbar wie jede Mail. Ein Klick auf eine Zeile spielt die Stelle ab. Parakeet läuft im Container, ohne Grafikkarte.</p>
+            </div>
+            <div class="card">
+              <h3>Zusammenfassen</h3>
+              <p>Ein Sprachmodell auf dem eigenen Rechner sagt, worum es in einer Mail, einem Dokument oder einer Akte geht, mit KI-Schlagwörtern und Hinweisen, die ein wörtliches Zitat belegen muss.</p>
+            </div>
+          </div>
+          <p class="more-link">
+            Alles Maschinelle ist als maschinell gekennzeichnet, mit Modell und Datum. Dienste im
+            Internet nimmt Mailrobbe nur, wenn man sie ausdrücklich erlaubt. Die KI sortiert vor,
+            bewerten muss die Redaktion.
+          </p>
         </div>
       </section>
 
@@ -354,7 +386,11 @@ docker compose up -d --build</code></pre>
           </details>
           <details>
             <summary>Geht dabei etwas ins Internet?</summary>
-            <p>Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es ein öffentliches Schlüsselarchiv und lädt die Detailkarte herunter. Inhalte aus dem Archiv verlassen den Rechner nicht. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails geprüft werden. Wie man ohne DNS-Abfragen importiert und später gezielt nachprüft, steht in der <a href="https://github.com/admonstrator/mailrobbe#geht-dabei-etwas-ins-internet">README</a>.</p>
+            <p>Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es ein öffentliches Schlüsselarchiv, lädt die Detailkarte herunter und beim ersten Transkribieren einmal das Sprachmodell (etwa 670 MB). Inhalte aus dem Archiv verlassen den Rechner nicht, solange man keinen KI-Dienst im Internet ausdrücklich erlaubt. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails geprüft werden. Wie man ohne DNS-Abfragen importiert und später gezielt nachprüft, steht in der <a href="https://github.com/admonstrator/mailrobbe#geht-dabei-etwas-ins-internet">README</a>.</p>
+          </details>
+          <details>
+            <summary>Liest da eine KI meine Mails?</summary>
+            <p>Nur wenn man sie lässt, und nur für das, was man auswählt. Texterkennung mit Tesseract und Transkription laufen im Container, Zusammenfassungen und das Bildmodell nur mit einem Dienst, den man selbst einrichtet, im Normalfall auf dem eigenen Rechner. Ob eine Mail wichtig, wahr oder strafbar ist, sagt keine KI in Mailrobbe.</p>
           </details>
           <details>
             <summary>Beweist „DKIM gültig“, wer die Mail geschrieben hat?</summary>
