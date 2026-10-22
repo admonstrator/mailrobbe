@@ -25,6 +25,12 @@ import {
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
   AliasTier,
+  BlockDetail,
+  BlockInfo,
+  BlockListParams,
+  BlockOverrideUpdate,
+  BlockPage,
+  BlockSummary,
   BulkRequest,
   BulkResult,
   CertainMergePlan,
@@ -1193,5 +1199,77 @@ export function usePersonSignals(id: number) {
   return useQuery({
     queryKey: signalKeys.person(id),
     queryFn: ({ signal }) => apiGet<PersonSignals>(`/api/persons/${id}/signals`, undefined, signal),
+  });
+}
+
+// Standard blocks (D224 to D227) ----------------------------------------------------------------
+
+export const blockKeys = {
+  /** Prefix of everything a choice of the team or a blocks step changes. */
+  all: ["blocks"] as const,
+  summary: ["blocks", "summary"] as const,
+  page: (params: BlockListParams) => ["blocks", "page", params] as const,
+  detail: (hash: string) => ["blocks", "detail", hash] as const,
+};
+
+/** The figures of the last blocks step and the choices the next run applies. */
+export function useBlockSummary() {
+  return useQuery({
+    queryKey: blockKeys.summary,
+    queryFn: ({ signal }) => apiGet<BlockSummary>("/api/blocks/summary", undefined, signal),
+  });
+}
+
+/** One page of the standard blocks or of those taken back; the previous page stays while the
+ *  next loads. */
+export function useBlockPage(params: BlockListParams) {
+  return useQuery({
+    queryKey: blockKeys.page(params),
+    queryFn: ({ signal }) => apiGet<BlockPage>("/api/blocks", params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** A block with its senders and domains, counted on request. */
+export function useBlock(hash: string, enabled = true) {
+  return useQuery({
+    queryKey: blockKeys.detail(hash),
+    queryFn: ({ signal }) => apiGet<BlockDetail>(`/api/blocks/${hash}`, undefined, signal),
+    enabled,
+  });
+}
+
+/** Whether a cached query is a mail's text view, which lists its paragraphs with the choices. */
+function isMailText(query: { queryKey: readonly unknown[] }): boolean {
+  const [scope, , view, format] = query.queryKey;
+  return scope === "mail" && view === "body" && format === "text";
+}
+
+/** The team's choice about a paragraph (D225); it takes effect at the next run. The mail texts
+ *  already read show it at once, the block's page and lists after asking again. */
+export function useSaveBlockOverride() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hash, ...update }: BlockOverrideUpdate & { hash: string }) =>
+      apiPut<BlockInfo>(`/api/blocks/${hash}/override`, update),
+    onSuccess: (block) => {
+      queryClient.setQueryData<BlockDetail>(
+        blockKeys.detail(block.hash),
+        (detail) => detail && { ...detail, block },
+      );
+      void queryClient.invalidateQueries({ queryKey: blockKeys.all });
+      queryClient.setQueriesData<MailText>({ predicate: isMailText }, (text) =>
+        text?.paragraphs?.some((paragraph) => paragraph.hash === block.hash)
+          ? {
+              ...text,
+              paragraphs: text.paragraphs.map((paragraph) =>
+                paragraph.hash === block.hash
+                  ? { ...paragraph, override: block.override }
+                  : paragraph,
+              ),
+            }
+          : text,
+      );
+    },
   });
 }
