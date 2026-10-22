@@ -227,7 +227,8 @@ WALK_BEFORE_D171 = (
     ids=["default", "every-place"],
 )
 def test_a_search_without_options_sends_the_sql_of_before(options: MailFilters) -> None:
-    (condition,) = filters.mail_conditions(options, parse_query("Neger"), [])
+    condition, visible = filters.mail_conditions(options, parse_query("Neger"), [])
+    assert visible is filters.VISIBLE
     assert sql(condition) == BEFORE_D171
     assert sql(filters._WALK_FORMS[condition]) == WALK_BEFORE_D171
 
@@ -238,7 +239,8 @@ def test_a_search_without_options_sends_the_sql_of_before(options: MailFilters) 
 def test_negated_operators_are_neither_ranges_nor_research_filters(q: str) -> None:
     plain = filters.mail_conditions(MailFilters(), parse_query(q[1:]), [])[0]
     assert filters._ranges(plain)
-    (negated,) = filters.mail_conditions(MailFilters(), parse_query(q), [])
+    negated, visible = filters.mail_conditions(MailFilters(), parse_query(q), [])
+    assert visible is filters.VISIBLE
     assert not filters._ranges(negated)
     assert filters._contents(negated) is None
 
@@ -394,3 +396,10 @@ async def test_negated_operators_hold_where_the_condition_cannot_be_decided(
         expected = await ids(url, where, message_id=chosen.message_id)
         assert chosen.id in expected, q
         assert await walked_and_collected(mutable_client, [("q", q)], PAGE) == expected, q
+
+
+def test_only_the_hidden_mails_left_out_counts_as_unfiltered() -> None:
+    assert filters.mail_conditions(MailFilters(), [], []) == [filters.VISIBLE]
+    assert filters.unfiltered(filters.mail_conditions(MailFilters(), [], []))
+    assert filters.mail_conditions(MailFilters(include_hidden=True), [], []) == []
+    assert not filters.unfiltered(filters.mail_conditions(MailFilters(), parse_query("Rat"), []))

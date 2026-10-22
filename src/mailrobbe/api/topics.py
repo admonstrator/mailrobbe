@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.api.deps import AppSettings, Session
 from mailrobbe.api.documents import _all_unless_canceled
-from mailrobbe.api.filters import resolve_contents
+from mailrobbe.api.filters import resolve_contents, unfiltered
 from mailrobbe.api.mails import _count_budget, _terms, _unless_canceled, _where
 from mailrobbe.api.schemas import (
     TOPIC_SAMPLE,
@@ -168,7 +168,7 @@ async def terms(
     # Duplicates never count here, whether the list hides them or not.
     filters = params.model_copy(update={"hide_duplicates": False})
     where = _where(filters, _terms(params.q), settings)
-    if not where:
+    if unfiltered(where):
         return _terms_of(state, state.mails)
     where = await resolve_contents(session, [*where, _ORIGINAL])
     await _count_budget(session, settings)

@@ -140,6 +140,25 @@ PersonSummary and GraphNode carries the label of its address (D156, persons.labe
                                                  label of the root's address, or removes it when
                                                  every field is empty (D156)
 
+Milestone 18 (D220 to D229): hide rules and standard blocks. MailFilters has include_hidden,
+body_part and block, MailHitsParams body_part, q the proximity term "a b"~N (QueryKey near),
+MailSummary the hidden mails, MailDetail why it is hidden, MailText the standard blocks as
+segments and its paragraphs; writes take the editor from X-Mailrobbe-Editor (D54):
+
+    GET    /api/hide-rules                       HideRuleList
+    POST   /api/hide-rules/preview               HideRuleFields -> HideRulePreview (D223)
+    POST   /api/hide-rules                       HideRuleFields -> 201 HideRuleInfo, its mails
+                                                 computed; 400 invalid_rule
+    PUT    /api/hide-rules/{id}                  HideRuleUpdate -> HideRuleInfo
+    DELETE /api/hide-rules/{id}                  204
+    GET    /api/hide-rules/suggestions           list[HideSuggestion], most mails first
+    GET    /api/blocks/summary                   BlockSummary
+    GET    /api/blocks?BlockListParams           BlockPage
+    GET    /api/blocks/{hash}                    BlockDetail; 404 for a hash neither a block nor
+                                                 the team's choice knows
+    PUT    /api/blocks/{hash}/override           BlockOverrideUpdate -> BlockInfo (D225);
+                                                 400 invalid_block
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -229,11 +248,20 @@ QueryKey = Literal[
     "in_body",
     "in_attachment",
     "in_filename",
+    # Two words at most QueryTerm.distance words apart, in either order (D229): "a b"~N
+    "near",
 ]
 # Where the full text words of q are looked for (D171): the mail's subject and its text, the
 # text of its attachments' documents and their file names.
 SearchField = Literal["subject", "body", "attachment", "filename"]
 MIN_HITS_LIMIT = 999  # the largest min_hits (D174)
+# The parts of a mail's own text the full text words are looked for in (D226, D228): clean
+# leaves out the standard blocks, own also the quotes, originals and forwards (the words the
+# sender wrote), full looks at all of it. The subject is always looked at.
+BodyPart = Literal["clean", "own", "full"]
+PROXIMITY_LIMIT = 20  # the largest N of "a b"~N (D229)
+# A paragraph's hash: 16 lower-case hex digits (blocks.model).
+BLOCK_HASH_PATTERN = r"^[0-9a-f]{16}$"
 # Tabs of a person's mail list (D29, D32): sent = From; received = To, Cc or Bcc but not From;
 # cc = Cc only (neither From, To nor Bcc).
 PersonRole = Literal["sent", "received", "cc"]
@@ -264,6 +292,8 @@ ErrorCode = Literal[
     "invalid_key",  # 400: no DKIM key name, or a record without a usable key (D103)
     "archive_off",  # 409: the key archive is switched off (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off)
     "merge_undone",  # 409: the merge, or every merge of the batch, was undone already (D163)
+    "invalid_rule",  # 400: a hide rule without any criterion, or one that cannot be used (D221)
+    "invalid_block",  # 400: a sample that is no paragraph of this hash, or none where needed
 ]
 
 
@@ -324,6 +354,12 @@ class MailFilters(BaseModel):
     scope: list[SearchField] = []
     whole_word: bool = False
     min_hits: int | None = Field(default=None, ge=1, le=MIN_HITS_LIMIT)
+    # Milestone 18: mails a hide rule hides are left out unless include_hidden (D222); the parts
+    # of the mail's own text the full text words are looked for in (D226); the mails holding
+    # this paragraph anywhere in their stored text, a standard block or not (D227).
+    include_hidden: bool = False
+    body_part: BodyPart = "clean"
+    block: str | None = Field(default=None, pattern=BLOCK_HASH_PATTERN)
 
 
 class MailOrderParams(MailFilters):
@@ -363,6 +399,8 @@ class QueryTerm(BaseModel):
     # An operator or Message-ID written with a leading minus: it must not hold (D175). Free
     # text words keep their minus in value, as websearch_to_tsquery reads it.
     negated: bool = False
+    # key near: the most words between the two words of value (1 to PROXIMITY_LIMIT, D229)
+    distance: int | None = None
 
 
 class MailHitCounts(BaseModel):
@@ -419,6 +457,9 @@ class MailSummary(BaseModel):
     domains: int | None  # distinct domains of those persons
     date_min: datetime | None
     date_max: datetime | None
+    # Without include_hidden: the mails the other filters match that a hide rule hides (D222);
+    # None with include_hidden, or when counting ran out of time.
+    hidden: int | None = None
 
 
 class MailNeighbors(BaseModel):
@@ -692,6 +733,78 @@ class CalendarEventInfo(BaseModel):
     uid_mails: int  # mails with an event of this UID, this one included; 0 without a UID
 
 
+# Hide rules (milestone 18, D221 to D223) -------------------------------------------------------
+
+# How a hide rule compares the subject (D204): it holds the text, or starts with it; any case,
+# no regular expressions.
+SubjectMatch = Literal["contains", "starts"]
+HIDE_EXAMPLES = 5  # mails a preview shows
+HIDE_SUGGESTIONS = 20  # suggestions of each kind
+
+
+class HideRuleFields(BaseModel):
+    """The criteria of a hide rule (D221): every one given must hold, at least one is given."""
+
+    name: str | None = None  # the team's name for it; None: the UI describes the criteria
+    sender: str | None = None  # the sender's address, any case
+    person_id: int | None = None  # a person: every address of its root
+    domain: str | None = None  # the sender's domain or a subdomain of it, any case
+    list_id: str | None = None  # the List-Id as stored (mail.list_id)
+    automated: bool = False  # sent automatically (mail.automated, D39)
+    subject: str | None = None  # compared by subject_match, any case
+    subject_match: SubjectMatch = "contains"
+
+
+class HideRuleUpdate(HideRuleFields):
+    enabled: bool = True  # a disabled rule hides nothing and keeps its criteria
+
+
+class HideRuleInfo(HideRuleFields):
+    id: int
+    enabled: bool
+    person: PersonRef | None  # the person of person_id; None without one or when it is gone
+    mails: int  # mails it matches, those D203 keeps visible included
+    computed_at: datetime | None  # when its mails were last computed
+    created_by: str | None  # D54
+    created_at: datetime
+    updated_by: str | None
+    updated_at: datetime
+
+
+class HideRuleList(BaseModel):
+    rules: list[HideRuleInfo]  # newest first
+    hidden: int  # mails an enabled rule hides, without those D203 keeps visible
+    kept: int  # mails an enabled rule matches that stay visible (D203)
+
+
+class HideRulePreview(BaseModel):
+    """What a rule would hide (D223), before it is saved."""
+
+    mails: int  # mails it matches
+    kept: int  # of these, in an Akte, with a note, bookmarked or relevant: they stay visible
+    with_terms: int  # of these, with a word-field signal (term:*, D138)
+    examples: list[MailListItem]  # the newest HIDE_EXAMPLES of them
+
+
+HideSuggestionKind = Literal["list", "sender"]
+
+
+class HideSuggestion(BaseModel):
+    """A mailing list or an automated sender with many mails (D223); a click makes it a rule."""
+
+    kind: HideSuggestionKind
+    list_id: str | None  # kind list
+    person: PersonRef | None  # kind sender: a root person of kind list or automated (D39)
+    mails: int
+
+
+class MailHiding(BaseModel):
+    """Why a mail is hidden (D222)."""
+
+    rules: list[HideRuleInfo]  # the enabled rules matching it
+    kept: bool  # it stays visible all the same (D203)
+
+
 class MailDetail(BaseModel):
     id: int
     subject: str | None
@@ -719,6 +832,7 @@ class MailDetail(BaseModel):
     near: list[NearMail] = []
     near_size: int = 0
     events: list[CalendarEventInfo] = []  # its calendar events in mail order (D155)
+    hidden: MailHiding | None = None  # an enabled hide rule matches it (D222)
 
 
 # Bodies, read on demand from the MBOX file -------------------------------------------------
@@ -727,8 +841,9 @@ class MailDetail(BaseModel):
 # Segments of a mail's text (D151): its own words, a quote ('>' lines with the attribution above
 # them), an original message (Outlook's header block and everything after it), a forwarded
 # message (the forward's header block and everything after it), and a signature ("-- " on a
-# line, up to the next segment of another kind or the end).
-SegmentKind = Literal["text", "quote", "original", "forward", "signature"]
+# line, up to the next segment of another kind or the end); a standard block (D227) is cut out
+# of the segment it stands in.
+SegmentKind = Literal["text", "quote", "original", "forward", "signature", "standard"]
 
 
 class TextSegment(BaseModel):
@@ -737,6 +852,18 @@ class TextSegment(BaseModel):
     end: int  # exclusive; the segments cover the text in order, without gaps
     lines: int  # lines of the segment that are not blank
     folded: bool  # shown folded at first (D151); the UI opens one holding a search word
+    block: str | None = None  # kind standard: the block's hash
+
+
+class TextParagraph(BaseModel):
+    """A paragraph of MailText.text that counts (D224), for the team's choice about it (D225)."""
+
+    start: int  # character offsets in MailText.text
+    end: int
+    hash: str
+    standard: bool  # a standard block as the last blocks step applied them
+    mails: int  # mails holding it (paragraph_block); 0 when the blocks step did not count it
+    override: bool | None  # the team's choice, applied at the next run; None: none
 
 
 class MailText(BaseModel):
@@ -745,6 +872,7 @@ class MailText(BaseModel):
     source: Literal["text/plain", "text/html", "none"]  # text/html: converted to text
     has_html: bool  # an HTML part exists, so format=html has something to show
     segments: list[TextSegment] = []  # quotes.split_text (D151); one text segment without any
+    paragraphs: list[TextParagraph] = []  # in text order (D224)
 
 
 class HeaderField(BaseModel):
@@ -1658,6 +1786,7 @@ class MailHitsParams(BaseModel):
     q: str = ""
     scope: list[SearchField] = []
     whole_word: bool = False
+    body_part: BodyPart = "clean"  # D226
 
 
 class AttachmentHit(BaseModel):
@@ -2273,3 +2402,72 @@ class PersonSignals(BaseModel):
     signals: list[PersonSignalCount]  # signals with mails only, display order
     silent_since: datetime | None  # D134 over its mails in any role; None: not silent
     silent_mails: int | None  # its mails in the six months before
+
+
+# Standard blocks (milestone 18, D224 to D227) --------------------------------------------------
+
+# Which blocks the list shows: those applied, or those detected and taken back by the team.
+BlockState = Literal["standard", "dismissed"]
+BlockSort = Literal["mails", "recent"]  # most mails first, latest occurrence first
+BLOCK_SAMPLE_LIMIT = 2_000  # characters of BlockInfo.sample
+BLOCK_SENDERS = 50  # senders and domains of BlockDetail
+
+
+class BlockInfo(BaseModel):
+    hash: str
+    sample: str  # one occurrence as written, at most BLOCK_SAMPLE_LIMIT characters
+    standard: bool  # applied by the last blocks step
+    detected: bool  # by the rule of D225; False: marked by hand
+    override: bool | None  # the team's choice (True marked, False taken back); None: none
+    pending: bool  # the choice differs from what the last blocks step applied
+    mails: int  # mails holding it, duplicates left out
+    senders: int  # distinct sender addresses of those
+    first_date: datetime | None
+    last_date: datetime | None
+
+
+class BlockListParams(BaseModel):
+    state: BlockState = "standard"
+    q: str = ""  # part of the sample, any case
+    sort: BlockSort = "mails"
+    offset: int = Field(0, ge=0)
+    limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+
+
+class BlockPage(BaseModel):
+    items: list[BlockInfo]
+    total: int
+
+
+class BlockSummary(BaseModel):
+    """Figures of the last blocks step and of the team's choices (global_stats 'blocks')."""
+
+    blocks: int  # standard blocks applied
+    detected: int  # of these, by the rule
+    marked: int  # of these, by hand
+    dismissed: int  # detected and taken back
+    pending: int  # choices the next run applies
+    mails: int  # mails holding at least one standard block
+    waiting: int  # mails the paragraphs step has not split yet
+    min_mails: int  # MAILROBBE_BLOCK_MIN_MAILS (D225)
+    computed_at: datetime | None  # end of the last blocks step; None: never ran
+
+
+class BlockSender(BaseModel):
+    person: PersonRef
+    mails: int
+
+
+class BlockDetail(BaseModel):
+    block: BlockInfo
+    senders: list[BlockSender]  # most mails first, at most BLOCK_SENDERS
+    domains: list[DomainCount]  # sender domains, most mails first, at most BLOCK_SENDERS
+
+
+class BlockOverrideUpdate(BaseModel):
+    """The team's choice (D225): True marks a paragraph as a standard block, False takes a
+    detected one back, None removes the choice. sample is the paragraph as shown; it is needed
+    when the blocks step has not counted the paragraph, and must have this hash."""
+
+    standard: bool | None
+    sample: str | None = None

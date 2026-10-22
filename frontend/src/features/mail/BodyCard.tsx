@@ -121,6 +121,7 @@ const FOLD_LABELS: Record<FoldKind, string> = {
   original: "Ursprüngliche Nachricht",
   forward: "Weitergeleitete Nachricht",
   signature: "Signatur",
+  standard: "Standardblock",
 };
 
 /** A stretch of a block's text: the own words, or what is quoted (shown muted). */

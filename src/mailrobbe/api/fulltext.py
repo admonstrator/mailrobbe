@@ -27,7 +27,7 @@ from typing import Any, get_args
 from sqlalchemy import ColumnElement, Text, cast, func, literal_column
 from sqlalchemy.dialects.postgresql import TSQUERY
 
-from mailrobbe.api.schemas import QueryKey, QueryTerm, SearchField
+from mailrobbe.api.schemas import BodyPart, QueryKey, QueryTerm, SearchField
 from mailrobbe.db.models import TEXT_SEARCH_CONFIG
 
 FIELDS: tuple[SearchField, ...] = get_args(SearchField)
@@ -74,6 +74,7 @@ class FullText:
     placed: tuple[tuple[SearchField, Words], ...]  # betreff:, text:, anhang:, datei:, in order
     whole_word: bool
     min_hits: int | None
+    body_part: BodyPart = "clean"  # the parts of the mail's own text looked at (D226)
 
     @property
     def counted(self) -> tuple[tuple[Words, frozenset[SearchField]], ...]:
@@ -108,6 +109,7 @@ def full_text_search(
     scope: Sequence[SearchField] = (),
     whole_word: bool = False,
     min_hits: int | None = None,
+    body_part: BodyPart = "clean",
 ) -> FullText | None:
     """The full text part of q's terms with the options; None when q has no full text words
     (free or placed), and then the options have no effect."""
@@ -126,6 +128,7 @@ def full_text_search(
         placed=placed,
         whole_word=whole_word,
         min_hits=min_hits,
+        body_part=body_part,
     )
 
 

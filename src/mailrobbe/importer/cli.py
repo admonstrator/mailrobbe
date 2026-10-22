@@ -1,16 +1,18 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
-text extraction, metadata, calendar, near duplicates, entities, signals and topics.
+text extraction, metadata, calendar, near duplicates, hide rules, paragraphs, entities, signals
+and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need
 it, D52), import, finalize, attachments (only when documents wait for their text, D72, or for
 their metadata, D167, which has a step of its own), calendar (only when mails wait for a look,
-D154), near (fingerprints when mails wait for one, groups always, D153), entities (only when
-texts wait for their scan, D84), signals (always, D135) and topics (only when the archive
-changed since they were computed, D146), and reports its figures
-(ImportFigures) every few seconds, with one step per phase and per part of the finalize and the
-topics (STEPS, D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the
-workers store their batch, the files pause, the global figures count what is stored, and the
-finalize and every later phase are left to the next run; during the attachments, calendar, near,
+D154), near (fingerprints when mails wait for one, groups always, D153), hidden (always, D221),
+paragraphs (the split when mails wait for it, the standard blocks always, D224, D225), entities
+(only when texts wait for their scan, D84), signals (always, D135) and topics (only when the
+archive changed since they were computed, D146), and reports its figures (ImportFigures) every
+few seconds, with one step per phase and per part of the finalize and the topics (STEPS, D110).
+It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their
+batch, the files pause, the global figures count what is stored, and the finalize and every
+later phase are left to the next run; during the attachments, calendar, near, paragraphs,
 entities and signals phases, what is stored so far stays, and the topics stay as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
@@ -34,10 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from mailrobbe.aggregates import refresh_global_stats
 from mailrobbe.attachments import phase
 from mailrobbe.attachments.extract import extract_document
+from mailrobbe.blocks import phase as blocks
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.entities import phase as entities
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
+from mailrobbe.hiding import phase as hiding
 from mailrobbe.ical import phase as calendar
 from mailrobbe.importer import finalize, headers
 from mailrobbe.importer.runner import (
@@ -68,6 +72,8 @@ STEPS = (
     "metadata",
     "calendar",
     *near.STEPS,
+    hiding.STEP,
+    *blocks.STEPS,
     "entities",
     "signals",
     *topics.STEPS,
@@ -205,6 +211,10 @@ async def _import(
         await _scan_calendar(sessionmaker, mbox_dir, workers, job)
     if not stop.is_set():
         await _find_near(sessionmaker, job)
+    if not stop.is_set():
+        await _refresh_hidden(sessionmaker, job)
+    if not stop.is_set():
+        await _find_blocks(sessionmaker, settings, job)
     scanned = 0
     if not stop.is_set():
         scanned = await _scan_entities(sessionmaker, workers, job)
@@ -367,6 +377,33 @@ async def _find_near(sessionmaker: async_sessionmaker[AsyncSession], job: JobRun
         return
     with job.steps.step("near_groups") as step:
         await near.group_mails(sessionmaker, job.stop, step)
+
+
+async def _refresh_hidden(sessionmaker: async_sessionmaker[AsyncSession], job: JobRun) -> None:
+    """The step hidden (D221): the mails of every enabled hide rule, new mails and the addresses
+    merges gave a person included."""
+    job.set_phase("hidden")
+    with job.steps.step(hiding.STEP) as step:
+        await hiding.refresh_hidden(sessionmaker, job.stop, step)
+
+
+async def _find_blocks(
+    sessionmaker: async_sessionmaker[AsyncSession], settings: Settings, job: JobRun
+) -> None:
+    """The paragraphs phase (D224, D225): the split when mails wait for it, then the standard
+    blocks and the ranges of every mail whose ranges changed."""
+    job.set_phase("paragraphs")
+    async with sessionmaker() as session:
+        waiting = await blocks.waiting(session)
+    if waiting:
+        with job.steps.step("paragraphs", unit="mails", total=waiting) as step:
+            await blocks.split_mails(sessionmaker, job.stop, step)
+    else:
+        job.steps.skip("paragraphs")
+    if job.stop.is_set():
+        return
+    with job.steps.step("blocks") as step:
+        await blocks.find_blocks(sessionmaker, settings, job.stop, step)
 
 
 async def _scan_entities(

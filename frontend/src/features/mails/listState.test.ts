@@ -53,6 +53,9 @@ const full: ListState = {
   scope: ["subject", "body"],
   whole_word: true,
   min_hits: 3,
+  include_hidden: true,
+  body_part: "own",
+  block: "00ff00ff00ff00ff",
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -108,6 +111,9 @@ describe("list state in the URL", () => {
       "scope",
       "whole_word",
       "min_hits",
+      "include_hidden",
+      "body_part",
+      "block",
       "sort",
       "cursor",
       "limit",
@@ -304,12 +310,29 @@ describe("the search options in the URL (D171 to D174, D177)", () => {
       scope: ["subject", "body"],
       whole_word: true,
       min_hits: 3,
+      body_part: "own",
+      include_hidden: true,
     });
     expect(searchOptions(DEFAULT_LIST_STATE)).toEqual({
       scope: [],
       whole_word: false,
       min_hits: null,
+      body_part: "clean",
+      include_hidden: false,
     });
+  });
+});
+
+describe("hidden mails, the parts of the text and standard blocks in the URL (milestone 18)", () => {
+  it("leaves the defaults out and drops values it cannot use", () => {
+    expect(parse("body_part=clean&include_hidden=false")).toEqual(DEFAULT_LIST_STATE);
+    expect(parse("body_part=quotes").body_part).toBe("clean");
+    expect(parse("block=00FF00FF00FF00FF").block).toBeNull();
+    expect(parse("block=00ff").block).toBeNull();
+  });
+
+  it("hands the parts of the text to the hits of a mail (D226)", () => {
+    expect(toHitsParams(parse("q=Rat&body_part=full"))).toEqual({ q: "Rat", body_part: "full" });
   });
 });
 

@@ -61,7 +61,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import mail_senders
 from mailrobbe.api.documents import _all_unless_canceled, mail_persons
-from mailrobbe.api.filters import _contains, _escape_like, amount, resolve_contents
+from mailrobbe.api.filters import _contains, _escape_like, amount, resolve_contents, unfiltered
 from mailrobbe.api.mails import _count_budget, _terms, _where
 from mailrobbe.api.persons import _DUPLICATES, _beyond, _by, _Cursor, _int, _stamp, _text
 from mailrobbe.api.schemas import (
@@ -553,7 +553,7 @@ async def facets(
 ) -> EntityFacets:
     only = sorted(set(params.kind), key=_KIND_ORDER.__getitem__)
     where = _where(params, _terms(params.q), settings)
-    if not where:
+    if unfiltered(where):
         top = await _top_entities(session, only or list(EntityKind), params.limit)
         return EntityFacets(kinds=top, mails=None, sampled=False)
     where = await resolve_contents(session, where)

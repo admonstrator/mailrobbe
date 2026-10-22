@@ -207,7 +207,9 @@ async def list_mails(
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
     items = [_item(row, people.get(row.id, []), members) for row in rows]
-    search = full_text_search(terms, params.scope, params.whole_word, params.min_hits)
+    search = full_text_search(
+        terms, params.scope, params.whole_word, params.min_hits, params.body_part
+    )
     hits = {} if search is None else await page_hits(session, ids, search)  # D176
     if search is not None and search.counted:
         # D73 from the counts: no counted word in the mail itself, but in an attachment

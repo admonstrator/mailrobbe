@@ -72,7 +72,9 @@ export type QueryKey =
   | "in_subject"
   | "in_body"
   | "in_attachment"
-  | "in_filename";
+  | "in_filename"
+  // Two words at most QueryTerm.distance words apart, in either order (D229): "a b"~N
+  | "near";
 
 /** Where the full text words of q are looked for (D171): the mail's subject and its text, the
  *  text of its attachments' documents and their file names. */
@@ -80,6 +82,15 @@ export type SearchField = "subject" | "body" | "attachment" | "filename";
 export const SEARCH_FIELDS: readonly SearchField[] = ["subject", "body", "attachment", "filename"];
 /** The largest min_hits (D174). */
 export const MIN_HITS_LIMIT = 999;
+/** The parts of a mail's own text the full text words are looked for in (D226, D228): clean
+ *  leaves out the standard blocks, own also the quotes, originals and forwards (the words the
+ *  sender wrote), full looks at all of it. The subject is always looked at. */
+export type BodyPart = "clean" | "own" | "full";
+export const BODY_PARTS: readonly BodyPart[] = ["clean", "own", "full"];
+/** The largest N of "a b"~N (D229). */
+export const PROXIMITY_LIMIT = 20;
+/** A paragraph's hash: 16 lower-case hex digits. */
+export const BLOCK_HASH_PATTERN = /^[0-9a-f]{16}$/;
 
 export type ErrorCode =
   | "not_found"
@@ -106,7 +117,9 @@ export type ErrorCode =
   | "preview_failed"
   | "invalid_key" // 400: no DKIM key name, or a record without a usable key (D103)
   | "archive_off" // 409: the key archive is switched off
-  | "merge_undone"; // 409: the merge, or every merge of the batch, was undone already (D163)
+  | "merge_undone" // 409: the merge, or every merge of the batch, was undone already (D163)
+  | "invalid_rule" // 400: a hide rule without any criterion, or one that cannot be used (D221)
+  | "invalid_block"; // 400: a sample that is no paragraph of this hash, or none where needed
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -154,6 +167,12 @@ export interface MailFilters {
   scope?: SearchField[];
   whole_word?: boolean;
   min_hits?: number; // 1 to MIN_HITS_LIMIT
+  /** Milestone 18: mails a hide rule hides are left out unless include_hidden (D222); the parts
+   *  of the mail's own text the full text words are looked for in (default clean, D226); the
+   *  mails holding this paragraph anywhere in their stored text (D227). */
+  include_hidden?: boolean;
+  body_part?: BodyPart;
+  block?: string;
 }
 
 export interface MailOrderParams extends MailFilters {
@@ -189,6 +208,8 @@ export interface QueryTerm {
   /** An operator or Message-ID written with a leading minus: it must not hold (D175). Free text
    *  words keep their minus in value. */
   negated: boolean;
+  /** key near: the most words between the two words of value (1 to PROXIMITY_LIMIT, D229). */
+  distance?: number | null;
 }
 
 /** How often the full text words of q occur in one mail, by place (D176): the words that count
@@ -242,6 +263,9 @@ export interface MailSummary {
   domains: number | null;
   date_min: string | null;
   date_max: string | null;
+  /** Without include_hidden: the mails the other filters match that a hide rule hides (D222);
+   *  null with include_hidden, or when counting ran out of time. */
+  hidden?: number | null;
 }
 
 export interface MailNeighbors {
@@ -448,6 +472,7 @@ export interface MailDetail {
   near: NearMail[];
   near_size: number;
   events: CalendarEventInfo[]; // its calendar events in mail order (D155)
+  hidden?: MailHiding | null; // an enabled hide rule matches it (D222)
 }
 
 export const NEAR_LIMIT = 50;
@@ -495,8 +520,9 @@ export interface CalendarEventInfo {
 
 // Bodies --------------------------------------------------------------------------------------
 
-/** Segments of a mail's text (D151). */
-export type SegmentKind = "text" | "quote" | "original" | "forward" | "signature";
+/** Segments of a mail's text (D151); a standard block (D227) is cut out of the segment it
+ *  stands in. */
+export type SegmentKind = "text" | "quote" | "original" | "forward" | "signature" | "standard";
 
 export interface TextSegment {
   kind: SegmentKind;
@@ -504,6 +530,17 @@ export interface TextSegment {
   end: number; // exclusive; the segments cover the text in order, without gaps
   lines: number; // lines that are not blank
   folded: boolean; // shown folded at first; the UI opens one holding a search word
+  block?: string | null; // kind standard: the block's hash
+}
+
+/** A paragraph of MailText.text that counts (D224), for the team's choice about it (D225). */
+export interface TextParagraph {
+  start: number; // character offsets in MailText.text
+  end: number;
+  hash: string;
+  standard: boolean; // a standard block as the last blocks step applied them
+  mails: number; // mails holding it; 0 when the blocks step did not count it
+  override: boolean | null; // the team's choice, applied at the next run; null: none
 }
 
 export interface MailText {
@@ -512,6 +549,7 @@ export interface MailText {
   source: "text/plain" | "text/html" | "none";
   has_html: boolean;
   segments: TextSegment[];
+  paragraphs?: TextParagraph[]; // in text order (D224)
 }
 
 export interface HeaderField {
@@ -854,6 +892,8 @@ export type ImportPhase =
   | "attachments"
   | "calendar"
   | "near"
+  | "hidden"
+  | "paragraphs"
   | "entities"
   | "signals"
   | "topics";
@@ -1443,6 +1483,7 @@ export interface MailHitsParams {
   q?: string;
   scope?: SearchField[];
   whole_word?: boolean;
+  body_part?: BodyPart; // D226
 }
 
 export interface AttachmentHit {
@@ -2066,3 +2107,141 @@ export interface PersonSignals {
 
 export const SIGNAL_SENDERS = 5;
 export const SILENT_LISTED = 50;
+
+// Hide rules (milestone 18, D221 to D223) -------------------------------------------------------
+
+/** How a hide rule compares the subject (D204): holds the text, or starts with it; any case. */
+export type SubjectMatch = "contains" | "starts";
+export const HIDE_EXAMPLES = 5;
+export const HIDE_SUGGESTIONS = 20;
+
+/** The criteria of a hide rule (D221): every one given must hold, at least one is given. */
+export interface HideRuleFields {
+  name?: string | null; // the team's name for it; null: the UI describes the criteria
+  sender?: string | null; // the sender's address, any case
+  person_id?: number | null; // a person: every address of its root
+  domain?: string | null; // the sender's domain or a subdomain of it, any case
+  list_id?: string | null; // the List-Id as stored
+  automated?: boolean; // sent automatically (D39)
+  subject?: string | null; // compared by subject_match, any case
+  subject_match?: SubjectMatch;
+}
+
+export interface HideRuleUpdate extends HideRuleFields {
+  enabled?: boolean; // a disabled rule hides nothing and keeps its criteria
+}
+
+export interface HideRuleInfo {
+  id: number;
+  name: string | null;
+  sender: string | null;
+  person_id: number | null;
+  domain: string | null;
+  list_id: string | null;
+  automated: boolean;
+  subject: string | null;
+  subject_match: SubjectMatch;
+  enabled: boolean;
+  person: PersonRef | null; // the person of person_id; null without one or when it is gone
+  mails: number; // mails it matches, those D203 keeps visible included
+  computed_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface HideRuleList {
+  rules: HideRuleInfo[]; // newest first
+  hidden: number; // mails an enabled rule hides, without those D203 keeps visible
+  kept: number; // mails an enabled rule matches that stay visible (D203)
+}
+
+/** What a rule would hide (D223), before it is saved. */
+export interface HideRulePreview {
+  mails: number;
+  kept: number; // in an Akte, with a note, bookmarked or relevant: they stay visible
+  with_terms: number; // with a word-field signal (term:*, D138)
+  examples: MailListItem[]; // the newest HIDE_EXAMPLES
+}
+
+export type HideSuggestionKind = "list" | "sender";
+
+/** A mailing list or an automated sender with many mails (D223). */
+export interface HideSuggestion {
+  kind: HideSuggestionKind;
+  list_id: string | null;
+  person: PersonRef | null;
+  mails: number;
+}
+
+/** Why a mail is hidden (D222). */
+export interface MailHiding {
+  rules: HideRuleInfo[]; // the enabled rules matching it
+  kept: boolean; // it stays visible all the same (D203)
+}
+
+// Standard blocks (milestone 18, D224 to D227) --------------------------------------------------
+
+export type BlockState = "standard" | "dismissed";
+export type BlockSort = "mails" | "recent";
+export const BLOCK_SAMPLE_LIMIT = 2_000;
+export const BLOCK_SENDERS = 50;
+
+export interface BlockInfo {
+  hash: string;
+  sample: string; // one occurrence as written, at most BLOCK_SAMPLE_LIMIT characters
+  standard: boolean; // applied by the last blocks step
+  detected: boolean; // by the rule of D225; false: marked by hand
+  override: boolean | null; // the team's choice (true marked, false taken back); null: none
+  pending: boolean; // the choice differs from what the last blocks step applied
+  mails: number; // mails holding it, duplicates left out
+  senders: number;
+  first_date: string | null;
+  last_date: string | null;
+}
+
+export interface BlockListParams {
+  state?: BlockState;
+  q?: string;
+  sort?: BlockSort;
+  offset?: number;
+  limit?: number;
+}
+
+export interface BlockPage {
+  items: BlockInfo[];
+  total: number;
+}
+
+/** Figures of the last blocks step and of the team's choices. */
+export interface BlockSummary {
+  blocks: number;
+  detected: number;
+  marked: number;
+  dismissed: number;
+  pending: number; // choices the next run applies
+  mails: number; // mails holding at least one standard block
+  waiting: number; // mails the paragraphs step has not split yet
+  min_mails: number; // MAILROBBE_BLOCK_MIN_MAILS (D225)
+  computed_at: string | null;
+}
+
+export interface BlockSender {
+  person: PersonRef;
+  mails: number;
+}
+
+export interface BlockDetail {
+  block: BlockInfo;
+  senders: BlockSender[]; // most mails first, at most BLOCK_SENDERS
+  domains: DomainCount[];
+}
+
+/** The team's choice (D225): true marks a paragraph, false takes a detected one back, null
+ *  removes the choice. sample is the paragraph as shown, needed when the blocks step has not
+ *  counted it. */
+export interface BlockOverrideUpdate {
+  standard: boolean | null;
+  sample?: string | null;
+}

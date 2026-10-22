@@ -47,7 +47,7 @@ from sqlalchemy.orm import aliased
 
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.documents import _all_unless_canceled
-from mailrobbe.api.filters import internal_domains, mail_conditions, resolve_contents
+from mailrobbe.api.filters import internal_domains, mail_conditions, resolve_contents, unfiltered
 from mailrobbe.api.mails import _count_budget, _terms, _unless_canceled, _where
 from mailrobbe.api.query import QueryError, parse_query
 from mailrobbe.api.schemas import (
@@ -279,7 +279,7 @@ def _chosen_persons(params: TimelineParams, where: Conditions) -> Executable:
             .where(Person.id == any_(_ids(params.split_id)))
         )
     columns = (root.id, root.canonical_email, root.display_name)
-    if not where:
+    if unfiltered(where):
         return (
             select(*columns)
             .join(PersonStats, PersonStats.person_id == root.id)

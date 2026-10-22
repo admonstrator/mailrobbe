@@ -32,6 +32,11 @@ one person's mails), and a walk past most of the archive takes a second at 400,0
 walk is bounded to WALK_ROWS mails, and when that is not enough every match is collected. Date
 bounds and a single DKIM status narrow the walk itself (see _ranges). A research filter with few
 contents replaces the walk: its mails are looked up and checked first (resolve_contents).
+
+Without include_hidden the conditions end with VISIBLE, the mails no hide rule hides or that
+stay visible (D222, D203). Where views show figures computed in advance when nothing is
+filtered (the facets, the person split of the timeline, the topics), a where of VISIBLE alone
+counts as nothing filtered (`unfiltered`), and those figures include the hidden mails (D202).
 """
 
 import base64
@@ -88,6 +93,7 @@ from mailrobbe.api.fulltext import (
 from mailrobbe.api.hits import hit_count
 from mailrobbe.api.query import parse_day
 from mailrobbe.api.schemas import MailFilters, PersonRole, QueryTerm, SearchField, SortOrder
+from mailrobbe.blocks.model import parse_hash
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TIMESTAMPTZ,
@@ -101,6 +107,7 @@ from mailrobbe.db.models import (
     MailEntity,
     MailMark,
     MailNear,
+    MailParagraph,
     MailSignal,
     MailTag,
     Note,
@@ -108,6 +115,7 @@ from mailrobbe.db.models import (
     Person,
 )
 from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
+from mailrobbe.hiding.model import visible
 from mailrobbe.persons.labels import label_matches
 from mailrobbe.signals.model import signal_keys
 
@@ -139,6 +147,9 @@ _TEXTS: dict[SearchField, QueryableAttribute[str | None]] = {
 # Words as alternatives of words that must all hold, as in fulltext.FullText.groups.
 _Groups = tuple[tuple[Words, ...], ...]
 
+# The one condition object leaving out the hidden mails, so that `unfiltered` recognises it.
+VISIBLE = visible()
+
 # Contents of a research filter (a tag, an Akte, a review status, notes, bookmarks) that are
 # looked up one by one in ix_mail_raw_sha256 instead of walking (resolve_contents): about the
 # cost of a walk.
@@ -163,7 +174,9 @@ def mail_conditions(
 ) -> list[ColumnElement[bool]]:
     """Every condition of the filters and of q's terms; a mail matches when all hold."""
     where = [condition for term in terms for condition in _term(term)]
-    search = full_text_search(terms, filters.scope, filters.whole_word, filters.min_hits)
+    search = full_text_search(
+        terms, filters.scope, filters.whole_word, filters.min_hits, filters.body_part
+    )
     if search is not None:
         where += text_conditions(search)
         if search.min_hits is not None:  # D174
@@ -226,9 +239,19 @@ def mail_conditions(
         where.append(_event(CalendarEvent.kind.in_(sorted(set(filters.event)))))
     if filters.event_uid is not None:
         where.append(_event(CalendarEvent.uid == filters.event_uid))
+    # Milestone 18: the mails holding a paragraph (D227), and the hide rules (D222).
+    if filters.block is not None:
+        where.append(_holds_block(parse_hash(filters.block)))
+    if not filters.include_hidden:
+        where.append(VISIBLE)
     if filters.collapse_near:  # last: it looks at every other condition
         where.append(_near_first(where))
     return where
+
+
+def unfiltered(where: Sequence[ColumnElement[bool]]) -> bool:
+    """Whether where filters nothing but the hidden mails (VISIBLE), or nothing at all."""
+    return all(condition is VISIBLE for condition in where)
 
 
 def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
@@ -667,6 +690,11 @@ def _near(condition: ColumnElement[bool]) -> ColumnElement[bool]:
     return exists().where(MailNear.mail_id == Mail.id, condition)
 
 
+def _holds_block(value: int) -> ColumnElement[bool]:
+    """The mail's stored text holds this paragraph (mail_paragraph, D227)."""
+    return exists().where(MailParagraph.mail_id == Mail.id, MailParagraph.hash == value)
+
+
 def _event(condition: ColumnElement[bool]) -> ColumnElement[bool]:
     """One of the mail's calendar events meets the condition."""
     return exists().where(CalendarEvent.mail_id == Mail.id, condition)
@@ -709,8 +737,8 @@ async def first_ids(
     """Ids of the first `limit` matching mails in list order (from its end with reverse),
     after the mail `after` (date_utc, id) when given."""
     start = [] if after is None else [beyond(sort, *after, reverse=reverse)]
-    if not where:
-        plain = select(Mail.id).where(*start).order_by(*order(sort, reverse)).limit(limit)
+    if unfiltered(where):
+        plain = select(Mail.id).where(*start, *where).order_by(*order(sort, reverse)).limit(limit)
         return list(await session.scalars(plain))
     where = await resolve_contents(session, where)
     if any(_resolved(condition) for condition in where):

@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { useResearch } from "../../api/queries";
 import { Button } from "../../components/Button";
+import { Checkbox } from "../../components/Checkbox";
 import type { SearchOptions as Options } from "../mails/listState";
 import {
   changedOptions,
@@ -55,6 +56,7 @@ export function SearchMenu({
           <p className={styles.text}>Wirkt auf die Wörter der Suche, nicht auf from:, has: usw.</p>
           <SearchOptions options={options} change={change} />
           <ExcludeField exclude={exclude} />
+          <HiddenMails options={options} change={change} onLeave={onLeave} />
         </div>
         <div className={styles.column}>
           <section aria-labelledby="search-menu-saved">
@@ -125,6 +127,38 @@ function ExcludeField({ exclude }: { exclude: (text: string) => void }) {
           Ausschließen
         </Button>
       </div>
+    </section>
+  );
+}
+
+/** "Ausgeblendete Mails" (D222, D223): the switch that includes the mails a hide rule hides,
+ *  and the way to the rules. */
+function HiddenMails({
+  options,
+  change,
+  onLeave,
+}: {
+  options: Options;
+  change: (patch: Partial<Options>) => void;
+  onLeave: () => void;
+}) {
+  return (
+    <section aria-labelledby="search-menu-hidden" className={styles.exclude}>
+      <h3 id="search-menu-hidden" className={styles.heading}>
+        Ausgeblendete Mails
+      </h3>
+      <Checkbox
+        checked={options.include_hidden}
+        onChange={(include_hidden) => change({ include_hidden })}
+      >
+        Ausgeblendete einbeziehen
+      </Checkbox>
+      <p className={styles.text}>
+        Ausblendregeln nehmen Newsletter, Rundmails und Systemmails aus Liste und Suche.{" "}
+        <Link to="/ausgeblendet" onClick={onLeave}>
+          Regeln verwalten
+        </Link>
+      </p>
     </section>
   );
 }

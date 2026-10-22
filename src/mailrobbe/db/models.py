@@ -12,8 +12,11 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   import dashboard; path is relative to MAILROBBE_MBOX_DIR.
 - mail.reference_ids holds the References header for threading; participation.display_name the
   name shown with the address in that mail, from which person_email.display_names is derived.
-- mail.tsv is a stored generated column over subject (weight A) and body_text (weight B) with
-  the TEXT_SEARCH_CONFIG configuration; queries must use the same configuration.
+- mail.tsv is the full text index of a mail with the TEXT_SEARCH_CONFIG configuration; queries
+  must use the same configuration. Up to migration 0016 a stored generated column over subject
+  (weight A) and body_text (weight B); since then the trigger mail_tsv computes it with
+  mailrobbe_mail_tsv from subject, body_text, history and blocks (D226), the same as before for a
+  mail without both.
 - edge.mails_total is a stored generated column (sum of all three counters) for the index the
   spec asks for.
 - ix_mail_sort orders mails by MAIL_SORT_KEY (date, missing dates oldest) and id, for keyset
@@ -61,6 +64,12 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   looked at, calendar_event and calendar_attendee the events of their iCalendar parts; and
   person_label the labels the team gives to addresses (user data, keyed by address like the
   research file by content, D156).
+- Milestone 18 (migration 0016, D220 to D229): hide_rule holds the team's hide rules (user data
+  like the research file) and mail_hidden the mails each rule matches (D221); mail_paragraph and
+  mail_paragraph_scan what the paragraphs step found in each mail's stored text (D224),
+  paragraph_block the standard blocks and other paragraphs the blocks step looked at, and
+  paragraph_override the team's choices about paragraphs (D225); mail.history and mail.blocks the
+  ranges of body_text that are quoted and that are standard blocks, which mail.tsv weighs (D226).
 """
 
 from datetime import date, datetime
@@ -89,7 +98,15 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, ENUM, JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import (
+    ARRAY,
+    ENUM,
+    INT4MULTIRANGE,
+    INT4RANGE,
+    JSONB,
+    TSVECTOR,
+    Range,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
@@ -139,11 +156,6 @@ TIMESTAMPTZ = DateTime(timezone=True)
 
 # Full text search configuration of mail.tsv (migration 0002); search queries must use it too.
 TEXT_SEARCH_CONFIG = "german"
-TSV_EXPRESSION = " || ".join(
-    f"setweight(to_tsvector('{TEXT_SEARCH_CONFIG}'::regconfig, COALESCE({column}, ''::text)), "
-    f"'{weight}'::\"char\")"
-    for column, weight in (("subject", "A"), ("body_text", "B"))
-)
 
 
 # Sort key of the mail list (migration 0003, D19): mails without a date sort as the oldest.
@@ -220,6 +232,7 @@ class Mail(Base):
             "is_duplicate_of",
             postgresql_where=text("is_duplicate_of IS NOT NULL"),
         ),
+        Index("ix_mail_list_id", "list_id", postgresql_where=text("list_id IS NOT NULL")),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -236,7 +249,9 @@ class Mail(Base):
     raw_sha256: Mapped[str] = mapped_column(Text)
     has_attachments: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     body_text: Mapped[str | None] = mapped_column(Text)
-    tsv: Mapped[Any | None] = mapped_column(TSVECTOR, Computed(TSV_EXPRESSION, persisted=True))
+    # Set by the trigger mail_tsv on every insert and on updates of subject, body_text, history
+    # and blocks (migration 0016, D226): A subject, B own text, C quoted text, D standard blocks.
+    tsv: Mapped[Any | None] = mapped_column(TSVECTOR)
     dkim_status: Mapped[DkimStatus | None] = mapped_column(dkim_status_enum)
     is_duplicate_of: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("mail.id", ondelete="SET NULL")
@@ -244,6 +259,10 @@ class Mail(Base):
     reference_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     list_id: Mapped[str | None] = mapped_column(Text)
     automated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # Ranges of body_text (character offsets) as the blocks step last applied them (D226): the
+    # quotes, originals and forwards, and the standard blocks; NULL: none.
+    history: Mapped[list[Range[int]] | None] = mapped_column(INT4MULTIRANGE)
+    blocks: Mapped[list[Range[int]] | None] = mapped_column(INT4MULTIRANGE)
 
 
 class MailHeader(Base):
@@ -1204,6 +1223,121 @@ class PersonLabel(Base):
     name: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str | None] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)
+    editor: Mapped[str | None] = mapped_column(Text)  # D54
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+# Milestone 18 (migration 0016): hide rules (D221) and standard blocks (D224, D225).
+
+
+class HideRule(Base):
+    """A rule of the team hiding mails from lists and searches (D221); its criteria must all hold
+    and at least one is set. User data, like the research file."""
+
+    __tablename__ = "hide_rule"
+    __table_args__ = (
+        CheckConstraint(
+            "sender IS NOT NULL OR person_id IS NOT NULL OR domain IS NOT NULL "
+            "OR list_id IS NOT NULL OR automated OR subject IS NOT NULL",
+            name="something",
+        ),
+        CheckConstraint("subject_match IN ('contains', 'starts')", name="subject_match"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    name: Mapped[str | None] = mapped_column(Text)  # the team's name for it; None: described
+    sender: Mapped[str | None] = mapped_column(Text)  # the sender's address, lower case
+    # a person with every address of its root (no foreign key: a rule outlives its person and
+    # then matches nothing)
+    person_id: Mapped[int | None] = mapped_column(BigInteger)
+    domain: Mapped[str | None] = mapped_column(Text)  # the sender's domain or a subdomain of it
+    list_id: Mapped[str | None] = mapped_column(Text)  # mail.list_id as stored
+    automated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    subject: Mapped[str | None] = mapped_column(Text)  # any case
+    subject_match: Mapped[str] = mapped_column(Text, server_default="contains")  # or "starts"
+    enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    mails: Mapped[int] = mapped_column(Integer, server_default="0")  # in mail_hidden
+    computed_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    created_by: Mapped[str | None] = mapped_column(Text)  # D54
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class MailHidden(Base):
+    """A mail an enabled rule matches (D221); whether it is hidden decides hiding.model."""
+
+    __tablename__ = "mail_hidden"
+    __table_args__ = (Index("ix_mail_hidden_mail_id", "mail_id"),)
+
+    rule_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("hide_rule.id", ondelete="CASCADE"), primary_key=True
+    )
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+
+
+# mail_paragraph_scan.version of a split by the current rules (blocks.model); raising it splits
+# every mail again at the next import (D224).
+PARAGRAPH_VERSION = 1
+
+
+class MailParagraphScan(Base):
+    """A mail the paragraphs step split (D224), with the ranges of its stored text that are
+    quotes, originals or forwards (quotes.split_text); NULL: none."""
+
+    __tablename__ = "mail_paragraph_scan"
+
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(SmallInteger)
+    history: Mapped[list[Range[int]] | None] = mapped_column(INT4MULTIRANGE)
+
+
+class MailParagraph(Base):
+    """A paragraph of a mail's stored text long enough to count (D224)."""
+
+    __tablename__ = "mail_paragraph"
+    __table_args__ = (Index("ix_mail_paragraph_hash", "hash", "mail_id"),)
+
+    mail_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mail.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(SmallInteger, primary_key=True)  # 0-based in the text
+    hash: Mapped[int] = mapped_column(BigInteger)  # blocks.model: of the normalised paragraph
+    span: Mapped[Range[int]] = mapped_column(INT4RANGE)  # character offsets in body_text
+    quoted: Mapped[bool] = mapped_column(Boolean)  # in a quote, original or forward
+    tail: Mapped[bool] = mapped_column(Boolean)  # where a standard block is detected (D225)
+
+
+class ParagraphBlock(Base):
+    """A paragraph the blocks step looked at (D225): every standard block, detected or marked by
+    hand, and every detected one the team took back; replaced by each blocks step."""
+
+    __tablename__ = "paragraph_block"
+
+    hash: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    standard: Mapped[bool] = mapped_column(Boolean)  # applied to mail.blocks
+    detected: Mapped[bool] = mapped_column(Boolean)  # by the rule of D225, not by hand
+    mails: Mapped[int] = mapped_column(Integer)  # mails holding it, duplicates left out
+    senders: Mapped[int] = mapped_column(Integer)  # distinct sender addresses of those
+    first_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    last_date: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    sample: Mapped[str] = mapped_column(Text)  # one occurrence as written
+
+
+class ParagraphOverride(Base):
+    """The team's choice about a paragraph (D225): standard marks it as a standard block by hand,
+    false takes a detected one back. User data, keyed by the hash like research data by content."""
+
+    __tablename__ = "paragraph_override"
+
+    hash: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    standard: Mapped[bool] = mapped_column(Boolean)
+    sample: Mapped[str] = mapped_column(Text)  # the paragraph as the team saw it
     editor: Mapped[str | None] = mapped_column(Text)  # D54
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())

@@ -530,7 +530,7 @@ async def mail_hits(
         terms = parse_query(params.q)
     except QueryError as error:
         raise api_error(400, "invalid_query", str(error)) from error
-    search = full_text_search(terms, params.scope, params.whole_word)
+    search = full_text_search(terms, params.scope, params.whole_word, body_part=params.body_part)
     counted = () if search is None else search.counted
     # the lexemes of each counted words, in the order its query has them
     queries = [cast(ts_query(words.websearch()), Text) for words, _ in counted]
