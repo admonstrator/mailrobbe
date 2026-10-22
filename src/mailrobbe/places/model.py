@@ -7,11 +7,21 @@ source after its directories step. job.options and job.progress of kind map hold
 MapProgress as JSON; the API serves them as they are.
 """
 
-from typing import Literal
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from mailrobbe.db.models import GlobalStats
 from mailrobbe.jobs import RunProgress
+
+Executor = AsyncSession | AsyncConnection
+
+FIGURES_KEY = "places"  # global_stats key of PlaceFigures
 
 # (west, south, east, north) in decimal degrees
 BBox = tuple[float, float, float, float]
@@ -67,3 +77,38 @@ class MapProgress(RunProgress):
     bytes_total: int | None = None  # bytes of tiles to download, once known
     bytes_done: int = 0  # of those, on disk (continued ones included)
     continued_bytes: int = 0  # downloaded by an earlier run this one continued (D246)
+
+
+@dataclass(frozen=True, slots=True)
+class PlaceFigures:
+    """What the last step places used (D242): a version other than gazetteer.places_version()
+    means the lists or rules changed, and the next step looks at every row again."""
+
+    computed_at: datetime  # when the step ended
+    version: str  # gazetteer.places_version() of that step
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self) | {"computed_at": self.computed_at.isoformat()}
+
+    @classmethod
+    def from_json(cls, value: dict[str, Any]) -> "PlaceFigures":
+        return cls(
+            computed_at=datetime.fromisoformat(value["computed_at"]), version=value["version"]
+        )
+
+
+async def read_figures(db: Executor) -> PlaceFigures | None:
+    """The figures of the last step places; None when none ran yet."""
+    value = await db.scalar(select(GlobalStats.value).where(GlobalStats.key == FIGURES_KEY))
+    return None if value is None else PlaceFigures.from_json(value)
+
+
+async def write_figures(db: Executor, figures: PlaceFigures) -> None:
+    """Store the figures of a step, in the caller's transaction."""
+    statement = postgresql.insert(GlobalStats).values(key=FIGURES_KEY, value=figures.to_json())
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[GlobalStats.key],
+            set_={"value": statement.excluded.value, "updated_at": func.now()},
+        )
+    )

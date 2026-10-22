@@ -41,3 +41,8 @@ def label_towns() -> tuple[Town, ...]:
     """The towns the overview map labels: the capitals and the larger towns of the lists, most
     populous first."""
     return ()  # the contract's placeholder; the lists come with the places step
+
+
+def places_version() -> str:
+    """The version of the lists and the rules of the step places (model.PlaceFigures)."""
+    return "0"  # the contract's placeholder; the lists come with the places step
