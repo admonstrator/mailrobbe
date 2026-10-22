@@ -267,7 +267,7 @@ async def _jump(
     where: Sequence[ColumnElement[bool]],
 ) -> paging.Jump:
     """The ids of the page a jump names (D193); where with its research filters resolved."""
-    far = not params.last and (params.page or 1) * params.limit > WALK_ROWS  # beyond the walk
+    far = not params.last and (params.page or 1) * params.limit >= WALK_ROWS  # beyond the walk
     plain = await _by_id(session, where) if far and unfiltered(where) else None
 
     async def read(offset: int, limit: int, reverse: bool) -> list[int]:

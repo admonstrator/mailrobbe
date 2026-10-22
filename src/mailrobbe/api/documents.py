@@ -17,7 +17,8 @@ every match sorted; matches cluster (one year's documents, one person's), and Po
 estimate assumes they do not. A jump to a page by number (D193, api/paging.py) reads by OFFSET;
 without conditions on mails, the test that remains (a carrier that is no duplicate and not
 hidden, D222) becomes the list of the few documents failing it (_by_id), so that counting and a
-page far into the list read document alone.
+page far into the list read document alone; within the first WALK_ROWS rows it is tested one
+document at a time, as the walk does.
 
 A snippet is found in PostgreSQL, so that only its surroundings leave the database: the search
 words as typed become one regular expression, any case written out as character classes (the
@@ -329,11 +330,14 @@ async def list_documents(
     if paging.wanted(params.page, params.last):  # D193
         if cursor is not None:
             raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
-        # Within the first WALK_ROWS rows the EXISTS is tested as the rows are walked.
-        far = not params.last and (params.page or 1) * params.limit > WALK_ROWS
-        plain = await _by_id(session) if far and not _on_mails(params) else None
-        if plain is not None:  # the where that read and the count below see
-            where = [*_where(params, settings.internal_domains, carried=False), *plain]
+        if not _on_mails(params):  # the where that read and the count below see
+            far = (params.page or 1) * params.limit >= WALK_ROWS
+            # With search words every match is tested before the sort, near the start too.
+            plain = await _by_id(session) if (far or walk is None) and not params.last else None
+            if plain is not None:
+                where = [*_where(params, settings.internal_domains, carried=False), *plain]
+            elif walk is not None:  # one document at a time: no join of every carrying mail
+                where = list(walk)
         count = select(func.count()).select_from(Document).where(*where)
         jumped = await paging.jump(
             session, settings, read, count, page=params.page, last=params.last, limit=params.limit
