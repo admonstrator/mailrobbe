@@ -73,7 +73,13 @@ export function BodyCard({
       <Tabs items={tabs} active={tab} onSelect={onTab} idPrefix={ID_PREFIX} label="Ansicht" />
       <div {...tabPanelProps(ID_PREFIX, tab)} className={styles.panel}>
         {tab === "text" && (
-          <Loaded query={text}>{(data) => <TextView data={data} marks={marks} />}</Loaded>
+          <Loaded query={text}>
+            {(data) => (
+              <div className={styles.textScroll}>
+                <TextView data={data} marks={marks} />
+              </div>
+            )}
+          </Loaded>
         )}
         {tab === "html" && (
           <iframe
