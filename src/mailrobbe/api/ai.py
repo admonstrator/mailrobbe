@@ -20,6 +20,13 @@ filters is resolved by the list's own conditions (documents.document_conditions)
 (processes.py, D46): it refuses to start while an import, a DKIM run, a key run or another AI run
 is alive, and an import refuses while it lives (processes.excluded).
 
+Summaries (milestone 17, D300 to D311) are queued here too, by name (kind summarize): mails by
+id or by the mail list's filters (resolved as a bulk change, selection.py), documents by id or
+by the document list's filters; a preview counts and estimates without writing (D308), and an
+element queued from its page starts `mailrobbe ai run --mail ID` or `--document ID` at once
+(D307). Tasks, results and sends name a document or a mail (target, D301); a mail is shown by
+the earliest mail of its content. The card of one element is summaries.py.
+
 Every POST takes a JSON body declared as application/json (imports.JSON_BODY); writes take the
 editor from X-Mailrobbe-Editor (D54).
 """
@@ -28,7 +35,8 @@ import asyncio
 import base64
 import binascii
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Annotated
 
 import fastapi
@@ -40,6 +48,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from mailrobbe import jobs
 from mailrobbe.ai import queue, services, store
 from mailrobbe.ai.model import (
+    CHARS_PER_TOKEN,
+    SUMMARY_RULE_SECONDS_PER_KTOKEN,
+    SUMMARY_RULE_SECONDS_PER_TASK,
     AiOptions,
     Capability,
     ForbiddenService,
@@ -51,7 +62,7 @@ from mailrobbe.ai.model import (
     locality,
     refusal,
 )
-from mailrobbe.ai.queue import WORK_LISTS
+from mailrobbe.ai.queue import SUMMARIZABLE_DOCUMENT, WORK_LISTS
 from mailrobbe.api import processes
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.documents import READABLE, RESULT_FIGURES, document_conditions
@@ -64,6 +75,7 @@ from mailrobbe.api.schemas import (
     AiDocumentRef,
     AiEstimate,
     AiJob,
+    AiMailRef,
     AiQueued,
     AiQueuedRun,
     AiQueueRequest,
@@ -80,13 +92,16 @@ from mailrobbe.api.schemas import (
     AiTaskItem,
     AiTaskPage,
     AiTaskParams,
+    AiTextEstimate,
     AiWorkList,
     AiWorkListInfo,
     DocumentFilters,
+    MailSelection,
 )
+from mailrobbe.api.selection import resolve_selection
 from mailrobbe.config import Settings
 from mailrobbe.db.models import AiSendLog, AiTask, Document, Job
-from mailrobbe.enums import AiResultState, AiTaskKind, JobKind
+from mailrobbe.enums import AiResultState, AiTarget, AiTaskKind, JobKind
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -94,7 +109,7 @@ ResultId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
 JobId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
 
 # The options of the latest run that the next start from the AI page takes over (D49).
-DEFAULT_KEYS = ("ocr_engine", "vision_model", "max_pages")
+DEFAULT_KEYS = ("ocr_engine", "vision_model", "max_pages", "text_model")
 
 
 # Status ----------------------------------------------------------------------------------------
@@ -125,6 +140,7 @@ async def ai_status(session: Session, settings: AppSettings) -> AiStatus:
         remote_used=sent is not None or any(service.locality == "remote" for service in services),
         job=None if row is None else await ai_job(session, settings, row),
         defaults=defaults,
+        text=_usable_text(services),
     )
 
 
@@ -160,13 +176,29 @@ def _usable_vision(services: Sequence[AiServiceInfo]) -> bool:
     return any(service.capability == "vision" and service.refused is None for service in services)
 
 
+def _usable_text(services: Sequence[AiServiceInfo]) -> bool:
+    """A text service is configured and allowed (D300): "Zusammenfassen" shows."""
+    return any(service.capability == "text" and service.refused is None for service in services)
+
+
+async def text_usable(settings: Settings) -> bool:
+    """_usable_text without the other services; asks no service, may look up its host."""
+    service = configured_services(settings).get("text")
+    if service is None:
+        return False
+    return await asyncio.to_thread(lambda: refusal(service, settings) is None)
+
+
 def _defaults(settings: Settings, latest: Job | None) -> AiOptions:
     """The settings' options with the DEFAULT_KEYS of the latest run (D49)."""
     options = AiOptions.from_settings(settings)
     stored = None if latest is None else _valid(AiOptions, latest.options)
     if stored is None:
         return options
-    return options.model_copy(update={key: getattr(stored, key) for key in DEFAULT_KEYS})
+    update = {key: getattr(stored, key) for key in DEFAULT_KEYS}
+    if not stored.text_model:  # a run before M17 or without a text service: the settings' model
+        del update["text_model"]
+    return options.model_copy(update=update)
 
 
 _CALIBRATION = text("""
@@ -263,6 +295,14 @@ def check_service(service: Service, settings: Settings) -> ServiceCheck:
 async def enqueue(
     request: AiQueueRequest, session: Session, settings: AppSettings, editor: Editor, runs: Runs
 ) -> AiQueued:
+    if request.kind is AiTaskKind.SUMMARIZE:
+        return await _enqueue_summaries(request, session, settings, editor, runs)
+    if request.kind is AiTaskKind.TRANSCRIBE:
+        raise api_error(400, "invalid_option", "transcripts cannot be queued")
+    if request.mail_ids is not None or request.mail_filters is not None:
+        raise api_error(400, "invalid_selection", "mails are queued for summaries only")
+    if request.preview:
+        raise api_error(400, "invalid_option", "a preview is made for summaries only")
     given = [request.work_list, request.document_ids, request.filters]
     if sum(value is not None for value in given) != 1:
         raise api_error(
@@ -300,16 +340,24 @@ async def enqueue(
 
 
 async def _start_for(
-    session: AsyncSession, settings: Settings, runs: Runs, document_ids: list[int]
+    session: AsyncSession,
+    settings: Settings,
+    runs: Runs,
+    document_ids: list[int],
+    mail_ids: Sequence[int] = (),
 ) -> AiQueuedRun:
-    """Start a run reading only these documents (D280), with the latest run's options; a live
-    AI run takes them next instead, and any other live run leaves them waiting."""
+    """Start a run reading only these documents (D280) and mails (D307), or the whole queue
+    without either (D308), with the latest run's options; a live AI run takes them next
+    instead, and any other live run leaves them waiting."""
     if await jobs.job_alive(session, JobKind.AI):
         return "running"
     latest = await jobs.latest_job(session, JobKind.AI)
     _, defaults = await asyncio.to_thread(_settings_view, settings, latest)
-    arguments = _run_arguments(defaults.ocr_engine, defaults.vision_model, defaults.max_pages)
+    arguments = _run_arguments(
+        defaults.ocr_engine, defaults.vision_model, defaults.max_pages, defaults.text_model
+    )
     arguments += [f"--document={document_id}" for document_id in document_ids]
+    arguments += [f"--mail={mail_id}" for mail_id in mail_ids]
     environment = processes.child_environment(settings)
     try:
         await _start(session, settings, runs, JobKind.AI, arguments, environment)
@@ -352,6 +400,131 @@ async def readable_ids(
     return ids
 
 
+# Summaries (D300, D302, D308) ------------------------------------------------------------------
+
+# Documents that can be summarised (ai.queue.SUMMARIZABLE_DOCUMENT), on statements over document.
+SUMMARIZABLE = text(
+    f"EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {SUMMARIZABLE_DOCUMENT})"
+)
+# Tokens of what a task sends besides the text: subject, date, names and addresses, file names
+# and the marks around the material (D302, D306); with the text's characters the estimate's input.
+SUMMARY_HEAD_TOKENS = 100
+_TEXT_CALIBRATION = text("""
+    SELECT seconds_per_unit FROM ai_calibration
+    WHERE kind = 'summarize' AND engine = 'text' AND model = :model AND unit = 'ktoken'
+""")
+
+
+async def _enqueue_summaries(
+    request: AiQueueRequest,
+    session: AsyncSession,
+    settings: Settings,
+    editor: str | None,
+    runs: Runs,
+) -> AiQueued:
+    """POST /api/ai/tasks with kind summarize (D308): exactly one of mail_ids, mail_filters (as a
+    bulk change, at most AI_QUEUE_LIMIT mails), document_ids and the document list's filters;
+    with preview nothing is written. start runs the run for these ids at once, or for the whole
+    queue after filters (D307)."""
+    if request.work_list is not None:
+        raise api_error(400, "invalid_option", "a work list is queued for OCR only")
+    given = [request.mail_ids, request.mail_filters, request.document_ids, request.filters]
+    if sum(value is not None for value in given) != 1:
+        raise api_error(
+            400,
+            "invalid_selection",
+            "give exactly one of mail_ids, mail_filters, document_ids and filters",
+        )
+    latest = await jobs.latest_job(session, JobKind.AI)
+    services, defaults = await asyncio.to_thread(_settings_view, settings, latest)
+    if not _usable_text(services):
+        raise api_error(400, "invalid_option", "no usable text service is configured")
+    mail_ids = list(request.mail_ids or [])
+    document_ids = list(request.document_ids or [])
+    if request.mail_filters is not None:
+        selection = MailSelection(filters=request.mail_filters)
+        mail_ids = [
+            mail.id
+            for mail in await resolve_selection(session, settings, selection, AI_QUEUE_LIMIT)
+        ]
+    elif request.filters is not None:
+        document_ids = await summarizable_ids(session, settings, request.filters)
+    queued = await queue.enqueue_summaries(
+        session,
+        mail_ids=mail_ids,
+        document_ids=document_ids,
+        editor=editor,
+        single=request.single,
+        preview=request.preview,
+    )
+    tasks = queued.queued + queued.raised
+    estimate = await _text_estimate(session, defaults.text_model, tasks, queued.characters)
+    run = None
+    if not request.preview:
+        await session.commit()
+        if request.start and tasks:
+            by_ids = request.mail_ids is not None or request.document_ids is not None
+            run = await _start_for(
+                session,
+                settings,
+                runs,
+                sorted(set(document_ids)) if by_ids else [],
+                sorted(set(mail_ids)) if by_ids else [],
+            )
+    return AiQueued(
+        queued=queued.queued,
+        raised=queued.raised,
+        unreadable=queued.unreadable,
+        logos=0,
+        run=run,
+        short=queued.short,
+        estimate=estimate,
+    )
+
+
+async def summarizable_ids(
+    session: AsyncSession, settings: Settings, filters: DocumentFilters
+) -> list[int]:
+    """The documents of the document list's filters that can be summarised (D302), most mails
+    first; 400 too_many_documents above AI_QUEUE_LIMIT."""
+    try:
+        where = document_conditions(filters, internal_domains(settings.internal_domains))
+    except FilterError as error:
+        raise api_error(400, "invalid_filter", str(error)) from error
+    statement = (
+        select(Document.id)
+        .where(*where, SUMMARIZABLE)
+        .order_by(Document.mails.desc(), Document.id)
+        .limit(AI_QUEUE_LIMIT + 1)
+    )
+    ids = list(await session.scalars(statement))
+    if len(ids) > AI_QUEUE_LIMIT:
+        raise api_error(
+            400,
+            "too_many_documents",
+            f"the filters match more than {AI_QUEUE_LIMIT} documents with a text",
+        )
+    return ids
+
+
+async def _text_estimate(
+    session: AsyncSession, model: str, tasks: int, characters: int
+) -> AiTextEstimate:
+    """How long these summaries take (D308): the input's tokens times the measured seconds per
+    1,000 tokens of the model, else the rule of thumb per task and per 1,000 tokens."""
+    tokens = round(characters / CHARS_PER_TOKEN) + SUMMARY_HEAD_TOKENS * tasks
+    measured = await session.scalar(_TEXT_CALIBRATION, {"model": model})
+    if measured is None:
+        seconds = (
+            tasks * SUMMARY_RULE_SECONDS_PER_TASK + tokens / 1000 * SUMMARY_RULE_SECONDS_PER_KTOKEN
+        )
+    else:
+        seconds = tokens / 1000 * float(measured)
+    return AiTextEstimate(
+        model=model, tasks=tasks, tokens=tokens, seconds=seconds, estimated=measured is None
+    )
+
+
 @router.get("/tasks")
 async def tasks(params: Annotated[AiTaskParams, Query()], session: Session) -> AiTaskPage:
     task = AiTask
@@ -360,8 +533,14 @@ async def tasks(params: Annotated[AiTaskParams, Query()], session: Session) -> A
         where.append(task.status.in_(sorted(set(params.status))))
     if params.cursor is not None:
         where.append(task.id < _decode_cursor(params.cursor, "task"))
-    pages = func.coalesce(func.jsonb_array_length(task.partial["pages"]), 0).label("pages_read")
-    total = task.partial["pages_total"].astext.cast(Integer).label("pages_total")
+    # An OCR task keeps its pages, a summary its parts (D303).
+    done = func.coalesce(task.partial["pages"], task.partial["parts"])
+    pages = func.coalesce(func.jsonb_array_length(done), 0).label("pages_read")
+    total = (
+        func.coalesce(task.partial["pages_total"].astext, task.partial["parts_total"].astext)
+        .cast(Integer)
+        .label("pages_total")
+    )
     found = list(
         await session.execute(
             select(task, pages, total)
@@ -372,13 +551,13 @@ async def tasks(params: Annotated[AiTaskParams, Query()], session: Session) -> A
     )
     more = len(found) > params.limit
     del found[params.limit :]
-    documents = await document_refs(session, [row[0].target_sha256 for row in found])
+    refs = await target_refs(session, [(row[0].target, row[0].target_sha256) for row in found])
     return AiTaskPage(
         items=[
             AiTaskItem(
                 id=row.id,
                 kind=row.kind,
-                document=documents.get(row.target_sha256),
+                document=refs.document(row.target, row.target_sha256),
                 engine=row.engine,
                 priority=row.priority,
                 status=row.status,
@@ -391,6 +570,8 @@ async def tasks(params: Annotated[AiTaskParams, Query()], session: Session) -> A
                 pages_read=pages_read,
                 pages_total=pages_total,
                 result_id=row.result_id,
+                target=AiTarget(row.target),
+                mail=refs.mail(row.target, row.target_sha256),
             )
             for row, pages_read, pages_total in found
         ],
@@ -421,8 +602,13 @@ def _task_ids(action: AiTaskAction) -> list[int] | None:
 
 # Results ---------------------------------------------------------------------------------------
 
+# A summary's parts are its pages (RESULT_FIGURES: read, failed), its length the characters;
+# its tags and theme hints are counted (D300).
 _RESULTS = text(f"""
-    SELECT {RESULT_FIGURES} FROM ai_result r
+    SELECT {RESULT_FIGURES}, r.target,
+        (SELECT count(*) FROM ai_tag_link l WHERE l.result_id = r.id) AS tags,
+        (SELECT count(*) FROM ai_theme_hint h WHERE h.result_id = r.id) AS themes
+    FROM ai_result r
     WHERE (CAST(:states AS text[]) IS NULL OR r.state::text = ANY(CAST(:states AS text[])))
       AND (CAST(:job_id AS bigint) IS NULL OR r.job_id = CAST(:job_id AS bigint))
       AND (CAST(:before AS bigint) IS NULL OR r.id < CAST(:before AS bigint))
@@ -446,13 +632,13 @@ async def results(params: Annotated[AiResultParams, Query()], session: Session) 
     )
     more = len(found) > params.limit
     del found[params.limit :]
-    documents = await document_refs(session, [row.target_sha256 for row in found])
+    refs = await target_refs(session, [(row.target, row.target_sha256) for row in found])
     return AiResultPage(
         items=[
             AiResultItem(
                 id=row.id,
                 kind=AiTaskKind(row.kind),
-                document=documents.get(row.target_sha256),
+                document=refs.document(row.target, row.target_sha256),
                 engine=row.engine,
                 model=row.model,
                 remote=row.remote,
@@ -468,6 +654,10 @@ async def results(params: Annotated[AiResultParams, Query()], session: Session) 
                 job_id=row.job_id,
                 discarded_by=row.discarded_by,
                 discarded_at=row.discarded_at,
+                target=AiTarget(row.target),
+                mail=refs.mail(row.target, row.target_sha256),
+                tags=row.tags,
+                themes=row.themes,
             )
             for row in found
         ],
@@ -505,7 +695,7 @@ async def send_log(params: Annotated[AiSendLogParams, Query()], session: Session
     )
     more = len(found) > params.limit
     del found[params.limit :]
-    documents = await document_refs(session, [row.target_sha256 for row in found])
+    refs = await target_refs(session, [(row.target, row.target_sha256) for row in found])
     return AiSendLogPage(
         items=[
             AiSendItem(
@@ -513,9 +703,11 @@ async def send_log(params: Annotated[AiSendLogParams, Query()], session: Session
                 sent_at=row.sent_at,
                 service_url=row.service_url,
                 kind=row.kind,
-                document=documents.get(row.target_sha256),
+                document=refs.document(row.target, row.target_sha256),
                 bytes=row.bytes,
                 job_id=row.job_id,
+                target=AiTarget(row.target),
+                mail=refs.mail(row.target, row.target_sha256),
             )
             for row in found
         ],
@@ -540,17 +732,24 @@ async def start_run(
     model = defaults.vision_model if request.vision_model is None else request.vision_model
     if any(not char.isprintable() for char in model):
         raise api_error(400, "invalid_option", "the vision model's name has control characters")
-    arguments = _run_arguments(engine, model, request.max_pages or defaults.max_pages)
+    text_model = defaults.text_model if request.text_model is None else request.text_model
+    if any(not char.isprintable() for char in text_model):
+        raise api_error(400, "invalid_option", "the text model's name has control characters")
+    arguments = _run_arguments(engine, model, request.max_pages or defaults.max_pages, text_model)
     environment = processes.child_environment(settings)
     job = await _start(session, settings, runs, JobKind.AI, arguments, environment)
     return await ai_job(session, settings, job)
 
 
-def _run_arguments(engine: OcrEngineChoice, model: str, max_pages: int) -> list[str]:
+def _run_arguments(
+    engine: OcrEngineChoice, model: str, max_pages: int, text_model: str = ""
+) -> list[str]:
     """The arguments of `mailrobbe ai run` for these options."""
     arguments = ["run", f"--engine={engine}", f"--max-pages={max_pages}"]
     if model.strip():
         arguments.append(f"--vision-model={model.strip()}")
+    if text_model.strip():
+        arguments.append(f"--text-model={text_model.strip()}")
     return arguments
 
 
@@ -575,6 +774,51 @@ async def document_refs(session: AsyncSession, contents: Sequence[str]) -> dict[
         row.sha256: AiDocumentRef(id=row.id, name=row.name, kind=row.kind, pages=row.pages)
         for row in found
     }
+
+
+_MAIL_REFS = text("""
+    SELECT DISTINCT ON (raw_sha256) raw_sha256, id, subject, date_utc FROM mail
+    WHERE raw_sha256 = ANY(CAST(:contents AS text[]))
+    ORDER BY raw_sha256, id
+""")
+
+
+async def mail_refs(session: AsyncSession, contents: Sequence[str]) -> dict[str, AiMailRef]:
+    """The earliest mail of each of these contents (mail.raw_sha256, D301), by content."""
+    if not contents:
+        return {}
+    found = await session.execute(_MAIL_REFS, {"contents": sorted(set(contents))})
+    return {
+        row.raw_sha256: AiMailRef(id=row.id, subject=row.subject, date=row.date_utc)
+        for row in found
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class TargetRefs:
+    """The documents and mails a page of tasks, results or sends names (D301)."""
+
+    documents: dict[str, AiDocumentRef]
+    mails: dict[str, AiMailRef]
+
+    def document(self, target: str, content: str) -> AiDocumentRef | None:
+        return self.documents.get(content) if target == AiTarget.DOCUMENT else None
+
+    def mail(self, target: str, content: str) -> AiMailRef | None:
+        return self.mails.get(content) if target == AiTarget.MAIL else None
+
+
+async def target_refs(session: AsyncSession, rows: Iterable[tuple[str, str]]) -> TargetRefs:
+    """The references of these (target, content) pairs."""
+    pairs = list(rows)
+    return TargetRefs(
+        documents=await document_refs(
+            session, [content for target, content in pairs if target == AiTarget.DOCUMENT]
+        ),
+        mails=await mail_refs(
+            session, [content for target, content in pairs if target == AiTarget.MAIL]
+        ),
+    )
 
 
 def _encode_cursor(scope: str, row_id: int) -> str:
