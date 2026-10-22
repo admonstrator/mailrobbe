@@ -177,7 +177,27 @@ async def list_mails(
     del ids[params.limit :]
     if reverse:
         ids.reverse()
-    rows = await _rows(session, ids)
+    statement = (
+        select(
+            Mail.id,
+            Mail.date_utc,
+            Mail.subject,
+            Mail.dkim_status,
+            Mail.has_attachments,
+            Mail.thread_id,
+            Mail.is_duplicate_of,
+            Mail.byte_length,
+            Mail.mbox_file_id,
+            func.coalesce(MailMark.flagged, False).label("flagged"),
+            MailMark.review,
+            _TAGS,
+            _NOTES,
+        )
+        .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
+        .where(Mail.id == any_(literal(ids, ARRAY(BigInteger))))
+    )
+    found = {row.id: row for row in await session.execute(statement)}
+    rows = [found[mail_id] for mail_id in ids]
     people = await _participants(session, [row.id for row in rows])
     # The addresses of the one person filtered for, as the person filter reads them.
     members = set(await member_ids(session, params.person[0])) if len(params.person) == 1 else None
@@ -224,45 +244,6 @@ async def list_mails(
     )
     await attach_labels(session, page)
     return page
-
-
-async def _rows(session: AsyncSession, ids: list[int]) -> list[_Row]:
-    """The columns of a list item of each mail, in the order of ids."""
-    statement = (
-        select(
-            Mail.id,
-            Mail.date_utc,
-            Mail.subject,
-            Mail.dkim_status,
-            Mail.has_attachments,
-            Mail.thread_id,
-            Mail.is_duplicate_of,
-            Mail.byte_length,
-            Mail.mbox_file_id,
-            func.coalesce(MailMark.flagged, False).label("flagged"),
-            MailMark.review,
-            _TAGS,
-            _NOTES,
-        )
-        .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
-        .where(Mail.id == any_(literal(ids, ARRAY(BigInteger))))
-    )
-    found = {row.id: row for row in await session.execute(statement)}
-    return [found[mail_id] for mail_id in ids if mail_id in found]
-
-
-async def mail_items(session: AsyncSession, ids: list[int]) -> list[MailListItem]:
-    """These mails as the list shows them, in this order, without search hits; labels are set
-    by the caller's attach_labels."""
-    rows = await _rows(session, ids)
-    people = await _participants(session, ids)
-    items = [_item(row, people.get(row.id, [])) for row in rows]
-    near_counts = await near.near_counts(session, ids)
-    event_kinds = await events.event_kinds(session, ids)
-    for item in items:
-        item.near_count = near_counts.get(item.id, 0)
-        item.event = event_kinds.get(item.id)
-    return items
 
 
 async def _found_through_attachments(
@@ -651,3 +632,46 @@ def _take(buffer: io.StringIO) -> str:
     buffer.seek(0)
     buffer.truncate()
     return text
+
+
+# List items for other views: the examples of a hide rule's preview (D223) ----------------------
+
+
+async def _rows(session: AsyncSession, ids: list[int]) -> list[_Row]:
+    """The columns of a list item of each mail, in the order of ids, as list_mails reads them;
+    ids that are gone are left out."""
+    statement = (
+        select(
+            Mail.id,
+            Mail.date_utc,
+            Mail.subject,
+            Mail.dkim_status,
+            Mail.has_attachments,
+            Mail.thread_id,
+            Mail.is_duplicate_of,
+            Mail.byte_length,
+            Mail.mbox_file_id,
+            func.coalesce(MailMark.flagged, False).label("flagged"),
+            MailMark.review,
+            _TAGS,
+            _NOTES,
+        )
+        .outerjoin(MailMark, MailMark.mail_sha256 == Mail.raw_sha256)
+        .where(Mail.id == any_(literal(ids, ARRAY(BigInteger))))
+    )
+    found = {row.id: row for row in await session.execute(statement)}
+    return [found[mail_id] for mail_id in ids if mail_id in found]
+
+
+async def mail_items(session: AsyncSession, ids: list[int]) -> list[MailListItem]:
+    """These mails as the list shows them, in this order, without search hits; labels are set
+    by the caller's attach_labels."""
+    rows = await _rows(session, ids)
+    people = await _participants(session, ids)
+    items = [_item(row, people.get(row.id, [])) for row in rows]
+    near_counts = await near.near_counts(session, ids)
+    event_kinds = await events.event_kinds(session, ids)
+    for item in items:
+        item.near_count = near_counts.get(item.id, 0)
+        item.event = event_kinds.get(item.id)
+    return items
