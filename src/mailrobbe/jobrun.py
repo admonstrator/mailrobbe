@@ -76,12 +76,14 @@ _BUSY = {
     JobKind.DKIM: "another DKIM check is running",
     JobKind.DKIM_KEYS: "another DKIM check or key search is running",
     JobKind.MAP: "another map download is running",
+    JobKind.AI: "another AI run is running",
 }
 _ABORTED = {
     JobKind.IMPORT: "aborted: run `mailrobbe import` again to continue",
     JobKind.DKIM: "aborted: the mails checked so far are stored",
     JobKind.DKIM_KEYS: "aborted: the keys and mails stored so far stay",
     JobKind.MAP: "aborted: run `mailrobbe map download` again to continue",
+    JobKind.AI: "aborted: run `mailrobbe ai run` again to continue",
 }
 _ERRORS = (OSError, SQLAlchemyError)
 

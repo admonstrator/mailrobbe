@@ -72,6 +72,26 @@ services:
       # https URL of a PMTiles v3 file replaces the newest Protomaps build.
       MAILROBBE_MAP_DIR: /data/maps
       MAILROBBE_MAP_SOURCE: ${MAILROBBE_MAP_SOURCE:-protomaps}
+      # AI services on the host (D180 to D182): models run natively on the Mac, which Docker
+      # Desktop gives no GPU, e.g. http://host.docker.internal:1234/v1 for LM Studio or
+      # http://host.docker.internal:11434 for Ollama. Empty: no vision service, OCR with
+      # Tesseract only. Services outside this machine and its networks need ALLOW_REMOTE.
+      MAILROBBE_AI_VISION_URL: ${MAILROBBE_AI_VISION_URL:-}
+      MAILROBBE_AI_VISION_MODEL: ${MAILROBBE_AI_VISION_MODEL:-}
+      MAILROBBE_AI_VISION_KEY: ${MAILROBBE_AI_VISION_KEY:-}
+      MAILROBBE_AI_VISION_PROTOCOL: ${MAILROBBE_AI_VISION_PROTOCOL:-}
+      MAILROBBE_AI_ALLOW_REMOTE: ${MAILROBBE_AI_ALLOW_REMOTE:-}
+      MAILROBBE_AI_REMOTE_TOKEN_BUDGET: ${MAILROBBE_AI_REMOTE_TOKEN_BUDGET:-}
+      MAILROBBE_AI_CONCURRENCY: ${MAILROBBE_AI_CONCURRENCY:-}
+      MAILROBBE_AI_TIMEOUT: ${MAILROBBE_AI_TIMEOUT:-}
+      MAILROBBE_AI_OCR_ENGINE: ${MAILROBBE_AI_OCR_ENGINE:-}
+      MAILROBBE_AI_OCR_MAX_PAGES: ${MAILROBBE_AI_OCR_MAX_PAGES:-}
+      MAILROBBE_AI_OCR_LANGUAGES: ${MAILROBBE_AI_OCR_LANGUAGES:-}
+      MAILROBBE_AI_OCR_UNCERTAIN: ${MAILROBBE_AI_OCR_UNCERTAIN:-}
+    # host.docker.internal on Linux too (Docker Desktop has it already); there the service must
+    # listen on the Docker bridge, Ollama for example with OLLAMA_HOST=0.0.0.0.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ${MAILROBBE_MBOX_HOST_DIR:-./data/mbox}:/data/mbox:ro
       - previews:/data/previews

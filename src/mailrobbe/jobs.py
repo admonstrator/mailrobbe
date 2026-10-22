@@ -42,13 +42,16 @@ RATE_WINDOW = 60.0  # seconds the throughput figures average over
 IMPORT_LOCK_KEY = int.from_bytes(b"mailrobb", "big")
 DKIM_LOCK_KEY = int.from_bytes(b"mrdkimrn", "big")
 MAP_LOCK_KEY = int.from_bytes(b"mrmaprun", "big")
+AI_LOCK_KEY = int.from_bytes(b"mrairuns", "big")
 # A dkim-keys run checks mails again at its end, so it shares the DKIM lock (D101). A map run
-# touches no mail and has a lock of its own (D246).
+# touches no mail and has a lock of its own (D246). An AI run has its own too; it and an import
+# refuse to start while the other is alive (D187).
 LOCK_KEYS: dict[JobKind, int] = {
     JobKind.IMPORT: IMPORT_LOCK_KEY,
     JobKind.DKIM: DKIM_LOCK_KEY,
     JobKind.DKIM_KEYS: DKIM_LOCK_KEY,
     JobKind.MAP: MAP_LOCK_KEY,
+    JobKind.AI: AI_LOCK_KEY,
 }
 
 # The phases a run goes through, in order (job.phase).
@@ -72,7 +75,9 @@ DkimPhase = Literal["check", "aggregates"]
 LOST_MESSAGE = "the run ended without recording its end"
 
 StepStatus = Literal["waiting", "running", "done", "stopped", "skipped", "failed"]
-StepUnit = Literal["bytes", "mails", "documents", "names", "domains", "places"]  # done, total count
+StepUnit = Literal[
+    "bytes", "mails", "documents", "names", "domains", "places", "pages"
+]  # done, total count
 
 
 class StepProgress(BaseModel):

@@ -102,10 +102,11 @@ _WAITING = text("""
     SELECT id, name, mime_type, size_bytes, text_status::text AS text_status, kind::text AS kind,
         metadata_version < :metadata_version AS metadata
     FROM document
-    WHERE text_status IN ('pending', 'unreadable')
-       OR (text_status = 'too_large' AND size_bytes <= :max_size)
-       OR (extractor_version BETWEEN 1 AND :version - 1 AND size_bytes <= :max_size
-           AND text_status NOT IN ('pending', 'unreadable', 'too_large'))
+    WHERE text_origin = 'extracted'  -- never a text an AI run put there (D185)
+      AND (text_status IN ('pending', 'unreadable')
+           OR (text_status = 'too_large' AND size_bytes <= :max_size)
+           OR (extractor_version BETWEEN 1 AND :version - 1 AND size_bytes <= :max_size
+               AND text_status NOT IN ('pending', 'unreadable', 'too_large')))
     ORDER BY id
 """)
 _STORE = text("""

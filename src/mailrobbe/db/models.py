@@ -124,6 +124,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from mailrobbe.db.base import Base
 from mailrobbe.enums import (
+    AiResultState,
+    AiTaskKind,
+    AiTaskStatus,
     AliasTier,
     DkimStatus,
     DnsStatus,
@@ -142,6 +145,7 @@ from mailrobbe.enums import (
     PasswordTier,
     PersonKind,
     ReviewStatus,
+    TextOrigin,
 )
 
 
@@ -172,6 +176,10 @@ document_protection_enum = _pg_enum(DocumentProtection, "document_protection")
 document_members_status_enum = _pg_enum(DocumentMembersStatus, "document_members_status")
 document_member_status_enum = _pg_enum(DocumentMemberStatus, "document_member_status")
 password_tier_enum = _pg_enum(PasswordTier, "password_tier")
+text_origin_enum = _pg_enum(TextOrigin, "text_origin")
+ai_task_kind_enum = _pg_enum(AiTaskKind, "ai_task_kind")
+ai_task_status_enum = _pg_enum(AiTaskStatus, "ai_task_status")
+ai_result_state_enum = _pg_enum(AiResultState, "ai_result_state")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -443,6 +451,11 @@ class Document(Base):
             "metadata_longitude",
             postgresql_where=text("metadata_latitude IS NOT NULL"),
         ),
+        Index(
+            "ix_document_text_origin",
+            "text_origin",
+            postgresql_where=text("text_origin <> 'extracted'"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -507,6 +520,13 @@ class Document(Base):
     metadata_latitude: Mapped[float | None] = mapped_column(Float)
     metadata_longitude: Mapped[float | None] = mapped_column(Float)
     metadata_gps_time: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    # Where extracted_text comes from (migration 0019, D185): the import's extraction, or an AI
+    # result (ai_result_id) that filled a document without a text of its own. Written only by
+    # mailrobbe.ai.store.
+    text_origin: Mapped[TextOrigin] = mapped_column(text_origin_enum, server_default="extracted")
+    ai_result_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ai_result.id", ondelete="SET NULL")
+    )
 
 
 class DkimResult(Base):
@@ -1525,3 +1545,124 @@ class DocumentPassword(Base):
     tier: Mapped[PasswordTier] = mapped_column(password_tier_enum)
     found_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
     found_by: Mapped[str | None] = mapped_column(Text)  # D54: who typed it in (tier typed)
+
+
+# AI services (migration 0019, D180 to D189): contents are named by their SHA-256 (D185).
+
+
+class AiResult(Base):
+    """What an AI run made of a document or mail, with its origin (D185); the source of the copy
+    in document.extracted_text."""
+
+    __tablename__ = "ai_result"
+    __table_args__ = (
+        Index("ix_ai_result_target", "target_sha256", "kind"),
+        Index(
+            "ux_ai_result_valid",
+            "kind",
+            "target_sha256",
+            unique=True,
+            postgresql_where=text("state = 'valid'"),
+        ),
+        Index("ix_ai_result_job", "job_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[AiTaskKind] = mapped_column(ai_task_kind_enum)
+    target_sha256: Mapped[str] = mapped_column(Text)  # document.sha256 (mail.raw_sha256 in M17)
+    engine: Mapped[str] = mapped_column(Text)  # "tesseract", "vision" or "mixed" (ai.model)
+    model: Mapped[str | None] = mapped_column(Text)  # the vision model; None for Tesseract only
+    service_url: Mapped[str | None] = mapped_column(Text)  # without credentials
+    remote: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))  # D181
+    prompt_version: Mapped[int | None] = mapped_column(SmallInteger)  # of ai.toml (D189)
+    options: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    body: Mapped[str] = mapped_column(Text, server_default="")  # the text; "" when none was found
+    pages: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))  # OcrPage
+    pages_total: Mapped[int | None] = mapped_column(Integer)  # of the document; None: unknown
+    tokens_in: Mapped[int] = mapped_column(Integer, server_default="0")
+    tokens_out: Mapped[int] = mapped_column(Integer, server_default="0")
+    seconds: Mapped[float] = mapped_column(Float, server_default="0")
+    job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job.id", ondelete="SET NULL")
+    )
+    state: Mapped[AiResultState] = mapped_column(ai_result_state_enum, server_default="valid")
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    discarded_by: Mapped[str | None] = mapped_column(Text)  # D54
+    discarded_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+
+
+class AiTask(Base):
+    """One queued piece of AI work (D186), worked through by `mailrobbe ai run`."""
+
+    __tablename__ = "ai_task"
+    __table_args__ = (
+        CheckConstraint("engine IN ('auto', 'tesseract', 'vision')", name="engine"),
+        Index(
+            "ux_ai_task_open",
+            "kind",
+            "target_sha256",
+            unique=True,
+            postgresql_where=text("status IN ('waiting', 'running')"),
+        ),
+        Index(
+            "ix_ai_task_waiting",
+            "kind",
+            text("priority DESC"),
+            "id",
+            postgresql_where=text("status = 'waiting'"),
+        ),
+        Index("ix_ai_task_status", "status", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    kind: Mapped[AiTaskKind] = mapped_column(ai_task_kind_enum)
+    target_sha256: Mapped[str] = mapped_column(Text)
+    engine: Mapped[str] = mapped_column(Text, server_default="auto")  # ai.model.OcrEngineChoice
+    priority: Mapped[int] = mapped_column(Integer, server_default="0")  # higher first
+    status: Mapped[AiTaskStatus] = mapped_column(ai_task_status_enum, server_default="waiting")
+    attempts: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)  # English, one line
+    # The work done so far, so a stopped run continues at the next page (ai.model.Partial).
+    partial: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    queued_by: Mapped[str | None] = mapped_column(Text)  # D54
+    queued_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job.id", ondelete="SET NULL")
+    )
+    result_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("ai_result.id", ondelete="SET NULL")
+    )
+
+
+class AiCalibration(Base):
+    """Measured speed per task kind, engine and model (D188), for the estimates."""
+
+    __tablename__ = "ai_calibration"
+    __table_args__ = (CheckConstraint("unit IN ('page', 'minute', 'ktoken')", name="unit"),)
+
+    kind: Mapped[AiTaskKind] = mapped_column(ai_task_kind_enum, primary_key=True)
+    engine: Mapped[str] = mapped_column(Text, primary_key=True)
+    model: Mapped[str] = mapped_column(Text, primary_key=True, server_default="")  # "": Tesseract
+    unit: Mapped[str] = mapped_column(Text)
+    seconds_per_unit: Mapped[float] = mapped_column(Float)
+    samples: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class AiSendLog(Base):
+    """What went to a service outside the own machine and network, when, where (D181)."""
+
+    __tablename__ = "ai_send_log"
+    __table_args__ = (Index("ix_ai_send_log_sent_at", "sent_at"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    sent_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    service_url: Mapped[str] = mapped_column(Text)
+    kind: Mapped[AiTaskKind] = mapped_column(ai_task_kind_enum)
+    target_sha256: Mapped[str] = mapped_column(Text)
+    bytes: Mapped[int] = mapped_column(BigInteger)
+    job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job.id", ondelete="SET NULL")
+    )

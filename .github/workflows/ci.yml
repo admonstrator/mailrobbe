@@ -38,8 +38,11 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run mypy
-      # The archive tests need the 7-Zip command, as the backend image has it (D230).
-      - run: command -v 7z || (sudo apt-get update && sudo apt-get install -y 7zip)
+      # The archive tests need the 7-Zip command (D230), the OCR tests Tesseract with German and
+      # English and pdftoppm (D182, D183), as the backend image has them.
+      - run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          7zip tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
       - run: uv run pytest
         env:
           MAILROBBE_TEST_DATABASE_URL: postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe
@@ -76,7 +79,7 @@ jobs:
         run: |
           health=$(curl --fail --silent --show-error http://127.0.0.1:8000/api/health)
           echo "$health"
-          test "$(echo "$health" | jq -r .schema_revision)" = 0018
+          test "$(echo "$health" | jq -r .schema_revision)" = 0019
       - name: MBOX mount is read-only
         run: |
           if output=$(docker compose exec -T backend sh -c 'touch /data/mbox/x' 2>&1); then

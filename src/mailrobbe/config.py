@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import ByteSize, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -84,6 +85,29 @@ class Settings(BaseSettings):
     map_dir: Path = Path("data/maps")
     map_source: str = "protomaps"
     map_timeout: float = 60.0
+    # AI services (D180 to D189). The vision service reads page images (OCR, D182): an
+    # OpenAI-compatible base URL such as http://host.docker.internal:1234/v1 (LM Studio) or an
+    # Ollama one such as http://host.docker.internal:11434; empty: no vision service. The
+    # protocol is detected unless set. A service outside the own machine and private networks is
+    # refused unless ai_allow_remote (D181); then a run stops after ai_remote_token_budget
+    # tokens. ai_concurrency requests per service at once, ai_timeout seconds each.
+    ai_vision_url: str = ""
+    ai_vision_model: str = ""
+    ai_vision_key: SecretStr = SecretStr("")
+    ai_vision_protocol: Literal["auto", "openai", "ollama"] = "auto"
+    ai_allow_remote: bool = False
+    ai_remote_token_budget: int = Field(default=2_000_000, ge=0)
+    ai_concurrency: int = Field(default=1, ge=1)
+    ai_timeout: float = 600.0
+    # OCR (D182): "auto" reads scanned PDFs with Tesseract and images with the vision service
+    # when one is set (else Tesseract too), and reads pages Tesseract is unsure of (mean word
+    # confidence below ai_ocr_uncertain, 0 to 100) again with it; "tesseract" or "vision" use
+    # only that engine. At most ai_ocr_max_pages pages per document and pass; the rest can be
+    # continued. ai_ocr_languages are Tesseract's (-l).
+    ai_ocr_engine: Literal["auto", "tesseract", "vision"] = "auto"
+    ai_ocr_max_pages: int = Field(default=50, ge=1)
+    ai_ocr_languages: str = "deu+eng"
+    ai_ocr_uncertain: float = Field(default=60.0, ge=0, le=100)
 
 
 def get_settings() -> Settings:
