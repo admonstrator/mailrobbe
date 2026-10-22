@@ -78,7 +78,8 @@ async def store_findings(session: AsyncSession, findings: Sequence[Finding]) -> 
 
 
 async def record_tried(session: AsyncSession, document_id: int, until: int, tried: int) -> None:
-    """Every password up to `until` was offered to the document; `tried` of them were tried."""
+    """Every password found up to the finding `until` was offered to the document; `tried` of
+    them were tried."""
     await session.execute(
         text(
             "UPDATE document SET "

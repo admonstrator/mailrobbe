@@ -1,8 +1,10 @@
 """The order passwords are tried in for one document (D235): nearest first.
 
 ordered_candidates gathers the passwords to try on a locked document, in the tiers the plan
-sets and deduplicated (each password in its nearest tier only), skipping those already tried
-(password_tried_until). The tiers, in order:
+sets and deduplicated (each password in its nearest tier only). After the first run it offers
+only passwords with a finding newer than password_tried_until (a password_finding id), so a
+password already tried comes again when it turns up at a new place, perhaps a nearer one. The
+tiers, in order:
 
     manual        typed in by hand for every locked document (no mail, no document; the editor
                   when the request named one, D54)
@@ -38,7 +40,7 @@ class OrderedCandidate:
 
 
 # Each tier selects password rows (id, value, finding_id) for a document; later tiers fill in the
-# passwords the earlier ones did not cover. :doc is the document, :after the tried-until id.
+# passwords the earlier ones did not cover. :doc is the document, :after the tried-until finding id.
 _CARRIERS = "SELECT DISTINCT mail_id FROM attachment WHERE document_id = :doc"
 _TIERS: tuple[tuple[str, str], ...] = (
     (
@@ -124,7 +126,9 @@ async def ordered_candidates(
             text(
                 f"SELECT c.password_id, pw.value, c.finding_id FROM ({query}) c "
                 "JOIN password pw ON pw.id = c.password_id "
-                "WHERE c.password_id > :after ORDER BY c.password_id"
+                "WHERE :after = 0 OR EXISTS (SELECT 1 FROM password_finding n "
+                "WHERE n.password_id = c.password_id AND n.id > :after) "
+                "ORDER BY c.password_id"
             ),
             {"doc": document_id, "after": after_id, "days": CONTACTS_DAYS},
         )

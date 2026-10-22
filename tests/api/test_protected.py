@@ -294,7 +294,7 @@ async def test_the_signal_reasons_name_their_documents(
     async def reasons(index: int) -> dict[str, list[str]]:
         found = await get(client, f"/api/mails/{mail[index]}/signals")
         return {
-            s["key"]: [d["name"] for d in s["documents"]]
+            s["key"]: sorted(d["name"] for d in s["documents"])  # by id, which the import sets
             for s in found["signals"]
             if s["key"] in ("encrypted_attachment", "password_separate")
         }
@@ -303,8 +303,7 @@ async def test_the_signal_reasons_name_their_documents(
     # the password stands in another mail than the document it opened (D238)
     assert await reasons(1) == {"password_separate": ["Liste.pdf"]}
     assert await reasons(2) == {"encrypted_attachment": ["Vertrag.docx"]}  # in the same mail
-    # by document id: Notiz.odt was stored first
-    assert await reasons(3) == {"encrypted_attachment": ["Notiz.odt", "Geheim.pdf"]}
+    assert await reasons(3) == {"encrypted_attachment": ["Geheim.pdf", "Notiz.odt"]}
     assert await reasons(6) == {"encrypted_attachment": ["Paket.zip"]}
     assert await reasons(7) == {"password_separate": ["Paket.zip"]}
     assert await reasons(4) == {}

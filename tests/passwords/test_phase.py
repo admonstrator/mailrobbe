@@ -138,7 +138,6 @@ async def test_one_import_opens_what_the_archive_holds_the_passwords_of(
         row.value: row.id for row in await fetch(imported_url, "SELECT id, value FROM password")
     }
     assert sorted(password_ids, key=password_ids.__getitem__) == list(PASSWORDS)
-    last = max(password_ids.values())
     assert await findings(imported_url) == [
         (LISTE_PASSWORD, ids[1], None, f"Das Kennwort lautet: {LISTE_PASSWORD}"),
         (VERTRAG_PASSWORD, ids[2], None, f"Passwort: {VERTRAG_PASSWORD}"),
@@ -152,6 +151,7 @@ async def test_one_import_opens_what_the_archive_holds_the_passwords_of(
             "JOIN password pw ON pw.id = f.password_id",
         )
     }
+    last = max(finding.values())  # the progress counts findings (D235)
     # a reply in the same thread, the mail itself, a mail between the same persons
     for name, password, tier in (
         ("Liste.pdf", LISTE_PASSWORD, "thread"),
@@ -214,8 +214,13 @@ async def test_waiting_and_the_locked_marks(url: str, mbox_dir: Path) -> None:
     assert await waiting_now(url) == 2
     await run(url, mbox_dir)
     assert await waiting_now(url) == 0
-    await execute(url, "INSERT INTO password (value) VALUES ('nie-angeboten')")
-    assert await waiting_now(url) == 2  # a password no locked document was offered
+    await execute(
+        url,
+        "INSERT INTO password (value) VALUES ('nie-angeboten')",
+        "INSERT INTO password_finding (password_id, editor) "
+        "SELECT id, 'Aaron' FROM password WHERE value = 'nie-angeboten'",
+    )
+    assert await waiting_now(url) == 2  # a finding no locked document was offered
     await run(url, mbox_dir)
     assert await waiting_now(url) == 0
     # a document the text extraction found encrypted is marked locked by the step
@@ -271,13 +276,17 @@ async def test_only_new_passwords_are_offered(url: str, mbox_dir: Path) -> None:
     await add_mail(url, "Kennwort: Falsch-1")
     await run(url, mbox_dir)
     docs = await documents(url)
-    top = int((await fetch(url, "SELECT max(id) AS id FROM password"))[0].id)
+    top = int((await fetch(url, "SELECT max(id) AS id FROM password_finding"))[0].id)
     assert (docs["Geheim.pdf"].password_tries, docs["Geheim.pdf"].password_tried_until) == (
         before.password_tries + 1,
         top,
     )
     assert docs["Geheim.pdf"].protection == "locked"
     assert (docs["Notiz.odt"].password_tries, docs["Notiz.odt"].password_tried_until) == (0, top)
+    # a password tried already, found at a new place, is offered again: it may be nearer now
+    await add_mail(url, f"PIN: {PAKET_PASSWORD}")
+    await run(url, mbox_dir)
+    assert (await documents(url))["Geheim.pdf"].password_tries == before.password_tries + 2
     # its password, written later anywhere in the archive, opens it
     late = await add_mail(url, f"Das Kennwort ist {GEHEIM_PASSWORD}")
     result = await run(url, mbox_dir)
@@ -285,7 +294,7 @@ async def test_only_new_passwords_are_offered(url: str, mbox_dir: Path) -> None:
     geheim = (await documents(url))["Geheim.pdf"]
     assert (geheim.protection, geheim.password, geheim.tier) == ("open", GEHEIM_PASSWORD, "archive")
     assert (geheim.text_status, geheim.extracted_text) == ("text", "Nur für den Vorstand")
-    assert geheim.password_tries == before.password_tries + 2
+    assert geheim.password_tries == before.password_tries + 3
     [finding] = await fetch(
         url, "SELECT mail_id FROM password_finding WHERE id = :id", id=geheim.finding_id
     )

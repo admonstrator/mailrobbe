@@ -1,8 +1,9 @@
 """Password candidates in a text (D234): the word after a keyword like "Kennwort".
 
 A candidate is the word after Kennwort, Passwort, Passphrase, PW, Pass, Code, Zugangscode, PIN,
-password, passphrase or pwd, any case, with an optional colon or "ist"/"lautet" between; on the
-same or the next line, surrounding quotes stripped. No word lists and no guessing (D207): a wrong
+password, passphrase or pwd, any case, with an optional colon or "ist"/"lautet"/"is" between (up
+to four words may stand before such a separator); on the same or the next line, surrounding
+quotes stripped. No word lists and no guessing (D207): a wrong
 candidate only costs one try at the file, the file decides.
 
 `candidates(text)` yields each distinct candidate with the line(s) it stands in, so a finding can
@@ -33,15 +34,18 @@ _KEYWORDS = (
     "code",
     "pass",
 )
-# A keyword, an optional "ist"/"lautet"/":"/"=" (or two, "lautet:"), then the candidate up to
-# white space or quotes; after such a word the candidate may stand on the next line. The keyword
-# stands at a word boundary; "pass" does not fire inside "passen" (\b after it). A word longer
-# than PASSWORD_MAX_LENGTH is no candidate, not even its beginning.
+# A keyword, an optional "ist"/"lautet"/"is"/":"/"=" (or two, "lautet:"), then the candidate up to
+# white space or quotes; after such a word the candidate may stand on the next line. Up to four
+# words may stand between the keyword and such a separator ("Passwort für das ZIP lautet: X").
+# The keyword stands at a word boundary; "pass" does not fire inside "passen" (\b after it). A word
+# longer than PASSWORD_MAX_LENGTH is no candidate, not even its beginning.
 _KEYWORD = "|".join(sorted(_KEYWORDS, key=len, reverse=True))
+_SEPARATOR = r"(?:(?:ist|lautet|is)\b|=|:)[ \t]*"
 _CHARACTER = r"[^\s\"'»«„“”‚‘’`()\[\]<>]"  # noqa: RUF001 - of a password, up to these quotes
 _CANDIDATE = re.compile(
     rf"\b(?:{_KEYWORD})\b"
-    r"[ \t]*(?:(?:(?:ist|lautet|=|:)[ \t]*){1,2}(?:\n[ \t]*)?)?"
+    rf"(?:(?:[ \t]+[^\s:=]+){{1,4}}?[ \t]*{_SEPARATOR}(?:{_SEPARATOR})?(?:\n[ \t]*)?"
+    rf"|[ \t]*(?:(?:{_SEPARATOR}){{1,2}}(?:\n[ \t]*)?)?)"
     r"[\"'»«„“”‚‘’`(\[]?"  # noqa: RUF001 - German quotation marks a sender may wrap a password in
     rf"(?P<value>{_CHARACTER}{{1,{PASSWORD_MAX_LENGTH}}})(?!{_CHARACTER})",
     re.IGNORECASE,

@@ -66,7 +66,7 @@ async def test_each_value_once_and_each_finding_once_per_place(session: AsyncSes
         ],
     )
     assert {k: again[k] for k in ids} == ids
-    assert again["Wellen#5"] > max(ids.values())  # ids grow: password_tried_until (D235)
+    assert again["Wellen#5"] > max(ids.values())
     findings = await rows(
         session,
         "SELECT pw.value, f.mail_id, f.document_id, f.context, f.editor FROM password_finding f "

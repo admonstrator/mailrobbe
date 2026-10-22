@@ -151,8 +151,8 @@ def upgrade() -> None:
         postgresql_where=sa.text("member_id IS NOT NULL"),
     )
 
-    # A distinct password and where it stands (D234). password.id orders the passwords step's
-    # progress (document.password_tried_until).
+    # A distinct password and where it stands (D234). password_finding.id orders the passwords
+    # step's progress (document.password_tried_until).
     op.create_table(
         "password",
         sa.Column("id", sa.BigInteger(), sa.Identity(), primary_key=True),

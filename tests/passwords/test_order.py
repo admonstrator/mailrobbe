@@ -1,6 +1,6 @@
 """passwords.order (D235): the passwords offered to a locked document, nearest tier first, each in
-its nearest tier only, with the finding of that tier, after the tried-until id, capped; on rows
-written in SQL."""
+its nearest tier only, with the finding of that tier, those with a finding after the tried-until
+id, capped; on rows written in SQL."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -153,10 +153,24 @@ async def test_nearest_tier_first_each_password_once(session: AsyncSession) -> N
     assert order.values(found) == [candidate.value for candidate in EXPECTED]
 
 
-async def test_only_passwords_after_the_tried_until_id(session: AsyncSession) -> None:
+async def test_only_passwords_with_a_finding_after_the_tried_until_id(
+    session: AsyncSession,
+) -> None:
     found = await ordered_candidates(session, DOCUMENT, after_id=5)
-    assert found == [c for c in EXPECTED if c.password_id > 5]
-    assert await ordered_candidates(session, DOCUMENT, after_id=11) == []
+    assert found == [c for c in EXPECTED if c.password_id in {3, 4, 5, 6, 7, 8, 11}]
+    assert await ordered_candidates(session, DOCUMENT, after_id=12) == []
+
+
+async def test_a_tried_password_found_at_a_new_place_comes_again(session: AsyncSession) -> None:
+    """ "fremd" was offered from the archive; written now in the carrying mail, it is near."""
+    await session.execute(
+        text(
+            "INSERT INTO password_finding (id, password_id, mail_id) OVERRIDING SYSTEM VALUE "
+            "VALUES (13, 7, 10)"
+        )
+    )
+    found = await ordered_candidates(session, DOCUMENT, after_id=12)
+    assert found == [OrderedCandidate(7, "fremd", "mail", 13)]
 
 
 async def test_contacts_within_30_days_of_any_carrying_mail(session: AsyncSession) -> None:

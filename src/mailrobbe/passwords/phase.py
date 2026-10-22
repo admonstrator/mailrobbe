@@ -17,8 +17,9 @@ with protected entries). Then:
                 nearest first (passwords.order), up to password_seconds per document and run
                 (D235), `workers` documents at a time; the try runs in a process of its own
                 (attachments.protected.try_passwords). password_tried_until then holds the
-                highest password id offered, so a later run offers only passwords found since;
-                what the time budget cut off of the far tiers is not offered again.
+                highest password_finding id when it was offered, so a later run offers only
+                passwords found since, at any new place; what the time budget cut off of the far
+                tiers is not offered again.
     open        a hit stores document_password with where the password was found and its tier
                 (passwords.store.store_opened, D236) and sets the document open, with the text
                 the child extracted with the password; its metadata is read again by the
@@ -76,7 +77,7 @@ _NEW = text(f"""
             SELECT 1 FROM document WHERE text_status = 'encrypted' AND protection IS NULL)
         OR EXISTS (
             SELECT 1 FROM document WHERE {_LOCKED_WHERE}
-            AND password_tried_until < (SELECT coalesce(max(id), 0) FROM password))
+            AND password_tried_until < (SELECT coalesce(max(id), 0) FROM password_finding))
 """)
 _MARK_LOCKED = text(
     "UPDATE document SET protection = 'locked' "
@@ -217,8 +218,9 @@ async def _collect_findings(
 # Trying ----------------------------------------------------------------------------------------
 
 
+_LAST_FINDING = text("SELECT coalesce(max(id), 0) FROM password_finding")
 _LOCKED_DOCS = text(f"""
-    SELECT id, name, mime_type, password_tried_until, kind::text AS kind
+    SELECT id, name, mime_type, password_tried_until
     FROM document WHERE {_LOCKED_WHERE}
     ORDER BY id
 """)
@@ -230,7 +232,6 @@ class _LockedDoc:
     name: str | None
     mime_type: str
     password_tried_until: int
-    kind: str | None
 
 
 async def _try_all(
@@ -244,7 +245,7 @@ async def _try_all(
     """Try every locked document, `workers` at a time; opened and locked documents."""
     async with sessionmaker() as session:
         docs = [
-            _LockedDoc(r.id, r.name, r.mime_type, r.password_tried_until, r.kind)
+            _LockedDoc(r.id, r.name, r.mime_type, r.password_tried_until)
             for r in await session.execute(_LOCKED_DOCS)
         ]
     limits = ExtractionLimits(
@@ -278,19 +279,20 @@ async def _try_one(
 ) -> bool:
     async with sessionmaker() as session:
         source = (await document_sources(session, [doc.id])).get(doc.id)
+        until = (await session.execute(_LAST_FINDING)).scalar_one()
         offered = await ordered_candidates(session, doc.id, after_id=doc.password_tried_until)
     if source is None or not offered:
-        return False
-    until = max(c.password_id for c in offered)
-    if trial_format(doc.name, doc.mime_type, b"") is None and doc.kind != "archive":
-        # ODF or another format no password opens here (D239): offered, so not offered again.
-        async with sessionmaker() as session, session.begin():
-            await record_tried(session, doc.id, until, 0)
         return False
     try:
         data = await asyncio.to_thread(read_attachment, mbox_dir, source)
     except (OSError, AttachmentChanged) as error:
         log.warning("document %d could not be read to open it: %s", doc.id, describe(error))
+        return False
+    if trial_format(doc.name, doc.mime_type, data) is None:
+        # ODF or another format no password opens here (D239): offered, so not offered again
+        # until a password turns up at a new place.
+        async with sessionmaker() as session, session.begin():
+            await record_tried(session, doc.id, until, 0)
         return False
     tried = await try_passwords(
         data,

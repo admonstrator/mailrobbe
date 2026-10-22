@@ -33,6 +33,13 @@ def values(text: str) -> list[str]:
         ("Passcode: 2468", "2468"),
         ("KENNWORT: Hafen-2019", "Hafen-2019"),
         ("Kennworts: Hafen-2019", "Hafen-2019"),
+        ("The password is s3cret!", "s3cret!"),
+        # a few words between the keyword and its separator
+        ("Das Passwort für das ZIP lautet: Hafen-2019", "Hafen-2019"),
+        ("Das Kennwort für die Tabelle ist Rosen-17", "Rosen-17"),
+        ("The password for the zip file is: abc123", "abc123"),
+        # "ist" and "is" only as whole words
+        ("Kennwort istanbul99", "istanbul99"),
     ],
 )
 def test_the_word_after_a_keyword(text: str, expected: str) -> None:

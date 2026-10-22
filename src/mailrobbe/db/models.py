@@ -467,7 +467,8 @@ class Document(Base):
     metadata_gps: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     # Protected and packed (migration 0017, D231 to D236): whether it needs a password, and for a
     # container where its unpacking stands (attachments.packed); how far the passwords step got
-    # (every password with an id up to password_tried_until was tried on it, passwords.phase).
+    # (every password found up to the password_finding id password_tried_until was offered to it,
+    # passwords.phase).
     protection: Mapped[DocumentProtection | None] = mapped_column(document_protection_enum)
     members_status: Mapped[DocumentMembersStatus | None] = mapped_column(
         document_members_status_enum
@@ -1416,8 +1417,7 @@ class DocumentMember(Base):
 
 
 class Password(Base):
-    """A distinct password: found in the archive or typed in (migration 0017, D234, D237). Its id
-    orders the passwords step's progress (document.password_tried_until)."""
+    """A distinct password: found in the archive or typed in (migration 0017, D234, D237)."""
 
     __tablename__ = "password"
 
