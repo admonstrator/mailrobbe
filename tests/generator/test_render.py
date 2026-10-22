@@ -216,7 +216,9 @@ def test_nested_structures(
             inner = next(p for p in message.walk() if p.get_content_type() == "message/rfc822")
             forwarded = inner.get_payload(0)
             assert isinstance(forwarded, EmailMessage)
-            assert forwarded["Message-ID"] == mail.planned.quoted.message_id  # type: ignore[union-attr]
+            # a named .eml is serialised again as the importer reads it (compat32), which may
+            # fold a long Message-ID onto a continuation line: the token itself is unchanged
+            assert str(forwarded["Message-ID"]).strip() == mail.planned.quoted.message_id  # type: ignore[union-attr]
             assert not any(part.defects for part in forwarded.walk())
         else:
             assert variant.startswith("depth_") and int(variant[6:]) >= 3
