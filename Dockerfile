@@ -38,6 +38,10 @@ RUN uv sync --frozen --no-dev
 
 COPY --from=frontend /frontend/dist ./frontend/dist
 COPY docker/entrypoint.sh /usr/local/bin/mailrobbe-entrypoint
+# A checkout made by Git for Windows before .gitattributes keeps the script with CRLF and
+# without its executable bit; either stops the container ("#!/bin/sh\r" is no interpreter).
+RUN sed -i 's/\r$//' /usr/local/bin/mailrobbe-entrypoint \
+    && chmod 755 /usr/local/bin/mailrobbe-entrypoint
 
 # Runs as root on purpose: the MBOX directory is a read-only bind mount with the host's file
 # permissions, which an unprivileged container user often cannot read.

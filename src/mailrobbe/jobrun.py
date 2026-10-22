@@ -33,6 +33,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterator
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -337,6 +338,22 @@ def ignore_interrupts() -> None:
     """In a worker's initializer: Ctrl-C is for the main process, which sets the stop flag."""
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
+
+
+def kill_workers(executor: ProcessPoolExecutor) -> None:
+    """Kill every worker of the pool at once and return when the pool knows itself broken, so
+    that shutdown(wait=True) after it cannot hang.
+
+    Every worker, also one still starting: a worker killed while it waited for work held the call
+    queue's lock, and one left alive would wait for that lock forever. Shut down before it has
+    seen its workers die, the pool would wait for its call queue to drain into a pipe nobody
+    reads any more; seeing them die, it closes that pipe itself.
+    """
+    processes = list(executor._processes.values())
+    for process in processes:
+        process.kill()
+    while processes and not executor._broken:
+        time.sleep(0.01)
 
 
 class RateWindow:

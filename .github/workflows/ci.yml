@@ -13,9 +13,43 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # setup-uv publishes no moving major tags after v7, so this pins the exact release.
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+
+  # The backend tests in four jobs side by side, each with its own Postgres and pytest-xdist on
+  # every core of its runner (D218). The last shard takes every directory the others leave, so a
+  # new test directory runs there without a change here.
+  tests:
+    name: tests (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: api a-o
+            paths: tests/api '--ignore-glob=tests/api/test_[p-z]*'
+            packages: 7zip
+          - shard: api p-z
+            paths: tests/api/test_[p-z]*.py
+            packages: 7zip
+          - shard: import
+            paths: tests/attachments tests/importer tests/ical tests/signals tests/passwords
+            packages: 7zip
+          - shard: rest
+            paths: >-
+              tests --ignore=tests/api --ignore=tests/attachments --ignore=tests/importer
+              --ignore=tests/ical --ignore=tests/signals --ignore=tests/passwords
+            packages: 7zip tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
     services:
       postgres:
         image: postgres:16
@@ -32,18 +66,14 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@v7
-      # setup-uv publishes no moving major tags after v7, so this pins the exact release.
       - uses: astral-sh/setup-uv@v10.2.0
       - run: uv sync --frozen
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy
-      # The archive tests need the 7-Zip command (D230), the OCR tests Tesseract with German and
-      # English and pdftoppm (D182, D183), as the backend image has them.
+      # The archive tests need the 7-Zip command (D230), the OCR tests in tests/ai Tesseract with
+      # German and English and pdftoppm (D182, D183), as the backend image has them.
       - run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
-          7zip tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng poppler-utils
-      - run: uv run pytest
+          ${{ matrix.packages }}
+      - run: uv run pytest -n auto --durations=10 ${{ matrix.paths }}
         env:
           MAILROBBE_TEST_DATABASE_URL: postgresql+asyncpg://mailrobbe:mailrobbe@127.0.0.1:5432/mailrobbe
           MAILROBBE_REQUIRE_DB: "1"
