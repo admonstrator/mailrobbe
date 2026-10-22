@@ -10,6 +10,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { isPlainKey } from "../../lib/keys";
+import { SummaryCard } from "../ai/SummaryCard";
 import { HiddenNote, HideCard } from "../hiding/MailHiding";
 import {
   listSearch,
@@ -173,6 +174,14 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
               />
             )}
             <EventCard events={detail.data.events} mailId={id} mailHref={mailHref} />
+            <SummaryCard
+              target="mail"
+              id={id}
+              onQuote={() => {
+                setTab("text");
+                body.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+              }}
+            />
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
             {detail.data.attachments.length > 0 && (
               <AttachmentsCard
