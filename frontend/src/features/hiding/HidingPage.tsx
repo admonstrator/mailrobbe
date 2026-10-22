@@ -204,8 +204,8 @@ function Suggestions({ onPick }: { onPick: (draft: RuleDraft) => void }) {
           Vorschläge
         </CardTitle>
         <p className={styles.sideText}>
-          Verteiler und automatische Absender mit den meisten Mails, die noch keine aktive Regel
-          nennt.
+          Verteiler und automatische Absender mit den meisten Mails, die noch keine Regel
+          ausblendet. Gezählt werden nur diese Mails.
         </p>
         {suggestions.isPending ? (
           <Spinner label="Vorschläge werden geladen" />

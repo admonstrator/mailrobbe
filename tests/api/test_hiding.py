@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from mailrobbe.api.deps import EDITOR_HEADER
+from mailrobbe.api.hiding import SENDER_CANDIDATES
 from mailrobbe.api.schemas import HIDE_EXAMPLES, HIDE_SUGGESTIONS
 from tests.api.test_mails import get, ids, listed, pages, rows
 from tests.api.test_research import call, error
@@ -354,19 +355,26 @@ async def test_suggestions_name_lists_and_automated_senders_no_rule_names(
                 url,
                 "SELECT list_id, count(*) AS n FROM mail WHERE list_id IS NOT NULL"
                 " AND NOT (list_id = ANY(CAST(:lists AS text[])))"
+                " AND NOT EXISTS (SELECT 1 FROM mail_hidden h WHERE h.mail_id = mail.id)"
                 " GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT :limit",
                 lists=lists,
                 limit=HIDE_SUGGESTIONS,
             )
         ] + [
-            ("sender", None, row.id, row.sent)
+            ("sender", None, row.id, row.n)
             for row in await rows(
                 url,
-                "SELECT p.id, s.sent FROM person p JOIN person_stats s ON s.person_id = p.id"
+                "WITH c AS (SELECT p.id FROM person p JOIN person_stats s ON s.person_id = p.id"
                 " WHERE p.merged_into IS NULL AND p.kind IN ('list', 'automated') AND s.sent > 0"
                 " AND NOT (p.id = ANY(CAST(:persons AS bigint[])))"
-                " ORDER BY s.sent DESC, p.id LIMIT :limit",
+                " ORDER BY s.sent DESC, p.id LIMIT :candidates)"
+                " SELECT c.id, count(DISTINCT pa.mail_id) AS n FROM c"
+                " JOIN person m ON m.id = c.id OR m.merged_into = c.id"
+                " JOIN participation pa ON pa.person_id = m.id AND pa.role = 'from'"
+                " WHERE NOT EXISTS (SELECT 1 FROM mail_hidden h WHERE h.mail_id = pa.mail_id)"
+                " GROUP BY c.id ORDER BY n DESC, c.id LIMIT :limit",
                 persons=persons,
+                candidates=HIDE_SUGGESTIONS * SENDER_CANDIDATES,
                 limit=HIDE_SUGGESTIONS,
             )
         ]
@@ -399,8 +407,16 @@ async def test_suggestions_name_lists_and_automated_senders_no_rule_names(
     disabled = await call(mutable_client, "POST", RULES, {"list_id": second_list}, 201)
     change = {"list_id": second_list, "enabled": False}
     await call(mutable_client, "PUT", f"{RULES}/{disabled['id']}", change)
+    listed = await suggested()
+    assert listed == await expected([first_list], [])
+    assert any(item[1] == second_list for item in listed)  # a disabled rule names nothing
     await call(mutable_client, "POST", RULES, {"person_id": first_sender}, 201)
     await call(mutable_client, "POST", RULES, {"sender": address.canonical_email}, 201)
     after = await suggested()
     assert after == await expected([first_list], [first_sender, second_sender])
-    assert any(item[1] == second_list for item in after)  # a disabled rule names nothing
+
+    # What other rules hide already drops out: "automatisch versendet" covers the newsletters.
+    await call(mutable_client, "POST", RULES, {"automated": True}, 201)
+    covered = await suggested()
+    assert covered == await expected([first_list], [first_sender, second_sender])
+    assert sum(item[3] for item in covered) < sum(item[3] for item in after)

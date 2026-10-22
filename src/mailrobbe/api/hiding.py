@@ -36,8 +36,16 @@ from mailrobbe.api.schemas import (
     PersonRef,
     SubjectMatch,
 )
-from mailrobbe.db.models import HideRule, Mail, MailHidden, MailSignal, Person, PersonStats
-from mailrobbe.enums import PersonKind
+from mailrobbe.db.models import (
+    HideRule,
+    Mail,
+    MailHidden,
+    MailSignal,
+    Participation,
+    Person,
+    PersonStats,
+)
+from mailrobbe.enums import ParticipationRole, PersonKind
 from mailrobbe.hiding.model import (
     kept,
     kept_counts,
@@ -51,6 +59,9 @@ from mailrobbe.persons.labels import attach_labels
 router = APIRouter(prefix="/api", tags=["hiding"])
 
 _NEWEST = (HideRule.created_at.desc(), HideRule.id.desc())
+# Senders of the suggestions are counted among this many times HIDE_SUGGESTIONS with most sent
+# mails: other rules may hide most of what the busiest ones sent.
+SENDER_CANDIDATES = 3
 
 
 @router.get("/hide-rules")
@@ -131,14 +142,20 @@ async def delete_rule(rule_id: RowId, session: Session) -> Response:
 @router.get("/hide-rules/suggestions")
 async def suggestions(session: Session) -> list[HideSuggestion]:
     """The mailing lists and the automated senders with most mails that no enabled rule names
-    yet (D223), most mails first: lists by their mails (ix_mail_list_id), senders as root
-    persons of kind list or automated by the mails they sent (person_stats)."""
+    yet (D223), most mails first, counting only the mails no rule hides yet, so what other
+    rules already cover drops out: lists by their mails (ix_mail_list_id), senders as root
+    persons of kind list or automated, the SENDER_CANDIDATES times as many with most sent mails
+    (person_stats) counted by participation."""
     enabled = select(HideRule).where(HideRule.enabled).subquery()
     named_lists = select(enabled.c.list_id).where(enabled.c.list_id.is_not(None))
     mails = func.count().label("mails")
     lists = await session.execute(
         select(Mail.list_id, mails)
-        .where(Mail.list_id.is_not(None), Mail.list_id.not_in(named_lists))
+        .where(
+            Mail.list_id.is_not(None),
+            Mail.list_id.not_in(named_lists),
+            ~exists().where(MailHidden.mail_id == Mail.id),
+        )
         .group_by(Mail.list_id)
         .order_by(mails.desc(), Mail.list_id)
         .limit(HIDE_SUGGESTIONS)
@@ -152,18 +169,42 @@ async def suggestions(session: Session) -> list[HideSuggestion]:
             ),
         )
     )
-    senders = await session.execute(
-        select(Person.id, Person.canonical_email, Person.display_name, PersonStats.sent)
-        .join(PersonStats, PersonStats.person_id == Person.id)
-        .where(
-            Person.merged_into.is_(None),
-            Person.kind.in_([PersonKind.LIST, PersonKind.AUTOMATED]),
-            PersonStats.sent > 0,
-            Person.id.not_in(roots),
+    candidates = list(
+        await session.execute(
+            select(Person.id, Person.canonical_email, Person.display_name)
+            .join(PersonStats, PersonStats.person_id == Person.id)
+            .where(
+                Person.merged_into.is_(None),
+                Person.kind.in_([PersonKind.LIST, PersonKind.AUTOMATED]),
+                PersonStats.sent > 0,
+                Person.id.not_in(roots),
+            )
+            .order_by(PersonStats.sent.desc(), Person.id)
+            .limit(HIDE_SUGGESTIONS * SENDER_CANDIDATES)
         )
-        .order_by(PersonStats.sent.desc(), Person.id)
-        .limit(HIDE_SUGGESTIONS)
     )
+    ids = literal([row.id for row in candidates], ARRAY(BigInteger))
+    member = aliased(Person)
+    root = func.coalesce(member.merged_into, member.id)
+    counted = await session.execute(
+        select(root, func.count(func.distinct(Participation.mail_id)))
+        .join(member, member.id == Participation.person_id)
+        .where(
+            or_(member.id == any_(ids), member.merged_into == any_(ids)),
+            Participation.role == ParticipationRole.FROM,
+            ~exists().where(MailHidden.mail_id == Participation.mail_id),
+        )
+        .group_by(root)
+    )
+    visible: dict[int, int] = dict(counted.tuples().all())
+    senders = sorted(
+        (
+            (row.id, row.canonical_email, row.display_name, visible[row.id])
+            for row in candidates
+            if visible.get(row.id)
+        ),
+        key=lambda sender: (-sender[3], sender[0]),
+    )[:HIDE_SUGGESTIONS]
     found = [
         HideSuggestion(kind="list", list_id=list_id, person=None, mails=count)
         for list_id, count in lists

@@ -50,10 +50,13 @@ export function HideCard({ mail }: { mail: MailDetail }) {
 }
 
 /** The criteria a mail suggests: its sender's address (its person offered beside it), its
- *  List-Id, and the start of its subject without Re:, AW:, Fwd: or WG:. */
+ *  List-Id, and the start of its subject without Re:, AW:, Fwd: or WG:. That start is compared
+ *  by "beginnt mit" only where the mail's own subject begins with it, so the rule always
+ *  covers the mail it was made from; behind a prefix it is "enthält". */
 export function mailDraft(mail: MailDetail): RuleDraft {
   const sender = mail.participants.find((person) => person.role === "from");
   const subject = subjectStart(mail.subject);
+  const starts = (mail.subject ?? "").trimStart().toLowerCase().startsWith(subject.toLowerCase());
   return {
     sender: sender?.email ?? null,
     person: sender
@@ -61,6 +64,6 @@ export function mailDraft(mail: MailDetail): RuleDraft {
       : null,
     list_id: mail.list_id ?? null,
     subject: subject || null,
-    subject_match: "starts",
+    subject_match: starts ? "starts" : "contains",
   };
 }

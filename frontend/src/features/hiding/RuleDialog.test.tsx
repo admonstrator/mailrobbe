@@ -5,6 +5,7 @@ import type { HideRuleFields, HideRuleInfo, HideRulePreview, MailDetail } from "
 import { mailDetail, mailItems, summaryAll } from "../../test/fixtures";
 import { fixtureApi, renderApp, renderElement, type ApiCall } from "../../test/render";
 import { subjectStart } from "./labels";
+import { mailDraft } from "./MailHiding";
 import { RuleDialog } from "./RuleDialog";
 
 const rule: HideRuleInfo = {
@@ -188,9 +189,10 @@ describe("rule dialog", () => {
       "news.nordlicht.example",
     );
     expect(within(dialog).getByLabelText("Betreff")).toHaveProperty("value", "Wochenrückblick");
+    // behind "AW: Re:" only "enthält" covers the mail itself
     expect(within(dialog).getByLabelText("Vergleich des Betreffs")).toHaveProperty(
       "value",
-      "starts",
+      "contains",
     );
     await waitFor(() => expect(previews(calls)).toHaveLength(1));
 
@@ -199,6 +201,17 @@ describe("rule dialog", () => {
     expect(within(dialog).queryByLabelText("Absenderadresse")).toBeNull();
     await waitFor(() => expect(previews(calls)).toHaveLength(2));
     expect(previews(calls)[1].body).toMatchObject({ sender: null, person_id: 11 });
+  });
+});
+
+describe("mailDraft", () => {
+  it("compares by the start where the mail's subject begins with it", () => {
+    const draft = mailDraft({ ...mailDetail, subject: "Wochenrückblick 12: Termine" });
+    expect(draft.subject).toBe("Wochenrückblick");
+    expect(draft.subject_match).toBe("starts");
+    expect(mailDraft({ ...mailDetail, subject: "WG: Wochenrückblick 12" }).subject_match).toBe(
+      "contains",
+    );
   });
 });
 
