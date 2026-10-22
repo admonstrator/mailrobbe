@@ -20,6 +20,9 @@ its own text, quote and standard block test one rule each:
     11  Notiz                                   Spende bitte bar
     12  Danke               Spende in bar
     13  Spenden kamen bar                                               Spenden: the stem only
+    14  -                                       Verein Musterstadt      Satzung in an attachment
+    15  -                                       Die Satzung gilt.       Satzung in an attachment
+    16  -                                       Die Satzung gilt.
 """
 
 import asyncio
@@ -112,6 +115,19 @@ PARTS = [
         quote="Am 7. März",
     ),
     Part("Mehrzahl", "Die Spenden kamen bar.\n"),
+    Part(
+        "Vorlage",
+        "Siehe Anhang.\n\nVerein Musterstadt\n",
+        blocks=("Verein Musterstadt",),
+        attachments=(("Vorlage.txt", "Die Satzung des Vereins."),),
+    ),
+    Part(
+        "Anlage",
+        "Bitte lesen.\n\nDie Satzung gilt.\n",
+        blocks=("Die Satzung gilt.",),
+        attachments=(("Ordnung.txt", "Satzung und Ordnung."),),
+    ),
+    Part("Gruß", "Bis bald.\n\nDie Satzung gilt.\n", blocks=("Die Satzung gilt.",)),
 ]
 
 
@@ -227,6 +243,12 @@ SEARCHES: list[tuple[str, str, Params, set[int]]] = [
     ("block-own", "Rechtshinweis", part("own"), {1, 2}),
     ("block-full", "Rechtshinweis", part("full"), {0, 1, 2, 3, 4}),
     ("own-everywhere", "Wochenrückblick", part("own"), {3}),
+    # a mail with blocks found by its attachment, the word in its block or not in it at all
+    ("attachment-clean", "Satzung", [], {14, 15}),
+    ("attachment-whole", "Satzung", [WHOLE], {14, 15}),
+    ("attachment-full", "Satzung", part("full"), {14, 15, 16}),
+    ("attachment-not-asked", "Satzung", scope("subject", "body"), set()),
+    ("attachment-not-asked-full", "Satzung", [*scope("subject", "body"), *part("full")], {15, 16}),
     # The places (D171) combine with the parts; without the text the parts do not matter.
     ("text-clean", "Rechtshinweis", scope("body"), {1}),
     ("text-full", "Rechtshinweis", [*scope("body"), *part("full")], {0, 1, 3, 4}),
@@ -240,6 +262,10 @@ SEARCHES: list[tuple[str, str, Params, set[int]]] = [
     ("placed-subject", "betreff:Rechtshinweis", part("own"), {2}),
     ("placed-minus-own", "-text:Beleg Kasse", part("own"), {0, 4, 5}),
     ("minus-own", "Kasse -Beleg", part("own"), {0, 4, 5}),
+    # a word that must not occur may stand in a block only (cases 0, 3, 4): left out with it
+    ("minus-in-a-block", "Kasse -Rechtshinweis", [], {0, 3, 4, 5}),
+    ("minus-in-a-block-full", "Kasse -Rechtshinweis", part("full"), {5}),
+    ("minus-in-a-block-whole", "Kasse -Rechtshinweis", [WHOLE], {0, 3, 5}),
     # Whole words (D173) decide on the text cut to the parts: case 4 holds the stem outside
     # its block and the word as written inside only.
     ("whole-clean", "Kasse", [WHOLE], {0, 1, 2, 3, 5}),

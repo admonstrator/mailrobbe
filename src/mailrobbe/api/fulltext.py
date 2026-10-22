@@ -19,7 +19,10 @@ the subject is A and the text B (the sender's own words), C (quotes, originals, 
 text is depends on body_part (D226, BODY_WEIGHTS): clean, the default, B and C; own B; full B,
 C and D. A mail without ranges has its whole text in B, so the default finds what it found
 before them. A query limited to some places carries those weights on its lexemes (weighted),
-which the GIN indexes serve with a recheck, so the places need no index of their own.
+which the GIN indexes serve with a recheck, so the places need no index of their own. Where the
+weights chosen hold all a mail without ranges carries (A and B), the index is asked the query
+as before and only the mails with ranges are rechecked with the weighted one (mail_recheck), so
+that the default search reads no tsvector the index does not for the others.
 
 A whole word (D173) is the word as written, in any case, not inside a longer word: letters and
 digits around it end it, anything else does not (spaces, punctuation, the _ . - of file names).
@@ -36,7 +39,7 @@ from dataclasses import dataclass
 from functools import reduce
 from typing import Any, get_args
 
-from sqlalchemy import ColumnElement, Text, cast, func, literal, literal_column
+from sqlalchemy import ColumnElement, Text, and_, cast, func, literal, literal_column, or_
 from sqlalchemy.dialects.postgresql import TSQUERY
 
 from mailrobbe.api.schemas import BodyPart, QueryKey, QueryTerm, SearchField
@@ -61,6 +64,8 @@ TEXT_SEARCH: ColumnElement[Any] = literal_column(f"'{TEXT_SEARCH_CONFIG}'::regco
 _SPECIAL = frozenset("\\^$.|?*+()[]{}")  # escaped alike in PostgreSQL's and Python's syntax
 _LEXEME = r"('(?:[^']|'')*')"  # a lexeme in the text of a tsquery, quotes doubled inside
 _NO_RANGES: ColumnElement[Any] = literal_column("'{}'::int4multirange")
+# The ranges giving mail.tsv a weight beyond A and B (D226): C the quotes, D the standard blocks.
+_RANGES = {"C": Mail.history, "D": Mail.blocks}
 
 
 def mail_weights(body_part: BodyPart) -> dict[SearchField, str]:
@@ -282,11 +287,51 @@ def weighted(query: ColumnElement[Any], weights: str) -> ColumnElement[Any]:
     return cast(labelled, TSQUERY)
 
 
-def in_places(query: ColumnElement[Any], chosen: str, every: str) -> ColumnElement[Any]:
-    """query limited to the weights chosen of a tsvector carrying the weights every
-    (MAIL_TSV_WEIGHTS, DOCUMENT_TSV_WEIGHTS); as it is when they are all of them, as before
+def mail_matches(query: ColumnElement[Any], chosen: str, monotone: bool) -> ColumnElement[bool]:
+    """What mail.tsv is asked for query in the weights chosen (D171, D226): query as it is when
+    they are every weight, as before D171, or when mail_recheck decides the rest; else its
+    lexemes limited to them (weighted), which the GIN index answers with a recheck reading each
+    candidate's tsvector."""
+    whole = Mail.tsv.bool_op("@@")
+    if chosen == MAIL_TSV_WEIGHTS or _rechecked(chosen, monotone):
+        return whole(query)
+    return whole(weighted(query, chosen))
+
+
+def mail_recheck(
+    query: ColumnElement[Any], chosen: str, monotone: bool
+) -> ColumnElement[bool] | None:
+    """What a mail matched by mail_matches must hold besides, so that mail.tsv holds query in
+    the weights chosen; None when mail_matches decides alone. If the mail holds query, it holds
+    it there: it has no range giving it a weight outside them, or holds the weighted query, or
+    does not hold query at all (the last two one tsquery, the tsvector read once). PostgreSQL
+    decides a mail without those ranges by its columns, so that it reads its tsvector no more
+    than the index does; and the condition holds for a mail found by its documents only, which
+    lets it stand beside the documents' side (filters.full_text)."""
+    if not _rechecked(chosen, monotone):
+        return None
+    plain = [column.is_(None) for weight, column in _RANGES.items() if weight not in chosen]
+    either = func.tsquery_or(weighted(query, chosen), func.tsquery_not(query), type_=TSQUERY)
+    return or_(and_(*plain), Mail.tsv.bool_op("@@")(either))
+
+
+def _rechecked(chosen: str, monotone: bool) -> bool:
+    """Whether the index is asked query as it is and the mails with ranges are rechecked.
+
+    A mail without ranges carries A and B only, C where it has history and D where it has
+    blocks (mailrobbe_mail_tsv). So when chosen holds A and B and query is monotone (no negated
+    word, so that it holds wherever its weighted form does), the index is asked query exactly
+    as before D226, and only a mail whose ranges may give it a weight outside chosen must hold
+    the weighted form too. A query with a negated word may hold in chosen and not in the whole
+    tsvector (the word in a block), and keeps the weighted form alone."""
+    return chosen != MAIL_TSV_WEIGHTS and monotone and {"A", "B"} <= set(chosen)
+
+
+def document_matches(query: ColumnElement[Any], chosen: str) -> ColumnElement[bool]:
+    """document.tsv holds query in the weights chosen: as it is when they are both, as before
     D171."""
-    return query if chosen == every else weighted(query, chosen)
+    every = chosen == DOCUMENT_TSV_WEIGHTS
+    return Document.tsv.bool_op("@@")(query if every else weighted(query, chosen))
 
 
 def weights(fields: frozenset[SearchField], places: dict[SearchField, str]) -> str:
