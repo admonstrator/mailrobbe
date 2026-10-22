@@ -10,6 +10,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { isPlainKey } from "../../lib/keys";
+import { HiddenNote, HideCard } from "../hiding/MailHiding";
 import {
   listSearch,
   parseListState,
@@ -158,6 +159,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
         <div className={styles.columns}>
           <main className={styles.main}>
             <HeaderCard ref={header} mail={detail.data} mailHref={mailHref} marks={marks} />
+            <HiddenNote mail={detail.data} />
             {marks && (
               <SearchHitsCard
                 hits={marks}
@@ -186,6 +188,7 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
             {detail.data.near_group !== null && <NearCard mail={detail.data} mailHref={mailHref} />}
             <EntitiesCard mailId={id} />
+            <HideCard mail={detail.data} />
             <ActionsCard
               mail={detail.data}
               onShowRaw={() => {

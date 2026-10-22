@@ -215,6 +215,20 @@ export function MailListPage() {
             <span className={styles.hits} aria-live="polite">
               {hitText(summary.data, state)}
             </span>
+            {!!summary.data?.hidden && (
+              <span className={styles.hits}>
+                {formatNumber(summary.data.hidden)} ausgeblendet ·{" "}
+                <Button
+                  variant="link"
+                  size="sm"
+                  className={styles.showHidden}
+                  title="Mails, die eine Ausblendregel ausblendet, mit in die Liste nehmen"
+                  onClick={() => setState(withFilters(state, { include_hidden: true }))}
+                >
+                  zeigen
+                </Button>
+              </span>
+            )}
             <div className={styles.actions}>
               <label htmlFor="mail-sort" className="sr-only">
                 Sortierung
