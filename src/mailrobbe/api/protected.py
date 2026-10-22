@@ -93,7 +93,7 @@ def password_trial(row: Any) -> bool:
     members_status."""
     if row.members_status == DocumentMembersStatus.UNSUPPORTED:
         return False
-    if row.kind == DocumentKind.ARCHIVE:
+    if row.kind in (DocumentKind.ARCHIVE, DocumentKind.PDF):
         return True
     return trial_format(row.name, row.mime_type, b"") is not None
 

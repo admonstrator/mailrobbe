@@ -76,11 +76,6 @@ class Members:
     error: str | None = None
 
 
-def is_container(filename: str | None, mime_type: str, head: bytes) -> bool:
-    """Whether the content is a container this module unpacks."""
-    return classify(filename, mime_type, head[:HEAD_SIZE]).name in CONTAINER_FORMATS
-
-
 def list_members(
     data: bytes,
     filename: str | None,

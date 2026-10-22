@@ -11,7 +11,7 @@ tiers, in order:
     mail          found in a mail that carries the document
     thread        found in a mail of the same thread
     contacts      found in a mail with a shared participant, 30 days before or after
-    attachments   found in the text of a document attached to one of those mails
+    attachments   found in the text of a document attached to one of the mails above
     opened        it already opened another document
     archive       every other password of the archive
 
@@ -42,6 +42,22 @@ class OrderedCandidate:
 # Each tier selects password rows (id, value, finding_id) for a document; later tiers fill in the
 # passwords the earlier ones did not cover. :doc is the document, :after the tried-until finding id.
 _CARRIERS = "SELECT DISTINCT mail_id FROM attachment WHERE document_id = :doc"
+_THREAD_MAILS = f"""
+    SELECT id FROM mail WHERE thread_id IN (
+        SELECT DISTINCT thread_id FROM mail WHERE id IN ({_CARRIERS}) AND thread_id IS NOT NULL
+    )
+"""
+_CONTACT_MAILS = f"""
+    SELECT p.mail_id FROM participation p JOIN mail m ON m.id = p.mail_id
+    WHERE p.person_id IN (
+        SELECT DISTINCT person_id FROM participation WHERE mail_id IN ({_CARRIERS})
+    )
+    AND m.date_utc BETWEEN (
+        SELECT min(date_utc) FROM mail WHERE id IN ({_CARRIERS})
+    ) - make_interval(days => :days) AND (
+        SELECT max(date_utc) FROM mail WHERE id IN ({_CARRIERS})
+    ) + make_interval(days => :days)
+"""
 _TIERS: tuple[tuple[str, str], ...] = (
     (
         PasswordTier.MANUAL.value,
@@ -62,28 +78,14 @@ _TIERS: tuple[tuple[str, str], ...] = (
         PasswordTier.THREAD.value,
         f"""
         SELECT pf.password_id, min(pf.id) AS finding_id FROM password_finding pf
-        JOIN mail m ON m.id = pf.mail_id
-        WHERE m.thread_id IN (
-            SELECT DISTINCT thread_id FROM mail
-            WHERE id IN ({_CARRIERS}) AND thread_id IS NOT NULL
-        ) GROUP BY pf.password_id
+        WHERE pf.mail_id IN ({_THREAD_MAILS}) GROUP BY pf.password_id
         """,
     ),
     (
         PasswordTier.CONTACTS.value,
         f"""
         SELECT pf.password_id, min(pf.id) AS finding_id FROM password_finding pf
-        JOIN mail m ON m.id = pf.mail_id
-        JOIN participation p ON p.mail_id = m.id
-        WHERE p.person_id IN (
-            SELECT DISTINCT person_id FROM participation WHERE mail_id IN ({_CARRIERS})
-        )
-        AND m.date_utc BETWEEN (
-            SELECT min(date_utc) FROM mail WHERE id IN ({_CARRIERS})
-        ) - make_interval(days => :days) AND (
-            SELECT max(date_utc) FROM mail WHERE id IN ({_CARRIERS})
-        ) + make_interval(days => :days)
-        GROUP BY pf.password_id
+        WHERE pf.mail_id IN ({_CONTACT_MAILS}) GROUP BY pf.password_id
         """,
     ),
     (
@@ -92,7 +94,8 @@ _TIERS: tuple[tuple[str, str], ...] = (
         SELECT pf.password_id, min(pf.id) AS finding_id FROM password_finding pf
         WHERE pf.document_id IN (
             SELECT DISTINCT document_id FROM attachment
-            WHERE mail_id IN ({_CARRIERS}) AND document_id IS NOT NULL
+            WHERE mail_id IN ({_CARRIERS} UNION {_THREAD_MAILS} UNION {_CONTACT_MAILS})
+            AND document_id IS NOT NULL
         ) GROUP BY pf.password_id
         """,
     ),

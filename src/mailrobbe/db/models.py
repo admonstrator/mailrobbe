@@ -1392,7 +1392,7 @@ class ParagraphOverride(Base):
 class DocumentMember(Base):
     """One entry of a container document (migration 0017, D231), as the archives step listed it.
     The member attachments of every mail carrying the container are made from these rows
-    (attachments.documents)."""
+    (attachments.containers)."""
 
     __tablename__ = "document_member"
     __table_args__ = (

@@ -116,8 +116,8 @@ def _verify(source: AttachmentSource, data: bytes) -> None:
         raise AttachmentChanged(f"attachment {source.attachment_id} has other bytes")
 
 
-# a.path is the MBOX file for a top-level attachment and the member path for a member; the member
-# path is read as member_path, the file path comes from its container's own row (_container_rows).
+# f.path is the MBOX file; a.path, read as member_path, is a member's path inside its container
+# (NULL for a mail's own attachment), whose own row says where to read it (_container_rows).
 _SOURCE_COLUMNS = """
     a.id AS attachment_id, a.mail_id, f.path, m.byte_offset, m.byte_length, m.raw_sha256,
     a.position, a.size_bytes, a.sha256, a.filename, a.mime_type,
@@ -132,14 +132,15 @@ _ATTACHMENT = text(f"SELECT {_SOURCE_COLUMNS} {_SOURCE_JOINS} WHERE a.id = :id")
 _ATTACHMENTS = text(
     f"SELECT {_SOURCE_COLUMNS} {_SOURCE_JOINS} WHERE a.id = ANY(CAST(:ids AS bigint[]))"
 )
-# The occurrence a document is read from: one in a mail that is no duplicate, then the first by
-# file path and offset, so the reads of many documents go through the files front to back.
+# The occurrence a document is read from: a mail's own attachment before a container's member, one
+# in a mail that is no duplicate, then the first by file path and offset, so the reads of many
+# documents go through the files front to back.
 _DOCUMENTS = text(f"""
     SELECT DISTINCT ON (a.document_id) a.document_id, {_SOURCE_COLUMNS}
     {_SOURCE_JOINS}
     WHERE a.document_id = ANY(CAST(:ids AS bigint[]))
-    ORDER BY a.document_id, m.is_duplicate_of IS NOT NULL, f.path COLLATE "C", m.byte_offset,
-        a.position
+    ORDER BY a.document_id, a.container_id IS NOT NULL, m.is_duplicate_of IS NOT NULL,
+        f.path COLLATE "C", m.byte_offset, a.position
 """)
 
 

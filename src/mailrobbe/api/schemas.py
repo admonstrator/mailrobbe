@@ -1771,7 +1771,7 @@ class DocumentSummary(BaseModel):
     # METADATA_VALUES_LIMIT each; None: ran out of time.
     authors: list[MetadataValueCount] | None = None
     programs: list[MetadataValueCount] | None = None
-    protection: dict[DocumentProtection, int] | None = None  # every protection present (D233)
+    protection: dict[DocumentProtection, int] | None = None  # every protection, 0 if none (D233)
 
 
 class DocumentNameCount(BaseModel):

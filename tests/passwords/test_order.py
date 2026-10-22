@@ -192,6 +192,25 @@ async def test_contacts_within_30_days_of_any_carrying_mail(session: AsyncSessio
     assert tiers["kontakt30"] == "contacts"
 
 
+async def test_attachments_of_every_near_mail(session: AsyncSession) -> None:
+    """A document attached to mail 12 (Bert, 29 days later) holds "fremd": tier attachments."""
+    await session.execute(
+        text(
+            "INSERT INTO document (id, sha256, mime_type, size_bytes, text_status) "
+            "OVERRIDING SYSTEM VALUE VALUES (4, 'kontaktanhang', 'text/plain', 100, 'text')"
+        )
+    )
+    await attach(session, 12, 0, 4)
+    await session.execute(
+        text(
+            "INSERT INTO password_finding (id, password_id, document_id) OVERRIDING SYSTEM VALUE "
+            "VALUES (13, 7, 4)"
+        )
+    )
+    found = {c.value: c for c in await ordered_candidates(session, DOCUMENT, after_id=0)}
+    assert found["fremd"] == OrderedCandidate(7, "fremd", "attachments", 13)
+
+
 async def test_the_tiers_are_those_of_the_document(session: AsyncSession) -> None:
     """Document 3, carried by mail 16 alone (Carl to Dora, no thread): Carl and Dora wrote mails
     12, 13 and 15 within 30 days, mail 11 too late; the password that opened it is tier opened."""

@@ -86,7 +86,6 @@ _WAITING = text("""
         d.members_status IS NULL
         OR d.members_status IN ('unreadable', 'too_deep')
         OR d.members_version < :version
-        OR (d.members_status = 'locked' AND pw.value IS NOT NULL)
       )
     ORDER BY d.id, a.id
 """)
