@@ -31,6 +31,9 @@ class Found:
     label: str  # display form
     position: int  # offset of the first occurrence in the text
     occurrences: int  # at least 1
+    # Every occurrence's range in the text, in the order the finders found them; what a
+    # redaction blacks out (D215). The phase stores the first position only.
+    spans: tuple[tuple[int, int], ...]
     context: EntityContext = NO_CONTEXT  # union over the occurrences (D82)
     value: Decimal | None = None  # amount: the sum, two decimals
     currency: str | None = None  # amount: one of CURRENCIES
