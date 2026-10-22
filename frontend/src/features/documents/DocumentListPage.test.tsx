@@ -333,3 +333,35 @@ describe("document list", () => {
     );
   });
 });
+
+describe("document list paging (D193)", () => {
+  it("numbers the pages by the summary, jumps, and a new sort goes back to page 1", async () => {
+    const { router, calls } = renderApp("/anhaenge?limit=100&page=2");
+    await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?page=2&limit=100"));
+    const nav = await screen.findByRole("navigation", { name: "Seiten" });
+    // 79.110 documents, 100 a page.
+    expect(await within(nav).findByRole("link", { name: "Seite 792" })).toBeTruthy();
+    expect(within(nav).getByRole("link", { name: "Seite 2" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    fireEvent.click(within(nav).getByRole("link", { name: "Seite 792" }));
+    expect(router.state.location.search).toBe("?limit=100&page=792");
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Sortierung" }), {
+      target: { value: "size" },
+    });
+    expect(router.state.location.search).toBe("?sort=size&limit=100");
+  });
+
+  it("offers the first and the last page when a jump took too long", async () => {
+    renderApp("/anhaenge?kind=pdf&page=5000", (call) =>
+      call.url.pathname === "/api/documents" && call.url.searchParams.has("page")
+        ? Response.json({ detail: { code: "page_too_far", message: "late" } }, { status: 400 })
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Diese Seite ist zu weit entfernt.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Letzte Seite" }).getAttribute("href")).toBe(
+      "/anhaenge?kind=pdf&page=last",
+    );
+  });
+});

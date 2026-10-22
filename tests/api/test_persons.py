@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe.api.schemas import DISPLAY_NAME_LIMIT, MERGE_LIMIT, SUGGESTION_LIMIT, TOP_CONTACTS
 from tests.api.conftest import _client, api_settings
+from tests.api.test_paging import check_jumps
 from tests.conftest import GeneratedArchive, _temporary_database
 
 pytestmark = pytest.mark.db
@@ -555,6 +556,23 @@ async def test_a_person_cursor_is_bound_to_sort_and_search(
 @pytest.mark.parametrize("limit", ["0", "201"])
 async def test_person_pages_are_bounded(seeded: httpx.AsyncClient, limit: str) -> None:
     await get(seeded, "/api/persons", [("limit", limit)], status=422)
+
+
+@pytest.mark.parametrize("sort", SORTS)
+async def test_person_jumps_agree_with_the_keyset_pages(
+    seeded: httpx.AsyncClient, sort: str
+) -> None:
+    # The list knows its total, so its last page has a number too (D193).
+    for params in ([("sort", sort)], [("sort", sort), ("q", "a")]):
+        await check_jumps(seeded, "/api/persons", params, 7, numbered_last=True)
+    first = await get(seeded, "/api/persons", [("sort", sort), ("limit", "7")])
+    error = await get(
+        seeded,
+        "/api/persons",
+        [("sort", sort), ("limit", "7"), ("page", "2"), *at(first["next_cursor"])],
+        status=400,
+    )
+    assert error["detail"]["code"] == "invalid_cursor"
 
 
 # Profile ---------------------------------------------------------------------------------------

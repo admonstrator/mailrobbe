@@ -1,5 +1,6 @@
 // The mail list's state lives in the URL: the query string uses the API's parameter names
-// (MailListParams; lists repeated, booleans as "true", defaults left out) plus the UI-only "page".
+// (MailListParams; lists repeated, booleans as "true", defaults left out), and its page as every
+// list's (lib/paging.ts, D193): page=N or page=last to jump, a cursor to step, and limit.
 
 import { buildQuery } from "../../api/client";
 import {
@@ -25,6 +26,7 @@ import {
   type SortOrder,
 } from "../../api/types";
 import { DKIM_KEYS } from "../../lib/dkim";
+import { pagingParams, pagingQuery, parsePaging, type PageNumber } from "../../lib/paging";
 import { REVIEW_KEYS } from "../../lib/research";
 import { amountParam } from "../entities/amount";
 import { ENTITY_CONTEXTS } from "../entities/labels";
@@ -79,10 +81,10 @@ export interface ListState {
   body_part: BodyPart;
   block: string | null;
   sort: SortOrder;
+  /** The page (D193): a step's cursor, the page's number or "last", the page size. */
   cursor: string | null;
   limit: number;
-  /** 1-based number of the page the cursor points to, for the "51–100" range. */
-  page: number;
+  page: PageNumber;
 }
 
 /** The parts of ListState a filter change may touch; cursor and page follow from them. */
@@ -137,7 +139,6 @@ const BOOLEAN_KEYS = [
   "flagged",
   "collapse_near",
 ] as const;
-const MAX_LIMIT = 200;
 export const PERSON_ROLES: readonly PersonRole[] = ["sent", "received", "cc"];
 
 export function positiveInt(value: string | null, max = Number.MAX_SAFE_INTEGER): number | null {
@@ -219,10 +220,7 @@ export function parseListState(search: URLSearchParams): ListState {
   state.block = block && BLOCK_HASH_PATTERN.test(block) ? block : null;
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
-  state.cursor = search.get("cursor") || null;
-  state.limit = positiveInt(search.get("limit"), MAX_LIMIT) ?? PAGE_SIZE;
-  state.page = state.cursor ? (positiveInt(search.get("page")) ?? 1) : 1;
-  return state;
+  return { ...state, ...parsePaging(search) };
 }
 
 /** The filters of state with the defaults left out: the same object for the same filters, so
@@ -268,10 +266,7 @@ export function toOrderParams(state: ListState): MailOrderParams {
 }
 
 export function toListParams(state: ListState): MailListParams {
-  const params: MailListParams = toOrderParams(state);
-  if (state.cursor) params.cursor = state.cursor;
-  if (state.limit !== PAGE_SIZE) params.limit = state.limit;
-  return params;
+  return { ...toOrderParams(state), ...pagingParams(state) };
 }
 
 /** What GET /api/mails/{id}/hits needs of the list (D176): q, its places, whole words and the
@@ -286,13 +281,10 @@ export function toHitsParams(state: ListState): MailHitsParams {
 
 /** The query string of state, the inverse of parseListState. */
 export function listSearch(state: ListState): URLSearchParams {
-  return buildQuery({
-    ...toListParams(state),
-    page: state.cursor && state.page > 1 ? state.page : null,
-  });
+  return buildQuery({ ...toOrderParams(state), ...pagingQuery(state) });
 }
 
-/** state with a filter changed; a new filter starts again at the first page. */
+/** state with a filter changed; a new filter starts again at the first page, at its size. */
 export function withFilters(state: ListState, patch: FilterPatch): ListState {
   return { ...state, ...patch, cursor: null, page: 1 };
 }

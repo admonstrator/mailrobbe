@@ -163,6 +163,11 @@ The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
 
+Paging with page numbers (D193, api/paging.py): the mail, person, document and entity lists take
+page (a jump to that page) or last (the last page) instead of a cursor and answer the page's
+number in their page model; 400 page_too_far when a jump does not answer within the count budget.
+The selector list pages by offset and has its total.
+
 Every other GET path outside /api serves the frontend (index.html for client-side routes).
 """
 
@@ -294,6 +299,7 @@ ErrorCode = Literal[
     "merge_undone",  # 409: the merge, or every merge of the batch, was undone already (D163)
     "invalid_rule",  # 400: a hide rule without any criterion, or one that cannot be used (D221)
     "invalid_block",  # 400: a sample that is no paragraph of this hash, or none where needed
+    "page_too_far",  # 400: a jump to a page did not answer within the count budget (D193)
 ]
 
 
@@ -369,6 +375,10 @@ class MailOrderParams(MailFilters):
 class MailListParams(MailOrderParams):
     cursor: str | None = None  # next_cursor or prev_cursor of a MailPage with the same sort
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    # A jump instead of a cursor (D193): this page (from 1) of `limit` mails, a page beyond the
+    # end being the last one; or with last the last `limit` mails, read from the end.
+    page: int | None = Field(default=None, ge=1)
+    last: bool = False
 
 
 # Mail list ------------------------------------------------------------------------------------
@@ -445,6 +455,9 @@ class MailPage(BaseModel):
     next_cursor: str | None  # None on the last page
     prev_cursor: str | None  # None on the first page
     query_terms: list[QueryTerm]
+    # The page's number (D193): 1 for the first page, the page a jump read; None after a
+    # cursor and for the last page read from the end (last).
+    page: int | None = None
 
 
 class MailSummary(BaseModel):
@@ -924,6 +937,9 @@ class PersonListParams(BaseModel):
     sort: PersonSort = "mails"
     cursor: str | None = None  # next_cursor or prev_cursor of a PersonPage with the same q, sort
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    # A jump instead of a cursor (D193), as in MailListParams.
+    page: int | None = Field(default=None, ge=1)
+    last: bool = False
 
 
 class ContactListParams(BaseModel):
@@ -981,6 +997,7 @@ class PersonPage(BaseModel):
     next_cursor: str | None  # None on the last page
     prev_cursor: str | None  # None on the first page
     total: int  # persons matching q
+    page: int | None = None  # as MailPage.page (D193)
 
 
 class Contact(BaseModel):
@@ -1671,6 +1688,9 @@ class DocumentListParams(DocumentFilters):
     sort: DocumentSort = "recent"
     cursor: str | None = None  # next_cursor or prev_cursor of a DocumentPage with the same sort
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    # A jump instead of a cursor (D193), as in MailListParams.
+    page: int | None = Field(default=None, ge=1)
+    last: bool = False
 
 
 class DocumentListItem(BaseModel):
@@ -1696,6 +1716,7 @@ class DocumentPage(BaseModel):
     items: list[DocumentListItem]
     next_cursor: str | None
     prev_cursor: str | None
+    page: int | None = None  # as MailPage.page (D193); DocumentSummary has the total
 
 
 METADATA_VALUES_LIMIT = 20  # authors and programs in DocumentSummary and MetadataValues
@@ -2098,6 +2119,9 @@ class EntityListParams(BaseModel):
     sort: EntitySort = "mails"  # most mails, latest or earliest first mention, value, A to Z
     cursor: str | None = None  # next_cursor or prev_cursor of an EntityPage with the same sort
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
+    # A jump instead of a cursor (D193), as in MailListParams.
+    page: int | None = Field(default=None, ge=1)
+    last: bool = False
 
 
 class EntityListItem(EntityRef):
@@ -2113,6 +2137,12 @@ class EntityPage(BaseModel):
     items: list[EntityListItem]
     next_cursor: str | None
     prev_cursor: str | None
+    page: int | None = None  # as MailPage.page (D193)
+    # With q, detail or a value bound: the matching entities, counted under the count budget of
+    # D19 (exact False: at least total; total None: even the bounded count ran out of time).
+    # Without them total is None, as EntitySummary.kinds counts the list (D193).
+    total: int | None = None
+    exact: bool = False
 
 
 class EntitySummary(BaseModel):

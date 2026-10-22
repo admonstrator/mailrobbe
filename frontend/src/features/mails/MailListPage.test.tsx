@@ -1,7 +1,14 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { filteredQuery, hitsPage, mailDetail } from "../../test/fixtures";
+import {
+  filteredPage,
+  filteredQuery,
+  hitsPage,
+  mailDetail,
+  mailPage,
+  summaryAll,
+} from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const search = (location: { search: string }) => new URLSearchParams(location.search);
@@ -308,5 +315,114 @@ describe("mail list", () => {
     expect(
       await screen.findByRole("button", { name: "Filter entfernen: Thread #184001" }),
     ).toBeTruthy();
+  });
+});
+
+describe("paging with page numbers (D193)", () => {
+  const mailCalls = (calls: ApiCall[]) =>
+    calls.filter((call) => call.url.pathname === "/api/mails");
+  const query = (link: HTMLElement) => new URL(link.getAttribute("href")!, "http://x").searchParams;
+
+  /** The fixture backend, with the page a jump asks for answered by its number. */
+  function jumpingApi(call: ApiCall): unknown {
+    const page = call.url.searchParams.get("page");
+    if (call.url.pathname === "/api/mails" && page) {
+      return { ...filteredPage, page: Number(page), prev_cursor: "back", next_cursor: "on" };
+    }
+    return fixtureApi(call);
+  }
+
+  it("numbers the pages, jumps by number and by the field, all in the URL", async () => {
+    const { router, calls } = renderApp(filteredPath, jumpingApi);
+    expect(await screen.findByText("1–12 von 1.207")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    expect(within(nav).getByRole("link", { name: "Seite 1" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    // 1.207 mails, 50 a page: 25 pages, the last one by its number.
+    const last = within(nav).getByRole("link", { name: "Seite 25" });
+    expect(query(last).get("page")).toBe("25");
+    expect(within(nav).getByRole("link", { name: "Letzte Seite »" }).getAttribute("href")).toBe(
+      last.getAttribute("href"),
+    );
+
+    fireEvent.change(within(nav).getByRole("spinbutton", { name: "Seite" }), {
+      target: { value: "13" },
+    });
+    fireEvent.click(within(nav).getByRole("button", { name: "Los" }));
+    expect(search(router.state.location).get("page")).toBe("13");
+    expect(search(router.state.location).has("cursor")).toBe(false);
+    expect(await screen.findByText("601–612 von 1.207")).toBeTruthy();
+    expect(mailCalls(calls).at(-1)!.url.searchParams.get("page")).toBe("13");
+    expect(screen.getByRole("link", { name: "Seite 13" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    // The steps go on by cursor from there and keep the number.
+    const back = query(await screen.findByRole("link", { name: "‹ Zurück" }));
+    expect([back.get("cursor"), back.get("page")]).toEqual(["back", "12"]);
+    const on = query(screen.getByRole("link", { name: "Weiter ›" }));
+    expect([on.get("cursor"), on.get("page")]).toEqual(["on", "14"]);
+
+    // Another page size starts again at the first page.
+    fireEvent.change(screen.getByRole("combobox", { name: "Pro Seite" }), {
+      target: { value: "100" },
+    });
+    expect(search(router.state.location).get("limit")).toBe("100");
+    expect(search(router.state.location).has("page")).toBe(false);
+    await waitFor(() => expect(mailCalls(calls).at(-1)!.url.searchParams.get("limit")).toBe("100"));
+    expect(mailCalls(calls).at(-1)!.url.searchParams.has("page")).toBe(false);
+  });
+
+  it("goes back to the first page when a filter changes, at the same page size", async () => {
+    const { router } = renderApp(`${filteredPath}&limit=25&page=7`, jumpingApi);
+    expect(await screen.findByText("151–162 von 1.207")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Sortierung" }), {
+      target: { value: "date_asc" },
+    });
+    const now = search(router.state.location);
+    expect([now.get("sort"), now.get("limit"), now.has("page")]).toEqual(["date_asc", "25", false]);
+  });
+
+  it("reaches the last of more than 10.000 mails without a number", async () => {
+    const { router, calls } = renderApp("/mails", (call) => {
+      if (call.url.pathname === "/api/mails/summary") {
+        return { ...summaryAll, total: 10000, exact: false };
+      }
+      if (call.url.pathname === "/api/mails" && call.url.searchParams.get("last") === "true") {
+        return { ...mailPage, page: null, prev_cursor: "before-last", next_cursor: null };
+      }
+      return fixtureApi(call);
+    });
+    expect(await screen.findByText("1–12 von mehr als 10.000")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    // The pages the lower bound fills are numbered, and the list goes on after them.
+    expect(within(nav).getByRole("link", { name: "Seite 200" })).toBeTruthy();
+    expect(nav.textContent).toContain("200…");
+    fireEvent.click(within(nav).getByRole("link", { name: "Letzte Seite »" }));
+    expect(router.state.location.search).toBe("?page=last");
+    expect(await screen.findByText("die letzten 12 von mehr als 10.000")).toBeTruthy();
+    expect(mailCalls(calls).at(-1)!.url.search).toBe("?last=true");
+    expect((await screen.findByRole("link", { name: "‹ Zurück" })).getAttribute("href")).toBe(
+      "/mails?cursor=before-last",
+    );
+    expect(screen.queryByRole("link", { name: "Letzte Seite »" })).toBeNull();
+  });
+
+  it("offers the first and the last page when a jump took too long", async () => {
+    renderApp(`${filteredPath}&page=4000`, (call) =>
+      call.url.pathname === "/api/mails" && call.url.searchParams.get("page") === "4000"
+        ? Response.json(
+            { detail: { code: "page_too_far", message: "not within the count budget" } },
+            { status: 400 },
+          )
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Diese Seite ist zu weit entfernt.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Erste Seite" }).getAttribute("href")).toBe(
+      filteredPath,
+    );
+    expect(screen.getByRole("link", { name: "Letzte Seite" }).getAttribute("href")).toBe(
+      `${filteredPath}&page=last`,
+    );
   });
 });

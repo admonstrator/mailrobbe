@@ -3,16 +3,17 @@ import { Link, useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useEntityPage, useEntitySummary, useThemes } from "../../api/queries";
-import { PAGE_SIZE, type EntitySort, type EntitySummary } from "../../api/types";
+import type { EntityPage, EntitySort, EntitySummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
-import { Pagination } from "../../components/Pagination";
+import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatNumber } from "../../lib/format";
+import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { DebouncedInput } from "../documents/DebouncedInput";
 import { parseAmount } from "./amount";
 import styles from "./EntityListPage.module.css";
@@ -205,21 +206,13 @@ export function EntityListPage() {
 
         {page.data && page.data.items.length > 0 && (
           <Pagination
-            range={rangeText(
+            {...listPagination(
               state,
+              page.data,
               page.data.items.length,
-              hasEntityFilters(state) ? undefined : tabCount(summary.data, state.tab),
+              entityTotal(state, page.data, summary.data),
+              entityListHref,
             )}
-            prev={
-              page.data.prev_cursor
-                ? entityListHref(previousPage(state, page.data.prev_cursor))
-                : null
-            }
-            next={
-              page.data.next_cursor
-                ? entityListHref({ ...state, cursor: page.data.next_cursor, page: state.page + 1 })
-                : null
-            }
           />
         )}
       </div>
@@ -316,18 +309,20 @@ function Empty({ state, total }: { state: EntityListState; total: number | undef
   );
 }
 
-function previousPage(state: EntityListState, cursor: string): EntityListState {
-  // The page before the second one is the first: without cursor, as the list starts.
-  return state.page === 2
-    ? { ...state, cursor: null, page: 1 }
-    : { ...state, cursor, page: Math.max(1, state.page - 1) };
-}
-
-/** "1–50 von 1.207", or just the range when the total is open (with a search or a range). */
-function rangeText(state: EntityListState, count: number, total: number | undefined): string {
-  const first = (state.page - 1) * PAGE_SIZE + 1;
-  const range = `${formatNumber(first)}–${formatNumber(first + count - 1)}`;
-  return total === undefined ? range : `${range} von ${formatNumber(total)}`;
+/** The list's length (D193): counted with the page under a search, a theme or a value range,
+ *  else the tab's count in the summary. */
+function entityTotal(
+  state: EntityListState,
+  page: EntityPage,
+  summary: EntitySummary | undefined,
+): Total | null {
+  if (hasEntityFilters(state)) {
+    return page.total === null || page.total === undefined
+      ? null
+      : { count: page.total, exact: page.exact ?? false };
+  }
+  const count = tabCount(summary, state.tab);
+  return count === undefined ? null : { count, exact: true };
 }
 
 function PageError({
@@ -340,6 +335,7 @@ function PageError({
   onRetry: () => void;
 }) {
   const code = error instanceof ApiError ? error.code : null;
+  if (code === "page_too_far") return <PageTooFar {...edgePages(state, entityListHref)} />;
   if (code === "invalid_cursor") {
     return (
       <ErrorState

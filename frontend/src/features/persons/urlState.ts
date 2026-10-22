@@ -1,21 +1,24 @@
 // The persons screens keep their state in the URL: search, sort, page, tab and "Nur benannte"
 // of the person list (/personen) with the switch for uncertain suggestions, and the mail card
-// of a profile (/personen/:id: role, year, contact, page).
+// of a profile (/personen/:id: role, year, contact, page). Pages as every list's (D193).
 
 import { buildQuery } from "../../api/client";
-import type { PersonListParams, PersonRole, PersonSort } from "../../api/types";
+import {
+  PAGE_SIZE,
+  type PersonListParams,
+  type PersonRole,
+  type PersonSort,
+} from "../../api/types";
+import { pagingParams, pagingQuery, parsePaging, type Paging } from "../../lib/paging";
 import { DEFAULT_LIST_STATE, PERSON_ROLES, positiveInt, type ListState } from "../mails/listState";
 
 export type PersonsTab = "personen" | "vorschlaege" | "zusammengefuehrt";
 
 const TABS: readonly PersonsTab[] = ["personen", "vorschlaege", "zusammengefuehrt"];
 
-export interface PersonListState {
+export interface PersonListState extends Paging {
   q: string;
   sort: PersonSort;
-  cursor: string | null;
-  /** 1-based number of the page the cursor points to, for the "51–100" range. */
-  page: number;
   tab: PersonsTab;
   /** Only persons the team named (D157). */
   labelled: boolean;
@@ -28,6 +31,7 @@ export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
   sort: "mails",
   cursor: null,
   page: 1,
+  limit: PAGE_SIZE,
   tab: "personen",
   labelled: false,
   uncertain: false,
@@ -36,12 +40,10 @@ export const DEFAULT_PERSON_LIST_STATE: PersonListState = {
 const SORTS: readonly PersonSort[] = ["mails", "name", "recent"];
 
 export function parsePersonListState(search: URLSearchParams): PersonListState {
-  const cursor = search.get("cursor") || null;
   return {
+    ...parsePaging(search),
     q: search.get("q")?.trim() ?? "",
     sort: SORTS.find((sort) => sort === search.get("sort")) ?? "mails",
-    cursor,
-    page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
     tab: TABS.find((tab) => tab === search.get("tab")) ?? "personen",
     labelled: search.get("labelled") === "true",
     uncertain: search.get("unsicher") === "1",
@@ -56,8 +58,7 @@ export function personListSearch(state: PersonListState): URLSearchParams {
     q: state.q,
     sort: state.sort === "mails" ? null : state.sort,
     labelled: state.labelled,
-    cursor: state.cursor,
-    page: state.cursor && state.page > 1 ? state.page : null,
+    ...pagingQuery(state),
   });
 }
 
@@ -66,18 +67,15 @@ export function toPersonListParams(state: PersonListState): PersonListParams {
   if (state.q) params.q = state.q;
   if (state.sort !== "mails") params.sort = state.sort;
   if (state.labelled) params.labelled = true;
-  if (state.cursor) params.cursor = state.cursor;
-  return params;
+  return { ...params, ...pagingParams(state) };
 }
 
-export interface ProfileMailState {
+export interface ProfileMailState extends Paging {
   /** The tab: null for "Alle". */
   role: PersonRole | null;
   year: number | null;
   /** A contact's person id: only the mails between both. */
   contact: number | null;
-  cursor: string | null;
-  page: number;
 }
 
 export const DEFAULT_PROFILE_MAIL_STATE: ProfileMailState = {
@@ -86,16 +84,15 @@ export const DEFAULT_PROFILE_MAIL_STATE: ProfileMailState = {
   contact: null,
   cursor: null,
   page: 1,
+  limit: PAGE_SIZE,
 };
 
 export function parseProfileMailState(search: URLSearchParams): ProfileMailState {
-  const cursor = search.get("cursor") || null;
   return {
+    ...parsePaging(search),
     role: PERSON_ROLES.find((role) => role === search.get("role")) ?? null,
     year: positiveInt(search.get("year"), 9999),
     contact: positiveInt(search.get("contact")),
-    cursor,
-    page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
   };
 }
 
@@ -104,8 +101,7 @@ export function profileMailSearch(state: ProfileMailState): URLSearchParams {
     role: state.role,
     year: state.year,
     contact: state.contact,
-    cursor: state.cursor,
-    page: state.cursor && state.page > 1 ? state.page : null,
+    ...pagingQuery(state),
   });
 }
 
@@ -131,5 +127,6 @@ export function personMailList(personId: number, state: ProfileMailState): ListS
     hide_duplicates: true,
     cursor: state.cursor,
     page: state.page,
+    limit: state.limit,
   };
 }

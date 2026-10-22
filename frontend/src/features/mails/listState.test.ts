@@ -198,10 +198,30 @@ describe("list state in the URL", () => {
     expect(parse("person=11&person_role=from").person_role).toBeNull();
   });
 
-  it("keeps the page number only together with a cursor", () => {
-    expect(parse("page=4").page).toBe(1);
-    expect(parse("cursor=abc&page=4").page).toBe(4);
-    expect(parse("cursor=abc&page=0").page).toBe(1);
+  it("reads a page as a jump, or with a cursor as the number of the step's page (D193)", () => {
+    expect(parse("page=4")).toMatchObject({ cursor: null, page: 4 });
+    expect(parse("page=last")).toMatchObject({ cursor: null, page: "last" });
+    expect(parse("page=0").page).toBe(1);
+    expect(parse("cursor=abc&page=4")).toMatchObject({ cursor: "abc", page: 4 });
+    // A step from a last page read from the end does not know its number.
+    expect(parse("cursor=abc").page).toBeNull();
+    expect(parse("cursor=abc&page=last").page).toBeNull();
+    for (const query of [
+      "page=4",
+      "page=last",
+      "limit=25&page=7",
+      "cursor=abc&page=4",
+      "cursor=abc",
+    ]) {
+      expect(search(parse(query))).toBe(query);
+    }
+  });
+
+  it("asks for a jump by page or last, and for a step by its cursor alone", () => {
+    expect(toListParams(parse("page=4&limit=25"))).toEqual({ page: 4, limit: 25 });
+    expect(toListParams(parse("page=last"))).toEqual({ last: true });
+    expect(toListParams(parse("page=1"))).toEqual({});
+    expect(toListParams(parse("cursor=abc&page=4"))).toEqual({ cursor: "abc" });
   });
 
   it("starts again at the first page when a filter changes", () => {

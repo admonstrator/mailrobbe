@@ -135,3 +135,20 @@ describe("selector list", () => {
     ).toBeTruthy();
   });
 });
+
+describe("selector list paging (D193)", () => {
+  it("numbers every page, asks by offset at the page size, and a filter goes to page 1", async () => {
+    const { router, calls } = renderApp("/import/selektoren?show=all&limit=25");
+    expect(await screen.findByText("1–25 von 57")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Seite 3" }));
+    expect(router.state.location.search).toBe("?show=all&page=3&limit=25");
+    expect(await screen.findByText("51–57 von 57")).toBeTruthy();
+    expect(listCalls(calls).at(-1)!.url.search).toBe("?show=all&offset=50&limit=25");
+    expect(screen.getByRole("link", { name: "Seite 3" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("link", { name: "Weiter ›" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "geklärt" }));
+    expect(router.state.location.search).toBe("?show=resolved&limit=25");
+  });
+});

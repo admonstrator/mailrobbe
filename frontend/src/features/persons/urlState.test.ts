@@ -39,9 +39,19 @@ describe("person list state in the URL", () => {
   });
 
   it("ignores values it cannot use", () => {
-    expect(parsePersonListState(params("sort=size&tab=karte&page=4&q=%20"))).toEqual(
+    expect(parsePersonListState(params("sort=size&tab=karte&page=x&limit=500&q=%20"))).toEqual(
       DEFAULT_PERSON_LIST_STATE,
     );
+  });
+
+  it("keeps a jump and the page size, and asks the API for them (D193)", () => {
+    const state = parsePersonListState(params("sort=name&limit=100&page=7"));
+    expect(state).toMatchObject({ cursor: null, page: 7, limit: 100 });
+    expect(personListSearch(state).toString()).toBe("sort=name&limit=100&page=7");
+    expect(toPersonListParams(state)).toEqual({ sort: "name", page: 7, limit: 100 });
+    const last = parsePersonListState(params("page=last"));
+    expect(toPersonListParams(last)).toEqual({ last: true });
+    expect(personListSearch(last).toString()).toBe("page=last");
   });
 
   it('keeps "Nur benannte" (D157)', () => {
@@ -57,15 +67,34 @@ describe("a profile's mail list", () => {
   it("keeps role, year, contact and page in the URL", () => {
     const query = "role=cc&year=2023&contact=12&cursor=abc&page=2";
     const state = parseProfileMailState(params(query));
-    expect(state).toEqual({ role: "cc", year: 2023, contact: 12, cursor: "abc", page: 2 });
+    expect(state).toEqual({
+      role: "cc",
+      year: 2023,
+      contact: 12,
+      cursor: "abc",
+      page: 2,
+      limit: 50,
+    });
     expect(profileMailSearch(state).toString()).toBe(query);
     expect(parseProfileMailState(params("role=from&year=0&contact=x"))).toEqual(
       DEFAULT_PROFILE_MAIL_STATE,
     );
   });
 
+  it("jumps to a page at a page size of its own (D193)", () => {
+    const state = parseProfileMailState(params("role=cc&limit=25&page=last"));
+    expect(profileMailSearch(state).toString()).toBe("role=cc&limit=25&page=last");
+    expect(toListParams(personMailList(11, state))).toEqual({
+      hide_duplicates: true,
+      person: [11],
+      person_role: "cc",
+      last: true,
+      limit: 25,
+    });
+  });
+
   it("starts again at the first page when the selection changes", () => {
-    const state = parseProfileMailState(params("role=sent&cursor=abc&page=2"));
+    const state = parseProfileMailState(params("role=sent&limit=25&cursor=abc&page=2"));
     expect(withSelection(state, { year: 2020 })).toEqual({
       ...state,
       year: 2020,

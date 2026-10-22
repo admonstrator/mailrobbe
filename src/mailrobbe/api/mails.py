@@ -29,11 +29,13 @@ from sqlalchemy import (
     ScalarSelect,
     Select,
     Text,
+    all_,
     any_,
     bindparam,
     distinct,
     func,
     literal,
+    literal_column,
     select,
     true,
 )
@@ -43,10 +45,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
 from mailrobbe import aggregates
-from mailrobbe.api import events, near
+from mailrobbe.api import events, near, paging
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.filters import (
     VISIBLE,
+    WALK_ROWS,
     Cursor,
     CursorError,
     FilterError,
@@ -57,6 +60,7 @@ from mailrobbe.api.filters import (
     order,
     resolve_contents,
     text_query,
+    unfiltered,
 )
 from mailrobbe.api.fulltext import full_text_search
 from mailrobbe.api.hits import page_hits
@@ -77,7 +81,10 @@ from mailrobbe.api.schemas import (
 )
 from mailrobbe.config import Settings
 from mailrobbe.db.models import (
+    MAIL_SORT_KEY,
+    TIMESTAMPTZ,
     Mail,
+    MailHidden,
     MailMark,
     MailSignal,
     MailTag,
@@ -168,15 +175,22 @@ async def list_mails(
         except CursorError as error:
             raise api_error(400, "invalid_cursor", str(error)) from error
     where = _where(params, terms, settings)
-    reverse = cursor is not None and cursor.before
-    after = None if cursor is None else (cursor.date_utc, cursor.mail_id)
-    ids = await first_ids(
-        session, where, params.sort, params.limit + 1, after=after, reverse=reverse
-    )
-    more = len(ids) > params.limit
-    del ids[params.limit :]
-    if reverse:
-        ids.reverse()
+    jumped = None
+    if paging.wanted(params.page, params.last):  # D193
+        if cursor is not None:
+            raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
+        jumped = await _jump(session, settings, params, await resolve_contents(session, where))
+        ids = list(jumped.rows)
+    else:
+        reverse = cursor is not None and cursor.before
+        after = None if cursor is None else (cursor.date_utc, cursor.mail_id)
+        ids = await first_ids(
+            session, where, params.sort, params.limit + 1, after=after, reverse=reverse
+        )
+        more = len(ids) > params.limit
+        del ids[params.limit :]
+        if reverse:
+            ids.reverse()
     statement = (
         select(
             Mail.id,
@@ -207,7 +221,10 @@ async def list_mails(
 
     # A prev cursor walks backwards: "more" then means there are mails before this page.
     prev_cursor = next_cursor = None
-    if cursor is None:
+    if jumped is not None:
+        prev_cursor = at(rows[0], True) if jumped.before and rows else None
+        next_cursor = at(rows[-1], False) if jumped.after and rows else None
+    elif cursor is None:
         next_cursor = at(rows[-1], False) if more else None
     elif cursor.before:
         prev_cursor = at(rows[0], True) if more else None
@@ -241,9 +258,72 @@ async def list_mails(
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
         query_terms=terms,
+        page=jumped.page if jumped is not None else 1 if cursor is None else None,
     )
     await attach_labels(session, page)
     return page
+
+
+# Hidden mails a jump through the unfiltered list passes as a list of ids at most (_by_id).
+BY_ID_LIMIT = 50_000
+
+
+async def _jump(
+    session: AsyncSession,
+    settings: Settings,
+    params: MailListParams,
+    where: Sequence[ColumnElement[bool]],
+) -> paging.Jump:
+    """The ids of the page a jump names (D193); where with its research filters resolved."""
+    far = not params.last and (params.page or 1) * params.limit >= WALK_ROWS  # beyond the walk
+    plain = await _by_id(session, where) if far and unfiltered(where) else None
+
+    async def read(offset: int, limit: int, reverse: bool) -> list[int]:
+        if offset + limit <= WALK_ROWS:  # the bounded walk, or every match when it runs out
+            ids = await first_ids(session, where, params.sort, offset + limit, reverse=reverse)
+            return ids[offset:]
+        # Unfiltered: PostgreSQL walks ix_mail_sort, or sorts the table far from both ends.
+        if plain is not None:
+            ordered = select(Mail.id).where(*plain).order_by(*order(params.sort, reverse))
+            return list(await session.scalars(ordered.offset(offset).limit(limit)))
+        # Every match, then sorted as in filters.first_ids: MATERIALIZED keeps PostgreSQL from
+        # walking the order for a filter it believes common.
+        matched = (
+            select(Mail.id, literal_column(MAIL_SORT_KEY, TIMESTAMPTZ).label("key"))
+            .where(*where)
+            .cte("matched")
+            .prefix_with("MATERIALIZED")
+        )
+        down = (params.sort == "date_desc") != reverse
+        by = [matched.c.key, matched.c.id]
+        ordered = select(matched.c.id).order_by(*(c.desc() if down else c.asc() for c in by))
+        return list(await session.scalars(ordered.offset(offset).limit(limit)))
+
+    count = select(func.count()).select_from(Mail).where(*(where if plain is None else plain))
+    return await paging.jump(
+        session, settings, read, count, page=params.page, last=params.last, limit=params.limit
+    )
+
+
+async def _by_id(
+    session: AsyncSession, where: Sequence[ColumnElement[bool]]
+) -> list[ColumnElement[bool]] | None:
+    """The unfiltered where (VISIBLE alone, or nothing) as a test of the mail's id: the hidden
+    mails are found from mail_hidden first, so that counting reads an index alone and a page
+    far into the archive needs no other column of the mails it passes. None for more than
+    BY_ID_LIMIT hidden mails, whose list would weigh more than the walk it saves."""
+    if not where:
+        return []
+    # A mail of mail_hidden fails VISIBLE unless it is kept (hiding.model); ~VISIBLE itself
+    # would test every mail of the archive for a row in mail_hidden.
+    hidden = select(MailHidden.mail_id).distinct().join(Mail, Mail.id == MailHidden.mail_id)
+    ids = list(await session.scalars(hidden.where(~hiding.kept()).limit(BY_ID_LIMIT + 1)))
+    if len(ids) > BY_ID_LIMIT:
+        return None
+    if not ids:
+        return []
+    await paging.custom_plans(session)
+    return [Mail.id != all_(literal(sorted(ids), ARRAY(BigInteger)))]
 
 
 async def _found_through_attachments(

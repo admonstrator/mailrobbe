@@ -2,18 +2,19 @@ import { useMemo, useState, type MouseEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { useSelectorPage } from "../../api/queries";
-import { PAGE_SIZE, type SelectorItem, type SelectorPage } from "../../api/types";
+import type { SelectorItem, SelectorPage } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
 import { KeyOriginBadge } from "../../components/KeyOriginBadge";
-import { Pagination } from "../../components/Pagination";
+import { Pagination, type PaginationProps } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { selectorPath } from "../../lib/dkim";
 import { formatNumber } from "../../lib/format";
+import { pageCount, rangeText } from "../../lib/paging";
 import { DebouncedInput } from "../documents/DebouncedInput";
 import { KeysRun, useKeysRun } from "./KeysRun";
 import { dnsStatusLabel, periodText, SELECTOR_FILTER_LABELS, SELECTOR_FILTERS } from "./labels";
@@ -129,25 +130,26 @@ export function SelectorListPage() {
       </Card>
 
       {page.data && page.data.items.length > 0 && (
-        <Pagination
-          range={rangeText(state, page.data)}
-          prev={state.page > 1 ? selectorListHref({ ...state, page: state.page - 1 }) : null}
-          next={
-            (state.page - 1) * PAGE_SIZE + page.data.items.length < page.data.total
-              ? selectorListHref({ ...state, page: state.page + 1 })
-              : null
-          }
-        />
+        <Pagination {...selectorPagination(state, page.data)} />
       )}
     </main>
   );
 }
 
-/** "1–50 von 178" */
-function rangeText(state: SelectorListState, page: SelectorPage): string {
-  const first = (state.page - 1) * PAGE_SIZE + 1;
-  const last = first + page.items.length - 1;
-  return `${formatNumber(first)}–${formatNumber(last)} von ${formatNumber(page.total)}`;
+/** The list pages by offset and knows its total, so every page has its number (D193). */
+function selectorPagination(state: SelectorListState, page: SelectorPage): PaginationProps {
+  const total = { count: page.total, exact: true };
+  const { pages } = pageCount(total, state.limit);
+  const at = (number: number) => selectorListHref({ ...state, page: number });
+  return {
+    range: rangeText(state.page, false, state.limit, page.items.length, total),
+    prev: state.page > 1 ? at(state.page - 1) : null,
+    next: state.page < pages ? at(state.page + 1) : null,
+    first: state.page > 1 ? at(1) : null,
+    last: state.page < pages ? at(pages) : null,
+    numbers: { current: state.page, pages, more: false, href: at },
+    size: { limit: state.limit, href: (limit) => selectorListHref({ ...state, page: 1, limit }) },
+  };
 }
 
 function EmptyList({ state, total }: { state: SelectorListState; total: number }) {

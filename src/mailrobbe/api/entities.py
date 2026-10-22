@@ -58,6 +58,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import mail_senders
 from mailrobbe.api.documents import _all_unless_canceled, mail_persons
@@ -216,28 +217,44 @@ def _list_conditions(params: EntityListParams) -> list[ColumnElement[bool]]:
 
 @router.get("/entities")
 async def list_entities(
-    params: Annotated[EntityListParams, Query()], session: Session
+    params: Annotated[EntityListParams, Query()], session: Session, settings: AppSettings
 ) -> EntityPage:
     scope = f"entities/{params.sort}"
     key, kept, descending, kind = _sort_key(params.sort)
     cursor = _Cursor.decode(params.cursor, scope, (kind, _int))
     columns = [key, Entity.id]
-    reverse = cursor is not None and cursor.before
-    start = []
-    if cursor is not None:
-        boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
-        start.append(_beyond(columns, boundary, descending != reverse))
-    statement = (
-        select(*_ITEM_COLUMNS, kept.label("key"))
-        .where(*_list_conditions(params), *start)
-        .order_by(*_by(columns, descending != reverse))
-        .limit(params.limit + 1)
-    )
-    rows: list[Any] = list(await session.execute(statement))
-    more = len(rows) > params.limit
-    del rows[params.limit :]
-    if reverse:
-        rows.reverse()
+    where = _list_conditions(params)
+    listed = select(*_ITEM_COLUMNS, kept.label("key")).where(*where)
+    jumped = None
+    if paging.wanted(params.page, params.last):  # D193
+        if cursor is not None:
+            raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
+
+        async def read(offset: int, limit: int, reverse: bool) -> list[Any]:
+            ordered = listed.order_by(*_by(columns, descending != reverse))
+            return list(await session.execute(ordered.offset(offset).limit(limit)))
+
+        count = select(func.count()).select_from(Entity).where(*where)
+        jumped = await paging.jump(
+            session, settings, read, count, page=params.page, last=params.last, limit=params.limit
+        )
+        rows = jumped.rows
+    else:
+        reverse = cursor is not None and cursor.before
+        start = []
+        if cursor is not None:
+            boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
+            start.append(_beyond(columns, boundary, descending != reverse))
+        statement = (
+            listed.where(*start)
+            .order_by(*_by(columns, descending != reverse))
+            .limit(params.limit + 1)
+        )
+        rows = list(await session.execute(statement))
+        more = len(rows) > params.limit
+        del rows[params.limit :]
+        if reverse:
+            rows.reverse()
 
     def at(row: Any, before: bool) -> str:
         value = str(row.key) if isinstance(row.key, Decimal) else row.key
@@ -245,7 +262,10 @@ async def list_entities(
 
     # As in the mail list: a prev cursor walks backwards, "more" then means rows before the page.
     prev_cursor = next_cursor = None
-    if cursor is None:
+    if jumped is not None:
+        prev_cursor = at(rows[0], True) if jumped.before and rows else None
+        next_cursor = at(rows[-1], False) if jumped.after and rows else None
+    elif cursor is None:
         next_cursor = at(rows[-1], False) if more else None
     elif cursor.before:
         prev_cursor = at(rows[0], True) if more else None
@@ -253,10 +273,20 @@ async def list_entities(
     else:
         next_cursor = at(rows[-1], False) if more else None
         prev_cursor = at(rows[0], True) if rows else cursor.flipped().encode()
+    # Without a search, a theme or a value range the list is a tab of kinds, which EntitySummary
+    # counts (D193).
+    total, exact = None, False
+    bounds = (params.detail, params.value_min, params.value_max)
+    if params.q.strip() or any(bound is not None for bound in bounds):
+        matching = select(Entity.id).where(*where)
+        total, exact = await paging.bounded_total(session, settings, matching)
     return EntityPage(
         items=[EntityListItem(**_figures(row)) for row in rows],
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
+        page=jumped.page if jumped is not None else 1 if cursor is None else None,
+        total=total,
+        exact=exact,
     )
 
 
