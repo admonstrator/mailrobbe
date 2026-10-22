@@ -35,7 +35,6 @@ from fastapi import APIRouter, Query
 from sqlalchemy import (
     ColumnElement,
     Executable,
-    FromClause,
     Select,
     any_,
     exists,
@@ -43,6 +42,7 @@ from sqlalchemy import (
     null,
     or_,
     select,
+    true,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -157,26 +157,32 @@ def _photo_where(
 def _carried(where: Sequence[ColumnElement[bool]]) -> ColumnElement[bool]:
     """A mail carrying the photo meets where. Without mail filters, the photos failing that are
     listed instead, in a subquery PostgreSQL runs once and hashes: of the photos a hidden mail
-    carries (where is VISIBLE) or that no mail carries, those without a carrier meeting where."""
+    carries (where is VISIBLE) or that no mail carries, those without a carrier meeting where,
+    tested one at a time (as documents._carried with walk), where an anti join would read the
+    carrying mails of every photo."""
     if not unfiltered(where):
-        return _carrier(Document.__table__, where)
+        return exists().where(
+            Attachment.document_id == Document.id, Mail.id == Attachment.mail_id, *where
+        )
     photo = Document.__table__.alias("failing")
     touched = [photo.c.first_mail_id.is_(None)]  # finalize deletes it soon (D14)
     if where:
-        hidden = select(Attachment.document_id).join(
-            MailHidden, MailHidden.mail_id == Attachment.mail_id
+        hidden = select(Attachment.document_id).where(
+            Attachment.mail_id.in_(select(MailHidden.mail_id))
         )
         touched.append(photo.c.id.in_(hidden))
+    carrier = (
+        select(true())
+        .select_from(Attachment, Mail)
+        .where(Attachment.document_id == photo.c.id, Mail.id == Attachment.mail_id, *where)
+        .limit(1)
+    )
     failing = select(photo.c.id).where(
-        photo.c.metadata_latitude.is_not(None), or_(*touched), ~_carrier(photo, where)
+        photo.c.metadata_latitude.is_not(None),
+        or_(*touched),
+        carrier.scalar_subquery().is_(None),  # scalar: never hashed in full
     )
     return Document.id.not_in(failing)
-
-
-def _carrier(document: FromClause, where: Sequence[ColumnElement[bool]]) -> ColumnElement[bool]:
-    return exists().where(
-        Attachment.document_id == document.c.id, Mail.id == Attachment.mail_id, *where
-    )
 
 
 # Photos --------------------------------------------------------------------------------------
@@ -480,15 +486,21 @@ async def text_places(
 
 def _text_counts(mail_ids: Sequence[int]) -> Executable:
     """The place entities with a point that these mails mention, with the mails mentioning
-    each, most first, and how many there are."""
+    each, most first, and how many there are. The mentions are counted per entity first, as
+    the facets count them (entities._facet_counts): starting from the few entities with a
+    point, PostgreSQL joined every mention in an attachment's text again for each of them."""
     mention = mentions()
-    mails = _distinct_mails(mention)
+    counted = (
+        select(mention.c.entity_id, _distinct_mails(mention))
+        .where(mention.c.mail_id == any_(_ids(mail_ids)))
+        .group_by(mention.c.entity_id)
+        .subquery("counted")
+    )
     return (
-        select(*_PLACE_COLUMNS, mails, func.count().over().label("total"))
-        .join_from(mention, Entity, Entity.id == mention.c.entity_id)
-        .where(mention.c.mail_id == any_(_ids(mail_ids)), *_LOCATED_PLACE)
-        .group_by(Entity.id)
-        .order_by(mails.desc(), Entity.id.desc())
+        select(*_PLACE_COLUMNS, counted.c.mails, func.count().over().label("total"))
+        .join_from(counted, Entity, Entity.id == counted.c.entity_id)
+        .where(*_LOCATED_PLACE)
+        .order_by(counted.c.mails.desc(), Entity.id.desc())
         .limit(TEXT_PLACE_LIMIT)
     )
 
@@ -524,14 +536,22 @@ async def event_places(
     params: Annotated[PlaceParams, Query()], session: Session, settings: AppSettings
 ) -> EventPlaces:
     where = await _mail_where(session, params, settings)
-
-    def matched(*columns: Any) -> Select[Any]:
-        return (
-            select(*columns)
+    # The events meeting the filters, found once for both queries below: the filters are tested
+    # on each event's mail, and a full text word reads that mail's stored words.
+    event_ids = list(
+        await session.scalars(
+            select(CalendarEvent.id)
             .join_from(CalendarEvent, Mail, Mail.id == CalendarEvent.mail_id)
             .where(CalendarEvent.latitude.is_not(None), CalendarEvent.longitude.is_not(None))
             .where(*where)
         )
+    )
+
+    if not event_ids:
+        return EventPlaces(places=[], total=0)
+
+    def matched(*columns: Any) -> Select[Any]:
+        return select(*columns).where(CalendarEvent.id == any_(_ids(event_ids)))
 
     events = func.count().label("events")
     by_location = matched(

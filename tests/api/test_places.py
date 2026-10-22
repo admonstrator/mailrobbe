@@ -654,6 +654,8 @@ async def test_the_places_of_invitations(
         ("10117 Berlin, Berlin, DE", 1)
     ]
     assert january["total"] == 1
+    none = await get(places_client, "/api/places/events", [("date_from", "1976-01-01")])
+    assert none == {"places": [], "total": 0}
 
 
 async def test_the_places_of_invitations_are_cut_at_their_limits(
