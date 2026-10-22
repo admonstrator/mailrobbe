@@ -20,7 +20,10 @@ from mailrobbe.enums import (
     DkimStatus,
     DnsStatus,
     DocumentKind,
+    DocumentMembersStatus,
+    DocumentMemberStatus,
     DocumentMetadataStatus,
+    DocumentProtection,
     DocumentTextStatus,
     EntityKind,
     JobKind,
@@ -28,6 +31,7 @@ from mailrobbe.enums import (
     KeyOrigin,
     MboxStatus,
     ParticipationRole,
+    PasswordTier,
     PersonKind,
     ReviewStatus,
 )
@@ -91,6 +95,10 @@ TABLES = {
     "mail_paragraph",
     "paragraph_block",
     "paragraph_override",
+    "document_member",
+    "password",
+    "password_finding",
+    "document_password",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -157,6 +165,19 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
             "date",
             "term",
         ],
+    ),
+    "document_protection": (DocumentProtection, ["locked", "open"]),
+    "document_members_status": (
+        DocumentMembersStatus,
+        ["done", "locked", "too_deep", "unsupported", "failed", "unreadable"],
+    ),
+    "document_member_status": (
+        DocumentMemberStatus,
+        ["document", "locked", "too_large", "too_many", "failed"],
+    ),
+    "password_tier": (
+        PasswordTier,
+        ["manual", "mail", "thread", "contacts", "attachments", "opened", "archive", "typed"],
     ),
 }
 
@@ -255,7 +276,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0016"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0017"
 
 
 @pytest.mark.db

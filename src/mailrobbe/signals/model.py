@@ -54,6 +54,9 @@ GROUPS: dict[SignalKind, SignalGroup] = {
     SignalKind.FORWARD_OUT: "recipients",
     SignalKind.NIGHT: "time",
     SignalKind.WEEKEND: "time",
+    SignalKind.ENCRYPTED_ATTACHMENT: "attachments",
+    SignalKind.PASSWORD_SEPARATE: "attachments",
+    SignalKind.ENCRYPTED_MAIL: "attachments",
     SignalKind.SILENT: "persons",
 }
 # German names for the CSV and the export; the web UI has its own (features/signals/labels.ts).
@@ -68,11 +71,20 @@ LABELS: dict[SignalKind, str] = {
     SignalKind.FORWARD_OUT: "Weiterleitung nach außen",
     SignalKind.NIGHT: "Nachts",
     SignalKind.WEEKEND: "Wochenende",
+    SignalKind.ENCRYPTED_ATTACHMENT: "Verschlüsselter Anhang",
+    SignalKind.PASSWORD_SEPARATE: "Kennwort separat geschickt",
+    SignalKind.ENCRYPTED_MAIL: "Verschlüsselte Mail",
     SignalKind.SILENT: "Verstummt",
 }
 # Reply prefixes a forward prefix may stand behind ("AW: WG: ..."), any case.
 REPLY_PREFIXES = ("Re", "AW", "Antw", "SV", "RIF", "RES", "Odp")
 FORWARD_MIME_TYPE = "message/rfc822"  # an attached mail makes a forward too (D132)
+# A mail encrypted as a whole carries one of these parts (D238): PGP/MIME, S/MIME.
+ENCRYPTED_MIME_TYPES = (
+    "application/pgp-encrypted",
+    "application/pkcs7-mime",
+    "application/x-pkcs7-mime",
+)
 
 
 def term_signal(theme_key: str) -> str:

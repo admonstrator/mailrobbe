@@ -103,7 +103,11 @@ def _note(variable: str, line: str) -> None:
 
 
 def fake_extract(
-    data: bytes, filename: str | None, mime_type: str, limits: ExtractionLimits
+    data: bytes,
+    filename: str | None,
+    mime_type: str,
+    limits: ExtractionLimits,
+    password: str | None = None,
 ) -> Extraction:
     _note(CALLS_ENV, digest(data))
     _note(PIDS_ENV, f"worker {os.getpid()}")
@@ -127,7 +131,7 @@ def fake_extract(
         time.sleep(300)
     if marker in (SLOW, HANG):
         return Extraction(S.TEXT, data.decode())
-    return extract_document(data, filename, mime_type, limits)
+    return extract_document(data, filename, mime_type, limits, password)
 
 
 def recorded(path: Path) -> list[str]:

@@ -54,18 +54,25 @@ class MetadataLimits:
 
 
 def read_metadata(
-    data: bytes, filename: str | None, mime_type: str, limits: MetadataLimits
+    data: bytes,
+    filename: str | None,
+    mime_type: str,
+    limits: MetadataLimits,
+    password: str | None = None,
 ) -> Reading:
-    """The metadata of one document; see the module docstring."""
+    """The metadata of one document; see the module docstring. A password opens a protected PDF
+    or OOXML file first (D236), in the child process."""
     fmt = classify(filename, mime_type, data[:HEAD_SIZE])
     reader = READERS.get(fmt.name)
     if reader is None or (fmt.name == "image" and image_format(data) is None):
         return Reading(DocumentMetadataStatus.UNSUPPORTED)
     if not data:
         return Reading(DocumentMetadataStatus.EMPTY)
-    called = sandbox.call(
-        partial(_collect, reader, data), timeout=limits.timeout, memory=limits.memory
-    )
+    if password:
+        job = partial(_collect_opened, reader, data, filename, mime_type, password)
+    else:
+        job = partial(_collect, reader, data)
+    called = sandbox.call(job, timeout=limits.timeout, memory=limits.memory)
     if called.error is not None:
         return Reading(DocumentMetadataStatus.FAILED, error=called.error)
     fields, problem = called.value["fields"], called.value["problem"]
@@ -90,3 +97,18 @@ def _collect(reader: Reader, data: bytes) -> dict[str, Any]:
     except Exception as error:
         out.damaged(f"damaged file: {reason(error)}")
     return {"fields": out.fields, "problem": out.problem}
+
+
+def _collect_opened(
+    reader: Reader, data: bytes, filename: str | None, mime_type: str, password: str
+) -> dict[str, Any]:
+    """Runs in the child: _collect on the bytes the password decrypts."""
+    from mailrobbe.attachments.protected import decrypted  # it imports the extraction
+
+    try:
+        plain = decrypted(data, filename, mime_type, password)
+    except Encrypted:
+        return {"fields": {}, "problem": "encrypted: the password does not open it"}
+    except Exception as error:
+        return {"fields": {}, "problem": f"damaged file: {reason(error)}"}
+    return _collect(reader, plain)

@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from mailrobbe.enums import SignalKind
 from mailrobbe.signals.model import (
+    ENCRYPTED_MIME_TYPES,
     FORWARD_MIME_TYPE,
     SignalFigures,
     SignalRules,
@@ -105,7 +106,8 @@ _ADDRESSES = (
 # The mails of each signal of D132 but the term signals, as distinct mail_id.
 _FORWARDS = """
     SELECT id AS mail_id FROM mail WHERE subject ~* :forward
-    UNION SELECT mail_id FROM attachment WHERE lower(mime_type) = :attached_mail"""
+    UNION SELECT mail_id FROM attachment
+    WHERE lower(mime_type) = :attached_mail AND container_id IS NULL"""
 _SENT = """
     SELECT DISTINCT s.mail_id
     FROM participation s JOIN signal_person a ON a.id = s.person_id
@@ -144,6 +146,20 @@ _RULES: dict[SignalKind, str] = {
     SignalKind.WEEKEND: """
         SELECT id AS mail_id FROM mail
         WHERE extract(isodow FROM timezone(:zone, date_utc)) IN (6, 7)""",
+    # D238: a protected document (locked, opened, or encrypted by its text extraction), also
+    # inside a container; the mail holding the password that opened another mail's document,
+    # found in the same thread or between the same persons (a password in the carrying mail
+    # itself is tier mail); a part of an encrypted mail.
+    SignalKind.ENCRYPTED_ATTACHMENT: """
+        SELECT DISTINCT a.mail_id FROM attachment a JOIN document d ON d.id = a.document_id
+        WHERE d.protection IS NOT NULL OR d.text_status = 'encrypted'""",
+    SignalKind.PASSWORD_SEPARATE: """
+        SELECT DISTINCT f.mail_id FROM document_password p
+        JOIN password_finding f ON f.id = p.finding_id
+        WHERE f.mail_id IS NOT NULL AND p.tier IN ('thread', 'contacts')""",
+    SignalKind.ENCRYPTED_MAIL: """
+        SELECT DISTINCT mail_id FROM attachment
+        WHERE container_id IS NULL AND lower(mime_type) = ANY(CAST(:encrypted AS text[]))""",
 }
 _INSERT = """
     INSERT INTO mail_signal (signal, mail_id)
@@ -247,6 +263,7 @@ async def compute_signals(
             "private": list(rules.private_domains),
             "forward": forward_pattern(rules.forward_prefixes),
             "attached_mail": FORWARD_MIME_TYPE,
+            "encrypted": list(ENCRYPTED_MIME_TYPES),
             "many": rules.many_recipients,
             "zone": rules.timezone,
             "hours": list(rules.night_hours),

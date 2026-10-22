@@ -137,11 +137,12 @@ def main(argv: list[str]) -> int:
     return 0
 
 
-def confine(timeout: float, memory: int) -> None:
-    """The child's limits (see the module docstring); quietly fewer where unsupported."""
+def confine(timeout: float, memory: int, *, file_size: int = 0) -> None:
+    """The child's limits (see the module docstring); quietly fewer where unsupported. file_size
+    is the largest file it may write (attachments.protected writes an archive for 7-Zip)."""
     signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
     _set_limit(resource.RLIMIT_CORE, 0)
-    _set_limit(resource.RLIMIT_FSIZE, 0)
+    _set_limit(resource.RLIMIT_FSIZE, file_size)
     _set_limit(resource.RLIMIT_CPU, math.ceil(timeout) + _CPU_GRACE)
     size = _address_space()
     if size is not None:

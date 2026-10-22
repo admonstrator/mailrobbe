@@ -27,6 +27,9 @@ export const SIGNAL_NAMES: Record<MailSignalKind | "silent", string> = {
   forward_out: "Weiterleitung nach außen",
   night: "Nachts",
   weekend: "Wochenende",
+  encrypted_attachment: "Verschlüsselter Anhang",
+  password_separate: "Kennwort separat geschickt",
+  encrypted_mail: "Verschlüsselte Mail",
   silent: "Verstummt",
 };
 
@@ -34,6 +37,7 @@ export const GROUP_NAMES: Record<SignalGroup, string> = {
   addresses: "Adressen",
   recipients: "Empfänger und Weiterleitungen",
   time: "Uhrzeit",
+  attachments: "Anhänge",
   wording: "Wortfelder",
   persons: "Personen",
 };
@@ -98,6 +102,12 @@ export function signalRule(key: SignalKey | "silent", settings: SignalSettings):
       return `Gesendet zwischen ${settings.night_from} und ${settings.night_to} Uhr (${zone}).`;
     case "weekend":
       return `Gesendet an einem Samstag oder Sonntag (${zone}).`;
+    case "encrypted_attachment":
+      return "Ein Anhang braucht ein Kennwort (PDF, Office-Datei, ZIP oder 7z), auch in einem Archiv; ob es gefunden wurde, steht beim Anhang.";
+    case "password_separate":
+      return "Die Mail enthält das Kennwort, das einen Anhang einer anderen Mail desselben Verlaufs oder derselben Personen geöffnet hat.";
+    case "encrypted_mail":
+      return "Die Mail selbst ist verschlüsselt (PGP oder S/MIME); ohne den privaten Schlüssel lässt sie sich nicht lesen.";
     case "silent":
       return "Seit mindestens drei Monaten bis zum Ende des Archivs keine Mail, davor Mails in mindestens drei von sechs Monaten, zusammen mindestens fünf.";
   }
