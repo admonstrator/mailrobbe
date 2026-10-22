@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import type { HideRuleFields, HideRuleInfo, HideRulePreview, MailDetail } from "../../api/types";
 import { mailDetail, mailItems, summaryAll } from "../../test/fixtures";
-import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
+import { fixtureApi, renderApp, renderElement, type ApiCall } from "../../test/render";
 import { subjectStart } from "./labels";
+import { RuleDialog } from "./RuleDialog";
 
 const rule: HideRuleInfo = {
   id: 3,
@@ -52,7 +53,7 @@ const previews = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname === "/api/hide-rules/preview");
 
 describe("rule dialog", () => {
-  it("opens empty from the search menu, previews the criteria and saves with one", async () => {
+  it("opens empty from the search menu and saves only with a criterion", async () => {
     const { calls } = renderApp("/mails", api());
     fireEvent.click(await screen.findByRole("button", { name: "Suchmenü" }));
     fireEvent.click(screen.getByRole("button", { name: "Regel anlegen" }));
@@ -61,9 +62,18 @@ describe("rule dialog", () => {
     for (const label of ["Name (optional)", "Absenderadresse", "Domain", "Verteiler (List-Id)"]) {
       expect(within(dialog).getByLabelText(label)).toHaveProperty("value", "");
     }
-    const save = within(dialog).getByRole("button", { name: "Speichern" });
-    expect(save).toHaveProperty("disabled", true);
+    expect(within(dialog).getByRole("button", { name: "Speichern" })).toHaveProperty(
+      "disabled",
+      true,
+    );
     expect(within(dialog).getByText(/Sobald eine Angabe ausgefüllt ist/)).toBeTruthy();
+    expect(previews(calls)).toHaveLength(0);
+  });
+
+  it("previews the criteria last typed and saves the rule", async () => {
+    const { calls } = renderElement(<RuleDialog draft={{}} onClose={() => undefined} />, api());
+    const dialog = screen.getByRole("dialog", { name: "Ausblendregel anlegen" });
+    const save = within(dialog).getByRole("button", { name: "Speichern" });
 
     // A name alone is no criterion; typed quickly, only the criteria that rest are asked for.
     fireEvent.change(within(dialog).getByLabelText("Name (optional)"), {
