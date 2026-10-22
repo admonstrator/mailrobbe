@@ -28,7 +28,7 @@ from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe import migrate
-from mailrobbe.api import documents
+from mailrobbe.api import documents, filters, paging
 from mailrobbe.api.documents import (
     CONTENT_HEADERS,
     content_disposition,
@@ -57,6 +57,7 @@ from mailrobbe.importer.cli import run_import
 from mailrobbe.preview.kinds import preview_kind
 from tests.api.conftest import _client
 from tests.api.test_mails import Params, at, get, rows
+from tests.api.test_paging import check_jumps, walk_rows
 from tests.attachments.doubles import FIRST_DAY, Attached, attachment_mail, digest
 from tests.attachments.metadata import samples
 from tests.conftest import _temporary_database
@@ -1206,6 +1207,20 @@ async def test_a_document_cursor_is_bound_to_its_sort(client: httpx.AsyncClient)
     ):
         error = await get(client, "/api/documents", params, status=400)
         assert error["detail"]["code"] == "invalid_cursor"
+
+
+@pytest.mark.parametrize("sort", SORTS)
+async def test_document_jumps_agree_with_the_keyset_pages(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, sort: str
+) -> None:
+    # As found, and counted first with the mails' conditions read by OFFSET (D193).
+    for forward_rows, walk in ((paging.FORWARD_ROWS, filters.WALK_ROWS), (0, 5)):
+        monkeypatch.setattr(paging, "FORWARD_ROWS", forward_rows)
+        walk_rows(monkeypatch, walk)
+        for params in ([], [("kind", "pdf")], [("date_from", "2016-01-01")], [("q", "Angebot")]):
+            await check_jumps(
+                client, "/api/documents", [*params, ("sort", sort)], 9, numbered_last=False
+            )
 
 
 async def test_the_summary_of_the_generated_archive(

@@ -30,6 +30,7 @@ from sqlalchemy import (
     BigInteger,
     ColumnElement,
     Integer,
+    Select,
     SQLColumnExpression,
     Subquery,
     Text,
@@ -52,6 +53,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.filters import _contains, mail_conditions
 from mailrobbe.api.mails import _count_budget, _unless_canceled
@@ -314,7 +316,7 @@ def _boundary(sort: PersonSort, value: Any) -> ColumnElement[Any]:
 
 @router.get("/persons")
 async def list_persons(
-    params: Annotated[PersonListParams, Query()], session: Session
+    params: Annotated[PersonListParams, Query()], session: Session, settings: AppSettings
 ) -> PersonPage:
     q = params.q.strip()
     scope = f"persons/{params.sort}/{q}" + ("/labelled" if params.labelled else "")
@@ -332,31 +334,50 @@ async def list_persons(
         where.append(Person.id.in_(union_all(matching, labelled_roots(pattern))))
     if params.labelled:
         where.append(Person.id.in_(labelled_roots()))
-    reverse = cursor is not None and cursor.before
-    start = []
-    if cursor is not None:
-        boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
-        start.append(_beyond(columns, boundary, descending != reverse))
-    rows: list[Any] = list(
-        await session.execute(
-            select(PersonStats.person_id, kept.label("key"))
-            .select_from(PersonStats)
-            .join(Person, Person.id == PersonStats.person_id)
-            .where(*where, *start)
-            .order_by(*_by(columns, descending != reverse))
-            .limit(params.limit + 1)
-        )
-    )
-    more = len(rows) > params.limit
-    del rows[params.limit :]
-    if reverse:
-        rows.reverse()
-    total = await session.scalar(
-        select(func.count())
+    listed: Select[int, Any] = (
+        select(PersonStats.person_id, kept.label("key"))
         .select_from(PersonStats)
         .join(Person, Person.id == PersonStats.person_id)
         .where(*where)
     )
+    total: int = (
+        await session.scalar(
+            select(func.count())
+            .select_from(PersonStats)
+            .join(Person, Person.id == PersonStats.person_id)
+            .where(*where)
+        )
+    ) or 0
+    jumped = None
+    if paging.wanted(params.page, params.last):  # D193, from the nearer end of the total
+        if cursor is not None:
+            raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
+
+        async def read(offset: int, limit: int, reverse: bool) -> list[Any]:
+            ordered = listed.order_by(*_by(columns, descending != reverse))
+            return list(await session.execute(ordered.offset(offset).limit(limit)))
+
+        jumped = await paging.jump(
+            session, settings, read, total, page=params.page, last=params.last, limit=params.limit
+        )
+        rows: list[Any] = jumped.rows
+    else:
+        reverse = cursor is not None and cursor.before
+        start = []
+        if cursor is not None:
+            boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
+            start.append(_beyond(columns, boundary, descending != reverse))
+        rows = list(
+            await session.execute(
+                listed.where(*start)
+                .order_by(*_by(columns, descending != reverse))
+                .limit(params.limit + 1)
+            )
+        )
+        more = len(rows) > params.limit
+        del rows[params.limit :]
+        if reverse:
+            rows.reverse()
     summaries = await _summaries(session, [row.person_id for row in rows])
 
     def at(row: Any, before: bool) -> str:
@@ -364,7 +385,10 @@ async def list_persons(
 
     # As in the mail list: a prev cursor walks backwards, "more" then means rows before the page.
     prev_cursor = next_cursor = None
-    if cursor is None:
+    if jumped is not None:
+        prev_cursor = at(rows[0], True) if jumped.before and rows else None
+        next_cursor = at(rows[-1], False) if jumped.after and rows else None
+    elif cursor is None:
         next_cursor = at(rows[-1], False) if more else None
     elif cursor.before:
         prev_cursor = at(rows[0], True) if more else None
@@ -376,7 +400,8 @@ async def list_persons(
         items=[summaries[row.person_id] for row in rows],
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
-        total=total or 0,
+        total=total,
+        page=jumped.page if jumped is not None else 1 if cursor is None else None,
     )
     await attach_labels(session, page)
     return page

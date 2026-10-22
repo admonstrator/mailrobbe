@@ -75,6 +75,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.util import ClauseAdapter
 
+from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import MailId, mail_senders
 from mailrobbe.api.filters import (
@@ -288,29 +289,45 @@ async def list_documents(
     cursor = _Cursor.decode(params.cursor, scope, (kind, _int))
     where = _where(params, settings.internal_domains)
     columns = [key, Document.id]
-    reverse = cursor is not None and cursor.before
-    start = []
-    if cursor is not None:
-        boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
-        start.append(_beyond(columns, boundary, descending != reverse))
     item = select(*_ITEM_COLUMNS, kept.label("key"))
-    if _on_mails(params):
-        # With search words the GIN index narrows first: no walk, which would test every text.
-        walk = None if params.q.strip() else _where(params, settings.internal_domains, walk=True)
+    # With search words the GIN index narrows first: no walk, which would test every text.
+    walk = None if params.q.strip() else _where(params, settings.internal_domains, walk=True)
+
+    async def read(
+        offset: int, limit: int, reverse: bool, start: Sequence[ColumnElement[bool]] = ()
+    ) -> list[Any]:
+        """limit rows after the first offset ones beyond start, in list order or reversed."""
         down = descending != reverse
-        ids = await _first_ids(session, where, walk, start, key, down, params.limit + 1)
+        if not _on_mails(params):
+            statement = item.where(*where, *start).order_by(*_by(columns, down))
+            return list(await session.execute(statement.offset(offset).limit(limit)))
+        ids = await _first_ids(session, where, walk, start, key, down, limit, offset)
         found = await session.execute(
             item.where(Document.id == any_(literal(ids, ARRAY(BigInteger))))
         )
         by_id = {row.id: row for row in found}
-        rows: list[Any] = [by_id[document_id] for document_id in ids]
+        return [by_id[document_id] for document_id in ids]
+
+    jumped = None
+    if paging.wanted(params.page, params.last):  # D193
+        if cursor is not None:
+            raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
+        count = select(func.count()).select_from(Document).where(*where)
+        jumped = await paging.jump(
+            session, settings, read, count, page=params.page, last=params.last, limit=params.limit
+        )
+        rows = jumped.rows
     else:
-        statement = item.where(*where, *start).order_by(*_by(columns, descending != reverse))
-        rows = list(await session.execute(statement.limit(params.limit + 1)))
-    more = len(rows) > params.limit
-    del rows[params.limit :]
-    if reverse:
-        rows.reverse()
+        reverse = cursor is not None and cursor.before
+        start = []
+        if cursor is not None:
+            boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
+            start.append(_beyond(columns, boundary, descending != reverse))
+        rows = await read(0, params.limit + 1, reverse, start)
+        more = len(rows) > params.limit
+        del rows[params.limit :]
+        if reverse:
+            rows.reverse()
     senders = await mail_senders(session, [row.first_mail_id for row in rows if row.first_mail_id])
     snippets = await _snippets(
         session, literal_pattern(search_words(params.q)), [row.id for row in rows]
@@ -321,7 +338,10 @@ async def list_documents(
 
     # As in the mail list: a prev cursor walks backwards, "more" then means rows before the page.
     prev_cursor = next_cursor = None
-    if cursor is None:
+    if jumped is not None:
+        prev_cursor = at(rows[0], True) if jumped.before and rows else None
+        next_cursor = at(rows[-1], False) if jumped.after and rows else None
+    elif cursor is None:
         next_cursor = at(rows[-1], False) if more else None
     elif cursor.before:
         prev_cursor = at(rows[0], True) if more else None
@@ -351,6 +371,7 @@ async def list_documents(
         ],
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
+        page=jumped.page if jumped is not None else 1 if cursor is None else None,
     )
     await attach_labels(session, page)
     return page
@@ -370,11 +391,13 @@ async def _first_ids(
     key: SQLColumnExpression[Any],
     descending: bool,
     limit: int,
+    offset: int = 0,
 ) -> list[int]:
-    """Ids of the first `limit` documents matching where in list order: among the next
-    WALK_ROWS documents (tested with walk, the same conditions one document at a time), else
-    among every match (filters.first_ids does the same for mails). walk None: every match."""
-    if walk is not None:
+    """Ids of the first `limit` documents matching where in list order after the first
+    `offset` ones: among the next WALK_ROWS documents (tested with walk, the same conditions one
+    document at a time), else among every match (filters.first_ids does the same for mails).
+    walk None: every match."""
+    if walk is not None and offset + limit <= WALK_ROWS:
         window = (
             select(*Document.__table__.c, key.label("key"))
             .where(*start)
@@ -387,6 +410,7 @@ async def _first_ids(
             select(window.c.id)
             .where(*(on_window(condition) for condition in walk))
             .order_by(*_by([window.c.key, window.c.id], descending))
+            .offset(offset)
             .limit(limit)
         )
         found = list(await session.scalars(walked))
@@ -400,7 +424,7 @@ async def _first_ids(
         .prefix_with("MATERIALIZED")
     )
     ordered = select(matched.c.id).order_by(*_by([matched.c.key, matched.c.id], descending))
-    return list(await session.scalars(ordered.limit(limit)))
+    return list(await session.scalars(ordered.offset(offset).limit(limit)))
 
 
 # Snippets ------------------------------------------------------------------------------------
