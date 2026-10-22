@@ -1,8 +1,8 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { AttachmentInfo } from "../../api/types";
-import { mailDetail } from "../../test/fixtures";
+import type { AttachmentInfo, MailHits } from "../../api/types";
+import { mailDetail, transcriptView } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 import { ATTACHMENTS_SHOWN, MEMBERS_SHOWN } from "./AttachmentsCard";
 
@@ -431,5 +431,141 @@ describe("text recognition from a mail's attachments", () => {
     expect(within(item(card, "Scan_0042.pdf")).getByText("Text maschinell erkannt")).toBeTruthy();
     expect(within(item(card, "IMG_0412.jpg")).getByText("keine Schrift erkannt")).toBeTruthy();
     expect(within(card).queryByRole("button", { name: /erkennen$/ })).toBeNull();
+  });
+});
+
+describe("transcription from a mail's attachments (D296)", () => {
+  const voice: AttachmentInfo = {
+    ...pdf,
+    id: 960,
+    filename: "Sprachnachricht_Vorstand.ogg",
+    mime_type: "audio/ogg",
+    size: 98_304,
+    document_id: 5160,
+    kind: "media",
+    text_status: "unsupported",
+    pages: null,
+    document_mails: 1,
+    preview: "audio",
+    metadata: null,
+    transcript: "transcribable",
+  };
+  const heard: AttachmentInfo = {
+    ...voice,
+    text_status: "text",
+    transcript: "transcribed",
+    duration: 192.4,
+  };
+
+  it("transcribes a recording at once, where Text erkennen would stand", async () => {
+    let queued = false;
+    const { calls } = renderApp("/mails/184221", (call) => {
+      if (call.url.pathname === "/api/ai/tasks") {
+        queued = true;
+        return { queued: 1, raised: 0, unreadable: 0, logos: 0, run: "started" };
+      }
+      const now = queued ? { ...voice, transcript: "queued" as const } : voice;
+      return withAttachments([pdf, now])(call);
+    });
+    const card = await attachmentsCard();
+    const row = item(card, "Sprachnachricht_Vorstand.ogg");
+    // After the document link, as "Text erkennen" stands for a scan.
+    expect(Array.from(row.querySelectorAll("a, button"), (element) => element.textContent)).toEqual(
+      ["Herunterladen", "Vorschau", "Zum Dokument", "Transkribieren"],
+    );
+    fireEvent.click(
+      within(row).getByRole("button", { name: "Sprachnachricht_Vorstand.ogg transkribieren" }),
+    );
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url.pathname === "/api/ai/tasks")).toHaveLength(1),
+    );
+    expect(calls.find((call) => call.url.pathname === "/api/ai/tasks")!.body).toEqual({
+      document_ids: [5160],
+      single: true,
+      start: true,
+      kind: "transcribe",
+    });
+    expect(await within(card).findByText("Transkript wird erstellt")).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: /transkribieren$/ })).toBeNull();
+  });
+
+  it("say how the transcription went, with the recording's length", async () => {
+    renderApp(
+      "/mails/184221",
+      withAttachments([
+        heard,
+        { ...voice, id: 961, filename: "Rauschen.mp3", transcript: "no_text" },
+      ]),
+    );
+    const card = await attachmentsCard();
+    const row = item(card, "Sprachnachricht_Vorstand.ogg");
+    expect(within(row).getByText("transkribiert")).toBeTruthy();
+    expect(within(row).getByTitle("Länge der Aufnahme").textContent).toBe("3:12");
+    expect(within(item(card, "Rauschen.mp3")).getByText("keine Sprache erkannt")).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: /transkribieren$/ })).toBeNull();
+  });
+
+  it("show the transcript under the player, the search words marked", async () => {
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const hits: MailHits = {
+      words: ["Rat"],
+      stems: ["rat"],
+      in_mail: false,
+      attachments: [
+        {
+          attachment_id: 960,
+          in_name: false,
+          snippet: "Die Sitzung mit dem Rat wird auf Donnerstag verschoben.",
+          in_text: true,
+          machine: true,
+        },
+      ],
+      whole_word: false,
+      in_subject: false,
+      in_body: false,
+      counts: null,
+    };
+    renderApp(`/mails/184221?${new URLSearchParams({ q: "Rat" })}`, (call) => {
+      const path = call.url.pathname;
+      if (path === "/api/mails/184221/hits") return hits;
+      if (path === "/api/documents/5160/transcript") return transcriptView;
+      return withAttachments([pdf, heard])(call);
+    });
+    const card = await attachmentsCard();
+    const row = item(card, "Sprachnachricht_Vorstand.ogg");
+    // The hit line says the text was transcribed, and so does the search hits card.
+    const mark = await within(row).findByText("maschinell transkribiert");
+    expect(mark.title).toMatch(/aus dem Ton der Aufnahme transkribiert/);
+    const found = screen.getByRole("region", { name: "Suchtreffer" });
+    expect(within(found).getByText("maschinell transkribiert")).toBeTruthy();
+
+    fireEvent.click(within(row).getByRole("button", { name: "Vorschau" }));
+    const overlay = screen.getByRole("dialog", { name: "Sprachnachricht_Vorstand.ogg" });
+    const lines = await within(overlay).findByRole("list", { name: "Zeilen des Transkripts" });
+    expect([...lines.querySelectorAll("mark")].map((marked) => marked.textContent)).toEqual([
+      "Rat",
+      "Rat",
+    ]);
+    const audio = overlay.querySelector("audio")!;
+    fireEvent.click(within(lines).getByRole("button", { name: "Ab 1:05 abspielen" }));
+    expect(audio.currentTime).toBe(65.3);
+    expect(play).toHaveBeenCalledTimes(1);
+    fireEvent.timeUpdate(audio);
+    expect(within(lines).getByRole("listitem", { current: true }).textContent).toContain(
+      "der Rat wartet",
+    );
+    play.mockRestore();
+  });
+
+  it("show a recording without a transcript as before", async () => {
+    const { calls } = renderApp("/mails/184221", withAttachments([pdf, voice]));
+    const card = await attachmentsCard();
+    fireEvent.click(
+      within(item(card, "Sprachnachricht_Vorstand.ogg")).getByRole("button", { name: "Vorschau" }),
+    );
+    const overlay = screen.getByRole("dialog", { name: "Sprachnachricht_Vorstand.ogg" });
+    await waitFor(() => expect(overlay.querySelector("audio")).toBeTruthy());
+    expect(within(overlay).queryByRole("list")).toBeNull();
+    expect(calls.some((call) => call.url.pathname.endsWith("/transcript"))).toBe(false);
   });
 });

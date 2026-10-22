@@ -150,22 +150,29 @@ function AgainDialog({
   );
 }
 
-function DiscardDialog({
+/** "Verwerfen" of a recognised text or, with transcript, of a transcript (D185, D294), after a
+ *  confirmation; onDone gets the notice. */
+export function DiscardDialog({
   resultId,
+  transcript = false,
   onClose,
   onDone,
 }: {
   resultId: number;
+  transcript?: boolean;
   onClose: () => void;
   onDone: (notice: string) => void;
 }) {
   const discard = useDiscardAi();
   return (
-    <Dialog title="Erkannten Text verwerfen?" onClose={onClose}>
+    <Dialog
+      title={transcript ? "Transkript verwerfen?" : "Erkannten Text verwerfen?"}
+      onClose={onClose}
+    >
       <p className={styles.text}>
-        Der maschinell erkannte Text wird aus der Suche genommen. Das Dokument bekommt einen früher
-        erkannten Text zurück oder steht wieder ohne Text da, wie der Import es fand. Das Ergebnis
-        bleibt als verworfen auf der Seite „KI“ verzeichnet.
+        {transcript
+          ? "Das maschinell erstellte Transkript wird aus der Suche genommen. Die Aufnahme bekommt ein früheres Transkript zurück oder steht wieder ohne Text da, wie der Import sie fand. Das Ergebnis bleibt als verworfen auf der Seite „KI“ verzeichnet."
+          : "Der maschinell erkannte Text wird aus der Suche genommen. Das Dokument bekommt einen früher erkannten Text zurück oder steht wieder ohne Text da, wie der Import es fand. Das Ergebnis bleibt als verworfen auf der Seite „KI“ verzeichnet."}
       </p>
       {discard.error && (
         <p className={styles.warning} role="alert">
@@ -182,7 +189,11 @@ function DiscardDialog({
               { result: resultId },
               {
                 onSuccess: () => {
-                  onDone("Der erkannte Text ist verworfen.");
+                  onDone(
+                    transcript
+                      ? "Das Transkript ist verworfen."
+                      : "Der erkannte Text ist verworfen.",
+                  );
                   onClose();
                 },
               },

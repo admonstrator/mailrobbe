@@ -172,6 +172,7 @@ import type {
   TopicTermParams,
   TopicTerms,
   TownLabel,
+  TranscriptView,
 } from "./types";
 
 export function createQueryClient(): QueryClient {
@@ -238,6 +239,9 @@ export const queryKeys = {
   documentSummary: (filters: DocumentFilters) => ["documents", "summary", filters] as const,
   document: (id: number) => ["documents", "detail", id] as const,
   documentText: (id: number) => ["documents", "text", id] as const,
+  /** A document's transcript lines (D296), by the result they belong to (null: the valid one). */
+  documentTranscript: (id: number, result: number | null) =>
+    ["documents", "transcript", id, result] as const,
   hits: (id: number, params: MailHitsParams) => ["documents", "hits", id, params] as const,
   metadataValues: (params: MetadataValueParams) => ["documents", "metadata", params] as const,
   attachmentHtml: (id: number) => ["attachments", "html", id] as const,
@@ -306,17 +310,22 @@ export function useMailDetail(id: number, enabled = true) {
     queryKey: queryKeys.mail(id),
     queryFn: ({ signal }) => apiGet<MailDetail>(`/api/mails/${id}`, undefined, signal),
     enabled,
-    // asked again while an attachment's text recognition is queued or running (D280)
-    refetchInterval: (query) => (ocrQueued(query.state.data?.attachments) ? OCR_POLL : false),
+    // asked again while an attachment's text recognition or transcription is queued or running
+    // (D280, D295)
+    refetchInterval: (query) => (aiQueued(query.state.data?.attachments) ? OCR_POLL : false),
   });
 }
 
-/** How often a page asks again while a text recognition it shows is queued or running. */
+/** How often a page asks again while a text recognition or a transcription it shows is queued
+ *  or running. */
 export const OCR_POLL = 3_000;
 
-function ocrQueued(attachments: AttachmentInfo[] | undefined): boolean {
+function aiQueued(attachments: AttachmentInfo[] | undefined): boolean {
   return (attachments ?? []).some(
-    (attachment) => attachment.ocr === "queued" || ocrQueued(attachment.members),
+    (attachment) =>
+      attachment.ocr === "queued" ||
+      attachment.transcript === "queued" ||
+      aiQueued(attachment.members),
   );
 }
 
@@ -947,8 +956,10 @@ export function useDocument(id: number, enabled = true) {
     queryKey: queryKeys.document(id),
     queryFn: ({ signal }) => apiGet<DocumentDetail>(`/api/documents/${id}`, undefined, signal),
     enabled,
-    // asked again while its text recognition is queued or running, so the result shows (D280)
-    refetchInterval: (query) => (query.state.data?.ai?.task ? OCR_POLL : false),
+    // asked again while its text recognition or transcription is queued or running, so the
+    // result shows (D280, D296)
+    refetchInterval: (query) =>
+      query.state.data?.ai?.task || query.state.data?.transcript?.task ? OCR_POLL : false,
   });
 }
 
@@ -957,6 +968,18 @@ export function useDocumentText(id: number, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.documentText(id),
     queryFn: ({ signal }) => apiGet<DocumentText>(`/api/documents/${id}/text`, undefined, signal),
+    enabled,
+  });
+}
+
+/** A recording's transcript with its lines (D296), by its result: the document page names the
+ *  one it shows, so a new transcript is loaded once the page learns of it; the mail's preview
+ *  asks for the valid one (result null). */
+export function useDocumentTranscript(id: number, enabled: boolean, result: number | null = null) {
+  return useQuery({
+    queryKey: queryKeys.documentTranscript(id, result),
+    queryFn: ({ signal }) =>
+      apiGet<TranscriptView>(`/api/documents/${id}/transcript`, undefined, signal),
     enabled,
   });
 }

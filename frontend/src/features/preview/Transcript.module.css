@@ -1,0 +1,125 @@
+/* A transcript's lines (D296): the time as a button, the text beside it. They scroll inside the
+   list, so the player and the page stay where they are; positioned, so each line's offsetTop is
+   its place in the list. */
+.lines {
+  --time-width: 5.5ch;
+
+  position: relative;
+  max-height: 480px;
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-tile);
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+/* Beyond an hour the times read h:mm:ss. */
+.long {
+  --time-width: 7.5ch;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lines {
+    scroll-behavior: smooth;
+  }
+}
+
+/* In the overlay: as high as the lines need, at most what the player leaves; below a video at
+   most half of it, so the picture keeps the rest. */
+.belowAudio,
+.belowVideo {
+  flex: 0 1 auto;
+  min-height: 120px;
+  max-height: none;
+}
+
+.belowVideo {
+  max-height: 45%;
+}
+
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 14px 3px 6px;
+  border-left: 3px solid transparent;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.playing {
+  border-left-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.time {
+  flex: 0 0 auto;
+  min-width: var(--time-width);
+  border: 0;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  cursor: pointer;
+}
+
+.time:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+.time:disabled {
+  color: var(--color-muted);
+  cursor: default;
+}
+
+.text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Heard with little certainty: quieter, underlined with dots. */
+.uncertain .text {
+  color: var(--color-muted);
+  text-decoration: underline dotted var(--color-border-strong);
+  text-underline-offset: 3px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+/* The player and the lines below it in the overlay, sharing its height. */
+.withPlayer {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+}

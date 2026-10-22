@@ -23,6 +23,27 @@ describe("mail list and attachments", () => {
     expect(screen.getAllByText("im Anhang")).toHaveLength(1);
   });
 
+  it("says when that text is a recording's transcript (D296)", async () => {
+    const hits = { subject: 0, body: 0, attachment: 2, filename: 0 };
+    renderApp("/mails?q=Rat", (call: ApiCall) =>
+      call.url.pathname === "/api/mails"
+        ? {
+            ...mailPage,
+            items: [
+              { ...mailItems[0], hits, attachment_machine: true, attachment_transcript: true },
+              { ...mailItems[2], hits, attachment_machine: true },
+            ],
+            query_terms: [{ key: "text", value: "Rat", raw: "Rat" }],
+          }
+        : fixtureApi(call),
+    );
+    const heard = await screen.findByText("im Anhang · maschinell transkribiert");
+    expect(heard.getAttribute("title")).toBe(
+      "Suchbegriff steht im Text eines Anhangs, maschinell transkribiert (KI)",
+    );
+    expect(screen.getByText("im Anhang · maschinell erkannt")).toBeTruthy();
+  });
+
   it("shows the document filter as a chip named by the document", async () => {
     const { router, calls } = renderApp("/mails?document=5101&sort=date_asc");
     const chip = await screen.findByRole("button", {

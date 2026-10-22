@@ -19,12 +19,19 @@ interface PreviewProps {
 /** An attachment as the browser shows it (D120), by the kind the API decided (`preview` of an
  *  attachment or a document): nothing of it runs on the app's origin or reaches the network.
  *  decrypted: it was opened with a found password (D236), so a PDF is read decrypted; the server
- *  decrypts a converted DOCX by itself, and a locked file has no preview. */
+ *  decrypts a converted DOCX by itself, and a locked file has no preview. onMedia gets the
+ *  player of audio and video, and null once it is gone, so a transcript can play it from a
+ *  line's time (D296). */
 export function AttachmentPreview({
   kind,
   decrypted = false,
+  onMedia,
   ...props
-}: PreviewProps & { kind: PreviewKind; decrypted?: boolean }) {
+}: PreviewProps & {
+  kind: PreviewKind;
+  decrypted?: boolean;
+  onMedia?: (player: HTMLMediaElement | null) => void;
+}) {
   switch (kind) {
     case "image":
       return <ImagePreview {...props} />;
@@ -34,7 +41,7 @@ export function AttachmentPreview({
       return <HtmlPreview {...props} />;
     case "audio":
     case "video":
-      return <MediaPreview kind={kind} {...props} />;
+      return <MediaPreview kind={kind} onMedia={onMedia} {...props} />;
   }
 }
 
@@ -102,7 +109,11 @@ function MediaPreview({
   name,
   kind,
   fill,
-}: PreviewProps & { kind: "audio" | "video" }) {
+  onMedia,
+}: PreviewProps & {
+  kind: "audio" | "video";
+  onMedia?: (player: HTMLMediaElement | null) => void;
+}) {
   const [broken, setBroken] = useState(false);
   if (broken) {
     return (
@@ -112,6 +123,7 @@ function MediaPreview({
     );
   }
   const player = {
+    ref: onMedia,
     src: attachmentMediaUrl(attachmentId),
     title: name,
     controls: true,
