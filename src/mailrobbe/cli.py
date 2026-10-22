@@ -3,6 +3,7 @@ import sys
 from collections.abc import Sequence
 
 from mailrobbe import bench
+from mailrobbe.ai import cli as ai_cli
 from mailrobbe.dkim import cli as dkim_cli
 from mailrobbe.dkim.keys import cli as keys_cli
 from mailrobbe.generator import cli as generator_cli
@@ -69,6 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     detail_map = commands.add_parser("map", help="download or delete the detail map")
     map_cli.add_arguments(detail_map)
     detail_map.set_defaults(handler=map_cli.run)
+
+    ai = commands.add_parser("ai", help="recognise the text of scanned PDFs and images")
+    ai_cli.add_arguments(ai)
+    ai.set_defaults(handler=ai_cli.run)
 
     measure = commands.add_parser(
         "bench", help="measure the API's response times against a running server"

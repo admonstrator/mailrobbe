@@ -20,7 +20,8 @@ as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error, the signals phase failed (a time zone PostgreSQL does not know, D133) or the
-import could not start, 130 when it was stopped; the next run resumes.
+import could not start (also while an AI run is alive, D187), 130 when it was stopped; the next
+run resumes.
 """
 
 import argparse
@@ -147,7 +148,13 @@ async def run_import(
     engine = create_engine(settings.database_url, application_name(JobKind.IMPORT))
     try:
         async with job_run(
-            engine, JobKind.IMPORT, origin, options, phase="scan", figures=figures.report
+            engine,
+            JobKind.IMPORT,
+            origin,
+            options,
+            phase="scan",
+            figures=figures.report,
+            excluded=(JobKind.AI,),  # an AI run writes document texts (D187)
         ) as job:
             sessionmaker = create_sessionmaker(engine)
             ending = await _import(
