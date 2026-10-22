@@ -37,6 +37,7 @@ from sqlalchemy import (
     any_,
     func,
     literal,
+    literal_column,
     select,
     true,
 )
@@ -45,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.api.deps import AppSettings, Session
 from mailrobbe.api.documents import _all_unless_canceled
-from mailrobbe.api.filters import resolve_contents
+from mailrobbe.api.filters import resolve_contents, unfiltered
 from mailrobbe.api.mails import _count_budget, _terms, _unless_canceled, _where
 from mailrobbe.api.schemas import (
     TOPIC_SAMPLE,
@@ -70,7 +71,7 @@ from mailrobbe.db.models import TopicPeriodTerm as PeriodTermRow
 from mailrobbe.db.models import TopicState as StateRow
 from mailrobbe.db.models import TopicTerm as TermRow
 from mailrobbe.topics.keyness import MIN_SCOPE_MAILS, Keyness, keyness
-from mailrobbe.topics.model import period_end, period_start
+from mailrobbe.topics.model import TOPIC_WEIGHTS, period_end, period_start
 
 router = APIRouter(prefix="/api/topics", tags=["topics"])
 
@@ -168,7 +169,7 @@ async def terms(
     # Duplicates never count here, whether the list hides them or not.
     filters = params.model_copy(update={"hide_duplicates": False})
     where = _where(filters, _terms(params.q), settings)
-    if not where:
+    if unfiltered(where):
         return _terms_of(state, state.mails)
     where = await resolve_contents(session, [*where, _ORIGINAL])
     await _count_budget(session, settings)
@@ -227,9 +228,11 @@ def _terms_of(state: TopicState, mails: int | None, timed_out: bool = False) -> 
 
 def _lexeme_counts(mail_ids: Sequence[int]) -> Executable:
     """The terms of the vocabulary in at least MIN_SCOPE_MAILS of these mails, with their rows
-    of topic_term and a, the mails holding them. tsvector_to_array leaves the positions out,
-    which makes the count a third faster than unnest(tsv)."""
-    words = func.unnest(func.tsvector_to_array(Mail.tsv)).table_valued("lexeme").render_derived("u")
+    of topic_term and a, the mails holding them outside their standard blocks, as the
+    vocabulary counts (TOPIC_WEIGHTS). tsvector_to_array leaves the positions out, which makes
+    the count a third faster than unnest(tsv)."""
+    lexemes = func.tsvector_to_array(func.ts_filter(Mail.tsv, literal_column(TOPIC_WEIGHTS)))
+    words = func.unnest(lexemes).table_valued("lexeme").render_derived("u")
     ids: ColumnElement[Any] = literal(list(mail_ids), ARRAY(BigInteger))
     counted = (
         select(words.c.lexeme, func.count().label("a"))

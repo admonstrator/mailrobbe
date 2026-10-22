@@ -1,16 +1,18 @@
 // The document screens keep their state in the URL, so a search can be bookmarked and shared:
 // the list (/anhaenge) with the API's parameter names (DocumentListParams; lists repeated,
-// booleans as "true", defaults left out) plus the UI-only "page", and the mail list of a
-// document page (/anhaenge/:id: cursor and page).
+// booleans as "true", defaults left out), and the mail list of a document page (/anhaenge/:id:
+// its page alone). Pages as every list's (lib/paging.ts, D193).
 
 import { buildQuery } from "../../api/client";
-import type {
-  DocumentFilters,
-  DocumentKind,
-  DocumentListParams,
-  DocumentSort,
-  DocumentTextStatus,
+import {
+  PAGE_SIZE,
+  type DocumentFilters,
+  type DocumentKind,
+  type DocumentListParams,
+  type DocumentSort,
+  type DocumentTextStatus,
 } from "../../api/types";
+import { FIRST_PAGE, pagingParams, pagingQuery, parsePaging, type Paging } from "../../lib/paging";
 import {
   DEFAULT_LIST_STATE,
   isDay,
@@ -22,7 +24,7 @@ import { DOCUMENT_KINDS, TEXT_STATUSES } from "./labels";
 
 export type DocumentPersonRole = NonNullable<DocumentFilters["person_role"]>;
 
-export interface DocumentListState {
+export interface DocumentListState extends Paging {
   q: string;
   name: string;
   kind: DocumentKind[];
@@ -38,13 +40,10 @@ export interface DocumentListState {
   author: string[];
   program: string[];
   sort: DocumentSort;
-  cursor: string | null;
-  /** 1-based number of the page the cursor points to, for the "51–100" range. */
-  page: number;
 }
 
 /** The parts a filter change may touch; cursor and page follow from them. */
-export type DocumentFilterPatch = Partial<Omit<DocumentListState, "cursor" | "page">>;
+export type DocumentFilterPatch = Partial<Omit<DocumentListState, "cursor" | "page" | "limit">>;
 
 export const DEFAULT_DOCUMENT_LIST_STATE: DocumentListState = {
   q: "",
@@ -62,6 +61,7 @@ export const DEFAULT_DOCUMENT_LIST_STATE: DocumentListState = {
   sort: "recent",
   cursor: null,
   page: 1,
+  limit: PAGE_SIZE,
 };
 
 const SORTS: readonly DocumentSort[] = ["recent", "oldest", "mails", "size"];
@@ -73,8 +73,8 @@ export function parseDocumentListState(search: URLSearchParams): DocumentListSta
   const to = search.get("date_to");
   const person = positiveInt(search.get("person"));
   const role = search.get("person_role");
-  const cursor = search.get("cursor") || null;
   return {
+    ...parsePaging(search),
     q: search.get("q")?.trim() ?? "",
     name: search.get("name")?.trim() ?? "",
     kind: DOCUMENT_KINDS.filter((kind) => search.getAll("kind").includes(kind)),
@@ -89,8 +89,6 @@ export function parseDocumentListState(search: URLSearchParams): DocumentListSta
     author: metadataValues(search.getAll("author")),
     program: metadataValues(search.getAll("program")),
     sort: SORTS.find((sort) => sort === search.get("sort")) ?? "recent",
-    cursor,
-    page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1,
   };
 }
 
@@ -118,19 +116,19 @@ export function toDocumentFilters(state: DocumentListState): DocumentFilters {
   return filters;
 }
 
-export function toDocumentListParams(state: DocumentListState): DocumentListParams {
+function sorted(state: DocumentListState): DocumentListParams {
   const params: DocumentListParams = toDocumentFilters(state);
   if (state.sort !== "recent") params.sort = state.sort;
-  if (state.cursor) params.cursor = state.cursor;
   return params;
+}
+
+export function toDocumentListParams(state: DocumentListState): DocumentListParams {
+  return { ...sorted(state), ...pagingParams(state) };
 }
 
 /** The query string of state, the inverse of parseDocumentListState. */
 export function documentListSearch(state: DocumentListState): URLSearchParams {
-  return buildQuery({
-    ...toDocumentListParams(state),
-    page: state.cursor && state.page > 1 ? state.page : null,
-  });
+  return buildQuery({ ...sorted(state), ...pagingQuery(state) });
 }
 
 export function documentPath(id: number): string {
@@ -157,7 +155,7 @@ export function withDocumentFilters(
 
 /** state without the filter column's filters, keeping the search text and the sort. */
 export function withoutDocumentFilters(state: DocumentListState): DocumentListState {
-  return { ...DEFAULT_DOCUMENT_LIST_STATE, q: state.q, sort: state.sort };
+  return { ...DEFAULT_DOCUMENT_LIST_STATE, q: state.q, sort: state.sort, limit: state.limit };
 }
 
 export function hasDocumentFilters(state: DocumentListState): boolean {
@@ -176,21 +174,14 @@ export function facetFilters(
 }
 
 /** The page of a document's mail list: the URL of the document page holds only that. */
-export interface DocumentMailState {
-  cursor: string | null;
-  page: number;
-}
+export type DocumentMailState = Paging;
 
 export function parseDocumentMailState(search: URLSearchParams): DocumentMailState {
-  const cursor = search.get("cursor") || null;
-  return { cursor, page: cursor ? (positiveInt(search.get("page")) ?? 1) : 1 };
+  return parsePaging(search);
 }
 
 export function documentMailSearch(state: DocumentMailState): URLSearchParams {
-  return buildQuery({
-    cursor: state.cursor,
-    page: state.cursor && state.page > 1 ? state.page : null,
-  });
+  return buildQuery(pagingQuery(state));
 }
 
 /** "Wer hat dieses Dokument wann an wen geschickt" (D75): the mail list of the mails carrying
@@ -203,10 +194,12 @@ export function documentMailList(documentId: number, state: DocumentMailState): 
     sort: "date_asc",
     cursor: state.cursor,
     page: state.page,
+    limit: state.limit,
   };
 }
 
 /** The same list in the mail list, where it can be narrowed further or exported as CSV. */
 export function documentMailsHref(documentId: number): string {
-  return `/mails?${listSearch(documentMailList(documentId, { cursor: null, page: 1 }))}`;
+  const first = { ...FIRST_PAGE, limit: PAGE_SIZE };
+  return `/mails?${listSearch(documentMailList(documentId, first))}`;
 }

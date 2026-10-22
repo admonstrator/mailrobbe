@@ -1,0 +1,124 @@
+/* A paragraph of the text view and its menu (ParagraphMenu.tsx). The handle sits in the card's
+   left padding, beside the paragraph's first line, and shows on hover and focus. */
+
+.anchor {
+  position: relative;
+}
+
+.handle {
+  position: absolute;
+  top: 0;
+  left: -22px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-control);
+  padding: 0;
+  background: transparent;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.paragraph:hover .handle,
+.handle:focus-visible,
+.handle.open,
+.handle.marked {
+  opacity: 1;
+}
+
+.handle:hover,
+.handle.open {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.handle.marked {
+  color: var(--color-no-key-text);
+}
+
+.menu {
+  position: absolute;
+  top: 24px;
+  left: -22px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 220px;
+  max-width: 300px;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-tile);
+  padding: 8px 10px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.item {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 4px 10px;
+  background: var(--color-surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.link {
+  font-size: 12px;
+}
+
+.note {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.error {
+  color: var(--color-fail-text);
+  font-size: 12px;
+}
+
+/* After a paragraph whose choice the next run applies. */
+.pending {
+  display: inline-block;
+  margin-left: 8px;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* Without hover (a touch screen) the handle stays faintly in view. */
+@media (hover: none) {
+  .handle {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handle {
+    transition: none;
+  }
+}

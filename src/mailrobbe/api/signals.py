@@ -37,7 +37,7 @@ from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import MailId
 from mailrobbe.api.documents import _all_unless_canceled
 from mailrobbe.api.entities import FACET_FALLBACK, _ids, _ref
-from mailrobbe.api.filters import resolve_contents
+from mailrobbe.api.filters import resolve_contents, unfiltered
 from mailrobbe.api.mails import _count_budget, _terms, _where
 from mailrobbe.api.persons import _DUPLICATES, PersonId
 from mailrobbe.api.schemas import (
@@ -195,7 +195,7 @@ async def signal_facets(
 ) -> SignalFacets:
     keys = rules(settings).keys
     where = _where(filters, _terms(filters.q), settings)
-    if not where:
+    if unfiltered(where):
         figures = await read_figures(session)
         stored = {} if figures is None else figures.signals
         return SignalFacets(signals=_in_order(keys, stored), mails=None, sampled=False)

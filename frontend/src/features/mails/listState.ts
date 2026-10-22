@@ -1,13 +1,17 @@
 // The mail list's state lives in the URL: the query string uses the API's parameter names
-// (MailListParams; lists repeated, booleans as "true", defaults left out) plus the UI-only "page".
+// (MailListParams; lists repeated, booleans as "true", defaults left out), and its page as every
+// list's (lib/paging.ts, D193): page=N or page=last to jump, a cursor to step, and limit.
 
 import { buildQuery } from "../../api/client";
 import {
+  BLOCK_HASH_PATTERN,
+  BODY_PARTS,
   EVENT_KEYS,
   MAIL_SIGNAL_KINDS,
   MIN_HITS_LIMIT,
   PAGE_SIZE,
   SEARCH_FIELDS,
+  type BodyPart,
   type DkimKey,
   type EntityContextKey,
   type EventKey,
@@ -22,6 +26,7 @@ import {
   type SortOrder,
 } from "../../api/types";
 import { DKIM_KEYS } from "../../lib/dkim";
+import { pagingParams, pagingQuery, parsePaging, type PageNumber } from "../../lib/paging";
 import { REVIEW_KEYS } from "../../lib/research";
 import { amountParam } from "../entities/amount";
 import { ENTITY_CONTEXTS } from "../entities/labels";
@@ -70,11 +75,16 @@ export interface ListState {
   scope: SearchField[];
   whole_word: boolean;
   min_hits: number | null;
+  /** Milestone 18: hidden mails included (D222), the parts of the mail's own text searched
+   *  (D226), the mails holding this paragraph (D227). */
+  include_hidden: boolean;
+  body_part: BodyPart;
+  block: string | null;
   sort: SortOrder;
+  /** The page (D193): a step's cursor, the page's number or "last", the page size. */
   cursor: string | null;
   limit: number;
-  /** 1-based number of the page the cursor points to, for the "51–100" range. */
-  page: number;
+  page: PageNumber;
 }
 
 /** The parts of ListState a filter change may touch; cursor and page follow from them. */
@@ -112,6 +122,9 @@ export const DEFAULT_LIST_STATE: ListState = {
   scope: [],
   whole_word: false,
   min_hits: null,
+  include_hidden: false,
+  body_part: "clean",
+  block: null,
   sort: "date_desc",
   cursor: null,
   limit: PAGE_SIZE,
@@ -126,7 +139,6 @@ const BOOLEAN_KEYS = [
   "flagged",
   "collapse_near",
 ] as const;
-const MAX_LIMIT = 200;
 export const PERSON_ROLES: readonly PersonRole[] = ["sent", "received", "cc"];
 
 export function positiveInt(value: string | null, max = Number.MAX_SAFE_INTEGER): number | null {
@@ -202,12 +214,13 @@ export function parseListState(search: URLSearchParams): ListState {
   state.scope = canonicalScope(search.getAll("scope"));
   state.whole_word = search.get("whole_word") === "true";
   state.min_hits = positiveInt(search.get("min_hits"), MIN_HITS_LIMIT);
+  state.include_hidden = search.get("include_hidden") === "true";
+  state.body_part = BODY_PARTS.find((part) => part === search.get("body_part")) ?? "clean";
+  const block = search.get("block");
+  state.block = block && BLOCK_HASH_PATTERN.test(block) ? block : null;
   const sort = search.get("sort");
   state.sort = sort === "date_asc" ? "date_asc" : "date_desc";
-  state.cursor = search.get("cursor") || null;
-  state.limit = positiveInt(search.get("limit"), MAX_LIMIT) ?? PAGE_SIZE;
-  state.page = state.cursor ? (positiveInt(search.get("page")) ?? 1) : 1;
-  return state;
+  return { ...state, ...parsePaging(search) };
 }
 
 /** The filters of state with the defaults left out: the same object for the same filters, so
@@ -240,6 +253,9 @@ export function toFilters(state: ListState): MailFilters {
   if (state.scope.length) filters.scope = state.scope;
   if (state.whole_word) filters.whole_word = true;
   if (state.min_hits !== null) filters.min_hits = state.min_hits;
+  if (state.include_hidden) filters.include_hidden = true;
+  if (state.body_part !== "clean") filters.body_part = state.body_part;
+  if (state.block) filters.block = state.block;
   return filters;
 }
 
@@ -250,40 +266,45 @@ export function toOrderParams(state: ListState): MailOrderParams {
 }
 
 export function toListParams(state: ListState): MailListParams {
-  const params: MailListParams = toOrderParams(state);
-  if (state.cursor) params.cursor = state.cursor;
-  if (state.limit !== PAGE_SIZE) params.limit = state.limit;
-  return params;
+  return { ...toOrderParams(state), ...pagingParams(state) };
 }
 
-/** What GET /api/mails/{id}/hits needs of the list (D176): q, its places and whole words, the
- *  defaults left out. */
+/** What GET /api/mails/{id}/hits needs of the list (D176): q, its places, whole words and the
+ *  parts of the text (D226), the defaults left out. */
 export function toHitsParams(state: ListState): MailHitsParams {
   const params: MailHitsParams = { q: state.q };
   if (state.scope.length) params.scope = state.scope;
   if (state.whole_word) params.whole_word = true;
+  if (state.body_part !== "clean") params.body_part = state.body_part;
   return params;
 }
 
 /** The query string of state, the inverse of parseListState. */
 export function listSearch(state: ListState): URLSearchParams {
-  return buildQuery({
-    ...toListParams(state),
-    page: state.cursor && state.page > 1 ? state.page : null,
-  });
+  return buildQuery({ ...toOrderParams(state), ...pagingQuery(state) });
 }
 
-/** state with a filter changed; a new filter starts again at the first page. */
+/** state with a filter changed; a new filter starts again at the first page, at its size. */
 export function withFilters(state: ListState, patch: FilterPatch): ListState {
   return { ...state, ...patch, cursor: null, page: 1 };
 }
 
-/** The options of q's full text words (D171 to D174). */
-export type SearchOptions = Pick<ListState, "scope" | "whole_word" | "min_hits">;
+/** The options of the search menu: those of q's full text words (D171 to D174, D226) and
+ *  whether hidden mails are included (D222). */
+export type SearchOptions = Pick<
+  ListState,
+  "scope" | "whole_word" | "min_hits" | "body_part" | "include_hidden"
+>;
 
 /** The search options of state, which a new search from the header keeps (D177). */
 export function searchOptions(state: ListState): SearchOptions {
-  return { scope: state.scope, whole_word: state.whole_word, min_hits: state.min_hits };
+  return {
+    scope: state.scope,
+    whole_word: state.whole_word,
+    min_hits: state.min_hits,
+    body_part: state.body_part,
+    include_hidden: state.include_hidden,
+  };
 }
 
 /** state without any filter, keeping the search text and the sort order. */

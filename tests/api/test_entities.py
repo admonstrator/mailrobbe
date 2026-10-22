@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from mailrobbe.api import documents, entities
+from mailrobbe.api import documents, entities, paging
 from mailrobbe.api.entities import mention_snippet
 from mailrobbe.api.schemas import (
     ENTITY_PERSONS_LIMIT,
@@ -31,6 +31,7 @@ from mailrobbe.enums import EntityKind
 from tests.api.conftest import _client, api_settings
 from tests.api.test_entity_filters import MENTIONED, MENTIONS
 from tests.api.test_mails import Params, at, get, ids, rows
+from tests.api.test_paging import check_jumps
 from tests.conftest import GeneratedArchive
 
 pytestmark = pytest.mark.db
@@ -158,6 +159,33 @@ async def test_list_cursor_errors(entity_client: httpx.AsyncClient) -> None:
         assert error["detail"]["code"] == "invalid_cursor"
     await get(entity_client, "/api/entities", [("sort", "size")], status=422)
     await get(entity_client, "/api/entities", [("kind", "weapon")], status=422)
+
+
+@pytest.mark.parametrize("sort", list(ORDER))
+async def test_list_jumps_agree_with_its_keyset_pages(
+    entity_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, sort: str
+) -> None:
+    monkeypatch.setattr(paging, "FORWARD_ROWS", 0)  # each jump counts, then the nearer end
+    for params in ([], [("q", "e")], [("kind", "amount")]):
+        await check_jumps(
+            entity_client, "/api/entities", [*params, ("sort", sort)], 3, numbered_last=False
+        )
+
+
+async def test_the_list_counts_itself_where_the_summary_does_not(
+    entity_client: httpx.AsyncClient, entity_database_url: str
+) -> None:
+    # A tab alone: EntitySummary counts it (D193).
+    tab = await get(entity_client, "/api/entities", [("kind", "amount")])
+    assert (tab["total"], tab["exact"]) == (None, False)
+    for params, where in (
+        ([("q", "GMBH")], "label ILIKE '%gmbh%'"),
+        ([("detail", "spenden")], "detail = 'spenden'"),
+        ([("kind", "amount"), ("value_min", "250")], "kind = 'amount' AND value >= 250"),
+    ):
+        page = await get(entity_client, "/api/entities", [*params, ("limit", "1")])
+        expected = len(await entity_ids(entity_database_url, where))
+        assert (page["total"], page["exact"]) == (expected, True), params
 
 
 # Summary and refs ----------------------------------------------------------------------------

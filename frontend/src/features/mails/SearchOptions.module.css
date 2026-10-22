@@ -26,6 +26,27 @@
   line-height: 1.4;
 }
 
+/* One choice of "Mailtext durchsuchen", its hint below the label. */
+.radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.radio input {
+  margin: 3px 0 0;
+  accent-color: var(--color-accent);
+}
+
+.radioHint {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* "Mindestens [n] Treffer" on one line. */
 .minHits {
   display: flex;

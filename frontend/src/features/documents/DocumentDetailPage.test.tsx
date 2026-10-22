@@ -271,3 +271,19 @@ describe("document page", () => {
     ).toBeTruthy();
   });
 });
+
+describe("a document's mails by page (D193)", () => {
+  it("keep their page and page size in the URL of the document page", async () => {
+    const { router, calls } = renderApp("/anhaenge/5101?limit=25&page=last");
+    const mails = () => calls.filter((call) => call.url.pathname === "/api/mails");
+    await waitFor(() => expect(mails().at(-1)!.url.searchParams.get("last")).toBe("true"));
+    expect(mails().at(-1)!.url.searchParams.get("limit")).toBe("25");
+    expect(mails().at(-1)!.url.searchParams.get("document")).toBe("5101");
+    fireEvent.change(await screen.findByRole("combobox", { name: "Pro Seite" }), {
+      target: { value: "200" },
+    });
+    expect(router.state.location.search).toBe("?limit=200");
+    await waitFor(() => expect(mails().at(-1)!.url.searchParams.get("limit")).toBe("200"));
+    expect(mails().at(-1)!.url.searchParams.has("last")).toBe(false);
+  });
+});

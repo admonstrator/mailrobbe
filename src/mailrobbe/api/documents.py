@@ -14,7 +14,11 @@ each sort walks its index (ix_document_first_date, ix_document_mails, ix_documen
 With conditions on mails and no search words the walk is bounded as the mail list's
 (filters.first_ids): the next WALK_ROWS documents in order, then, when they hold too few matches,
 every match sorted; matches cluster (one year's documents, one person's), and PostgreSQL's
-estimate assumes they do not.
+estimate assumes they do not. A jump to a page by number (D193, api/paging.py) reads by OFFSET;
+without conditions on mails, the test that remains (a carrier that is no duplicate and not
+hidden, D222) becomes the list of the few documents failing it (_by_id), so that counting and a
+page far into the list read document alone; within the first WALK_ROWS rows it is tested one
+document at a time, as the walk does.
 
 A snippet is found in PostgreSQL, so that only its surroundings leave the database: the search
 words as typed become one regular expression, any case written out as character classes (the
@@ -59,6 +63,7 @@ from sqlalchemy import (
     Select,
     SQLColumnExpression,
     Text,
+    all_,
     any_,
     cast,
     exists,
@@ -66,15 +71,18 @@ from sqlalchemy import (
     func,
     literal,
     literal_column,
+    or_,
     select,
     text,
     true,
+    union,
 )
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.util import ClauseAdapter
 
+from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import MailId, mail_senders
 from mailrobbe.api.filters import (
@@ -92,7 +100,12 @@ from mailrobbe.api.fulltext import (
     word_regex_python,
 )
 from mailrobbe.api.hits import mail_places
-from mailrobbe.api.mails import _QUERY_CANCELED, _count_budget, _unless_canceled
+from mailrobbe.api.mails import (
+    _QUERY_CANCELED,
+    BY_ID_LIMIT,
+    _count_budget,
+    _unless_canceled,
+)
 from mailrobbe.api.persons import _beyond, _by, _Cursor, _int, _stamp
 from mailrobbe.api.query import QueryError, parse_query
 from mailrobbe.api.schemas import (
@@ -136,6 +149,7 @@ from mailrobbe.db.models import (
     Attachment,
     Document,
     Mail,
+    MailHidden,
     Participation,
     Person,
 )
@@ -194,13 +208,12 @@ _ITEM_COLUMNS = (
 
 
 def document_conditions(
-    filters: DocumentFilters, internal: Sequence[str], *, walk: bool = False
+    filters: DocumentFilters, internal: Sequence[str], *, walk: bool = False, carried: bool = True
 ) -> list[ColumnElement[bool]]:
     """Every condition of the filters (D74) on document; FilterError for an unusable one.
 
-    The conditions on mails become one EXISTS, which PostgreSQL may turn into a join over every
-    carrying mail; with walk, a subquery it runs for one document at a time instead, for the
-    bounded walk of _first_ids.
+    The conditions on mails become one test of the carrying mails (_carried); carried False
+    leaves it out, for a jump that tests it by the document's id instead (_by_id).
     """
     where: list[ColumnElement[bool]] = []
     if filters.q.strip():
@@ -226,27 +239,33 @@ def document_conditions(
         external=filters.external,
     )
     on_mail = mail_conditions(mail_filters, (), internal)
-    if not on_mail:
-        return where
-    carrying = (  # one carrying mail that is no duplicate meets them all
+    if on_mail and carried:
+        where.append(_carried(on_mail, walk=walk))
+    return where
+
+
+def _carried(on_mail: Sequence[ColumnElement[bool]], *, walk: bool = False) -> ColumnElement[bool]:
+    """One carrying mail that is no duplicate meets every condition of on_mail: an EXISTS, which
+    PostgreSQL may turn into a join over every carrying mail; with walk, a subquery it runs for
+    one document at a time instead, for the bounded walk of _first_ids."""
+    carrying = (
         Attachment.document_id == Document.id,
         Mail.id == Attachment.mail_id,
         Mail.is_duplicate_of.is_(None),
         *on_mail,
     )
     if not walk:
-        where.append(exists().where(*carrying))
-        return where
+        return exists().where(*carrying)
     one = select(true()).select_from(Attachment, Mail).where(*carrying).limit(1)
-    where.append(func.coalesce(one.scalar_subquery(), false()))  # scalar: never hashed in full
-    return where
+    return func.coalesce(one.scalar_subquery(), false())  # scalar: never hashed in full
 
 
 def _where(
-    filters: DocumentFilters, internal_setting: str, *, walk: bool = False
+    filters: DocumentFilters, internal_setting: str, *, walk: bool = False, carried: bool = True
 ) -> list[ColumnElement[bool]]:
     try:
-        return document_conditions(filters, internal_domains(internal_setting), walk=walk)
+        internal = internal_domains(internal_setting)
+        return document_conditions(filters, internal, walk=walk, carried=carried)
     except FilterError as error:
         raise api_error(400, "invalid_filter", str(error)) from error
 
@@ -288,29 +307,53 @@ async def list_documents(
     cursor = _Cursor.decode(params.cursor, scope, (kind, _int))
     where = _where(params, settings.internal_domains)
     columns = [key, Document.id]
-    reverse = cursor is not None and cursor.before
-    start = []
-    if cursor is not None:
-        boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
-        start.append(_beyond(columns, boundary, descending != reverse))
     item = select(*_ITEM_COLUMNS, kept.label("key"))
-    if _on_mails(params):
-        # With search words the GIN index narrows first: no walk, which would test every text.
-        walk = None if params.q.strip() else _where(params, settings.internal_domains, walk=True)
+    # With search words the GIN index narrows first: no walk, which would test every text.
+    walk = None if params.q.strip() else _where(params, settings.internal_domains, walk=True)
+
+    async def read(
+        offset: int, limit: int, reverse: bool, start: Sequence[ColumnElement[bool]] = ()
+    ) -> list[Any]:
+        """limit rows after the first offset ones beyond start, in list order or reversed."""
         down = descending != reverse
-        ids = await _first_ids(session, where, walk, start, key, down, params.limit + 1)
+        if not _on_mails(params):
+            statement = item.where(*where, *start).order_by(*_by(columns, down))
+            return list(await session.execute(statement.offset(offset).limit(limit)))
+        ids = await _first_ids(session, where, walk, start, key, down, limit, offset)
         found = await session.execute(
             item.where(Document.id == any_(literal(ids, ARRAY(BigInteger))))
         )
         by_id = {row.id: row for row in found}
-        rows: list[Any] = [by_id[document_id] for document_id in ids]
+        return [by_id[document_id] for document_id in ids]
+
+    jumped = None
+    if paging.wanted(params.page, params.last):  # D193
+        if cursor is not None:
+            raise api_error(400, "invalid_cursor", "a cursor and a page to jump to")
+        if not _on_mails(params):  # the where that read and the count below see
+            far = (params.page or 1) * params.limit >= WALK_ROWS
+            # With search words every match is tested before the sort, near the start too.
+            plain = await _by_id(session) if (far or walk is None) and not params.last else None
+            if plain is not None:
+                where = [*_where(params, settings.internal_domains, carried=False), *plain]
+            elif walk is not None:  # one document at a time: no join of every carrying mail
+                where = list(walk)
+        count = select(func.count()).select_from(Document).where(*where)
+        jumped = await paging.jump(
+            session, settings, read, count, page=params.page, last=params.last, limit=params.limit
+        )
+        rows = jumped.rows
     else:
-        statement = item.where(*where, *start).order_by(*_by(columns, descending != reverse))
-        rows = list(await session.execute(statement.limit(params.limit + 1)))
-    more = len(rows) > params.limit
-    del rows[params.limit :]
-    if reverse:
-        rows.reverse()
+        reverse = cursor is not None and cursor.before
+        start = []
+        if cursor is not None:
+            boundary = [_boundary(params.sort, cursor.key[0]), literal(cursor.key[1], BigInteger)]
+            start.append(_beyond(columns, boundary, descending != reverse))
+        rows = await read(0, params.limit + 1, reverse, start)
+        more = len(rows) > params.limit
+        del rows[params.limit :]
+        if reverse:
+            rows.reverse()
     senders = await mail_senders(session, [row.first_mail_id for row in rows if row.first_mail_id])
     snippets = await _snippets(
         session, literal_pattern(search_words(params.q)), [row.id for row in rows]
@@ -321,7 +364,10 @@ async def list_documents(
 
     # As in the mail list: a prev cursor walks backwards, "more" then means rows before the page.
     prev_cursor = next_cursor = None
-    if cursor is None:
+    if jumped is not None:
+        prev_cursor = at(rows[0], True) if jumped.before and rows else None
+        next_cursor = at(rows[-1], False) if jumped.after and rows else None
+    elif cursor is None:
         next_cursor = at(rows[-1], False) if more else None
     elif cursor.before:
         prev_cursor = at(rows[0], True) if more else None
@@ -351,15 +397,46 @@ async def list_documents(
         ],
         next_cursor=next_cursor,
         prev_cursor=prev_cursor,
+        page=jumped.page if jumped is not None else 1 if cursor is None else None,
     )
     await attach_labels(session, page)
     return page
 
 
 def _on_mails(filters: DocumentFilters) -> bool:
-    """Conditions on the carrying mails apply (the EXISTS of document_conditions)."""
+    """Conditions on the carrying mails apply beyond the hidden mails (D222)."""
     on_mails = (filters.date_from, filters.date_to, filters.person)
     return filters.external or any(value is not None for value in on_mails)
+
+
+async def _by_id(session: AsyncSession) -> list[ColumnElement[bool]] | None:
+    """The test of the carrying mails a list without conditions on them still has (a carrier
+    that is no duplicate and not hidden) as a test of the document's id, as mails._by_id does
+    for the mail list: only a document that a duplicate or a hidden mail carries, or none, can
+    fail it, so those are tested one by one and the failing ones listed. Counting then reads
+    document alone and a page far into the list is a sort of it, where PostgreSQL would join
+    every carrying mail. None for more than BY_ID_LIMIT failing documents."""
+    touched = union(
+        select(Mail.id).where(Mail.is_duplicate_of.is_not(None)), select(MailHidden.mail_id)
+    )
+    carrying = select(Attachment.document_id).where(Attachment.mail_id.in_(touched))
+    # A document whose mails were all deleted (a replaced file, D14) lost its first mail with
+    # them (ON DELETE SET NULL) and lasts until finalize deletes it (attachments.documents).
+    candidates = (
+        select(Document.id)
+        .where(or_(Document.id.in_(carrying), Document.first_mail_id.is_(None)))
+        .cte("candidates")
+        .prefix_with("MATERIALIZED")  # so that the test below runs for them alone
+    )
+    carried = _carried(mail_conditions(MailFilters(), (), ()), walk=True)
+    failing = select(candidates.c.id).where(~ClauseAdapter(candidates).traverse(carried))
+    ids = list(await session.scalars(failing.limit(BY_ID_LIMIT + 1)))
+    if len(ids) > BY_ID_LIMIT:
+        return None
+    if not ids:
+        return []
+    await paging.custom_plans(session)
+    return [Document.id != all_(literal(sorted(ids), ARRAY(BigInteger)))]
 
 
 async def _first_ids(
@@ -370,11 +447,13 @@ async def _first_ids(
     key: SQLColumnExpression[Any],
     descending: bool,
     limit: int,
+    offset: int = 0,
 ) -> list[int]:
-    """Ids of the first `limit` documents matching where in list order: among the next
-    WALK_ROWS documents (tested with walk, the same conditions one document at a time), else
-    among every match (filters.first_ids does the same for mails). walk None: every match."""
-    if walk is not None:
+    """Ids of the first `limit` documents matching where in list order after the first
+    `offset` ones: among the next WALK_ROWS documents (tested with walk, the same conditions one
+    document at a time), else among every match (filters.first_ids does the same for mails).
+    walk None: every match."""
+    if walk is not None and offset + limit <= WALK_ROWS:
         window = (
             select(*Document.__table__.c, key.label("key"))
             .where(*start)
@@ -387,6 +466,7 @@ async def _first_ids(
             select(window.c.id)
             .where(*(on_window(condition) for condition in walk))
             .order_by(*_by([window.c.key, window.c.id], descending))
+            .offset(offset)
             .limit(limit)
         )
         found = list(await session.scalars(walked))
@@ -400,7 +480,7 @@ async def _first_ids(
         .prefix_with("MATERIALIZED")
     )
     ordered = select(matched.c.id).order_by(*_by([matched.c.key, matched.c.id], descending))
-    return list(await session.scalars(ordered.limit(limit)))
+    return list(await session.scalars(ordered.offset(offset).limit(limit)))
 
 
 # Snippets ------------------------------------------------------------------------------------
@@ -530,7 +610,7 @@ async def mail_hits(
         terms = parse_query(params.q)
     except QueryError as error:
         raise api_error(400, "invalid_query", str(error)) from error
-    search = full_text_search(terms, params.scope, params.whole_word)
+    search = full_text_search(terms, params.scope, params.whole_word, body_part=params.body_part)
     counted = () if search is None else search.counted
     # the lexemes of each counted words, in the order its query has them
     queries = [cast(ts_query(words.websearch()), Text) for words, _ in counted]

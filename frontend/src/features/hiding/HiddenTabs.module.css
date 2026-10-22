@@ -1,0 +1,40 @@
+/* Title and part links of the page "Ausgeblendet" (HiddenTabs.tsx). */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.tab {
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px;
+  color: var(--color-muted);
+  font-weight: 500;
+  transition: color var(--transition-fast);
+}
+
+.tab:hover {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.active,
+.active:hover {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}

@@ -404,3 +404,45 @@ describe("merge log", () => {
     expect(await screen.findByText("Noch nichts zusammengeführt")).toBeTruthy();
   });
 });
+
+describe("person list paging (D193)", () => {
+  it("jumps to a page at a page size, and a filter goes back to the first page", async () => {
+    const { router, calls } = renderApp("/personen?limit=25&page=4", (call) =>
+      call.url.pathname === "/api/persons" && call.url.searchParams.get("page") === "4"
+        ? { ...personPage, page: 4, prev_cursor: "back", next_cursor: "on" }
+        : fixtureApi(call),
+    );
+    const count = personPage.items.length;
+    expect(await screen.findByText(`76–${75 + count} von 1.710`)).toBeTruthy();
+    expect(personCalls(calls).at(-1)!.url.search).toBe("?page=4&limit=25");
+    // 1.710 persons, 25 a page: 69 pages, the last one by its number.
+    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    expect(within(nav).getByRole("link", { name: "Seite 4" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    expect(within(nav).getByRole("link", { name: "Letzte Seite »" }).getAttribute("href")).toBe(
+      "/personen?limit=25&page=69",
+    );
+    expect(within(nav).getByRole("link", { name: "Weiter ›" }).getAttribute("href")).toBe(
+      "/personen?cursor=on&limit=25&page=5",
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Nur benannte" }));
+    expect(router.state.location.search).toBe("?labelled=true&limit=25");
+  });
+
+  it("offers the first and the last page when a jump took too long", async () => {
+    renderApp("/personen?sort=name&page=900", (call) =>
+      call.url.pathname === "/api/persons" && call.url.searchParams.has("page")
+        ? Response.json({ detail: { code: "page_too_far", message: "late" } }, { status: 400 })
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Diese Seite ist zu weit entfernt.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Erste Seite" }).getAttribute("href")).toBe(
+      "/personen?sort=name",
+    );
+    expect(screen.getByRole("link", { name: "Letzte Seite" }).getAttribute("href")).toBe(
+      "/personen?sort=name&page=last",
+    );
+  });
+});

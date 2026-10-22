@@ -61,6 +61,15 @@
   text-decoration: underline;
 }
 
+/* A standard block's toggle leads to its page (D227). */
+.blockLink {
+  color: var(--color-muted);
+}
+
+.blockLink:hover {
+  color: var(--color-accent-hover);
+}
+
 /* The window below the header and the compact bar less the card's tabs and padding, so the
    whole frame is in view once the card reaches the bar; never shorter than a few paragraphs. It
    scrolls inside itself. */

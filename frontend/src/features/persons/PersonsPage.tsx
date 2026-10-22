@@ -4,17 +4,18 @@ import { Link, useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { usePersonPage, useSuggestions } from "../../api/queries";
-import { PAGE_SIZE, type PersonPage, type PersonSort } from "../../api/types";
+import type { PersonPage, PersonSort } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { Checkbox } from "../../components/Checkbox";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
-import { Pagination } from "../../components/Pagination";
+import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatNumber } from "../../lib/format";
+import { edgePages, listPagination } from "../../lib/paging";
 import { MergeLog } from "./MergeLog";
 import { PersonTable } from "./PersonTable";
 import styles from "./PersonsPage.module.css";
@@ -239,31 +240,17 @@ function PersonList({ page, state }: { page: UseQueryResult<PersonPage>; state: 
       </Card>
       {page.data && page.data.items.length > 0 && (
         <Pagination
-          range={rangeText(state, page.data)}
-          prev={page.data.prev_cursor ? listHref(previousPage(state, page.data.prev_cursor)) : null}
-          next={
-            page.data.next_cursor
-              ? listHref({ ...state, cursor: page.data.next_cursor, page: state.page + 1 })
-              : null
-          }
+          {...listPagination(
+            state,
+            page.data,
+            page.data.items.length,
+            { count: page.data.total, exact: true },
+            listHref,
+          )}
         />
       )}
     </>
   );
-}
-
-function previousPage(state: PersonListState, cursor: string): PersonListState {
-  // The page before the second one is the first: without cursor, as the list starts.
-  return state.page === 2
-    ? { ...state, cursor: null, page: 1 }
-    : { ...state, cursor, page: Math.max(1, state.page - 1) };
-}
-
-/** "1–50 von 1.710" */
-function rangeText(state: PersonListState, page: PersonPage): string {
-  const first = (state.page - 1) * PAGE_SIZE + 1;
-  const last = first + page.items.length - 1;
-  return `${formatNumber(first)}–${formatNumber(last)} von ${formatNumber(page.total)}`;
 }
 
 function PageError({
@@ -275,6 +262,9 @@ function PageError({
   state: PersonListState;
   onRetry: () => void;
 }) {
+  if (error instanceof ApiError && error.code === "page_too_far") {
+    return <PageTooFar {...edgePages(state, listHref)} />;
+  }
   if (error instanceof ApiError && error.code === "invalid_cursor") {
     return (
       <ErrorState

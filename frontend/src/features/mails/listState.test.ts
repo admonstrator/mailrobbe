@@ -53,6 +53,9 @@ const full: ListState = {
   scope: ["subject", "body"],
   whole_word: true,
   min_hits: 3,
+  include_hidden: true,
+  body_part: "own",
+  block: "00ff00ff00ff00ff",
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -108,6 +111,9 @@ describe("list state in the URL", () => {
       "scope",
       "whole_word",
       "min_hits",
+      "include_hidden",
+      "body_part",
+      "block",
       "sort",
       "cursor",
       "limit",
@@ -192,10 +198,30 @@ describe("list state in the URL", () => {
     expect(parse("person=11&person_role=from").person_role).toBeNull();
   });
 
-  it("keeps the page number only together with a cursor", () => {
-    expect(parse("page=4").page).toBe(1);
-    expect(parse("cursor=abc&page=4").page).toBe(4);
-    expect(parse("cursor=abc&page=0").page).toBe(1);
+  it("reads a page as a jump, or with a cursor as the number of the step's page (D193)", () => {
+    expect(parse("page=4")).toMatchObject({ cursor: null, page: 4 });
+    expect(parse("page=last")).toMatchObject({ cursor: null, page: "last" });
+    expect(parse("page=0").page).toBe(1);
+    expect(parse("cursor=abc&page=4")).toMatchObject({ cursor: "abc", page: 4 });
+    // A step from a last page read from the end does not know its number.
+    expect(parse("cursor=abc").page).toBeNull();
+    expect(parse("cursor=abc&page=last").page).toBeNull();
+    for (const query of [
+      "page=4",
+      "page=last",
+      "limit=25&page=7",
+      "cursor=abc&page=4",
+      "cursor=abc",
+    ]) {
+      expect(search(parse(query))).toBe(query);
+    }
+  });
+
+  it("asks for a jump by page or last, and for a step by its cursor alone", () => {
+    expect(toListParams(parse("page=4&limit=25"))).toEqual({ page: 4, limit: 25 });
+    expect(toListParams(parse("page=last"))).toEqual({ last: true });
+    expect(toListParams(parse("page=1"))).toEqual({});
+    expect(toListParams(parse("cursor=abc&page=4"))).toEqual({ cursor: "abc" });
   });
 
   it("starts again at the first page when a filter changes", () => {
@@ -304,12 +330,29 @@ describe("the search options in the URL (D171 to D174, D177)", () => {
       scope: ["subject", "body"],
       whole_word: true,
       min_hits: 3,
+      body_part: "own",
+      include_hidden: true,
     });
     expect(searchOptions(DEFAULT_LIST_STATE)).toEqual({
       scope: [],
       whole_word: false,
       min_hits: null,
+      body_part: "clean",
+      include_hidden: false,
     });
+  });
+});
+
+describe("hidden mails, the parts of the text and standard blocks in the URL (milestone 18)", () => {
+  it("leaves the defaults out and drops values it cannot use", () => {
+    expect(parse("body_part=clean&include_hidden=false")).toEqual(DEFAULT_LIST_STATE);
+    expect(parse("body_part=quotes").body_part).toBe("clean");
+    expect(parse("block=00FF00FF00FF00FF").block).toBeNull();
+    expect(parse("block=00ff").block).toBeNull();
+  });
+
+  it("hands the parts of the text to the hits of a mail (D226)", () => {
+    expect(toHitsParams(parse("q=Rat&body_part=full"))).toEqual({ q: "Rat", body_part: "full" });
   });
 });
 

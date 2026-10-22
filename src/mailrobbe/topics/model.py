@@ -12,6 +12,9 @@ TOPICS_VERSION = 1
 MIN_LENGTH = 3  # characters of a lexeme
 MAX_LENGTH = 40
 MIN_MAILS = 3  # archive mails a term must be in
+# The weights of mail.tsv terms come from, as SQL for ts_filter: the subject, the own and the
+# quoted text, never the standard blocks (weight D, D205, D226).
+TOPIC_WEIGHTS = "'{a,b,c}'"
 
 # Periods (D143).
 Unit = Literal["month", "quarter", "year"]  # api/schemas.py TopicUnit

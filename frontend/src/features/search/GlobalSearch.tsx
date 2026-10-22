@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { SearchIcon, SlidersIcon } from "../../components/icons";
 import { cx } from "../../lib/cx";
 import { isPlainKey } from "../../lib/keys";
+import { RuleDialog } from "../hiding/RuleDialog";
 import { filterChips } from "../mails/chips";
 import {
   DEFAULT_LIST_STATE,
@@ -46,6 +47,7 @@ export function GlobalSearch() {
   const menuId = useId();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creatingRule, setCreatingRule] = useState(false);
   const [draft, setDraft] = useState<Options>(DEFAULT_SEARCH_OPTIONS);
 
   const onList = location.pathname.startsWith("/mails");
@@ -216,6 +218,10 @@ export function GlobalSearch() {
               })
             }
             onLeave={() => setOpen(false)}
+            newRule={() => {
+              setOpen(false);
+              setCreatingRule(true);
+            }}
           />
         )}
       </div>
@@ -236,6 +242,7 @@ export function GlobalSearch() {
           onClose={() => setSaving(false)}
         />
       )}
+      {creatingRule && <RuleDialog draft={{}} onClose={() => setCreatingRule(false)} />}
     </div>
   );
 }

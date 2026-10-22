@@ -102,11 +102,10 @@ describe("selector list", () => {
     fireEvent.change(field, { target: { value: " verein " } });
     await waitFor(() => expect(router.state.location.search).toBe("?q=verein"));
     expect(router.state.historyAction).toBe("REPLACE");
-    expect(
-      await screen.findByRole("link", { name: "k1._domainkey.verein-nord.example" }),
-    ).toBeTruthy();
-    expect(listCalls(calls).at(-1)!.url.search).toBe("?q=verein");
-    expect(screen.getByText("1 Selektor gefunden")).toBeTruthy();
+    // the name is on the first page too: wait for the search's own answer
+    await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?q=verein"));
+    expect(await screen.findByText("1 Selektor gefunden")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "k1._domainkey.verein-nord.example" })).toBeTruthy();
 
     fireEvent.change(field, { target: { value: "nirgendwo" } });
     expect(await screen.findByText("Kein Selektor gefunden")).toBeTruthy();
@@ -133,5 +132,22 @@ describe("selector list", () => {
         name: "s2019._domainkey.nordlicht-gmbh.example",
       }),
     ).toBeTruthy();
+  });
+});
+
+describe("selector list paging (D193)", () => {
+  it("numbers every page, asks by offset at the page size, and a filter goes to page 1", async () => {
+    const { router, calls } = renderApp("/import/selektoren?show=all&limit=25");
+    expect(await screen.findByText("1–25 von 57")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Seite 3" }));
+    expect(router.state.location.search).toBe("?show=all&page=3&limit=25");
+    expect(await screen.findByText("51–57 von 57")).toBeTruthy();
+    expect(listCalls(calls).at(-1)!.url.search).toBe("?show=all&offset=50&limit=25");
+    expect(screen.getByRole("link", { name: "Seite 3" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("link", { name: "Weiter ›" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "geklärt" }));
+    expect(router.state.location.search).toBe("?show=resolved&limit=25");
   });
 });

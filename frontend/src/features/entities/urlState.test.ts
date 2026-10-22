@@ -30,11 +30,21 @@ describe("entity list in the URL", () => {
       sort: "value",
       cursor: "abc",
       page: 3,
+      limit: 200,
     };
     expect(search(state)).toBe(
-      "kind=amount&q=12.500&value_min=1000&value_max=50000.5&sort=value&cursor=abc&page=3",
+      "kind=amount&q=12.500&value_min=1000&value_max=50000.5&sort=value&cursor=abc&limit=200&page=3",
     );
     expect(parse(search(state))).toEqual(state);
+  });
+
+  it("jumps to a page or the last one at its page size (D193)", () => {
+    const jump = parse("kind=iban&limit=25&page=9");
+    expect(jump).toMatchObject({ tab: "accounts", cursor: null, page: 9, limit: 25 });
+    expect(toEntityListParams(jump)).toEqual({ kind: ["iban", "account"], page: 9, limit: 25 });
+    expect(toEntityListParams(parse("page=last"))).toEqual({ last: true });
+    expect(search(parse("page=last"))).toBe("page=last");
+    expect(withEntityFilters(jump, { q: "DE89" })).toMatchObject({ page: 1, limit: 25 });
   });
 
   it("asks for the kinds of a tab's group", () => {

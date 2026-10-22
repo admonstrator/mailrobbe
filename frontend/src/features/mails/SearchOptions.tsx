@@ -1,6 +1,12 @@
 import { useEffect, useRef } from "react";
 
-import { MIN_HITS_LIMIT, SEARCH_FIELDS, type SearchField } from "../../api/types";
+import {
+  BODY_PARTS,
+  MIN_HITS_LIMIT,
+  SEARCH_FIELDS,
+  type BodyPart,
+  type SearchField,
+} from "../../api/types";
 import { Checkbox } from "../../components/Checkbox";
 import { SEARCH_FIELD_LABELS } from "./chips";
 import { canonicalScope, positiveInt, type SearchOptions as Options } from "./listState";
@@ -15,16 +21,35 @@ const SYNTAX: readonly [string, string][] = [
   ["-datei:Entwurf", "Minus schließt aus, auch vor from:, has: usw."],
   ["Wort or Wort", "eines der beiden"],
   ['"genaue Phrase"', "die Wörter in dieser Folge"],
+  ['"Spende bar"~5', "beide Wörter, höchstens 5 Wörter dazwischen"],
   ["subject:Wort", "Teil des Betreffs, auch mitten im Wort"],
 ];
 
-export const DEFAULT_SEARCH_OPTIONS: Options = { scope: [], whole_word: false, min_hits: null };
+export const DEFAULT_SEARCH_OPTIONS: Options = {
+  scope: [],
+  whole_word: false,
+  min_hits: null,
+  body_part: "clean",
+  include_hidden: false,
+};
 
 /** How many of the options differ from the default: the badge of the search menu. */
 export function changedOptions(options: Options): number {
-  return [options.scope.length > 0, options.whole_word, options.min_hits !== null].filter(Boolean)
-    .length;
+  return [
+    options.scope.length > 0,
+    options.whole_word,
+    options.min_hits !== null,
+    options.body_part !== "clean",
+    options.include_hidden,
+  ].filter(Boolean).length;
 }
+
+/** The parts of the mail's own text the words are looked for in (D226, D228). */
+export const BODY_PART_LABELS: Record<BodyPart, [label: string, hint: string]> = {
+  clean: ["Ohne Standardblöcke", "Rechtshinweise und Signaturen, die unter vielen Mails stehen"],
+  own: ["Nur selbst Geschriebenes", "auch ohne Zitate, Weiterleitungen und Vorgängermails"],
+  full: ["Alles", "Standardblöcke und Zitate eingeschlossen"],
+};
 
 /** The search options of the search menu (D177): where q's free words are looked for, whole
  *  words, and how often they must occur at least (D171 to D174). All four places ticked is the
@@ -76,6 +101,25 @@ export function SearchOptions({
         </p>
       </div>
       <MinHitsField value={options.min_hits} onCommit={(min_hits) => change({ min_hits })} />
+      <div className={styles.places} role="radiogroup" aria-labelledby="search-body-part-label">
+        <span id="search-body-part-label" className={styles.label}>
+          Mailtext durchsuchen
+        </span>
+        {BODY_PARTS.map((part) => (
+          <label key={part} className={styles.radio}>
+            <input
+              type="radio"
+              name="search-body-part"
+              checked={options.body_part === part}
+              onChange={() => change({ body_part: part })}
+            />
+            <span>
+              {BODY_PART_LABELS[part][0]}
+              <span className={styles.radioHint}>{BODY_PART_LABELS[part][1]}</span>
+            </span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

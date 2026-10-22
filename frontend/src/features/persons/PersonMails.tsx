@@ -4,7 +4,6 @@ import { Link, useNavigate } from "react-router";
 import { ApiError } from "../../api/client";
 import { useMailPage, usePersonMailCounts } from "../../api/queries";
 import {
-  PAGE_SIZE,
   type MailListItem,
   type ParticipationRole,
   type PersonFigures,
@@ -18,13 +17,14 @@ import { Card } from "../../components/Card";
 import { DkimDot } from "../../components/DkimDot";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { Pagination } from "../../components/Pagination";
+import { PageTooFar, Pagination } from "../../components/Pagination";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatDateTime, formatNumber } from "../../lib/format";
+import { edgePages, listPagination } from "../../lib/paging";
 import { PERSON_ROLE_LABELS } from "../mails/chips";
 import { listSearch, toListParams } from "../mails/listState";
 import { personLabel } from "./labels";
@@ -159,7 +159,7 @@ export function PersonMails({
         ) : page.isError ? (
           <PageError
             error={page.error}
-            firstPage={href({ ...state, cursor: null, page: 1 })}
+            edges={edgePages(state, href)}
             onRetry={() => void page.refetch()}
           />
         ) : page.data.items.length === 0 ? (
@@ -196,33 +196,18 @@ export function PersonMails({
       {page.data && page.data.items.length > 0 && (
         <div className={styles.paging}>
           <Pagination
-            range={rangeText(state.page, page.data.items.length, total)}
-            prev={
-              page.data.prev_cursor
-                ? href(
-                    state.page === 2
-                      ? { ...state, cursor: null, page: 1 }
-                      : { ...state, cursor: page.data.prev_cursor, page: state.page - 1 },
-                  )
-                : null
-            }
-            next={
-              page.data.next_cursor
-                ? href({ ...state, cursor: page.data.next_cursor, page: state.page + 1 })
-                : null
-            }
+            {...listPagination(
+              state,
+              page.data,
+              page.data.items.length,
+              total === null ? null : { count: total, exact: true },
+              href,
+            )}
           />
         </div>
       )}
     </Card>
   );
-}
-
-/** "1–50 von 11.318", or just the range while the count is unknown. */
-function rangeText(page: number, count: number, total: number | null): string {
-  const first = (page - 1) * PAGE_SIZE + 1;
-  const range = `${formatNumber(first)}–${formatNumber(first + count - 1)}`;
-  return total === null ? range : `${range} von ${formatNumber(total)}`;
 }
 
 /** The other side of a mail: its first recipient when the person sent it, else the sender. */
@@ -313,19 +298,20 @@ function PersonMailTable({
 
 function PageError({
   error,
-  firstPage,
+  edges,
   onRetry,
 }: {
   error: Error;
-  firstPage: string;
+  edges: { first: string; last: string };
   onRetry: () => void;
 }) {
+  if (error instanceof ApiError && error.code === "page_too_far") return <PageTooFar {...edges} />;
   if (error instanceof ApiError && error.code === "invalid_cursor") {
     return (
       <ErrorState
         title="Diese Seite gibt es nicht mehr."
         actions={
-          <Link to={firstPage} className={buttonClass()}>
+          <Link to={edges.first} className={buttonClass()}>
             Zur ersten Seite
           </Link>
         }

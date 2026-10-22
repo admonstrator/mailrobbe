@@ -6,7 +6,8 @@ tables them; every search there is read through the bounded walk (pages of two) 
 collection of every match (one page). On the generated archive the expected mails come from SQL
 written apart from api/filters.py, for each path that takes mail_conditions: the list's pages in
 both orders, with the walk and with every match collected, the summary, the CSV, the timeline
-and a selection by filters. A search without the options sends the SQL of before D171.
+and a selection by filters. A search of the whole text (body_part full, D226) without the other
+options sends the SQL of before D171; the default and own weigh the mail's side only.
 """
 
 from collections.abc import AsyncIterator
@@ -218,18 +219,162 @@ WALK_BEFORE_D171 = (
 )
 
 
+START = "SELECT mail.id FROM mail WHERE "
+
+
+def weighted(query: str, weights: str) -> str:
+    """The SQL of fulltext.weighted: query with its lexemes limited to weights."""
+    labelled = f"'(''(?:[^'']|'''')*'')', '\\1:{weights}', 'g'"
+    return f"CAST(regexp_replace(CAST({query} AS TEXT), {labelled}) AS TSQUERY)"
+
+
+def recheck(query: str, weights: str, plain: str) -> str:
+    """The SQL of fulltext.mail_recheck: the mail is plain (has none of the ranges that may
+    give it a weight beyond weights), holds the weighted query or does not hold query."""
+    either = f"tsquery_or({weighted(query, weights)}, tsquery_not({query}))"
+    return f"{plain} OR (mail.tsv @@ {either})"
+
+
+def kept(query: str, rechecked: str) -> str:
+    """What full_text adds to a form of before D226: the mail's side rechecked, or a document,
+    asked per mail as the walk form of before D171 does."""
+    per_mail = WALK_BEFORE_D171.split(" OR ", 1)[1].replace(NEGER, query)
+    return f"({rechecked} OR {per_mail})"
+
+
+def with_recheck(before: str, query: str, rechecked: str) -> str:
+    """A form of full_text as it was before D226 (before: its statement), then kept."""
+    return f"{START}({before.removeprefix(START)}) AND {kept(query, rechecked)}"
+
+
+NO_BLOCKS = "mail.blocks IS NULL"
+NO_RANGES = "mail.history IS NULL AND mail.blocks IS NULL"
+
+
 @pytest.mark.parametrize(
-    "options",
+    ("options", "rechecked"),
     [
-        MailFilters(),
-        MailFilters(scope=["subject", "body", "attachment", "filename"], whole_word=False),
+        (MailFilters(), recheck(NEGER, "ABC", NO_BLOCKS)),
+        (
+            MailFilters(scope=["subject", "body", "attachment", "filename"], whole_word=False),
+            recheck(NEGER, "ABC", NO_BLOCKS),
+        ),
+        (MailFilters(body_part="full"), None),
     ],
-    ids=["default", "every-place"],
+    ids=["default", "every-place", "whole-text"],
 )
-def test_a_search_without_options_sends_the_sql_of_before(options: MailFilters) -> None:
-    (condition,) = filters.mail_conditions(options, parse_query("Neger"), [])
-    assert sql(condition) == BEFORE_D171
-    assert sql(filters._WALK_FORMS[condition]) == WALK_BEFORE_D171
+def test_a_search_without_options_sends_the_sql_of_before(
+    options: MailFilters, rechecked: str | None
+) -> None:
+    """The indexes are asked what they were asked before D171: the whole text is the SQL of
+    before, the default that SQL and after it the weighted query for the mails with standard
+    blocks (D226)."""
+    condition, visible = filters.mail_conditions(options, parse_query("Neger"), [])
+    assert visible is filters.VISIBLE
+    for found, before in (
+        (condition, BEFORE_D171),
+        (filters._WALK_FORMS[condition], WALK_BEFORE_D171),
+    ):
+        expected = before if rechecked is None else with_recheck(before, NEGER, rechecked)
+        assert sql(found) == expected
+
+
+SPENDE = "websearch_to_tsquery('german'::regconfig, 'Spende')"
+SPENDE_NOT_RAT = "websearch_to_tsquery('german'::regconfig, 'Spende -Rat')"
+
+
+@pytest.mark.parametrize(
+    ("q", "options", "mail_side", "rechecked"),
+    [
+        (
+            "Spende",
+            MailFilters(body_part="own"),
+            f"(mail.tsv @@ {SPENDE})",
+            recheck(SPENDE, "AB", NO_RANGES),
+        ),
+        (
+            "Spende",
+            MailFilters(scope=["subject", "body", "attachment", "filename"]),
+            f"(mail.tsv @@ {SPENDE})",
+            recheck(SPENDE, "ABC", NO_BLOCKS),
+        ),
+        # without the subject a mail without ranges carries a weight the search leaves out
+        (
+            "Spende",
+            MailFilters(scope=["body", "attachment", "filename"]),
+            f"(mail.tsv @@ {weighted(SPENDE, 'BC')})",
+            None,
+        ),
+        (
+            "Spende",
+            MailFilters(scope=["subject", "attachment", "filename"], body_part="own"),
+            f"(mail.tsv @@ {weighted(SPENDE, 'A')})",
+            None,
+        ),
+        # a negated word may stand in a block only: the weighted query alone decides
+        ("Spende -Rat", MailFilters(), f"(mail.tsv @@ {weighted(SPENDE_NOT_RAT, 'ABC')})", None),
+        ("Spende -Rat", MailFilters(body_part="full"), f"(mail.tsv @@ {SPENDE_NOT_RAT})", None),
+    ],
+    ids=["own", "every-place", "text", "subject", "negated", "negated-whole-text"],
+)
+def test_the_parts_weigh_the_mails_side_only(
+    q: str, options: MailFilters, mail_side: str, rechecked: str | None
+) -> None:
+    """D226: the mail's side in the weights of the subject and the parts, asked as before
+    D226 where they hold all a mail without ranges carries and rechecked after it; the
+    documents' side as before."""
+    condition = filters.mail_conditions(options, parse_query(q), [])[0]
+    query = SPENDE_NOT_RAT if "-" in q else SPENDE
+    for form in (sql, lambda found: sql(filters._WALK_FORMS[found])):
+        written = form(condition)
+        assert f"document.tsv @@ {query}" in written
+        if rechecked is None:
+            assert written.startswith(f"{START}{mail_side} OR ")
+        else:
+            assert written.startswith(f"{START}({mail_side} OR ")
+            assert written.endswith(f") AND {kept(query, rechecked)}")
+
+
+def test_the_mails_side_alone_is_rechecked_in_the_same_condition() -> None:
+    """Without the documents' side the weighted query follows the index's in one condition,
+    which needs no walk form of its own."""
+    options = MailFilters(scope=["subject", "body"])
+    condition = filters.mail_conditions(options, parse_query("Spende"), [])[0]
+    rechecked = recheck(SPENDE, "ABC", NO_BLOCKS)
+    assert sql(condition) == f"{START}(mail.tsv @@ {SPENDE}) AND ({rechecked})"
+    assert condition not in filters._WALK_FORMS
+
+
+def test_whole_words_and_proximity_terms_ask_the_index_as_before() -> None:
+    """The index part of whole words and of a proximity term of whole words is the query as
+    before D226, rechecked for the mails with blocks; a proximity term's phrases are rechecked
+    anyway and keep the weighted query alone."""
+    whole = sql(filters.mail_conditions(MailFilters(whole_word=True), parse_query("Spende"), [])[0])
+    assert whole.startswith(f"{START}((mail.tsv @@ {SPENDE}) AND coalesce(")
+    assert f") AND ({recheck(SPENDE, 'ABC', NO_BLOCKS)} OR mail.has_attachments AND " in whole
+    both = "websearch_to_tsquery('german'::regconfig, '\"Spende\" \"bar\"')"
+    near = sql(
+        filters.mail_conditions(MailFilters(whole_word=True), parse_query('"Spende bar"~2'), [])[0]
+    )
+    assert near.startswith(f"{START}((mail.tsv @@ {both}) AND coalesce(")
+    assert f") AND ({recheck(both, 'ABC', NO_BLOCKS)} OR mail.has_attachments AND " in near
+    phrases = sql(filters.mail_conditions(MailFilters(), parse_query('"Spende bar"~2'), [])[0])
+    assert phrases.startswith(f"{START}(mail.tsv @@ CAST(regexp_replace(")
+    assert NO_BLOCKS not in phrases
+
+
+@pytest.mark.parametrize("distance", [1, 3])
+def test_a_proximity_term_is_one_query_of_its_distances(distance: int) -> None:
+    """D229: "a b"~N is a query of its own, an OR of both orders at every distance up to N + 1
+    lexemes apart, on the mail's side and on the documents'."""
+    q = f'"Spende bar"~{distance}'
+    condition = filters.mail_conditions(MailFilters(body_part="full"), parse_query(q), [])[0]
+    written = sql(condition)
+    phrases = 2 * (distance + 1)
+    assert written.count("tsquery_phrase(") == 2 * phrases  # the mail's side and the documents'
+    for apart in range(1, distance + 2):
+        assert written.count(f", {apart})") == 4
+    assert "websearch_to_tsquery" not in written
 
 
 @pytest.mark.parametrize(
@@ -238,7 +383,8 @@ def test_a_search_without_options_sends_the_sql_of_before(options: MailFilters) 
 def test_negated_operators_are_neither_ranges_nor_research_filters(q: str) -> None:
     plain = filters.mail_conditions(MailFilters(), parse_query(q[1:]), [])[0]
     assert filters._ranges(plain)
-    (negated,) = filters.mail_conditions(MailFilters(), parse_query(q), [])
+    negated, visible = filters.mail_conditions(MailFilters(), parse_query(q), [])
+    assert visible is filters.VISIBLE
     assert not filters._ranges(negated)
     assert filters._contents(negated) is None
 
@@ -251,10 +397,12 @@ FIRST_MESSAGE_ID = (
     " ORDER BY id LIMIT 1"
 )
 
-# Whole words as D173 has them: the stem in the tsvector, then the word as written in the text.
+# Whole words as D173 has them: the stem in the tsvector, then the word as written in the text,
+# both without the standard blocks as the default body_part has them (D226; the same as the
+# whole tsvector and text while the blocks step has marked none).
 SUBJECT_OR_TEXT = (
-    "tsv @@ websearch_to_tsquery('german', 'Angebot')"
-    " AND (subject ~* :angebot OR body_text ~* :angebot)"
+    "ts_filter(tsv, '{a,b,c}') @@ websearch_to_tsquery('german', 'Angebot')"
+    " AND (subject ~* :angebot OR mailrobbe_cut(body_text, blocks) ~* :angebot)"
 )
 PDF_FILE = (
     "EXISTS (SELECT 1 FROM attachment a JOIN document d ON d.id = a.document_id"
@@ -394,3 +542,10 @@ async def test_negated_operators_hold_where_the_condition_cannot_be_decided(
         expected = await ids(url, where, message_id=chosen.message_id)
         assert chosen.id in expected, q
         assert await walked_and_collected(mutable_client, [("q", q)], PAGE) == expected, q
+
+
+def test_only_the_hidden_mails_left_out_counts_as_unfiltered() -> None:
+    assert filters.mail_conditions(MailFilters(), [], []) == [filters.VISIBLE]
+    assert filters.unfiltered(filters.mail_conditions(MailFilters(), [], []))
+    assert filters.mail_conditions(MailFilters(include_hidden=True), [], []) == []
+    assert not filters.unfiltered(filters.mail_conditions(MailFilters(), parse_query("Rat"), []))

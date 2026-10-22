@@ -22,9 +22,16 @@ import {
   apiPut,
   attachmentHtmlUrl,
 } from "./client";
+import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
   AliasTier,
+  BlockDetail,
+  BlockInfo,
+  BlockListParams,
+  BlockOverrideUpdate,
+  BlockPage,
+  BlockSummary,
   BulkRequest,
   BulkResult,
   CertainMergePlan,
@@ -59,6 +66,12 @@ import type {
   Graph,
   GraphParams,
   GraphSize,
+  HideRuleFields,
+  HideRuleInfo,
+  HideRuleList,
+  HideRulePreview,
+  HideRuleUpdate,
+  HideSuggestion,
   ImportErrorPage,
   ImportErrorParams,
   ImportJob,
@@ -1194,4 +1207,154 @@ export function usePersonSignals(id: number) {
     queryKey: signalKeys.person(id),
     queryFn: ({ signal }) => apiGet<PersonSignals>(`/api/persons/${id}/signals`, undefined, signal),
   });
+}
+
+// Standard blocks (D224 to D227) ----------------------------------------------------------------
+
+export const blockKeys = {
+  /** Prefix of everything a choice of the team or a blocks step changes. */
+  all: ["blocks"] as const,
+  summary: ["blocks", "summary"] as const,
+  page: (params: BlockListParams) => ["blocks", "page", params] as const,
+  detail: (hash: string) => ["blocks", "detail", hash] as const,
+};
+
+/** The figures of the last blocks step and the choices the next run applies. */
+export function useBlockSummary() {
+  return useQuery({
+    queryKey: blockKeys.summary,
+    queryFn: ({ signal }) => apiGet<BlockSummary>("/api/blocks/summary", undefined, signal),
+  });
+}
+
+/** One page of the standard blocks or of those taken back; the previous page stays while the
+ *  next loads. */
+export function useBlockPage(params: BlockListParams) {
+  return useQuery({
+    queryKey: blockKeys.page(params),
+    queryFn: ({ signal }) => apiGet<BlockPage>("/api/blocks", params, signal),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** A block with its senders and domains, counted on request. */
+export function useBlock(hash: string, enabled = true) {
+  return useQuery({
+    queryKey: blockKeys.detail(hash),
+    queryFn: ({ signal }) => apiGet<BlockDetail>(`/api/blocks/${hash}`, undefined, signal),
+    enabled,
+  });
+}
+
+/** Whether a cached query is a mail's text view, which lists its paragraphs with the choices. */
+function isMailText(query: { queryKey: readonly unknown[] }): boolean {
+  const [scope, , view, format] = query.queryKey;
+  return scope === "mail" && view === "body" && format === "text";
+}
+
+/** The team's choice about a paragraph (D225); it takes effect at the next run. The mail texts
+ *  already read show it at once, the block's page and lists after asking again. */
+export function useSaveBlockOverride() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hash, ...update }: BlockOverrideUpdate & { hash: string }) =>
+      apiPut<BlockInfo>(`/api/blocks/${hash}/override`, update),
+    onSuccess: (block) => {
+      queryClient.setQueryData<BlockDetail>(
+        blockKeys.detail(block.hash),
+        (detail) => detail && { ...detail, block },
+      );
+      void queryClient.invalidateQueries({ queryKey: blockKeys.all });
+      queryClient.setQueriesData<MailText>({ predicate: isMailText }, (text) =>
+        text?.paragraphs?.some((paragraph) => paragraph.hash === block.hash)
+          ? {
+              ...text,
+              paragraphs: text.paragraphs.map((paragraph) =>
+                paragraph.hash === block.hash
+                  ? { ...paragraph, override: block.override }
+                  : paragraph,
+              ),
+            }
+          : text,
+      );
+    },
+  });
+}
+
+// Hide rules (D221 to D223) ---------------------------------------------------------------------
+
+export const hideKeys = {
+  /** Under the research prefix: a note, an Akte, a bookmark or "relevant" changes which matches
+   *  stay visible (D203), and every research write refreshes the research file. */
+  rules: ["research", "hide-rules"] as const,
+  suggestions: ["research", "hide-rules", "suggestions"] as const,
+  /** Under the mail list's prefix: a change of the research file or of the rules changes it. */
+  preview: (fields: HideRuleFields) => ["mails", "hide-rule-preview", fields] as const,
+};
+
+/** How long the criteria must stay unchanged before the preview asks (D223). */
+export const HIDE_PREVIEW_DELAY = 300;
+
+/** Every rule, newest first, with the mails the enabled ones hide and keep visible. */
+export function useHideRules() {
+  return useQuery({
+    queryKey: hideKeys.rules,
+    queryFn: ({ signal }) => apiGet<HideRuleList>("/api/hide-rules", undefined, signal),
+  });
+}
+
+/** The mailing lists and automated senders with most mails that no enabled rule names. */
+export function useHideSuggestions() {
+  return useQuery({
+    queryKey: hideKeys.suggestions,
+    queryFn: ({ signal }) =>
+      apiGet<HideSuggestion[]>("/api/hide-rules/suggestions", undefined, signal),
+  });
+}
+
+/** What a rule with these criteria would hide, asked once they rest for HIDE_PREVIEW_DELAY.
+ *  Each set of criteria is a query of its own, so the answer shown belongs to the criteria last
+ *  asked for, whatever order the answers arrive in; until the next one arrives the last stays,
+ *  marked stale. null asks nothing. */
+export function useHideRulePreview(fields: HideRuleFields | null) {
+  const settled = useDebounced(fields, HIDE_PREVIEW_DELAY);
+  const asked = fields === null ? null : settled;
+  const preview = useQuery({
+    queryKey: hideKeys.preview(asked ?? {}),
+    queryFn: () => apiPost<HideRulePreview>("/api/hide-rules/preview", asked),
+    enabled: asked !== null,
+    placeholderData: keepPreviousData,
+  });
+  const stale = preview.isPlaceholderData || hashKey([asked]) !== hashKey([fields]);
+  return { preview, stale };
+}
+
+/** After a rule is saved or deleted: its list, the suggestions, the mail lists with their
+ *  figures and previews, and the mail details (which name a mail's rules) are loaded again. */
+function refreshHidden(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: hideKeys.rules });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.mails });
+  void queryClient.invalidateQueries({ queryKey: ["mail"] });
+}
+
+function useHideRuleWrite<V, R>(write: (variables: V) => Promise<R>) {
+  const queryClient = useQueryClient();
+  return useMutation({ mutationFn: write, onSuccess: () => refreshHidden(queryClient) });
+}
+
+export function useCreateHideRule() {
+  return useHideRuleWrite((fields: HideRuleFields) =>
+    apiPost<HideRuleInfo>("/api/hide-rules", fields),
+  );
+}
+
+/** Every field anew, enabled included. */
+export function useUpdateHideRule() {
+  return useHideRuleWrite(({ id, ...update }: HideRuleUpdate & { id: number }) =>
+    apiPut<HideRuleInfo>(`/api/hide-rules/${id}`, update),
+  );
+}
+
+export function useDeleteHideRule() {
+  return useHideRuleWrite((id: number) => apiDelete(`/api/hide-rules/${id}`));
 }

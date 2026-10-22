@@ -145,6 +145,7 @@ describe("the search options of the search menu (D177)", () => {
       "-datei:Entwurf Minus schließt aus, auch vor from:, has: usw.",
       "Wort or Wort eines der beiden",
       '"genaue Phrase" die Wörter in dieser Folge',
+      '"Spende bar"~5 beide Wörter, höchstens 5 Wörter dazwischen',
       "subject:Wort Teil des Betreffs, auch mitten im Wort",
     ]);
   });

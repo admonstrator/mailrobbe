@@ -85,6 +85,12 @@ TABLES = {
     "calendar_event",
     "calendar_attendee",
     "person_label",
+    "hide_rule",
+    "mail_hidden",
+    "mail_paragraph_scan",
+    "mail_paragraph",
+    "paragraph_block",
+    "paragraph_override",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -163,6 +169,10 @@ INDEXES = {
     "ix_mail_tsv": "CREATE INDEX ix_mail_tsv ON public.mail USING gin (tsv)",
     "ix_mail_is_duplicate_of": "CREATE INDEX ix_mail_is_duplicate_of ON public.mail "
     "USING btree (is_duplicate_of) WHERE (is_duplicate_of IS NOT NULL)",
+    "ix_mail_list_id": "CREATE INDEX ix_mail_list_id ON public.mail "
+    "USING btree (list_id) WHERE (list_id IS NOT NULL)",
+    "ix_mail_paragraph_hash": "CREATE INDEX ix_mail_paragraph_hash ON public.mail_paragraph "
+    "USING btree (hash, mail_id)",
     "ix_mail_sort": "CREATE INDEX ix_mail_sort ON public.mail "
     "USING btree (COALESCE(date_utc, '-infinity'::timestamp with time zone), id)",
     "ix_mail_dkim_sort": "CREATE INDEX ix_mail_dkim_sort ON public.mail USING btree "
@@ -245,7 +255,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0015"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0016"
 
 
 @pytest.mark.db
@@ -422,6 +432,10 @@ def test_upgrade_renders_offline_without_database() -> None:
         "UPDATE alembic_version SET version_num='0015' WHERE alembic_version.version_num = '0014'"
         in sql
     )
+    assert (
+        "UPDATE alembic_version SET version_num='0016' WHERE alembic_version.version_num = '0015'"
+        in sql
+    )
 
 
 @pytest.mark.db
@@ -590,3 +604,67 @@ async def test_0009_sends_texts_archives_and_xps_files_to_the_next_extraction(
         "unreadable",
         "too_large",
     ]
+
+
+async def test_0016_keeps_every_tsvector_and_weighs_the_ranges(empty_database_url: str) -> None:
+    """0016 drops the generated expression of mail.tsv without touching a stored tsvector; the
+    trigger then computes it, the same as before without ranges and weighted by them (D226), and
+    the downgrade makes it a generated column again."""
+    await asyncio.to_thread(migrate.upgrade, "0015", empty_database_url)
+    engine = create_async_engine(empty_database_url, poolclass=pool.NullPool)
+    body = "Wir planen eine Spende.\n> zitierte Spende\n\nDiese Mail ist vertraulich."
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO mbox_file (id, path, size_bytes) OVERRIDING SYSTEM VALUE "
+                    "VALUES (1, 'a.mbox', 10)"
+                )
+            )
+            await connection.execute(
+                text(
+                    "INSERT INTO mail (id, mbox_file_id, byte_offset, byte_length, raw_sha256, "
+                    "subject, body_text) OVERRIDING SYSTEM VALUE VALUES "
+                    "(1, 1, 0, 5, 'a', 'Betreff Spende', :body)"
+                ),
+                {"body": body},
+            )
+            before = await connection.scalar(text("SELECT tsv::text FROM mail WHERE id = 1"))
+        await asyncio.to_thread(migrate.upgrade, "head", empty_database_url)
+        async with engine.begin() as connection:
+            kept = await connection.scalar(text("SELECT tsv::text FROM mail WHERE id = 1"))
+            await connection.execute(
+                text(
+                    "INSERT INTO mail (id, mbox_file_id, byte_offset, byte_length, raw_sha256, "
+                    "subject, body_text) OVERRIDING SYSTEM VALUE VALUES "
+                    "(2, 1, 5, 5, 'b', 'Betreff Spende', :body)"
+                ),
+                {"body": body},
+            )
+            inserted = await connection.scalar(text("SELECT tsv::text FROM mail WHERE id = 2"))
+            await connection.execute(
+                text("UPDATE mail SET history = '{[24,41)}', blocks = '{[43,70)}' WHERE id = 2")
+            )
+            weighted = await connection.scalar(text("SELECT tsv::text FROM mail WHERE id = 2"))
+            cut = await connection.scalar(
+                text("SELECT mailrobbe_cut(body_text, history + blocks) FROM mail WHERE id = 2")
+            )
+        await asyncio.to_thread(migrate.downgrade, "0015", empty_database_url)
+        async with engine.connect() as connection:
+            generated = await connection.scalar(
+                text(
+                    "SELECT is_generated FROM information_schema.columns "
+                    "WHERE table_name = 'mail' AND column_name = 'tsv'"
+                )
+            )
+            again = await connection.scalar(text("SELECT tsv::text FROM mail WHERE id = 2"))
+    finally:
+        await engine.dispose()
+    assert kept == before
+    assert inserted == before
+    assert weighted == (
+        "'betreff':1A 'mail':10 'plan':4B 'spend':2A,6B,8C 'vertraulich':12 'zitiert':7C"
+    )
+    assert cut == "Wir planen eine Spende.\n" + "\n" + "\n\n"  # the ranges joined by a line break
+    assert generated == "ALWAYS"
+    assert again == before

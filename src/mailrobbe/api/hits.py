@@ -2,19 +2,20 @@
 compares and the figures the mail list and the mail detail show, from the same words
 (FullText.counted) and by the same rules.
 
-The places are the mail's subject and its own text (mail.tsv, weights A and B) and the file names
-and texts of its attachments' documents (document.tsv, A and B; fulltext.MAIL_WEIGHTS and
-DOCUMENT_WEIGHTS). Each counted words counts in each of its places, and the counts add up.
+The places are the mail's subject and its own text (mail.tsv, weight A, and the weights of the
+parts of the text body_part looks at, D226) and the file names and texts of its attachments'
+documents (document.tsv, A and B; fulltext.mail_weights and DOCUMENT_WEIGHTS). Each counted
+words counts in each of its places, and the counts add up.
 
-Stemmed, a words counts the positions of its lexemes in the tsvector that carry the weight of
-the place. Its lexemes are its own tsvector's (to_tsvector of the words, which PostgreSQL computes
-once while planning); a words with several lexemes, a phrase or a hyphenated word, counts as its
-least frequent lexeme, and 0 when one is missing or it has none (a stop word). One unnest of a
-tsvector serves every words and place: its lexemes are joined to the words' (_occurrences).
-PostgreSQL keeps at most 256 positions per lexeme and puts every word beyond the 16,383rd at that
-one position, so very long texts count low (D174). Whole words count the matches of
-fulltext.word_regex, in any case, in the stored texts: mail.subject and body_text,
-document.names and extracted_text (D173).
+Stemmed, a words counts the positions of its lexemes in the tsvector that carry a weight of the
+place. Its lexemes are its own tsvector's (to_tsvector of the words, which PostgreSQL computes
+once while planning); a words with several lexemes, a phrase, a hyphenated word or a proximity
+term (D229), counts as its least frequent lexeme, and 0 when one is missing or it has none (a
+stop word). One unnest of a tsvector serves every words and place: its lexemes are joined to the
+words' (_occurrences). PostgreSQL keeps at most 256 positions per lexeme and puts every word
+beyond the 16,383rd at that one position, so very long texts count low (D174). Whole words count
+the matches of fulltext.word_regex, in any case, in the stored texts: mail.subject and body_text
+cut to body_part's parts, document.names and extracted_text (D173, fulltext.stored_texts).
 
 Only a mail or a document whose tsvector can hold a counted word in its places is looked at
 (_holding), so that a text unrelated to the words is never unnested or read, and of the
@@ -39,6 +40,7 @@ from sqlalchemy import (
     Select,
     Text,
     any_,
+    cast,
     func,
     literal,
     select,
@@ -51,34 +53,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from mailrobbe.api.fulltext import (
     DOCUMENT_WEIGHTS,
     FIELDS,
-    MAIL_WEIGHTS,
     TEXT_SEARCH,
     FullText,
-    ts_query,
+    mail_weights,
+    stored_texts,
     weighted,
     weights,
     word_regex,
+    words_query,
 )
 from mailrobbe.api.schemas import MailHitCounts, SearchField
 from mailrobbe.db.models import Attachment, Document, Mail
 
 _Select = Select[*tuple[Any, ...]]
 _Rows = _Select | CompoundSelect[*tuple[Any, ...]]
-# The stored text of each place, for whole words.
-_TEXTS: dict[SearchField, Any] = {
-    "subject": Mail.subject,
-    "body": Mail.body_text,
-    "filename": Document.names,
-    "attachment": Document.extracted_text,
-}
 
 
 def hit_count(search: FullText) -> ColumnElement[int]:
     """The occurrences of search's counted words in the mail (correlated to mail) and the
     texts and file names of its attachments' documents, each in its places (D174)."""
     counts: list[ColumnElement[int]] = []
-    if (holding := _holding(search, MAIL_WEIGHTS)) is not None:
-        own = _occurrences(search, MAIL_WEIGHTS, Mail.tsv).subquery("occurrences")
+    places = mail_weights(search.body_part)
+    if (holding := _holding(search, places)) is not None:
+        own = _occurrences(search, places, Mail.tsv).subquery("occurrences")
         counts.append(select(_total(own)).where(Mail.tsv.bool_op("@@")(holding)).scalar_subquery())
     if (attached := _attached(search, Attachment.mail_id == Mail.id)) is not None:
         rows, documents = attached
@@ -127,10 +124,11 @@ async def mail_places(
 def _own(search: FullText, where: ColumnElement[bool]) -> _Select | None:
     """Rows (mail id, place, count) of the mails meeting where that can hold a counted word in
     their own places; None when no counted word is looked for there."""
-    holding = _holding(search, MAIL_WEIGHTS)
+    places = mail_weights(search.body_part)
+    holding = _holding(search, places)
     if holding is None:
         return None
-    rows = _occurrences(search, MAIL_WEIGHTS, Mail.tsv).lateral("occurrences")
+    rows = _occurrences(search, places, Mail.tsv).lateral("occurrences")
     return (
         select(Mail.id, rows.c.place, _total(rows))
         .select_from(Mail)
@@ -169,11 +167,12 @@ def _attached(search: FullText, where: ColumnElement[bool]) -> tuple[Any, _Selec
 
 
 def _holding(search: FullText, places: dict[SearchField, str]) -> ColumnElement[Any] | None:
-    """A tsquery that mail.tsv (places MAIL_WEIGHTS) or document.tsv (DOCUMENT_WEIGHTS) matches
-    when it holds one of the counted words in one of the words' places there, as it must to
-    hold the words as written too; None when no counted word is looked for in these places."""
+    """A tsquery that mail.tsv (places fulltext.mail_weights) or document.tsv (DOCUMENT_WEIGHTS)
+    matches when it holds one of the counted words in one of the words' places there, as it
+    must to hold the words as written too; None when no counted word is looked for in these
+    places."""
     queries = [
-        weighted(ts_query(words.websearch()), labels)
+        weighted(words_query(words, search.whole_word), labels)
         for words, fields in search.counted
         if (labels := weights(fields, places))
     ]
@@ -191,12 +190,13 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
         for place in sorted(fields & places.keys())
     ]
     if search.whole_word:
+        texts = stored_texts(search.body_part)
         return _union(
             [
                 select(
                     literal(place, Text).label("place"),
                     func.coalesce(
-                        func.regexp_count(_TEXTS[place], word_regex(words), 1, "i"), 0
+                        func.regexp_count(texts[place], word_regex(words), 1, "i"), 0
                     ).label("count"),
                 ).correlate(Mail, Document)
                 for _, words, place in counted
@@ -206,15 +206,17 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
         index: func.tsvector_to_array(func.to_tsvector(TEXT_SEARCH, words.text))
         for index, words, _ in counted
     }
+    # one row per words, place, weight of the place and lexeme
     lexemes = _union(
         [
             select(
                 literal(index, Integer).label("words"),
                 literal(place, Text).label("place"),
-                literal(places[place], Text).label("weight"),
+                literal(weight, Text).label("weight"),
                 func.unnest(arrays[index]).label("lexeme"),
             )
             for index, _, place in counted
+            for weight in places[place]
         ]
     ).subquery("lexemes")
     # vector with these lexemes only (ts_delete removes all others, those left when they are
@@ -223,10 +225,19 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
     only = func.ts_delete(vector, others)
     found = func.unnest(only).table_valued("lexeme", "weights", name="found")
     positions = func.cardinality(func.array_positions(found.c.weights, lexemes.c.weight))
-    return (
-        select(lexemes.c.place, func.min(func.coalesce(positions, 0)).label("count"))
+    # the positions of each lexeme in the place's weights, then the least frequent lexeme
+    per_lexeme = (
+        select(
+            lexemes.c.words,
+            lexemes.c.place,
+            cast(func.sum(func.coalesce(positions, 0)), Integer).label("count"),
+        )
         .select_from(lexemes.outerjoin(found, found.c.lexeme == lexemes.c.lexeme))
-        .group_by(lexemes.c.words, lexemes.c.place)
+        .group_by(lexemes.c.words, lexemes.c.place, lexemes.c.lexeme)
+        .subquery("per_lexeme")
+    )
+    return select(per_lexeme.c.place, func.min(per_lexeme.c.count).label("count")).group_by(
+        per_lexeme.c.words, per_lexeme.c.place
     )
 
 

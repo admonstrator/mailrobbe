@@ -2,9 +2,11 @@
 count, label, rank and group the terms and replace the stored results in one transaction.
 
     waiting         the fingerprint of the archive as it is now: TOPICS_VERSION, [topics] ignore,
-                    the single-word terms of the themes' word fields with their keys, and the
-                    number, largest id and duplicates of the mails (a few aggregates, no text
-                    read), compared with topic_state.fingerprint
+                    the single-word terms of the themes' word fields with their keys, the
+                    number, largest id and duplicates of the mails, and the standard blocks the
+                    last blocks step applied (paragraph_block.standard with PARAGRAPH_VERSION,
+                    D225: the terms leave them out) (a few aggregates, no text read), compared
+                    with topic_state.fingerprint
     topic_terms     vocabulary.count_terms: one pass over mail.tsv counting every lexeme per UTC
                     month, N and the mails per month, the vocabulary (D141)
     topic_labels    labels.read_labels: the text of every mail once, each term's spelling written
@@ -36,6 +38,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from mailrobbe import themes
+from mailrobbe.db.models import PARAGRAPH_VERSION
 from mailrobbe.jobrun import Steps
 from mailrobbe.topics import clusters
 from mailrobbe.topics.labels import read_labels
@@ -59,6 +62,12 @@ WORK_MEM = "256MB"  # for the aggregates of this transaction (SET LOCAL)
 _ARCHIVE = text("""
     SELECT (SELECT count(*) FROM mail), (SELECT max(id) FROM mail),
            (SELECT count(*) FROM mail WHERE is_duplicate_of IS NOT NULL)
+""")
+# The standard blocks applied to the mails' ranges: a mail's blocks follow from its stored text,
+# its paragraphs' split (PARAGRAPH_VERSION) and this set, so the set stands for all of them.
+_BLOCKS = text("""
+    SELECT count(*), md5(COALESCE(string_agg(CAST(hash AS text), ',' ORDER BY hash), ''))
+    FROM paragraph_block WHERE standard
 """)
 _STORED = text("SELECT fingerprint FROM topic_state WHERE id = 1")
 
@@ -150,11 +159,13 @@ async def waiting(session: AsyncSession) -> str | None:
     """The fingerprint of the archive as it is now when the stored topics were computed for
     another one (or never), else None: nothing to do."""
     mails, last_id, duplicates = (await session.execute(_ARCHIVE)).one()
+    blocks, digest = (await session.execute(_BLOCKS)).one()
     archive = {
         "version": TOPICS_VERSION,
         "ignore": list(themes.load_topic_ignore()),
         "themes": [list(pair) for pair in theme_words()],
         "mails": [mails, last_id, duplicates],
+        "blocks": [PARAGRAPH_VERSION, blocks, digest],
     }
     fingerprint = hashlib.sha256(json.dumps(archive, ensure_ascii=False).encode()).hexdigest()
     return None if await session.scalar(_STORED) == fingerprint else fingerprint

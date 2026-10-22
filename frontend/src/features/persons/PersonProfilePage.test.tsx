@@ -495,3 +495,22 @@ describe("the team's label of a person (D156)", () => {
     expect(screen.getByRole("button", { name: "Benennen" })).toBeTruthy();
   });
 });
+
+describe("a profile's mails by page (D193)", () => {
+  it("jumps to a page at a page size, and another tab goes back to the first page", async () => {
+    const { router, calls } = renderApp("/personen/11?limit=25&page=3");
+    await waitFor(() => expect(lastMailQuery(calls).get("page")).toBe("3"));
+    expect(lastMailQuery(calls).get("limit")).toBe("25");
+    expect(lastMailQuery(calls).has("cursor")).toBe(false);
+    const nav = await screen.findByRole("navigation", { name: "Seiten" });
+    expect(within(nav).getByRole("link", { name: "Seite 3" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    expect(screen.getByRole("combobox", { name: "Pro Seite" })).toHaveProperty("value", "25");
+
+    fireEvent.click(screen.getByRole("tab", { name: /^Gesendet/ }));
+    expect(router.state.location.search).toBe("?role=sent&limit=25");
+    await waitFor(() => expect(lastMailQuery(calls).get("person_role")).toBe("sent"));
+    expect(lastMailQuery(calls).has("page")).toBe(false);
+  });
+});

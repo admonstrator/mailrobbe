@@ -482,14 +482,15 @@ async def test_query_terms_are_echoed(client: httpx.AsyncClient) -> None:
     q = 'from:anna  subject:"finale Fassung" Hallo'
     page = await get(client, "/api/mails", [("q", q)])
     assert page["query_terms"] == [
-        {"key": "from", "value": "anna", "raw": "from:anna", "negated": False},
+        {"key": "from", "value": "anna", "raw": "from:anna", "negated": False, "distance": None},
         {
             "key": "subject",
             "value": "finale Fassung",
             "raw": 'subject:"finale Fassung"',
             "negated": False,
+            "distance": None,
         },
-        {"key": "text", "value": "Hallo", "raw": "Hallo", "negated": False},
+        {"key": "text", "value": "Hallo", "raw": "Hallo", "negated": False, "distance": None},
     ]
 
 
@@ -618,6 +619,7 @@ async def test_filtered_summary_counts_exactly(
         "domains": figures.domains,
         "date_min": stamp(figures.date_min),
         "date_max": stamp(figures.date_max),
+        "hidden": 0,  # no hide rule: none of the matches is hidden (D222)
     }
     assert len(summary["dkim"]) == 7
 
@@ -629,7 +631,14 @@ async def test_summary_falls_back_when_counting_runs_out_of_time(
     settings = settings.model_copy(update={"api_count_timeout": 0.3})
     passed = len(await ids(mutable_database_url, "dkim_status = 'pass'"))
     params = [("dkim", "pass")]
-    unknown = {"dkim": None, "persons": None, "domains": None, "date_min": None, "date_max": None}
+    unknown = {
+        "dkim": None,
+        "persons": None,
+        "domains": None,
+        "date_min": None,
+        "date_max": None,
+        "hidden": None,
+    }
     engine = create_async_engine(mutable_database_url, poolclass=pool.NullPool)
     try:
         async for client in _client(settings):

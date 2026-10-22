@@ -1,0 +1,13 @@
+/* The hide rules on the mail detail (MailHiding.tsx). */
+
+.note {
+  padding: 10px 16px;
+  border-color: var(--color-border-strong);
+  background: var(--color-field);
+}
+
+.text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}

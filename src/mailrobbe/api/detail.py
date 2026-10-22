@@ -21,7 +21,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from mailrobbe.api import body, events, near
+from mailrobbe.api import body, events, hiding, near
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.schemas import (
     DUPLICATES_LIMIT,
@@ -121,6 +121,7 @@ _DETAIL = (
         Mail.dkim_status,
         Mail.thread_id,
         Mail.is_duplicate_of,
+        Mail.list_id,
         MailMark.flagged,
         MailMark.flagged_by,
         MailMark.flagged_at,
@@ -196,6 +197,8 @@ async def mail_detail(mail_id: MailId, session: Session, settings: AppSettings) 
         near=group.mails,
         near_size=group.size,
         events=await events.mail_events(session, mail_id),
+        hidden=await hiding.mail_hiding(session, mail_id),  # D222
+        list_id=mail.list_id,
     )
     await attach_labels(session, detail)
     return detail
@@ -218,7 +221,7 @@ async def mail_body(
         return await asyncio.to_thread(body.mail_headers, message)
     if view == "raw":
         return await asyncio.to_thread(body.mail_raw, message)
-    return await asyncio.to_thread(body.mail_text, message)
+    return await body.text_view(session, message)  # standard blocks cut out (D227)
 
 
 @router.get("/mails/{mail_id}/eml")

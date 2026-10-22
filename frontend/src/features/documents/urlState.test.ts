@@ -38,6 +38,7 @@ const full: DocumentListState = {
   sort: "mails",
   cursor: "eyJrIjoxfQ",
   page: 3,
+  limit: 100,
 };
 
 describe("document list state in the URL", () => {
@@ -68,6 +69,7 @@ describe("document list state in the URL", () => {
       "program",
       "sort",
       "cursor",
+      "limit",
       "page",
     ]);
   });
@@ -85,7 +87,8 @@ describe("document list state in the URL", () => {
         "person_role=sent",
         "sort=relevance",
         "shared=yes",
-        "page=4",
+        "page=x",
+        "limit=0",
       ].join("&"),
     );
     expect(state).toEqual({ ...DEFAULT_DOCUMENT_LIST_STATE, kind: ["pdf", "spreadsheet"] });
@@ -99,11 +102,12 @@ describe("document list state in the URL", () => {
 
   it("starts again at the first page when a filter changes, and resets the column", () => {
     const next = withDocumentFilters(full, { shared: false });
-    expect([next.cursor, next.page, next.shared]).toEqual([null, 1, false]);
+    expect([next.cursor, next.page, next.limit, next.shared]).toEqual([null, 1, 100, false]);
     expect(withoutDocumentFilters(full)).toEqual({
       ...DEFAULT_DOCUMENT_LIST_STATE,
       q: full.q,
       sort: "mails",
+      limit: 100,
     });
   });
 
@@ -112,6 +116,15 @@ describe("document list state in the URL", () => {
     const query = buildQuery(toDocumentListParams(full)).toString();
     expect(query).not.toContain("page=");
     expect(query).toBe(search({ ...full, page: 1 }));
+  });
+
+  it("jumps to a page or the last one (D193)", () => {
+    const jump = parse("sort=size&limit=25&page=12");
+    expect(jump).toMatchObject({ cursor: null, page: 12, limit: 25 });
+    expect(search(jump)).toBe("sort=size&limit=25&page=12");
+    expect(toDocumentListParams(jump)).toEqual({ sort: "size", page: 12, limit: 25 });
+    expect(toDocumentListParams(parse("page=last"))).toEqual({ last: true });
+    expect(withDocumentFilters(jump, { shared: true })).toMatchObject({ page: 1, limit: 25 });
   });
 
   it("counts each checkbox group without its own selection", () => {
@@ -135,7 +148,7 @@ describe("document list state in the URL", () => {
 
 describe("a document's mails", () => {
   it("are the mail list with document, oldest first, without duplicates", () => {
-    const list = documentMailList(5101, { cursor: "c2", page: 2 });
+    const list = documentMailList(5101, { cursor: "c2", page: 2, limit: 50 });
     expect(toListParams(list)).toEqual({
       hide_duplicates: true,
       document: 5101,
@@ -148,14 +161,16 @@ describe("a document's mails", () => {
     expect(documentMailsHref(5101)).toBe("/mails?hide_duplicates=true&document=5101&sort=date_asc");
   });
 
-  it("keep their page number only with a cursor", () => {
-    expect(parseDocumentMailState(new URLSearchParams("page=3"))).toEqual({
-      cursor: null,
-      page: 1,
-    });
-    expect(parseDocumentMailState(new URLSearchParams("cursor=x&page=3"))).toEqual({
-      cursor: "x",
-      page: 3,
+  it("keep their page as every list's: a jump, a step or the last page", () => {
+    const parseMails = (query: string) => parseDocumentMailState(new URLSearchParams(query));
+    expect(parseMails("page=3")).toEqual({ cursor: null, page: 3, limit: 50 });
+    expect(parseMails("cursor=x&page=3")).toEqual({ cursor: "x", page: 3, limit: 50 });
+    expect(toListParams(documentMailList(5101, parseMails("limit=25&page=last")))).toEqual({
+      hide_duplicates: true,
+      document: 5101,
+      sort: "date_asc",
+      last: true,
+      limit: 25,
     });
   });
 });

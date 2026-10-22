@@ -1,9 +1,11 @@
 import { Navigate, type RouteObject } from "react-router";
 
 import { AppShell } from "./components/AppShell";
+import { BlockDetailRoute, BlocksRoute } from "./features/blocks/lazyPages";
 import { DocumentDetailRoute, DocumentListRoute } from "./features/documents/lazyPages";
 import { EntityDetailRoute, EntityListRoute } from "./features/entities/lazyPages";
 import { GraphPage } from "./features/graph/GraphPage";
+import { HidingRoute } from "./features/hiding/lazyPages";
 import { ImportPage } from "./features/import/ImportPage";
 import { SelectorDetailRoute, SelectorListRoute } from "./features/keys/lazyPages";
 import { MailDetailPage } from "./features/mail/MailDetailPage";
@@ -38,6 +40,9 @@ export const routes: RouteObject[] = [
       { path: "/themen", element: <TopicsRoute /> },
       { path: "/akten", element: <AktenPage /> },
       { path: "/akten/:id", element: <CollectionPage /> },
+      { path: "/ausgeblendet", element: <HidingRoute /> },
+      { path: "/ausgeblendet/bloecke", element: <BlocksRoute /> },
+      { path: "/ausgeblendet/bloecke/:hash", element: <BlockDetailRoute /> },
       { path: "/m/:hash", element: <PermalinkPage /> },
       { path: "/import", element: <ImportPage /> },
       { path: "/import/selektoren", element: <SelectorListRoute /> },

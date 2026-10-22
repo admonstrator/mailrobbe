@@ -70,6 +70,7 @@ const TERM_LABELS: Record<QueryKey, (value: string) => string> = {
   in_body: (value) => `Im Mailtext: „${value}“`,
   in_attachment: (value) => `Im Anhangstext: „${value}“`,
   in_filename: (value) => `Im Dateinamen: „${value}“`,
+  near: (value) => `Nah beieinander: „${value}“`,
 };
 
 /** A term as its chip names it: a minus before an operator reads "Nicht …" (D175), before a
@@ -78,7 +79,10 @@ function termLabel(term: QueryTerm): string {
   if (term.key === "text" && term.value.length > 1 && term.value.startsWith("-")) {
     return `Ohne: „${term.value.slice(1)}“`;
   }
-  const label = TERM_LABELS[term.key](term.value);
+  const label =
+    term.key === "near" && term.distance
+      ? `${TERM_LABELS.near(term.value)} (höchstens ${formatNumber(term.distance)} Wörter dazwischen)`
+      : TERM_LABELS[term.key](term.value);
   return term.negated
     ? `Nicht ${label.replace(/^(Mit|Im) /, (word) => word.toLowerCase())}`
     : label;
@@ -148,6 +152,28 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       id: "min_hits",
       label: `Mindestens ${formatNumber(state.min_hits)} Treffer`,
       next: withFilters(state, { min_hits: null }),
+    });
+  }
+  // Milestone 18: the parts of the text searched (D226), hidden mails (D222), a paragraph (D227).
+  if (state.body_part !== "clean") {
+    chips.push({
+      id: "body_part",
+      label: state.body_part === "own" ? "Nur selbst Geschriebenes" : "Auch Standardblöcke",
+      next: withFilters(state, { body_part: "clean" }),
+    });
+  }
+  if (state.include_hidden) {
+    chips.push({
+      id: "include_hidden",
+      label: "Mit ausgeblendeten Mails",
+      next: withFilters(state, { include_hidden: false }),
+    });
+  }
+  if (state.block) {
+    chips.push({
+      id: "block",
+      label: "Enthält einen Standardblock",
+      next: withFilters(state, { block: null }),
     });
   }
   if (state.dkim.length) {

@@ -23,9 +23,10 @@ import { Card } from "../../components/Card";
 import { Chip } from "../../components/Chip";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { Pagination } from "../../components/Pagination";
+import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
+import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { personName as shownName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
@@ -215,6 +216,20 @@ export function MailListPage() {
             <span className={styles.hits} aria-live="polite">
               {hitText(summary.data, state)}
             </span>
+            {!!summary.data?.hidden && (
+              <span className={styles.hits}>
+                {formatNumber(summary.data.hidden)} ausgeblendet ·{" "}
+                <Button
+                  variant="link"
+                  size="sm"
+                  className={styles.showHidden}
+                  title="Mails, die eine Ausblendregel ausblendet, mit in die Liste nehmen"
+                  onClick={() => setState(withFilters(state, { include_hidden: true }))}
+                >
+                  zeigen
+                </Button>
+              </span>
+            )}
             <div className={styles.actions}>
               <label htmlFor="mail-sort" className="sr-only">
                 Sortierung
@@ -318,15 +333,13 @@ export function MailListPage() {
 
         {page.data && page.data.items.length > 0 && (
           <Pagination
-            range={rangeText(state, page.data.items.length, summary.data)}
-            prev={
-              page.data.prev_cursor ? listHref(previousPage(state, page.data.prev_cursor)) : null
-            }
-            next={
-              page.data.next_cursor
-                ? listHref({ ...state, cursor: page.data.next_cursor, page: state.page + 1 })
-                : null
-            }
+            {...listPagination(
+              state,
+              page.data,
+              page.data.items.length,
+              mailTotal(summary.data),
+              listHref,
+            )}
           />
         )}
       </main>
@@ -347,18 +360,9 @@ export function MailListPage() {
   );
 }
 
-function previousPage(state: ListState, cursor: string): ListState {
-  // The page before the second one is the first: without cursor, as the list starts.
-  return state.page === 2
-    ? { ...state, cursor: null, page: 1 }
-    : { ...state, cursor, page: Math.max(1, state.page - 1) };
-}
-
-/** "1–50 von 1.207", "51–100 von mehr als 10.000", or just the range when the total is open. */
-function rangeText(state: ListState, count: number, summary: MailSummary | undefined): string {
-  const first = (state.page - 1) * state.limit + 1;
-  const range = `${formatNumber(first)}–${formatNumber(first + count - 1)}`;
-  return summary && summary.total !== null ? `${range} von ${formatTotal(summary)}` : range;
+/** The list's length as MailSummary counts it (D19), for the page numbers (D193). */
+function mailTotal(summary: MailSummary | undefined): Total | null {
+  return summary && summary.total !== null ? { count: summary.total, exact: summary.exact } : null;
 }
 
 function PageError({
@@ -400,6 +404,7 @@ function PageError({
       </ErrorState>
     );
   }
+  if (code === "page_too_far") return <PageTooFar {...edgePages(state, listHref)} />;
   if (code === "invalid_cursor") {
     return (
       <ErrorState

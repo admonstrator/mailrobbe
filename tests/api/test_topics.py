@@ -306,7 +306,8 @@ async def expected_terms(
     counts = await rows(
         url,
         "SELECT t.lexeme, t.label, t.mails, t.themes, c.a FROM (SELECT lexeme, count(*) AS a"
-        f" FROM mail, unnest(tsvector_to_array(tsv)) AS lexeme WHERE id IN ({sampled})"
+        " FROM mail, unnest(tsvector_to_array(ts_filter(tsv, '{a,b,c}'))) AS lexeme"
+        f" WHERE id IN ({sampled})"
         " GROUP BY lexeme HAVING count(*) >= 3) c JOIN topic_term t ON t.lexeme = c.lexeme",
         **params,
     )

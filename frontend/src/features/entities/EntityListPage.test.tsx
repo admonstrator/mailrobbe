@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { entitySummary } from "../../test/fixtures";
+import { entityPage, entitySummary } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const listCalls = (calls: ApiCall[]) =>
@@ -202,6 +202,46 @@ describe("entity list", () => {
     expect(screen.getByText("Keine Entität dieser Art enthält „XY99“.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Filter zurücksetzen" }).getAttribute("href")).toBe(
       "/entitaeten?kind=iban&kind=account",
+    );
+  });
+});
+
+describe("entity list paging (D193)", () => {
+  it("numbers a tab's pages by the summary, and another tab goes back to page 1", async () => {
+    const { router, calls } = renderApp("/entitaeten?kind=amount&page=3");
+    await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?kind=amount&page=3"));
+    const nav = await screen.findByRole("navigation", { name: "Seiten" });
+    // 4.210 amounts, 50 a page.
+    expect(await within(nav).findByRole("link", { name: "Seite 85" })).toBeTruthy();
+    expect(within(nav).getByRole("link", { name: "Seite 3" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /^Konten/ }));
+    expect(router.state.location.search).toBe("?kind=iban&kind=account");
+  });
+
+  it("numbers a search's pages by the count of its page", async () => {
+    renderApp("/entitaeten?q=gmbh&limit=25", (call) =>
+      call.url.pathname === "/api/entities"
+        ? { ...entityPage, total: 120, exact: true }
+        : fixtureApi(call),
+    );
+    const nav = await screen.findByRole("navigation", { name: "Seiten" });
+    expect(within(nav).getByRole("link", { name: "Seite 5" }).getAttribute("href")).toBe(
+      "/entitaeten?q=gmbh&limit=25&page=5",
+    );
+    expect(nav.textContent).toContain(" von 120");
+  });
+
+  it("offers the first and the last page when a jump took too long", async () => {
+    renderApp("/entitaeten?q=gmbh&page=99", (call) =>
+      call.url.pathname === "/api/entities" && call.url.searchParams.has("page")
+        ? Response.json({ detail: { code: "page_too_far", message: "late" } }, { status: 400 })
+        : fixtureApi(call),
+    );
+    expect(await screen.findByText("Diese Seite ist zu weit entfernt.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Erste Seite" }).getAttribute("href")).toBe(
+      "/entitaeten?q=gmbh",
     );
   });
 });

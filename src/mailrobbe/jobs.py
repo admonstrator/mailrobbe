@@ -57,6 +57,8 @@ ImportPhase = Literal[
     "attachments",
     "calendar",
     "near",
+    "hidden",
+    "paragraphs",
     "entities",
     "signals",
     "topics",

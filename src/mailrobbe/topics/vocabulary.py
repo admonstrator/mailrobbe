@@ -4,7 +4,9 @@
                 each lexeme of MIN_LENGTH to MAX_LENGTH characters per UTC month (NULL for undated
                 mails) into the temporary table topic_tmp_month; a second, light one counts the
                 mails per month. N, the mails of every period and every term's mails come from
-                these two counts, and no later step reads mail.tsv again.
+                these two counts, and no later step reads mail.tsv again. The tsv is read
+                without its standard blocks (weight D, D205, D226: TOPIC_WEIGHTS), so a legal
+                notice under thousands of mails gives no term.
     vocabulary  the lexemes in at least MIN_MAILS mails that model.usable_lexeme accepts, less
                 English stop words (ts_lexize('english_stem') gives none for exactly those; the
                 German ones are never indexed), less the stems of [topics] ignore, and less the
@@ -28,7 +30,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe import themes
-from mailrobbe.topics.model import MAX_LENGTH, MIN_LENGTH, MIN_MAILS, usable_lexeme
+from mailrobbe.topics.model import MAX_LENGTH, MIN_LENGTH, MIN_MAILS, TOPIC_WEIGHTS, usable_lexeme
 
 # Every lexeme of every mail that is no duplicate, with its mails per UTC month. A lexeme is in a
 # tsvector once, so count(*) counts mails. The length test only spares the aggregate the short
@@ -37,7 +39,8 @@ _MONTH_LEXEMES = text(f"""
     CREATE TEMP TABLE topic_tmp_month ON COMMIT DROP AS
     SELECT date_trunc('month', m.date_utc AT TIME ZONE 'UTC')::date AS month, l AS lexeme,
            count(*)::integer AS mails
-    FROM mail m CROSS JOIN LATERAL unnest(tsvector_to_array(m.tsv)) AS l
+    FROM mail m CROSS JOIN LATERAL unnest(tsvector_to_array(ts_filter(m.tsv, {TOPIC_WEIGHTS})))
+        AS l
     WHERE m.is_duplicate_of IS NULL AND length(l) BETWEEN {MIN_LENGTH} AND {MAX_LENGTH}
     GROUP BY 1, 2
 """)
