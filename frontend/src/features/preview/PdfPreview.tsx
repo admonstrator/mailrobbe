@@ -1,6 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { apiFetch, attachmentContentUrl, PDF_VIEWER_URL } from "../../api/client";
+import {
+  apiFetch,
+  attachmentContentUrl,
+  attachmentDecryptedUrl,
+  PDF_VIEWER_URL,
+} from "../../api/client";
 import { cx } from "../../lib/cx";
 import {
   FAILURE_TEXTS,
@@ -24,15 +29,18 @@ type PdfState =
 
 /** A PDF in the isolated viewer (D121): the app reads the bytes from the download endpoint (same
  *  origin, so Basic Auth applies) and hands them to the viewer's frame, which runs on an opaque
- *  origin without network and draws them with pdf.js. */
+ *  origin without network and draws them with pdf.js. An opened PDF is read decrypted with the
+ *  password found (D236). */
 export function PdfPreview({
   attachmentId,
   name,
   fill,
+  decrypted = false,
 }: {
   attachmentId: number;
   name: string;
   fill?: boolean;
+  decrypted?: boolean;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<PdfState>({ phase: "loading" });
@@ -71,7 +79,10 @@ export function PdfPreview({
 
     window.addEventListener("message", onMessage);
     element?.addEventListener("load", onLoad);
-    apiFetch(attachmentContentUrl(attachmentId), controller.signal)
+    const url = decrypted
+      ? attachmentDecryptedUrl(attachmentId)
+      : attachmentContentUrl(attachmentId);
+    apiFetch(url, controller.signal)
       .then((answer) => answer.arrayBuffer())
       .then(
         (data) => {
@@ -88,7 +99,7 @@ export function PdfPreview({
       window.removeEventListener("message", onMessage);
       element?.removeEventListener("load", onLoad);
     };
-  }, [attachmentId, name, attempt]);
+  }, [attachmentId, name, decrypted, attempt]);
 
   if (state.phase === "error") {
     return (

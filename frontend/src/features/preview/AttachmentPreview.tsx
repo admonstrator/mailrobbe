@@ -17,13 +17,19 @@ interface PreviewProps {
 }
 
 /** An attachment as the browser shows it (D120), by the kind the API decided (`preview` of an
- *  attachment or a document): nothing of it runs on the app's origin or reaches the network. */
-export function AttachmentPreview({ kind, ...props }: PreviewProps & { kind: PreviewKind }) {
+ *  attachment or a document): nothing of it runs on the app's origin or reaches the network.
+ *  decrypted: it was opened with a found password (D236), so a PDF is read decrypted; the server
+ *  decrypts a converted DOCX by itself, and a locked file has no preview. */
+export function AttachmentPreview({
+  kind,
+  decrypted = false,
+  ...props
+}: PreviewProps & { kind: PreviewKind; decrypted?: boolean }) {
   switch (kind) {
     case "image":
       return <ImagePreview {...props} />;
     case "pdf":
-      return <PdfPreview {...props} />;
+      return <PdfPreview {...props} decrypted={decrypted} />;
     case "html":
       return <HtmlPreview {...props} />;
     case "audio":

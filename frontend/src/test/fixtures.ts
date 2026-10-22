@@ -92,6 +92,7 @@ import type {
   TopicState,
   TopicTerm,
   TopicTerms,
+  PasswordTryResult,
 } from "../api/types";
 
 const person = (person_id: number, name: string | null, email: string): PersonRef => ({
@@ -1718,6 +1719,7 @@ export const documentItems: DocumentListItem[] = [
     text_status: "encrypted",
     mails: 2,
     first_sender: jonas,
+    protection: "locked",
   }),
   documentItem(5105, "IMG_2041.jpg", "image", "image/jpeg", {
     size: 1_204_224,
@@ -1782,6 +1784,7 @@ export const documentSummary: DocumentSummary = {
     { value: "Canon EOS 80D Firmware 1.0.3", documents: 641 },
     { value: "LibreOffice/7.6.4.1$Linux_X86_64", documents: 95 },
   ],
+  protection: { locked: 87, open: 12 },
 };
 
 export const documentSummaryFiltered: DocumentSummary = {
@@ -1791,6 +1794,7 @@ export const documentSummaryFiltered: DocumentSummary = {
   text_status: { text: 177, scanned: 37 } as DocumentSummary["text_status"],
   authors: [{ value: "Peter Hofmann", documents: 21 }],
   programs: [{ value: "Microsoft Word für Microsoft 365", documents: 34 }],
+  protection: { locked: 3 },
 };
 
 /** The search within the facets "Autor" and "Programm" (D167): more than the top values. */
@@ -3536,4 +3540,218 @@ export const mergeLogPage: MergeLogPage = {
   ],
   next_cursor: null,
   total: 3,
+};
+
+// Protected and packed attachments (milestone 19, D230 to D239) ---------------------------------
+
+const noMetadata: DocumentDetail["metadata"] = {
+  status: "empty",
+  error: null,
+  fields: {},
+  summary: null,
+};
+
+/** A spreadsheet that needs a password nobody has found yet; the imports tried 14. */
+export const lockedDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5104,
+  name: "Spendenliste_2019.xlsx",
+  mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  kind: "spreadsheet",
+  size: 48_213,
+  sha256: documentItems[3].sha256,
+  pages: null,
+  text_status: "encrypted",
+  extracted_at: "2026-10-20T01:22:00Z",
+  mails: 2,
+  attachments: 2,
+  names: [{ name: "Spendenliste_2019.xlsx", attachments: 2 }],
+  attachment_id: 9104,
+  preview: null,
+  metadata: noMetadata,
+  protection: "locked",
+  password_trial: true,
+  password_tries: 14,
+  password_tried_at: "2026-10-20T01:23:00Z",
+  password: null,
+  members: null,
+  containers: [],
+};
+
+/** An offer opened with the password Miriam sent in the same thread a day later. */
+export const openedDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5110,
+  name: "Angebot_Nordstahl.pdf",
+  size: 96_310,
+  sha256: "c3".repeat(32),
+  pages: 3,
+  mails: 1,
+  attachments: 1,
+  names: [{ name: "Angebot_Nordstahl.pdf", attachments: 1 }],
+  attachment_id: 9110,
+  preview: "pdf",
+  metadata: noMetadata,
+  protection: "open",
+  password_trial: true,
+  password_tries: 3,
+  password_tried_at: "2026-10-20T01:23:00Z",
+  password: {
+    value: "Sommer2019!",
+    tier: "thread",
+    found_at: "2026-10-20T01:23:00Z",
+    found_by: null,
+    finding: {
+      id: 71,
+      context: "das Kennwort für das Angebot lautet Sommer2019! – bitte nicht weitergeben.",
+      mail: mailDetail.thread[1],
+      recipients: [jonas, anna],
+      document: null,
+      editor: null,
+      created_at: "2026-10-20T01:21:00Z",
+    },
+  },
+  members: null,
+  containers: [],
+};
+
+/** A ZIP whose entries became documents, but one needs a password and one was too large. */
+export const containerDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5106,
+  name: "Unterlagen.zip",
+  mime_type: "application/zip",
+  kind: "archive",
+  size: 3_150_002,
+  sha256: documentItems[5].sha256,
+  pages: null,
+  text_status: "unsupported",
+  mails: 1,
+  attachments: 1,
+  names: [{ name: "Unterlagen.zip", attachments: 1 }],
+  attachment_id: 9106,
+  preview: null,
+  metadata: noMetadata,
+  protection: null,
+  password_trial: false,
+  password_tries: 0,
+  password_tried_at: null,
+  password: null,
+  members: {
+    status: "locked",
+    error: null,
+    entries: [
+      {
+        position: 0,
+        path: "Vorstand/Protokoll_2019-03.docx",
+        size: 31_744,
+        status: "document",
+        error: null,
+        document_id: 5111,
+        kind: "document",
+        text_status: "text",
+        protection: null,
+      },
+      {
+        position: 1,
+        path: "Vorstand/Gehaelter_2019.xlsx",
+        size: 18_002,
+        status: "locked",
+        error: null,
+        document_id: null,
+        kind: null,
+        text_status: null,
+        protection: null,
+      },
+      {
+        position: 2,
+        path: "Video/Mitgliederversammlung.mp4",
+        size: 812_000_000,
+        status: "too_large",
+        error: null,
+        document_id: null,
+        kind: null,
+        text_status: null,
+        protection: null,
+      },
+      {
+        position: 3,
+        path: "Scans/Beleg_017.pdf",
+        size: 220_413,
+        status: "document",
+        error: null,
+        document_id: 5112,
+        kind: "pdf",
+        text_status: "scanned",
+        protection: null,
+      },
+    ],
+  },
+  containers: [],
+};
+
+/** The minutes found inside the ZIP. */
+export const memberDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5111,
+  name: "Protokoll_2019-03.docx",
+  mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  kind: "document",
+  size: 31_744,
+  sha256: "d4".repeat(32),
+  pages: null,
+  mails: 1,
+  attachments: 1,
+  names: [{ name: "Protokoll_2019-03.docx", attachments: 1 }],
+  attachment_id: 9111,
+  preview: null,
+  metadata: noMetadata,
+  protection: null,
+  password_trial: false,
+  password_tries: 0,
+  password_tried_at: null,
+  password: null,
+  members: null,
+  containers: [
+    { document_id: 5106, name: "Unterlagen.zip", path: "Vorstand/Protokoll_2019-03.docx" },
+  ],
+};
+
+/** A password typed in on a locked document's page that opened nothing (D237). */
+export const passwordTryMissed: PasswordTryResult = { tried: 1, opened: [], errors: 0 };
+
+/** The same password tried on every locked document: two opened, one unreadable. */
+export const passwordTryEverywhere: PasswordTryResult = {
+  tried: 87,
+  opened: [5110, 5106],
+  errors: 1,
+};
+
+/** The overview once the attachments signals were computed (D238). */
+export const signalOverviewAttachments: SignalOverview = {
+  ...signalOverview,
+  signals: [
+    ...signalOverview.signals.filter((info) => info.group !== "wording"),
+    signalInfo("encrypted_attachment", "attachments", 412, 96, [sender(jonas, 41)]),
+    signalInfo("password_separate", "attachments", 38, 21, [sender(miriam, 6)]),
+    signalInfo("encrypted_mail", "attachments", 7, 3),
+    ...signalOverview.signals.filter((info) => info.group === "wording"),
+  ],
+};
+
+/** A mail carrying a locked spreadsheet and holding the password of another mail's offer. */
+export const mailSignalsAttachments: MailSignals = {
+  signals: [
+    reason("encrypted_attachment", "attachments", {
+      documents: [{ id: 5104, name: "Spendenliste_2019.xlsx" }],
+    }),
+    reason("password_separate", "attachments", {
+      documents: [
+        { id: 5110, name: "Angebot_Nordstahl.pdf" },
+        { id: 5106, name: null },
+      ],
+    }),
+  ],
+  timezone: "Europe/Berlin",
+  computed_at: "2026-10-20T01:14:00Z",
 };

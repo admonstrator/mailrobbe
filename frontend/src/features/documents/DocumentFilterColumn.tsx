@@ -7,9 +7,17 @@ import { FilterGroup } from "../mails/FilterGroup";
 import { DebouncedInput } from "./DebouncedInput";
 import styles from "./DocumentFilterColumn.module.css";
 import { KindIcon } from "./KindIcon";
-import { DOCUMENT_KINDS, KIND_LABELS, TEXT_STATUS_FILTER_LABELS, TEXT_STATUSES } from "./labels";
+import {
+  DOCUMENT_KINDS,
+  KIND_LABELS,
+  PROTECTION_FILTER_LABELS,
+  PROTECTIONS,
+  TEXT_STATUS_FILTER_LABELS,
+  TEXT_STATUSES,
+} from "./labels";
 import { MetadataFacet } from "./MetadataFacet";
 import { PersonField } from "./PersonField";
+import { ProtectionMark } from "./ProtectionMark";
 import {
   facetFilters,
   toDocumentFilters,
@@ -50,6 +58,7 @@ export function DocumentFilterColumn({
   onName,
   kinds,
   statuses,
+  protections,
   authors,
   programs,
   stats,
@@ -60,6 +69,7 @@ export function DocumentFilterColumn({
   onName: (name: string) => void;
   kinds: DocumentSummary | undefined;
   statuses: DocumentSummary | undefined;
+  protections: DocumentSummary | undefined;
   /** The summaries the facets "Autor" and "Programm" count with (D167). */
   authors: DocumentSummary | undefined;
   programs: DocumentSummary | undefined;
@@ -136,6 +146,26 @@ export function DocumentFilterColumn({
               </p>
             )}
           </div>
+        ))}
+      </FilterGroup>
+
+      <FilterGroup
+        id="documents.protection"
+        title="Verschlüsselt"
+        active={state.protection.length > 0}
+      >
+        {PROTECTIONS.map((protection) => (
+          <Checkbox
+            key={protection}
+            checked={state.protection.includes(protection)}
+            onChange={(checked) =>
+              change({ protection: toggle(state.protection, protection, checked, PROTECTIONS) })
+            }
+            count={countOf(protections?.protection, protection)}
+          >
+            <ProtectionMark protection={protection} decorative />
+            {PROTECTION_FILTER_LABELS[protection]}
+          </Checkbox>
         ))}
       </FilterGroup>
 

@@ -118,6 +118,12 @@ export function attachmentContentUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/content`;
 }
 
+/** An opened PDF or OOXML file's bytes decrypted with the password found (D209, D236): made for
+ *  the download or the preview, never stored. */
+export function attachmentDecryptedUrl(attachmentId: number): string {
+  return `${attachmentContentUrl(attachmentId)}?decrypted=true`;
+}
+
 /** A DOCX or ODT as sanitized HTML, converted on the server and cached (D122). */
 export function attachmentHtmlUrl(attachmentId: number): string {
   return `/api/attachments/${attachmentId}/html`;

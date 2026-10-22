@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router";
 
-import { DOCUMENT_NAMES_LIMIT, type DocumentDetail, type PersonCount } from "../../api/types";
+import {
+  DOCUMENT_NAMES_LIMIT,
+  type DocumentContainerRef,
+  type DocumentDetail,
+  type PersonCount,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { personPath } from "../../components/PersonLink";
@@ -11,6 +16,7 @@ import { ImagePreview } from "../preview/AttachmentPreview";
 import { ImageViewer } from "../preview/ImageViewer";
 import styles from "./DocumentSide.module.css";
 import { documentName } from "./labels";
+import { documentPath } from "./urlState";
 
 /** A raster image (D76), shown as the mail detail shows it; a click on it or on "Großansicht"
  *  opens the large view (D165). */
@@ -41,6 +47,29 @@ export function DocumentPreview({ document }: { document: DocumentDetail }) {
           onClose={() => setLarge(false)}
         />
       )}
+    </Card>
+  );
+}
+
+/** The containers it was found in (D231): an archive or an attached mail, and where in it. */
+export function DocumentContainers({ containers }: { containers: DocumentContainerRef[] }) {
+  return (
+    <Card variant="side" aria-labelledby="document-containers-title">
+      <CardTitle id="document-containers-title" variant="caps">
+        Enthalten in
+      </CardTitle>
+      <ul className={styles.list}>
+        {containers.map((container) => (
+          <li key={`${container.document_id}-${container.path}`} className={styles.container}>
+            <Link to={documentPath(container.document_id)} className={styles.name}>
+              {documentName(container.name)}
+            </Link>
+            <span className={styles.path} title="Pfad im Archiv oder in der Mail">
+              {container.path}
+            </span>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

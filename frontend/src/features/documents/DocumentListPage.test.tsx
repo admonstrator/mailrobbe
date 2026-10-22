@@ -365,3 +365,81 @@ describe("document list paging (D193)", () => {
     );
   });
 });
+
+describe("protected and packed documents in the list (D231, D233)", () => {
+  it("filters by protection with counts, kept in the URL", async () => {
+    const { router, calls } = renderApp("/anhaenge");
+    const locked = await within(column()).findByRole("checkbox", { name: /^Kennwort unbekannt/ });
+    await waitFor(() => expect(locked.closest("label")!.textContent).toBe("Kennwort unbekannt87"));
+    const open = within(column()).getByRole("checkbox", { name: /^geöffnet/ });
+    expect(open.closest("label")!.textContent).toBe("geöffnet12");
+    expect(locked.closest("fieldset")!.querySelector("legend")!.textContent).toContain(
+      "Verschlüsselt",
+    );
+
+    fireEvent.click(locked);
+    expect(router.state.location.search).toBe("?protection=locked");
+    fireEvent.click(within(column()).getByRole("checkbox", { name: /^geöffnet/ }));
+    expect(new URLSearchParams(router.state.location.search).getAll("protection")).toEqual([
+      "locked",
+      "open",
+    ]);
+    await waitFor(() =>
+      expect(listCalls(calls).at(-1)!.url.search).toBe("?protection=locked&protection=open"),
+    );
+    // The group is counted without its own selection, the others with it.
+    await waitFor(() => {
+      const asked = summaryCalls(calls).map((call) => call.url.search);
+      expect(asked).toContain("?protection=locked&protection=open");
+      expect(asked).toContain("");
+    });
+  });
+
+  it("reads the filter from a link, as the signal overview gives it", async () => {
+    renderApp("/anhaenge?protection=open");
+    expect(await within(column()).findByRole("checkbox", { name: /^geöffnet/ })).toHaveProperty(
+      "checked",
+      true,
+    );
+    expect(within(column()).getByRole("checkbox", { name: /^Kennwort unbekannt/ })).toHaveProperty(
+      "checked",
+      false,
+    );
+  });
+
+  it("marks locked, opened and unpacked documents in their rows", async () => {
+    renderApp("/anhaenge", (call) =>
+      call.url.pathname === "/api/documents"
+        ? {
+            ...documentPage,
+            items: documentPage.items.map((item) =>
+              item.id === 5101
+                ? { ...item, protection: "open" }
+                : item.id === 5109
+                  ? { ...item, contained: true }
+                  : item,
+            ),
+          }
+        : fixtureApi(call),
+    );
+    await screen.findByRole("link", { name: "Rahmenvereinbarung_2026_final.pdf" });
+    expect(
+      within(row("Spendenliste_2019.xlsx")).getByRole("img", {
+        name: "Verschlüsselt, das Kennwort ist nicht bekannt",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(row("Rahmenvereinbarung_2026_final.pdf")).getByRole("img", {
+        name: "Verschlüsselt, mit einem gefundenen Kennwort geöffnet",
+      }),
+    ).toBeTruthy();
+    const unpacked = within(row("Mitgliederliste.docx")).getByText("ausgepackt");
+    expect(unpacked.getAttribute("title")).toBe(
+      "Aus einem Archiv oder einer angehängten Mail ausgepackt",
+    );
+    // Neither protected nor unpacked: no mark.
+    const plain = row("Aenderungsprotokoll.xlsx");
+    expect(within(plain).queryByRole("img", { name: /Verschlüsselt/ })).toBeNull();
+    expect(within(plain).queryByText("ausgepackt")).toBeNull();
+  });
+});

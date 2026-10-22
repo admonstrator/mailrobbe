@@ -52,9 +52,17 @@ function personApi(method: string, url: URL, id: number, endpoint: string | unde
   return notFound("such endpoint");
 }
 
-/** A document page or its text: the contract PDF and the photo exist. */
+/** A document page or its text: the contract PDF, the photo, and the protected and packed ones
+ *  of milestone 19 exist. */
 function documentApi(id: number, endpoint: string | undefined): unknown {
-  const document = [fx.documentDetail, fx.imageDocument].find((candidate) => candidate.id === id);
+  const document = [
+    fx.documentDetail,
+    fx.imageDocument,
+    fx.lockedDocument,
+    fx.openedDocument,
+    fx.containerDocument,
+    fx.memberDocument,
+  ].find((candidate) => candidate.id === id);
   if (!document) return notFound(`document with id ${id}`);
   if (endpoint === undefined) return document;
   return document.text_status === "text"
@@ -157,6 +165,13 @@ export function fixtureApi({ method, url, body }: ApiCall): unknown {
   }
   if (path === "/api/timeline") return timelineFor(url.searchParams);
   if (path === "/api/timeline/first-mentions") return fx.firstMentions;
+  if (path === "/api/documents/passwords") return fx.passwordTryEverywhere;
+  const password = /^\/api\/documents\/(\d+)\/password$/.exec(path);
+  if (password) {
+    return Number(password[1]) === fx.lockedDocument.id
+      ? fx.passwordTryMissed
+      : Response.json({ detail: { code: "not_locked", message: "not locked" } }, { status: 409 });
+  }
   const document = /^\/api\/documents\/(\d+)(\/text)?$/.exec(path);
   if (document) return documentApi(Number(document[1]), document[2]);
   const attachment = /^\/api\/attachments\/\d+\/(content|html)$/.exec(path);

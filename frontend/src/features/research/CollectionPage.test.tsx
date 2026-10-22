@@ -139,13 +139,25 @@ describe("export dialog", () => {
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Bezeichnung" }), {
       target: { value: " Für Kanzlei Weber " },
     });
-    fireEvent.click(within(dialog).getByRole("checkbox"));
+    fireEvent.click(
+      within(dialog).getByRole("checkbox", { name: /Notizen, Schlagworte und Bewertung/ }),
+    );
     fireEvent.click(within(dialog).getByRole("button", { name: "Export anlegen" }));
     await screen.findByRole("dialog", { name: "Export angelegt" });
 
     expect(writes(calls).map((call) => call.body)).toEqual([
-      { filters: { collection: [1] }, label: "Story Nordstahl", include_research: false },
-      { filters: { collection: [1] }, label: "Für Kanzlei Weber", include_research: true },
+      {
+        filters: { collection: [1] },
+        label: "Story Nordstahl",
+        include_research: false,
+        include_passwords: false,
+      },
+      {
+        filters: { collection: [1] },
+        label: "Für Kanzlei Weber",
+        include_research: true,
+        include_passwords: false,
+      },
     ]);
   });
 

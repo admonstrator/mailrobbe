@@ -66,3 +66,18 @@
   color: var(--color-muted);
   font-size: 12px;
 }
+
+/* A container above the path of the document inside it. */
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.path {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

@@ -122,3 +122,52 @@
   align-self: flex-start;
   margin-left: -4px;
 }
+
+/* Needs a password, or opened with one (D233): the lock before the word. */
+.protection {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* A container's documents (D231), indented below it with a line on their left. */
+.membersNote {
+  margin-top: 3px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 0;
+  border-left: 2px solid var(--color-border-subtle);
+  padding: 0 0 0 8px;
+  list-style: none;
+}
+
+.member {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-tile);
+  scroll-margin: 56px 0 16px;
+}
+
+.member.hit {
+  border-color: var(--color-no-key);
+}
+
+.member > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.memberPath {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}

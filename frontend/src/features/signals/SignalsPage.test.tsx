@@ -2,7 +2,11 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import { describe, expect, it } from "vitest";
 
 import type { SignalOverview } from "../../api/types";
-import { signalOverview, signalOverviewNever } from "../../test/fixtures";
+import {
+  signalOverview,
+  signalOverviewAttachments,
+  signalOverviewNever,
+} from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 function withOverview(answer: SignalOverview | Response) {
@@ -136,6 +140,40 @@ describe("signal overview", () => {
     // Without senders, no sender line.
     expect(within(entry("Gewalt")).queryByText("Am häufigsten von")).toBeNull();
     expect(within(entry("Gewalt")).queryByRole("listitem")).toBeNull();
+  });
+
+  it("shows the signals of concealment in a group of their own (D238)", async () => {
+    await loaded("/auffaelligkeiten", withOverview(signalOverviewAttachments));
+    const titles = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(titles.slice(3)).toEqual([
+      "Adressen",
+      "Empfänger und Weiterleitungen",
+      "Uhrzeit",
+      "Anhänge",
+      "Wortfelder",
+      "Personen",
+    ]);
+    const attachments = card("Anhänge");
+    expect(
+      within(attachments)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Verschlüsselter Anhang", "Kennwort separat geschickt", "Verschlüsselte Mail"]);
+    const encrypted = entry("Verschlüsselter Anhang");
+    expect(encrypted.textContent).toContain("Ein Anhang braucht ein Kennwort");
+    expect(encrypted.textContent).toContain("412 Mails");
+    expect(href(encrypted, "Mails mit Verschlüsselter Anhang")).toBe(
+      "/mails?signal=encrypted_attachment",
+    );
+    expect(href(entry("Verschlüsselte Mail"), "Zeitachse von Verschlüsselte Mail")).toBe(
+      "/zeitachse?signal=encrypted_mail",
+    );
+    // Where the passwords and what they opened stand.
+    expect(href(attachments, "„Verschlüsselt“")).toBe(
+      "/anhaenge?protection=locked&protection=open",
+    );
   });
 
   it("lists the persons fallen silent with profile and timeline", async () => {

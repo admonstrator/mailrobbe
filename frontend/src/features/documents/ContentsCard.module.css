@@ -1,0 +1,85 @@
+/* The card "Inhalt" of a container's page (D231): one row per entry, its path taking the room
+   and its marks, status and size on the right. */
+
+.status {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.error {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 0;
+}
+
+.entry + .entry {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.entry > svg {
+  margin-top: 1px;
+}
+
+.path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px 8px;
+  flex-shrink: 0;
+  max-width: 50%;
+}
+
+.note {
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.missing {
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+}
+
+.size {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.more {
+  align-self: flex-start;
+  margin-left: -4px;
+}
