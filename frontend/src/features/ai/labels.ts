@@ -6,11 +6,15 @@ import type {
   AiEstimate,
   AiQueued,
   AiResultState,
+  AiSummaryResult,
+  AiSummaryTask,
+  AiTarget,
   AiTaskStatus,
   AiWorkList,
   DocumentAiResult,
   OcrEngine,
   OcrEngineChoice,
+  TextOrigin,
 } from "../../api/types";
 import { formatDate, formatNumber, formatRemaining } from "../../lib/format";
 
@@ -66,6 +70,7 @@ export const WORK_LIST_HINTS: Record<AiWorkList, string> = {
 export function engineName(engine: string, model: string | null): string {
   const vision = model || ENGINE_LABELS.vision;
   if (engine === "tesseract") return "Tesseract";
+  if (engine === "text") return model || TEXT_MODEL_LABEL; // a summary (D300)
   if (engine === "vision") return vision;
   return `Tesseract und ${vision}`;
 }
@@ -159,4 +164,73 @@ export function aiErrorText(error: Error): string {
     }
   }
   return "Das hat nicht geklappt: Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.";
+}
+
+// Summaries (milestone 17, D300 to D311) ------------------------------------------------------
+
+export const TEXT_MODEL_LABEL = "Textmodell";
+
+/** A summarize task or result in the lists of the page "KI". */
+export const SUMMARY_LABEL = "Zusammenfassung";
+
+/** The text of a document a summary read, when it is not the file's own (D302). */
+export const SUMMARY_ORIGIN_LABELS: Record<TextOrigin, string | null> = {
+  extracted: null,
+  ocr: "aus dem erkannten Text",
+  transcript: "aus dem Transkript",
+};
+
+export const SHORT_SUMMARY_TEXT =
+  "Zu wenig eigener Text für eine Zusammenfassung; nur Schlagwörter und Hinweise.";
+
+/** "Maschinell erzeugt · Modell · 22.10.2026 · über einen Dienst im Internet · aus dem erkannten
+ *  Text" (D311). */
+export function summaryLine(result: AiSummaryResult): string {
+  return [
+    "Maschinell erzeugt",
+    result.model || TEXT_MODEL_LABEL,
+    formatDate(result.created_at),
+    result.remote && "über einen Dienst im Internet",
+    result.origin && SUMMARY_ORIGIN_LABELS[result.origin],
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** "Zusammenfassung der ersten 3 von 7 Abschnitten" for a cut text (D303); null when whole. */
+export function partsText(result: AiSummaryResult): string | null {
+  if (result.parts_total <= result.parts_read) return null;
+  const read =
+    result.parts_read === 1 ? "des ersten" : `der ersten ${formatNumber(result.parts_read)}`;
+  return `Zusammenfassung ${read} von ${formatNumber(result.parts_total)} Abschnitten`;
+}
+
+/** "Für die Zusammenfassung vorgemerkt", "Zusammenfassung läuft · Teil 2 von 4". */
+export function summaryTaskText(task: AiSummaryTask): string {
+  if (task.status !== "running") return "Für die Zusammenfassung vorgemerkt";
+  const total = task.parts_total ?? 0;
+  if (total <= 1) return "Zusammenfassung läuft";
+  const part = Math.min(task.parts_done + 1, total);
+  return `Zusammenfassung läuft · Teil ${formatNumber(part)} von ${formatNumber(total)}`;
+}
+
+/** "1 Mail", "12 Mails" */
+export function mailCount(mails: number): string {
+  return `${formatNumber(mails)} ${mails === 1 ? "Mail" : "Mails"}`;
+}
+
+/** What starting the summary of one mail or document did (D307), like startedText. */
+export function summaryStartedText(queued: AiQueued, target: AiTarget): string {
+  const element = target === "mail" ? "diese Mail" : "dieses Dokument";
+  if (queued.queued + queued.raised === 0) return "Hier gibt es nichts zusammenzufassen.";
+  switch (queued.run) {
+    case "started":
+      return "Die Zusammenfassung läuft; sie erscheint hier, sobald sie fertig ist.";
+    case "running":
+      return `Ein KI-Lauf ist schon unterwegs und fasst ${element} als nächstes zusammen.`;
+    case "busy":
+      return "Vorgemerkt: Gerade läuft ein Import. Danach lässt sich der Lauf auf der Seite „KI“ starten.";
+    default:
+      return `Vorgemerkt: Der nächste KI-Lauf fasst ${element} zuerst zusammen.`;
+  }
 }

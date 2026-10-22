@@ -11,6 +11,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatBytes, formatDate, formatDateTime, formatNumber } from "../../lib/format";
+import { SummarizeButton, SummaryCard } from "../ai/SummaryCard";
 import { AttachmentPreview } from "../preview/AttachmentPreview";
 import { ContentsCard } from "./ContentsCard";
 import styles from "./DocumentDetailPage.module.css";
@@ -121,6 +122,7 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
         )}
         {document.members && <ContentsCard document={document} members={document.members} />}
         <DocumentMails document={document} state={state} href={href} />
+        <SummaryCard target="document" id={document.id} />
         {(hasStoredText(document.text_status) || document.ocr_readable || document.ai) && (
           <DocumentTextCard document={document} />
         )}
@@ -216,6 +218,7 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
         <div className={styles.downloads}>
           <Download document={document} />
           <RecognizeButton document={document} />
+          <SummarizeButton documentId={document.id} />
           <DecryptedDownload document={document} />
         </div>
       </div>
@@ -313,6 +316,7 @@ function CompactDocument({ document }: { document: DocumentDetail }) {
       <span className={styles.compactMeta}>{documentMeta(document).join(" · ")}</span>
       <Download document={document} size="sm" />
       <RecognizeButton document={document} size="sm" />
+      <SummarizeButton documentId={document.id} size="sm" />
     </>
   );
 }

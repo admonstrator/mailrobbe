@@ -9,9 +9,14 @@ Results are stored through ai.store, as a run stores them; the run is tests/api/
 place of `mailrobbe ai` (processes.CLI), as in test_imports.py. The service check is replaced
 (api.ai.check_service), or asks the fake service of tests/ai/fakes.py, so nothing asks a real
 service.
+
+Summaries (milestone 17, D300 to D311) are queued for mails and documents of the archive as it
+was imported, with a local text service configured (the fixture texts); their results are rows
+inserted as a run would write them (summarized), with AI tags and theme hints.
 """
 
-from collections.abc import AsyncIterator
+import json
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,7 +26,19 @@ import pytest
 from sqlalchemy import pool, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from mailrobbe.ai.model import LOGO_MAILS, PRIORITY_SINGLE, OcrPage, Service, ServiceCheck
+from mailrobbe.ai.model import (
+    CHARS_PER_TOKEN,
+    LOGO_MAILS,
+    PRIORITY_FILED,
+    PRIORITY_SINGLE,
+    SUMMARY_MIN_WORDS,
+    SUMMARY_RULE_SECONDS_PER_KTOKEN,
+    SUMMARY_RULE_SECONDS_PER_TASK,
+    OcrPage,
+    Service,
+    ServiceCheck,
+    tag_key,
+)
 from mailrobbe.ai.store import store_ocr_result
 from mailrobbe.api import ai as ai_api
 from mailrobbe.api.schemas import AI_RULE_SECONDS
@@ -243,6 +260,7 @@ async def test_without_a_service_only_tesseract_reads(
         found = await status(served)
         assert (found["enabled"], found["vision"], found["services"]) == (True, False, [])
         assert found["defaults"]["vision_url"] == ""
+        assert (found["text"], found["defaults"]["text_url"]) == (False, "")
         assert await error_code(served.client, "/api/ai/services/vision/check", {}, 404) == (
             "not_found"
         )
@@ -666,3 +684,417 @@ async def test_a_run_waits_for_an_import(
     control = {"engine": "vision", "vision_model": "a\x00b"}
     assert await error_code(dashboard.client, "/api/ai/run", control, 400) == "invalid_option"
     assert (await status(dashboard))["job"] is None
+
+
+# Summaries (milestone 17, D300 to D311) --------------------------------------------------------
+
+TEXT_SERVICE: dict[str, Any] = {
+    "ai_text_url": "http://host.docker.internal:1234/v1",
+    "ai_text_model": "text-test",
+}
+SUMMARY_OPTIONS: dict[str, Any] = {
+    "short": False,
+    "words": 180,
+    "origin": None,
+    "dropped_tags": 0,
+    "dropped_themes": 0,
+    "context_tokens": 8192,
+}
+# Mails whose text has at least SUMMARY_MIN_WORDS words (\s+ doubled for the SQL string).
+WORDS = (
+    "COALESCE(array_length(regexp_split_to_array(btrim(COALESCE(body_text, '')), '\\s+'), 1), 0)"
+)
+
+
+@pytest.fixture
+async def texts(
+    mutable_database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+) -> AsyncIterator[Dashboard]:
+    """The API on a copy of the imported archive, with a local text service configured."""
+    await rows(mutable_database_url, "DELETE FROM job")
+    settings = ai_settings(mutable_database_url, generated_archive, tmp_path, **TEXT_SERVICE)
+    async with serve(settings) as served:
+        yield served
+
+
+async def summarized(
+    url: str,
+    target: str,
+    content: str,
+    body: str = "Der Vorstand bespricht die Spendenquittungen des Vereins.",
+    *,
+    tags: Sequence[str] = (),
+    themes: Sequence[tuple[str, str, int | None]] = (),
+    parts: Sequence[dict[str, Any]] = ({"number": 1, "characters": 900, "summary": "Teil"},),
+    parts_total: int | None = None,
+    options: dict[str, Any] | None = None,
+    state: str = "valid",
+) -> int:
+    """A summary of a mail's or a document's content with its AI tags and theme hints, as a run
+    stores it (ai_result of kind summarize, D300)."""
+    async with session_on(url) as session:
+        result_id = await session.scalar(
+            text("""
+                INSERT INTO ai_result (kind, target, target_sha256, engine, model, remote,
+                    prompt_version, options, body, pages, pages_total, seconds, state)
+                VALUES ('summarize', :target, :content, 'text', 'text-test', false, 1,
+                    CAST(:options AS jsonb), :body, CAST(:pages AS jsonb), :total, 4.5,
+                    CAST(:state AS ai_result_state))
+                RETURNING id
+            """),
+            {
+                "target": target,
+                "content": content,
+                "options": json.dumps(SUMMARY_OPTIONS if options is None else options),
+                "body": body,
+                "pages": json.dumps(list(parts)),
+                "total": len(parts) if parts_total is None else parts_total,
+                "state": state,
+            },
+        )
+        for label in tags:
+            tag_id = await session.scalar(
+                text("""
+                    INSERT INTO ai_tag (key, label) VALUES (:key, :label)
+                    ON CONFLICT (key) DO UPDATE SET key = EXCLUDED.key RETURNING id
+                """),
+                {"key": tag_key(label), "label": label},
+            )
+            await session.execute(
+                text("INSERT INTO ai_tag_link (result_id, tag_id) VALUES (:result, :tag)"),
+                {"result": result_id, "tag": tag_id},
+            )
+        for theme, quote, position in themes:
+            await session.execute(
+                text("""
+                    INSERT INTO ai_theme_hint (result_id, theme, quote, position)
+                    VALUES (:result, :theme, :quote, :position)
+                """),
+                {"result": result_id, "theme": theme, "quote": quote, "position": position},
+            )
+    assert result_id is not None
+    return int(result_id)
+
+
+async def original_mails(url: str, count: int) -> list[Any]:
+    """Mails with a content of their own (no duplicates) and a text of at least
+    SUMMARY_MIN_WORDS words, by id."""
+    return await rows(
+        url,
+        f"""SELECT id, raw_sha256, subject, date_utc,
+               length(COALESCE(subject, '')) + length(COALESCE(body_text, '')) AS characters
+           FROM mail m
+           WHERE NOT EXISTS (SELECT 1 FROM mail o WHERE o.raw_sha256 = m.raw_sha256
+                             AND o.id <> m.id)
+             AND {WORDS} >= {SUMMARY_MIN_WORDS}
+           ORDER BY id LIMIT :count""",
+        count=count,
+    )
+
+
+async def text_document(url: str) -> int:
+    """A document with a SHA-256 and a text: one that can be summarised (D302)."""
+    found = await rows(
+        url,
+        """SELECT min(id) FROM document
+           WHERE sha256 IS NOT NULL AND COALESCE(extracted_text, '') <> ''""",
+    )
+    return int(found[0][0])
+
+
+async def summary_tasks(dashboard: Dashboard) -> list[Any]:
+    return [task for task in await tasks(dashboard) if task["kind"] == "summarize"]
+
+
+async def test_status_says_whether_a_text_service_is_usable(
+    texts: Dashboard, mutable_database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+) -> None:
+    found = await status(texts)
+    assert found["text"] is True and found["vision"] is False
+    assert found["services"] == [
+        {
+            "capability": "text",
+            "url": "http://host.docker.internal:1234/v1",
+            "model": "text-test",
+            "protocol": "auto",
+            "locality": "local",
+            "refused": None,
+            "key": False,
+        }
+    ]
+    assert (found["defaults"]["text_model"], found["defaults"]["text_url"]) == (
+        "text-test",
+        "http://host.docker.internal:1234/v1",
+    )
+    assert found["queue"]["summarize"]["waiting"] == 0
+    remote = ai_settings(
+        mutable_database_url,
+        generated_archive,
+        tmp_path,
+        ai_text_url="https://203.0.113.5/v1",  # TEST-NET-3: public, never looked up
+        ai_text_model="text-test",
+    )
+    async with serve(remote) as served:
+        refused = await status(served)
+        assert refused["text"] is False and refused["remote_used"] is True
+        body = {"kind": "summarize", "mail_ids": [1], "preview": True}
+        assert await error_code(served.client, "/api/ai/tasks", body, 400) == "invalid_option"
+
+
+async def test_mails_and_documents_are_queued_for_summaries(texts: Dashboard) -> None:
+    [first, second] = await original_mails(texts.url, 2)
+    [duplicate] = await rows(
+        texts.url,
+        """SELECT m.id, o.id AS original FROM mail m
+           JOIN mail o ON o.raw_sha256 = m.raw_sha256 AND o.id < m.id
+           WHERE COALESCE(m.body_text, '') <> ''
+           ORDER BY m.id LIMIT 1""",
+    )
+    body = {
+        "kind": "summarize",
+        "mail_ids": [first.id, second.id, duplicate.id, duplicate.original, 2**40],
+    }
+    queued = await queue(texts, body)
+    # byte-identical copies share one task (D301); an unknown id cannot be summarised
+    assert (queued["queued"], queued["raised"], queued["unreadable"], queued["logos"]) == (
+        3,
+        0,
+        1,
+        0,
+    )
+    assert queued["run"] is None and queued["estimate"]["tasks"] == 3
+    listed = {task["mail"]["id"]: task for task in await summary_tasks(texts)}
+    # a content is shown by its earliest mail
+    assert sorted(listed) == sorted([first.id, second.id, duplicate.original])
+    task = listed[first.id]
+    assert (task["target"], task["document"], task["status"], task["priority"]) == (
+        "mail",
+        None,
+        "waiting",
+        0,
+    )
+    assert task["mail"]["subject"] == first.subject and task["mail"]["date"] is not None
+    again = await queue(texts, {"kind": "summarize", "mail_ids": [first.id], "single": True})
+    assert (again["queued"], again["raised"]) == (0, 1)
+    raised = {task["mail"]["id"]: task for task in await summary_tasks(texts)}[first.id]
+    assert raised["priority"] == PRIORITY_SINGLE
+    document = await text_document(texts.url)
+    [empty] = await rows(
+        texts.url,
+        "SELECT id FROM document WHERE COALESCE(extracted_text, '') = '' ORDER BY id LIMIT 1",
+    )
+    queued = await queue(texts, {"kind": "summarize", "document_ids": [document, empty.id]})
+    assert (queued["queued"], queued["unreadable"]) == (1, 1)
+    [task] = [task for task in await summary_tasks(texts) if task["target"] == "document"]
+    assert (task["document"]["id"], task["mail"]) == (document, None)
+    assert (await status(texts))["queue"]["summarize"]["waiting"] == 4
+
+
+async def test_a_preview_counts_and_estimates_without_writing(texts: Dashboard) -> None:
+    mails = await original_mails(texts.url, 3)
+    [short] = await rows(
+        texts.url,
+        f"""SELECT id, length(COALESCE(subject, '')) + length(COALESCE(body_text, ''))
+               AS characters
+           FROM mail m
+           WHERE COALESCE(subject, '') <> '' AND {WORDS} < {SUMMARY_MIN_WORDS}
+             AND NOT EXISTS (SELECT 1 FROM mail o WHERE o.raw_sha256 = m.raw_sha256
+                             AND o.id <> m.id)
+           ORDER BY id LIMIT 1""",
+    )
+    body = {"kind": "summarize", "mail_ids": [*(mail.id for mail in mails), short.id]}
+    preview = await queue(texts, {**body, "preview": True})
+    characters = sum(mail.characters for mail in mails) + short.characters
+    tokens = round(characters / CHARS_PER_TOKEN) + 100 * 4
+    assert (preview["queued"], preview["raised"], preview["short"]) == (4, 0, 1)
+    assert preview["estimate"] == {
+        "model": "text-test",
+        "tasks": 4,
+        "tokens": tokens,
+        "seconds": pytest.approx(
+            4 * SUMMARY_RULE_SECONDS_PER_TASK + tokens / 1000 * SUMMARY_RULE_SECONDS_PER_KTOKEN
+        ),
+        "estimated": True,
+    }
+    assert await summary_tasks(texts) == []
+    await rows(
+        texts.url,
+        """INSERT INTO ai_calibration (kind, engine, model, unit, seconds_per_unit, samples)
+           VALUES ('summarize', 'text', 'text-test', 'ktoken', 2.0, 30)""",
+    )
+    measured = (await queue(texts, {**body, "preview": True}))["estimate"]
+    assert (measured["seconds"], measured["estimated"]) == (pytest.approx(tokens / 500), False)
+    # queued for real, the estimate is the queued tasks'
+    queued = await queue(texts, body)
+    assert (queued["queued"], queued["short"], queued["estimate"]["tokens"]) == (4, 1, tokens)
+    assert len(await summary_tasks(texts)) == 4
+
+
+async def test_an_akte_or_a_filter_of_the_mail_list_is_queued(
+    texts: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mails = await original_mails(texts.url, 3)
+    [akte] = await rows(
+        texts.url, "INSERT INTO collection (name) VALUES ('Spenden 2019') RETURNING id"
+    )
+    for mail in mails:
+        await rows(
+            texts.url,
+            "INSERT INTO collection_mail (collection_id, mail_sha256) VALUES (:c, :sha)",
+            c=akte.id,
+            sha=mail.raw_sha256,
+        )
+    body = {"kind": "summarize", "mail_filters": {"collection": [akte.id]}}
+    queued = await queue(texts, body)
+    assert (queued["queued"], queued["unreadable"]) == (3, 0)
+    # what an Akte holds comes after one element from its page and before the rest (D308)
+    assert {task["priority"] for task in await summary_tasks(texts)} == {PRIORITY_FILED}
+    monkeypatch.setattr(ai_api, "AI_QUEUE_LIMIT", 2)
+    assert await error_code(texts.client, "/api/ai/tasks", body, 400) == "too_many_mails"
+    unusable = {"kind": "summarize", "mail_filters": {"q": "before:gestern"}}
+    assert await error_code(texts.client, "/api/ai/tasks", unusable, 400) == "invalid_query"
+
+
+async def test_the_document_list_filters_queue_documents_with_a_text(
+    texts: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    [figures] = await rows(
+        texts.url,
+        """SELECT count(*) FILTER (WHERE sha256 IS NOT NULL
+                                  AND COALESCE(extracted_text, '') <> '') AS summarizable,
+               count(*) AS documents
+           FROM document WHERE kind = 'pdf'""",
+    )
+    assert 2 < figures.summarizable < figures.documents
+    body = {"kind": "summarize", "filters": {"kind": ["pdf"]}}
+    queued = await queue(texts, body)
+    assert (queued["queued"], queued["unreadable"]) == (figures.summarizable, 0)
+    assert {task["target"] for task in await summary_tasks(texts)} == {"document"}
+    monkeypatch.setattr(ai_api, "AI_QUEUE_LIMIT", 2)
+    assert await error_code(texts.client, "/api/ai/tasks", body, 400) == "too_many_documents"
+
+
+async def test_a_summary_selection_is_one_thing(texts: Dashboard, dashboard: Dashboard) -> None:
+    selections: list[dict[str, Any]] = [
+        {"kind": "summarize"},
+        {"kind": "summarize", "mail_ids": [1], "document_ids": [1]},
+        {"kind": "summarize", "mail_filters": {}, "filters": {}},
+        {"mail_ids": [1]},  # mails are summarised only
+        {"document_ids": [1], "mail_filters": {}},
+    ]
+    for body in selections:
+        assert await error_code(texts.client, "/api/ai/tasks", body, 400) == "invalid_selection"
+    options: list[dict[str, Any]] = [
+        {"kind": "summarize", "work_list": "scanned"},
+        {"kind": "transcribe", "document_ids": [1]},
+        {"document_ids": [1], "preview": True},  # a preview is made for summaries only
+    ]
+    for body in options:
+        assert await error_code(texts.client, "/api/ai/tasks", body, 400) == "invalid_option"
+    # without a text service there is nothing to summarise with, not even for a preview
+    for preview in (False, True):
+        body = {"kind": "summarize", "mail_ids": [1], "preview": preview}
+        assert await error_code(dashboard.client, "/api/ai/tasks", body, 400) == "invalid_option"
+    assert (await status(dashboard))["text"] is False
+
+
+async def test_an_element_starts_a_run_of_its_own(
+    texts: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "wait")
+    [mail] = await original_mails(texts.url, 1)
+    body = {"kind": "summarize", "mail_ids": [mail.id], "single": True, "start": True}
+    assert (await queue(texts, body))["run"] == "started"
+    job = (await status(texts))["job"]
+    assert job["alive"] and (job["options"]["mails"], job["options"]["documents"]) == (
+        [mail.id],
+        [],
+    )
+    assert job["options"]["text_model"] == "text-test"
+    # while it lives, the next element is queued first and taken next
+    document = await text_document(texts.url)
+    other = {"kind": "summarize", "document_ids": [document], "single": True, "start": True}
+    assert (await queue(texts, other))["run"] == "running"
+    await post(texts.client, "/api/ai/run/stop", {})
+    await reaped(texts)
+    async with holding(texts.url, JobKind.IMPORT):
+        assert (await queue(texts, other))["run"] == "busy"
+    # a filter starts a run of the whole queue
+    filtered = {"kind": "summarize", "filters": {"kind": ["pdf"]}, "start": True}
+    assert (await queue(texts, filtered))["run"] == "started"
+    job = (await status(texts))["job"]
+    assert job["alive"] and (job["options"]["mails"], job["options"]["documents"]) == ([], [])
+    await post(texts.client, "/api/ai/run/stop", {})
+    await reaped(texts)
+    # nothing to summarise starts nothing; a preview never starts a run
+    [empty] = await rows(
+        texts.url,
+        "SELECT id FROM document WHERE COALESCE(extracted_text, '') = '' ORDER BY id LIMIT 1",
+    )
+    nothing = {"kind": "summarize", "document_ids": [empty.id], "start": True}
+    assert (await queue(texts, nothing))["run"] is None
+    assert (await queue(texts, {**body, "preview": True}))["run"] is None
+    assert not (await status(texts))["job"]["alive"]
+
+
+async def test_a_run_takes_the_text_model_and_keeps_it(
+    texts: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "done")
+    control = {"text_model": "a\x00b"}
+    assert await error_code(texts.client, "/api/ai/run", control, 400) == "invalid_option"
+    job = await post(texts.client, "/api/ai/run", {"text_model": "text-large"}, 202)
+    assert job["options"]["text_model"] == "text-large"
+    await reaped(texts)
+    assert (await status(texts))["defaults"]["text_model"] == "text-large"
+    # a run before milestone 17 knew no text model: the settings' one stays the default
+    await rows(texts.url, "UPDATE job SET options = options - 'text_model'")
+    assert (await status(texts))["defaults"]["text_model"] == "text-test"
+
+
+async def test_results_tasks_and_sends_name_a_mail(texts: Dashboard) -> None:
+    [mail] = await original_mails(texts.url, 1)
+    parts = [
+        {"number": 1, "characters": 9000, "summary": "Erster Teil"},
+        {"number": 2, "characters": 9000, "summary": "", "error": "answer cut at its length"},
+    ]
+    body = "Der Kassenwart bittet um Spendenquittungen ohne Namen."
+    result = await summarized(
+        texts.url,
+        "mail",
+        mail.raw_sha256,
+        body,
+        tags=["Spendenquittung", "Kassenwart"],
+        themes=[("spenden", "Spendenquittungen", 40)],
+        parts=parts,
+        parts_total=3,
+    )
+    [item] = (await get(texts.client, "/api/ai/results"))["items"]
+    assert (item["id"], item["kind"], item["target"], item["document"]) == (
+        result,
+        "summarize",
+        "mail",
+        None,
+    )
+    assert (item["mail"]["id"], item["mail"]["subject"]) == (mail.id, mail.subject)
+    assert (item["engine"], item["model"], item["characters"]) == ("text", "text-test", len(body))
+    # a summary's parts are its pages
+    assert (item["pages_read"], item["pages_total"], item["failed"]) == (2, 3, [2])
+    assert (item["tags"], item["themes"], item["uncertain"]) == (2, 1, [])
+    await rows(
+        texts.url,
+        """INSERT INTO ai_send_log (service_url, kind, target, target_sha256, bytes)
+           VALUES ('https://203.0.113.5/v1', 'summarize', 'mail', :sha, 2048)""",
+        sha=mail.raw_sha256,
+    )
+    [sent] = (await get(texts.client, "/api/ai/send-log"))["items"]
+    assert (sent["target"], sent["document"], sent["mail"]["id"]) == ("mail", None, mail.id)
+    await queue(texts, {"kind": "summarize", "mail_ids": [mail.id]})
+    partial = json.dumps({"parts": parts[:1], "parts_total": 3})
+    await rows(
+        texts.url,
+        "UPDATE ai_task SET status = 'running', partial = CAST(:p AS jsonb)",
+        p=partial,
+    )
+    [task] = await summary_tasks(texts)
+    assert (task["pages_read"], task["pages_total"], task["mail"]["id"]) == (1, 3, mail.id)

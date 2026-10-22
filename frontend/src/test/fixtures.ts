@@ -6,6 +6,8 @@ import type {
   AiResultPage,
   AiSendLogPage,
   AiStatus,
+  AiSummaryResult,
+  AiSummaryView,
   AiTaskPage,
   CalendarEventInfo,
   CertainMergePlan,
@@ -4614,4 +4616,95 @@ export const scannedDocument: DocumentDetail = {
   text_status: "scanned",
   text_origin: "extracted",
   ai: { result: null, task: null },
+};
+
+// Summaries and AI tags (milestone 17) -------------------------------------------------------
+
+/** The AI page with a local text model beside the vision model (D300). */
+export const aiStatusText: AiStatus = {
+  ...aiStatus,
+  services: [
+    ...aiStatus.services,
+    {
+      capability: "text",
+      url: "http://host.docker.internal:1234/v1",
+      model: "local-text:8b",
+      protocol: "auto",
+      locality: "local",
+      refused: null,
+      key: false,
+    },
+  ],
+  defaults: {
+    ...aiDefaults,
+    kinds: ["ocr", "summarize"],
+    text_model: "local-text:8b",
+    text_url: "http://host.docker.internal:1234/v1",
+  },
+  text: true,
+};
+
+/** The summary of the contract mail: the first two of five parts, two tags, two theme hints. */
+export const aiSummaryResult: AiSummaryResult = {
+  id: 501,
+  target: "mail",
+  summary:
+    "Herr Brandt schickt die finale Fassung der Rahmenvereinbarung 2026 und bittet um Unterschrift bis Freitag. Die Spenden des Fördervereins sollen künftig ohne Quittungen verbucht werden; der Vorstand sei einverstanden.",
+  short: false,
+  tags: [
+    { id: 11, label: "Rahmenvereinbarung", mails: 14 },
+    { id: 12, label: "Spendenquittungen", mails: 3 },
+  ],
+  themes: [
+    {
+      theme: "spenden",
+      label: "Spendenaffären",
+      quote: "Spenden ohne Quittungen verbuchen",
+      position: 412,
+    },
+    { theme: "vertrag", label: "Verträge", quote: "Rahmenvereinbarung 2026", position: null },
+  ],
+  parts_read: 2,
+  parts_total: 5,
+  origin: null,
+  model: "local-text:8b",
+  remote: false,
+  prompt_version: 1,
+  created_at: "2026-10-21T18:40:00Z",
+};
+
+/** The card of the contract mail: its summary and the summary of its scanned attachment. */
+export const aiSummaryMail: AiSummaryView = {
+  available: true,
+  summarizable: true,
+  result: aiSummaryResult,
+  task: null,
+  failed: null,
+  attachments: [
+    {
+      document_id: 5150,
+      name: "Scan_20180306_7499.pdf",
+      result: {
+        ...aiSummaryResult,
+        id: 502,
+        target: "document",
+        summary: "Eine Quittung über 500 Euro, ausgestellt ohne Namen des Spenders.",
+        tags: [{ id: 12, label: "Spendenquittungen", mails: 3 }],
+        themes: [],
+        parts_read: 1,
+        parts_total: 1,
+        origin: "ocr",
+      },
+    },
+  ],
+};
+
+/** A mail with a text and no summary yet, a text service usable. */
+export const aiSummaryNone: AiSummaryView = {
+  available: true,
+  summarizable: true,
+  result: null,
+  task: null,
+  failed: null,
+  attachments: [],
 };
