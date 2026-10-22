@@ -140,3 +140,27 @@ describe("standard block list", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+describe("standard block list paging (D193)", () => {
+  it("numbers every page and asks by offset at the page size", async () => {
+    const many = Array.from({ length: 57 }, (_, index) =>
+      block(index.toString(16).padStart(16, "0"), `Rechtshinweis Nummer ${index + 1}`),
+    );
+    const api = (call: ApiCall): unknown => {
+      if (call.url.pathname === "/api/blocks") {
+        const offset = Number(call.url.searchParams.get("offset") ?? 0);
+        const limit = Number(call.url.searchParams.get("limit") ?? 50);
+        return { items: many.slice(offset, offset + limit), total: many.length };
+      }
+      return blocksApi(SUMMARY, BLOCKS)(call);
+    };
+    const { calls, router } = renderApp("/ausgeblendet/bloecke?limit=25", api);
+    expect(await screen.findByText("1–25 von 57")).toBeTruthy();
+    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Seite 3" }));
+    await waitFor(() => expect(router.state.location.search).toBe("?page=3&limit=25"));
+    expect(await screen.findByText("51–57 von 57")).toBeTruthy();
+    expect(listCalls(calls).at(-1)).toBe("offset=50&limit=25");
+    expect(screen.getByRole("link", { name: "Seite 3" }).getAttribute("aria-current")).toBe("page");
+  });
+});

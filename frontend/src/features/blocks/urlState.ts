@@ -1,9 +1,10 @@
 // The standard block list (/ausgeblendet/bloecke) keeps its state in the URL like the other
-// lists: the API's parameter names q, state and sort, defaults left out, and the 1-based page
-// instead of the offset.
+// lists: the API's parameter names q, state and sort, defaults left out, the 1-based page
+// instead of the offset and the page size (D193).
 
 import { buildQuery } from "../../api/client";
 import { PAGE_SIZE, type BlockListParams, type BlockSort, type BlockState } from "../../api/types";
+import { parsePaging } from "../../lib/paging";
 import { DEFAULT_LIST_STATE, listSearch, positiveInt, withFilters } from "../mails/listState";
 
 export const BLOCKS_PATH = "/ausgeblendet/bloecke";
@@ -16,6 +17,7 @@ export interface BlockListState {
   state: BlockState;
   sort: BlockSort;
   page: number;
+  limit: number;
 }
 
 export const DEFAULT_BLOCK_LIST_STATE: BlockListState = {
@@ -23,6 +25,7 @@ export const DEFAULT_BLOCK_LIST_STATE: BlockListState = {
   state: "standard",
   sort: "mails",
   page: 1,
+  limit: PAGE_SIZE,
 };
 
 /** The list state a query string describes; values that cannot be used are ignored. */
@@ -32,6 +35,7 @@ export function parseBlockListState(search: URLSearchParams): BlockListState {
     state: BLOCK_STATES.find((state) => state === search.get("state")) ?? "standard",
     sort: BLOCK_SORTS.find((sort) => sort === search.get("sort")) ?? "mails",
     page: positiveInt(search.get("page")) ?? 1,
+    limit: parsePaging(search).limit,
   };
 }
 
@@ -42,6 +46,7 @@ export function blockListSearch(state: BlockListState): URLSearchParams {
     state: state.state === "standard" ? null : state.state,
     sort: state.sort === "mails" ? null : state.sort,
     page: state.page > 1 ? state.page : null,
+    limit: state.limit === PAGE_SIZE ? null : state.limit,
   });
 }
 
@@ -55,7 +60,8 @@ export function toBlockListParams(state: BlockListState): BlockListParams {
   if (state.q) params.q = state.q;
   if (state.state !== "standard") params.state = state.state;
   if (state.sort !== "mails") params.sort = state.sort;
-  if (state.page > 1) params.offset = (state.page - 1) * PAGE_SIZE;
+  if (state.page > 1) params.offset = (state.page - 1) * state.limit;
+  if (state.limit !== PAGE_SIZE) params.limit = state.limit;
   return params;
 }
 
