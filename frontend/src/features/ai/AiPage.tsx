@@ -5,6 +5,7 @@ import { useAiStatus, useCheckAiService, useEnqueueAi } from "../../api/queries"
 import type {
   AiServiceInfo,
   AiStatus,
+  AiTranscriptionInfo,
   AiWorkListInfo,
   OcrEngineChoice,
   ServiceCheck,
@@ -23,7 +24,9 @@ import {
   aiErrorText,
   estimateFor,
   estimateText,
+  minutesText,
   queuedText,
+  transcriberName,
   WORK_LIST_HINTS,
   WORK_LIST_TITLES,
 } from "./labels";
@@ -38,8 +41,9 @@ function useRefreshWhenRunEnds(alive: boolean) {
   }, [alive, queryClient]);
 }
 
-/** The page "KI" (D180 to D189): what the text recognition does, the services, the work lists,
- *  the run, the queue, the results and what went out to the internet. */
+/** The page "KI" (D180 to D189, D295): what the text recognition and the transcription do, the
+ *  services and the transcriber, the work lists, the run, the queue, the results and what went
+ *  out to the internet. */
 export function AiPage() {
   const status = useAiStatus();
   useRefreshWhenRunEnds(Boolean(status.data?.job?.alive));
@@ -76,8 +80,10 @@ function Intro() {
         Gescannte PDFs und Bilder haben keine Textebene, die Volltextsuche findet sie nur über den
         Dateinamen. Die Texterkennung liest ihre Schrift: Tesseract im Container für die Masse, ein
         Bildmodell auf diesem Rechner (etwa in LM Studio oder Ollama) für Handschrift, Fotos und
-        schlechte Scans. Der erkannte Text wird durchsuchbar wie jeder andere und überall als
-        „maschinell erkannt“ gekennzeichnet; er kann Lesefehler enthalten und lässt sich jederzeit
+        schlechte Scans. Sprachnachrichten und Videos schreibt die Transkription mit, ebenfalls im
+        Container, mit der Zeit jeder Zeile. Erkannter Text und Transkripte werden durchsuchbar wie
+        jeder andere Text und überall als „maschinell erkannt“ oder „maschinell transkribiert“
+        gekennzeichnet; sie können Lese- und Hörfehler enthalten und lassen sich jederzeit
         verwerfen.
       </p>
       <p>
@@ -143,6 +149,7 @@ function ServicesCard({ status }: { status: AiStatus }) {
               : "Tesseract ist dort, wo der Server läuft, nicht installiert; im Docker-Image ist es enthalten."}
           </span>
         </li>
+        {status.transcription && <TranscriberRow transcriber={status.transcription} />}
         {status.services.map((service) => (
           <ServiceRow key={service.capability} service={service} />
         ))}
@@ -162,6 +169,41 @@ function ServicesCard({ status }: { status: AiStatus }) {
         </p>
       )}
     </Card>
+  );
+}
+
+/** The transcriber in the container (D290, D291): its model, the threads, the limit per
+ *  recording, and whether its files are there or come with the first run. */
+function TranscriberRow({ transcriber }: { transcriber: AiTranscriptionInfo }) {
+  const { missing_bytes: missing, total_bytes: total } = transcriber;
+  return (
+    <li className={styles.service}>
+      <div className={styles.serviceHead}>
+        <strong>{transcriberName(transcriber.model, true)}</strong>
+        <span className={cx(styles.place, styles.local)}>im Container</span>
+      </div>
+      {transcriber.available ? (
+        <>
+          <span className={styles.muted}>
+            {`Transkription von Sprachnachrichten und Videos, auf dem Prozessor (CPU) mit ${formatNumber(transcriber.threads)} ${transcriber.threads === 1 ? "Thread" : "Threads"}; höchstens ${formatNumber(transcriber.max_minutes)} Minuten je Aufnahme. Braucht keinen weiteren Dienst.`}
+          </span>
+          <span className={styles.muted}>
+            {transcriber.ready
+              ? `Modelldateien vorhanden (${formatBytes(total)}).`
+              : missing < total
+                ? `Modelldateien werden beim ersten Lauf zu Ende geladen (noch ${formatBytes(missing)} von ${formatBytes(total)}).`
+                : `Modelldateien werden beim ersten Lauf geladen (${formatBytes(missing)}).`}
+            {!transcriber.ready &&
+              " Aus dem Archiv geht dabei nichts hinaus; ohne Netz lassen sie sich von Hand nach MAILROBBE_AI_MODEL_DIR kopieren."}
+          </span>
+        </>
+      ) : (
+        <span className={styles.muted}>
+          Die Bibliotheken der Transkription (onnx-asr, ONNX Runtime, PyAV) fehlen dort, wo der
+          Server läuft; im Docker-Image sind sie enthalten.
+        </span>
+      )}
+    </li>
   );
 }
 
@@ -261,30 +303,51 @@ function WorkListsCard({ status }: { status: AiStatus }) {
     <Card aria-labelledby="ai-lists-title">
       <CardTitle id="ai-lists-title">Arbeitslisten</CardTitle>
       <p className={styles.muted}>
-        Was noch ohne erkannten Text ist. „Vormerken“ legt die Dokumente in die Warteschlange; der
-        Lauf unten liest sie, die von vielen Mails getragenen zuerst.
+        Was noch ohne erkannten Text oder Transkript ist. „Vormerken“ legt die Dokumente in die
+        Warteschlange; der Lauf unten liest sie, die von vielen Mails getragenen zuerst.
       </p>
       <div className={styles.lists}>
         {status.work_lists.map((list) => (
-          <WorkList key={list.key} list={list} vision={status.vision} />
+          <WorkList
+            key={list.key}
+            list={list}
+            vision={status.vision}
+            transcriber={status.transcription}
+          />
         ))}
       </div>
     </Card>
   );
 }
 
-function WorkList({ list, vision }: { list: AiWorkListInfo; vision: boolean }) {
+/** A work list (D186): what it holds, how long it takes, "Vormerken". Recordings (D295) count
+ *  their known minutes and those of unknown length, and have one engine, so no select. */
+function WorkList({
+  list,
+  vision,
+  transcriber,
+}: {
+  list: AiWorkListInfo;
+  vision: boolean;
+  transcriber: AiTranscriptionInfo | null | undefined;
+}) {
   const id = useId();
   const [engine, setEngine] = useState<OcrEngineChoice>("auto");
   const [notice, setNotice] = useState<string | null>(null);
   const enqueue = useEnqueueAi();
+  const media = list.key === "media";
   const chosen = vision ? engine : "tesseract";
-  const estimate = estimateFor(list.estimates, chosen, list.engine);
+  const estimate = estimateFor(list.estimates, media ? "auto" : chosen, list.engine);
   const documents = `${formatNumber(list.documents)} ${list.documents === 1 ? "Dokument" : "Dokumente"}`;
+  const unknown = list.without_minutes ?? 0;
   const pages =
     list.key === "scanned"
       ? ` · ${formatNumber(list.pages)} Seiten${list.without_pages > 0 ? ` (bei ${formatNumber(list.without_pages)} unbekannt)` : ""}`
-      : "";
+      : media
+        ? ` · ${minutesText(list.minutes ?? 0)}${unknown > 0 ? ` (${formatNumber(unknown)} ohne bekannte Länge)` : ""}`
+        : "";
+  // Without its libraries the server transcribes nothing (D290).
+  const missing = media && transcriber?.available === false;
 
   return (
     <section className={styles.list} aria-labelledby={`${id}-title`}>
@@ -300,13 +363,21 @@ function WorkList({ list, vision }: { list: AiWorkListInfo; vision: boolean }) {
       </p>
       {list.documents > 0 && (
         <div className={styles.listForm}>
-          <EngineSelect id={`${id}-engine`} value={chosen} vision={vision} onChange={setEngine} />
+          {media ? (
+            <span className={styles.muted}>
+              {missing
+                ? "Ohne die Bibliotheken der Transkription lässt sich nichts vormerken."
+                : `Verfahren: ${transcriberName(transcriber?.model ?? null)} im Container`}
+            </span>
+          ) : (
+            <EngineSelect id={`${id}-engine`} value={chosen} vision={vision} onChange={setEngine} />
+          )}
           <Button
             size="sm"
-            disabled={enqueue.isPending}
+            disabled={enqueue.isPending || missing}
             onClick={() =>
               enqueue.mutate(
-                { work_list: list.key, engine: chosen },
+                media ? { work_list: list.key } : { work_list: list.key, engine: chosen },
                 {
                   onSuccess: (queued) => setNotice(queuedText(queued)),
                   onError: (error) => setNotice(aiErrorText(error)),

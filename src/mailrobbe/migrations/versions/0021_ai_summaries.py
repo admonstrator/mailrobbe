@@ -1,7 +1,7 @@
 """AI summaries and tags: a target per task, result and send, AI tags and theme hints
 
 Revision ID: 0021
-Revises: 0019
+Revises: 0020
 Create Date: 2026-10-22
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0021"
-down_revision: str | None = "0019"
+down_revision: str | None = "0020"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { renderApp } from "../test/render";
@@ -42,5 +42,32 @@ describe("the header's search", () => {
     searchFor("");
     expect(router.state.location.pathname).toBe("/mails");
     expect(router.state.location.search).toBe("");
+  });
+});
+
+describe("the header's navigation (D312)", () => {
+  it("shows the screens of daily work and opens the others from two menus", () => {
+    const { router } = renderApp("/ki");
+    const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
+    const system = within(navigation).getByRole("button", { name: "System" });
+    expect(system.className).toMatch(/active/);
+    expect(within(navigation).getByRole("button", { name: "Auswerten" }).className).not.toMatch(
+      /active/,
+    );
+    expect(system.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(system);
+    expect(system.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(within(navigation).getByRole("link", { name: "Import" }));
+    expect(router.state.location.pathname).toBe("/import");
+    expect(system.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes a menu on Escape and gives the focus back to its button", () => {
+    renderApp("/mails");
+    const menu = screen.getByRole("button", { name: "Auswerten" });
+    fireEvent.click(menu);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(menu.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(menu);
   });
 });

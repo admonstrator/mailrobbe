@@ -166,6 +166,7 @@ describe("summaries on the AI page", () => {
       max_pages: 50,
       vision_model: "qwen2.5vl:7b",
       text_model: "local-text:14b",
+      max_minutes: 180,
     });
   });
 

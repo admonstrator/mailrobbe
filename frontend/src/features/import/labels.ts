@@ -73,6 +73,7 @@ export const STEP_LABELS: Record<string, string> = {
 export const AI_STEP_LABELS: Record<string, string> = {
   check: "Dienste prüfen",
   ocr: "Texterkennung",
+  transcribe: "Transkription",
   summarize: "Zusammenfassen",
   entities: "Entitäten erkennen",
   entity_figures: "Kennzahlen der Entitäten",

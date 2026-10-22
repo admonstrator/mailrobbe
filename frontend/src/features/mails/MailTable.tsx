@@ -90,7 +90,11 @@ function attachmentMatch(mail: MailListItem): string | null {
     ...(mail.hits.filename > 0 ? ["im Dateinamen"] : []),
   ];
   if (!places.length) return null;
-  const machine = mail.attachment_machine ? ", maschinell erkannt (KI)" : "";
+  const machine = mail.attachment_transcript
+    ? ", maschinell transkribiert (KI)"
+    : mail.attachment_machine
+      ? ", maschinell erkannt (KI)"
+      : "";
   return `Suchbegriff steht ${places.join(" und ")} eines Anhangs${machine}`;
 }
 
@@ -266,7 +270,11 @@ export function MailTable({
                       {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
                       {inAttachment && (
                         <span className={styles.inAttachment} title={inAttachment}>
-                          {mail.attachment_machine ? "im Anhang · maschinell erkannt" : "im Anhang"}
+                          {mail.attachment_transcript
+                            ? "im Anhang · transkribiert"
+                            : mail.attachment_machine
+                              ? "im Anhang · maschinell erkannt"
+                              : "im Anhang"}
                         </span>
                       )}
                     </td>

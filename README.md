@@ -111,6 +111,10 @@ Die Zeitachse zeigt jede Suche über die Zeit, auf Wunsch je Person, markiert Au
 
 Jedes Dokument steht einmal in der Liste, auch wenn es durch viele Mails gewandert ist, mit der Antwort, wer es wann an wen geschickt hat. PDFs, Word-Dateien, Bilder, Audio und Video zeigt Mailrobbe direkt im Browser. Die Dokumentseite verrät, was die Datei über sich selbst sagt: Kamera, Aufnahmezeit und GPS eines Fotos, Autor und Programm eines PDFs, Kommentare und Änderungen in Word.
 
+### Gescannte Seiten und Sprachnachrichten
+
+Gescannte PDFs und abfotografierte Dokumente liest die Texterkennung, Sprachnachrichten, Aufnahmen und Videos schreibt die Transkription mit. Beides läuft im Container auf dem eigenen Rechner, für eine einzelne Datei direkt von ihrer Seite oder aus der Mail heraus, für ganze Listen unter „KI“. Das Ergebnis findet die Volltextsuche wie jeden anderen Text, gekennzeichnet als maschinell erkannt oder transkribiert. Ein Transkript zeigt jede Zeile mit ihrer Zeit, ein Klick auf die Zeit spielt die Aufnahme ab dieser Stelle. Transkribiert wird mit Parakeet von NVIDIA (CC-BY-4.0), das Deutsch, Englisch und 23 weitere europäische Sprachen versteht; eine Stunde Aufnahme braucht je nach Rechner einige Minuten.
+
 ### Verschlüsselte Anhänge öffnen
 
 Wer eine Datei mit Kennwort verschickt, schreibt das Kennwort oft dazu, in dieselbe Mail oder ein paar Tage später. Mailrobbe sucht solche Kennwörter im Archiv und probiert sie an verschlüsselten PDFs, Office-Dateien, ZIP- und 7z-Archiven, das Naheliegende zuerst. Geraten wird nicht. Die geöffnete Datei wird durchsuchbar, ihre Seite zeigt das Kennwort mit der Mail, in der es stand. Ein bekanntes Kennwort lässt sich auch von Hand eingeben.
@@ -123,7 +127,7 @@ Fotos nach ihren GPS-Daten, Orte, die Mails und Anhänge nennen, und die Orte vo
 
 ### Im Team festhalten und weitergeben
 
-Prüfstatus, Markierung, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen an der Mail und sind für alle sichtbar, die mit demselben Mailrobbe arbeiten. Der Export packt bis zu 2.000 Mails in ein ZIP für Justiziariat und Anwälte: Originalmails, PDFs, Manifest und Prüfsummen. Und „Als Bild für Soziale Medien“ unter den Aktionen einer Mail macht aus ihr ein PNG für Artikel und soziale Medien im Look eines Mailprogramms, mit geschwärzten Beteiligten, Adressen, Telefonnummern und Namen. Geschwärzt wird im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr.
+Prüfstatus, Markierung, Notizen, Schlagworte, Akten und gespeicherte Suchen hängen an der Mail und sind für alle sichtbar, die mit demselben Mailrobbe arbeiten. Der Export packt bis zu 2.000 Mails in ein ZIP für Justiziariat und Anwälte: Originalmails, PDFs, Manifest und Prüfsummen. Und „Als Bild für Soziale Medien“ unter den Aktionen einer Mail macht aus ihr ein PNG für Artikel und soziale Medien im Look eines Mailprogramms, mit geschwärzten Beteiligten, Adressen, Telefonnummern und Namen. Geschwärzt wird im Text, bevor gezeichnet wird: Unter einem Balken steht nichts mehr. Oben in der Fensterleiste steht, woher das Bild kommt: „Exportiert aus Mailrobbe (by admon.me)“.
 
 Mehr Bilder gibt es auf der [Website](https://mailrobbe.admon.me/).
 
@@ -183,6 +187,8 @@ Einstellungen stehen in der Datei `.env` neben `docker-compose.yml`, eine Zeile 
 | `MAILROBBE_BLOCK_MIN_MAILS` | ab wie vielen Mails ein Absatz am Ende als Standardblock gilt (Voreinstellung 25) |
 | `MAILROBBE_IMPORT_WORKERS` | Prozesse für den Import (Voreinstellung: Zahl der Kerne, höchstens 8) |
 | `MAILROBBE_DKIM_NAMESERVERS` | eigene DNS-Server für die DKIM-Schlüssel, kommagetrennt |
+| `MAILROBBE_AI_TRANSCRIBE_THREADS` | Rechenkerne für die Transkription (Voreinstellung: Zahl der Kerne, höchstens 4) |
+| `MAILROBBE_AI_TRANSCRIBE_MAX_MINUTES` | wie viele Minuten einer Aufnahme ein Lauf höchstens transkribiert (Voreinstellung 180) |
 | `MAILROBBE_MAP_HOST_DIR` | Ordner für die Detailkarte (bis 10 GB) außerhalb von Docker, etwa `./data/maps` |
 | `MAILROBBE_MAP_SOURCE` | `off` nimmt das Angebot der Detailkarte ganz weg |
 | `MAILROBBE_PORT` | Port der Oberfläche (Voreinstellung 8000) |
@@ -254,7 +260,7 @@ Nein. Die MBOX-Dateien sind schreibgeschützt eingebunden, die Datenbank hält n
 
 ### „Geht dabei etwas ins Internet?“
 
-Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es das Schlüsselarchiv ZK Email und lädt die Detailkarte herunter. Inhalte aus dem Archiv verlassen den Rechner nicht. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains und Selektoren gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails da gerade geprüft werden. Wer das vermeiden will, importiert ohne DNS-Abfragen mit `docker compose run --rm -e MAILROBBE_DKIM_OFFLINE=1 backend mailrobbe import` und prüft später mit `docker compose run --rm backend mailrobbe dkim` nach, wann und über welche DNS-Server (`MAILROBBE_DKIM_NAMESERVERS`) es passt.
+Von selbst fragt Mailrobbe nur die DKIM-Schlüssel im DNS ab. Nur auf Knopfdruck fragt es das Schlüsselarchiv ZK Email, lädt die Detailkarte herunter und beim ersten Transkribieren einmal das Sprachmodell von Hugging Face (etwa 670 MB, im Docker-Volume `mailrobbe_models`; ohne Netz lassen sich die Dateien auch von Hand dorthin kopieren, die Seite „KI“ sagt, was fehlt). Inhalte aus dem Archiv verlassen den Rechner nicht, es sei denn, man richtet für die Texterkennung ausdrücklich einen KI-Dienst außerhalb des eigenen Netzes ein. DNS-Server und Schlüsselarchiv erfahren aber, welche Domains und Selektoren gefragt werden, und bei einem Leak kann schon das verraten, wessen Mails da gerade geprüft werden. Wer das vermeiden will, importiert ohne DNS-Abfragen mit `docker compose run --rm -e MAILROBBE_DKIM_OFFLINE=1 backend mailrobbe import` und prüft später mit `docker compose run --rm backend mailrobbe dkim` nach, wann und über welche DNS-Server (`MAILROBBE_DKIM_NAMESERVERS`) es passt.
 
 ### „Beweist ‚DKIM gültig‘, wer die Mail geschrieben hat?“
 

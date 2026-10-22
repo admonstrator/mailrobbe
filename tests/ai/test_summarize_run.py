@@ -361,7 +361,7 @@ async def test_a_run_summarises_a_mail_and_a_short_one(archive: Any, database: s
     ]
     options = sommerfest.options
     assert (options["short"], options["dropped_tags"], options["dropped_themes"]) == (False, 0, 1)
-    assert (options["context_tokens"], options["origin"]) == (8192, None)
+    assert (options["context_tokens"], options["origin"]) == (4096, None)
     assert sommerfest.pages_total == 1 and len(sommerfest.pages) == 1
     assert sommerfest.pages[0]["summary"] == sommerfest.body
     assert sommerfest.pages[0]["tokens_in"] == 1200

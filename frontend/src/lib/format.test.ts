@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatBytes,
+  formatClock,
   formatDate,
   formatDateTime,
   formatDateTimeLong,
@@ -70,6 +71,15 @@ describe("durations", () => {
     expect(formatElapsed(120)).toBe("2 min");
     expect(formatElapsed(3900)).toBe("1 h 5 min");
     expect(formatElapsed(7200)).toBe("2 h");
+  });
+
+  it("are a player's clock as a place in a recording", () => {
+    expect(formatClock(0)).toBe("0:00");
+    expect(formatClock(7.9)).toBe("0:07");
+    expect(formatClock(765)).toBe("12:45");
+    expect(formatClock(3599.99)).toBe("59:59");
+    expect(formatClock(3729)).toBe("1:02:09");
+    expect(formatClock(-1)).toBe("0:00");
   });
 });
 

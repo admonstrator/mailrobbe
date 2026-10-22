@@ -108,6 +108,16 @@ class Settings(BaseSettings):
     ai_ocr_max_pages: int = Field(default=50, ge=1)
     ai_ocr_languages: str = "deu+eng"
     ai_ocr_uncertain: float = Field(default=60.0, ge=0, le=100)
+    # Transcription (D290 to D293): Parakeet TDT 0.6B v3 in the container, on the CPU through
+    # ONNX Runtime. Its files (about 670 MB) are downloaded once from Hugging Face into
+    # ai_model_dir by the first run that needs them, or put there by hand. At most
+    # ai_transcribe_max_minutes minutes per recording and pass; ai_transcribe_threads CPU threads
+    # (0: the CPUs, up to four); lines whose mean token probability is below
+    # ai_transcribe_uncertain (0 to 1) are marked uncertain.
+    ai_model_dir: Path = Path("data/models")
+    ai_transcribe_max_minutes: int = Field(default=180, ge=1)
+    ai_transcribe_threads: int = Field(default=0, ge=0)
+    ai_transcribe_uncertain: float = Field(default=0.8, ge=0, le=1)
     # Summaries and AI tags (M17, D300): the text service, set like the vision service (it may
     # be the same server with another model); empty: no "Zusammenfassen". ai_context_tokens is
     # the context the model was loaded with (LM Studio's slider, Ollama's num_ctx): a longer
@@ -116,7 +126,7 @@ class Settings(BaseSettings):
     ai_text_model: str = ""
     ai_text_key: SecretStr = SecretStr("")
     ai_text_protocol: Literal["auto", "openai", "ollama"] = "auto"
-    ai_context_tokens: int = Field(default=8192, ge=2048)
+    ai_context_tokens: int = Field(default=4096, ge=2048)
 
 
 def get_settings() -> Settings:

@@ -12,7 +12,7 @@ from PIL import Image
 from mailrobbe.export.records import ExportMail
 from mailrobbe.social.model import SHAPES, CardOptions, CardShape
 from mailrobbe.social.redact import BLOCK
-from mailrobbe.social.render import CUT, plan, render_card
+from mailrobbe.social.render import CUT, WATERMARK, plan, render_card
 from tests.social.conftest import (
     IBAN,
     RECIPIENT,
@@ -30,6 +30,7 @@ def card_text(mail: ExportMail, raw: bytes, options: CardOptions) -> str:
     drawn = plan(mail, raw, options)
     return "\n".join(
         [
+            drawn.watermark,
             *drawn.subject,
             drawn.sender,
             drawn.address,
@@ -56,6 +57,15 @@ def test_without_redaction_the_mail_is_shown_as_it_is(mail: ExportMail, raw: byt
     shown = card_text(mail, raw, CardOptions(participants=False, contacts=False, names=False))
     assert SENDER_NAME in shown and RECIPIENT in shown and IBAN in shown
     assert BLOCK not in shown
+
+
+def test_every_picture_says_where_it_comes_from(mail: ExportMail, raw: bytes) -> None:
+    """The watermark stands in the window's bar and in every format (D214); it names Mailrobbe
+    and the project's page, never the mail."""
+    assert WATERMARK == "Exportiert aus Mailrobbe (by admon.me)"
+    for shape in CardShape:
+        assert plan(mail, raw, CardOptions(shape=shape)).watermark == WATERMARK
+    assert WATERMARK in card_text(mail, raw, CardOptions())
 
 
 def test_the_card_names_the_mail_and_its_dkim(mail: ExportMail, raw: bytes) -> None:

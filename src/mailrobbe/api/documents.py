@@ -2,8 +2,8 @@
 document's page and text, and attachment downloads. Endpoints and models are in schemas.py.
 
 Routes: GET /api/documents, /api/documents/summary, /api/documents/metadata-values,
-/api/documents/{id}, /api/documents/{id}/text, /api/attachments/{id}/content,
-/api/mails/{id}/hits.
+/api/documents/{id}, /api/documents/{id}/text, /api/documents/{id}/transcript,
+/api/attachments/{id}/content, /api/mails/{id}/hits.
 
 The list reads document rows only, apart from the conditions on the mails carrying a document
 (date, person, external), which hold when one carrying mail that is no duplicate meets them all:
@@ -48,9 +48,10 @@ The protection and the containers (milestone 19) come from api/protected.py: the
 and marks, the page's password with where it was found, a container's entries and the
 containers a document was found in.
 
-A text an AI run recognised (D185) is a document's text like any other, marked by its
-text_origin: the list filters and marks it, the page names its result and open task (D189), and
-the hits of one mail flag it as machine made. The queue and the results are api/ai.py's.
+A text an AI run recognised (D185) or transcribed (D294) is a document's text like any other,
+marked by its text_origin: the list filters and marks it, the page names its result and open
+task (D189, D296), and the hits of one mail flag it as machine made. A recording's transcript
+also has its lines with their times (/transcript). The queue and the results are api/ai.py's.
 """
 
 import asyncio
@@ -92,7 +93,8 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.util import ClauseAdapter
 
-from mailrobbe.ai.queue import OCR_READABLE
+from mailrobbe.ai.model import TranscriptSegment
+from mailrobbe.ai.queue import OCR_READABLE, TRANSCRIBABLE
 from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Session, api_error
 from mailrobbe.api.detail import MailId, mail_senders
@@ -147,6 +149,9 @@ from mailrobbe.api.schemas import (
     DocumentSort,
     DocumentSummary,
     DocumentText,
+    DocumentTranscript,
+    DocumentTranscriptResult,
+    DocumentTranscriptTask,
     MailFilters,
     MailHits,
     MailHitsParams,
@@ -157,6 +162,7 @@ from mailrobbe.api.schemas import (
     PersonCount,
     PersonRef,
     ThreadMail,
+    TranscriptView,
 )
 from mailrobbe.attachments.content import (
     AttachmentChanged,
@@ -743,7 +749,8 @@ async def summary(
 ) -> DocumentSummary:
     where = _where(filters, settings.internal_domains)
     await _count_budget(session, settings)
-    # OCR reads scans and images (D186): only their groups can hold readable documents
+    # OCR reads scans and images, the transcriber recordings (D186, D295): only their groups can
+    # hold readable documents
     readable = func.count().filter(READABLE)
     counts = (
         select(Document.kind, Document.text_status, Document.protection, func.count(), readable)
@@ -856,6 +863,7 @@ _DETAIL_COLUMNS = (
     Document.metadata_latitude,
     Document.metadata_longitude,
     Document.text_origin,
+    Document.duration,
 )
 
 
@@ -873,6 +881,7 @@ async def document_detail(
     senders, sender_count, recipients, recipient_count = await _persons(session, document_id)
     locked = document.protection == DocumentProtection.LOCKED
     opened = document.protection == DocumentProtection.OPEN
+    ocr_readable, transcribable = await _readable(session, document_id)
     detail = DocumentDetail(
         id=document.id,
         name=document.name,
@@ -916,17 +925,25 @@ async def document_detail(
         containers=await containers_of(session, document_id),
         text_origin=document.text_origin,
         ai=await document_ai(session, document.sha256),
-        ocr_readable=await _ocr_readable(session, document_id),
+        ocr_readable=ocr_readable,
+        duration=document.duration,
+        transcript=await document_transcript(session, document.sha256),
+        transcribable=transcribable,
     )
     await attach_labels(session, detail)
     return detail
 
 
-async def _ocr_readable(session: AsyncSession, document_id: int) -> bool:
-    statement = text(
-        f"SELECT EXISTS (SELECT 1 FROM document d WHERE d.id = :id AND {OCR_READABLE})"
-    )
-    return bool(await session.scalar(statement, {"id": document_id}))
+_READABLE_BY = text(f"""
+    SELECT {OCR_READABLE} AS ocr, {TRANSCRIBABLE} AS transcribable FROM document d
+    WHERE d.id = :id
+""")
+
+
+async def _readable(session: AsyncSession, document_id: int) -> tuple[bool, bool]:
+    """Whether OCR can read the document, and whether the transcriber can."""
+    row = (await session.execute(_READABLE_BY, {"id": document_id})).one()
+    return bool(row.ocr), bool(row.transcribable)
 
 
 def _metadata(document: Any) -> DocumentMetadata:
@@ -965,6 +982,21 @@ async def document_text(document_id: DocumentId, session: Session) -> DocumentTe
         raise _not_found(document_id)
     return DocumentText(
         text=row.extracted_text or "", truncated=row.text_truncated, text_status=row.text_status
+    )
+
+
+@router.get("/documents/{document_id}/transcript")
+async def document_transcript_lines(document_id: DocumentId, session: Session) -> TranscriptView:
+    """The valid transcript of the document's content with its lines in time order (D296)."""
+    sha256 = await session.scalar(select(Document.sha256).where(Document.id == document_id))
+    row = None
+    if sha256 is not None:
+        row = (await session.execute(_TRANSCRIPT, {"sha256": sha256})).first()
+    if row is None:
+        raise api_error(404, "not_found", f"document {document_id} has no transcript")
+    lines = [TranscriptSegment.model_validate(line) for line in row.pages]
+    return TranscriptView(
+        result=_transcript_result(row), segments=sorted(lines, key=lambda line: line.start)
     )
 
 
@@ -1063,19 +1095,28 @@ async def mail_persons(
 
 # AI texts (milestone 15, D185, D189) --------------------------------------------------------
 
-# Documents OCR can read (ai.queue.OCR_READABLE), as a condition on statements over document.
-READABLE = text(f"EXISTS (SELECT 1 FROM document d WHERE d.id = document.id AND {OCR_READABLE})")
-# What a result says about its pages (ai.model.OcrPage in ai_result.pages), without its text.
+# Documents OCR or the transcriber can read (ai.queue.OCR_READABLE and TRANSCRIBABLE), as a
+# condition on statements over document: what a selection from the list queues (D186, D295).
+READABLE = text(
+    f"EXISTS (SELECT 1 FROM document d WHERE d.id = document.id "
+    f"AND (({OCR_READABLE}) OR ({TRANSCRIBABLE})))"
+)
+# What a result says about its pages (ai.model.OcrPage in ai_result.pages), or a transcript about
+# its lines (ai.model.TranscriptSegment, its pages_* 0), without its text.
 RESULT_FIGURES = """
     r.id, r.kind::text AS kind, r.target_sha256, r.engine, r.model, r.remote, r.pages_total,
     r.seconds, r.state::text AS state, r.created_at, r.job_id, r.discarded_by, r.discarded_at,
-    char_length(r.body) AS characters, jsonb_array_length(r.pages) AS pages_read,
+    r.duration, r.transcribed, char_length(r.body) AS characters,
+    CASE WHEN r.kind = 'transcribe' THEN 0 ELSE jsonb_array_length(r.pages) END AS pages_read,
     (SELECT count(*) FROM jsonb_array_elements(r.pages) p
-     WHERE COALESCE(p->>'text', '') <> '') AS pages_text,
+     WHERE r.kind <> 'transcribe' AND COALESCE(p->>'text', '') <> '') AS pages_text,
     ARRAY(SELECT (p->>'number')::int FROM jsonb_array_elements(r.pages) p
-          WHERE (p->>'uncertain')::boolean ORDER BY 1) AS uncertain,
+          WHERE r.kind <> 'transcribe' AND (p->>'uncertain')::boolean ORDER BY 1) AS uncertain,
     ARRAY(SELECT (p->>'number')::int FROM jsonb_array_elements(r.pages) p
-          WHERE p->>'error' IS NOT NULL ORDER BY 1) AS failed
+          WHERE r.kind <> 'transcribe' AND p->>'error' IS NOT NULL ORDER BY 1) AS failed,
+    CASE WHEN r.kind = 'transcribe' THEN jsonb_array_length(r.pages) ELSE 0 END AS segments,
+    (SELECT count(*) FROM jsonb_array_elements(r.pages) p
+     WHERE r.kind = 'transcribe' AND (p->>'uncertain')::boolean) AS uncertain_segments
 """
 _VALID_RESULT = text(f"""
     SELECT {RESULT_FIGURES} FROM ai_result r
@@ -1121,6 +1162,58 @@ async def document_ai(session: AsyncSession, sha256: str | None) -> DocumentAi |
             status=AiTaskStatus(task.status),
             engine=task.engine,
             pages_read=task.pages_read,
+        ),
+    )
+
+
+# The valid transcript of a content, as the document page names it, with its lines (D296).
+_TRANSCRIPT = text("""
+    SELECT r.id, r.model, r.created_at, r.duration, r.transcribed, r.pages,
+        jsonb_array_length(r.pages) AS segments,
+        (SELECT count(*) FROM jsonb_array_elements(r.pages) p
+         WHERE (p->>'uncertain')::boolean) AS uncertain,
+        char_length(r.body) AS characters, COALESCE((r.options->>'audio')::boolean, true) AS audio
+    FROM ai_result r
+    WHERE r.kind = 'transcribe' AND r.target_sha256 = :sha256 AND r.state = 'valid'
+""")
+_OPEN_TRANSCRIPTION = text("""
+    SELECT id, status::text AS status, COALESCE((partial->>'until')::float8, 0) AS seconds_read
+    FROM ai_task
+    WHERE kind = 'transcribe' AND target_sha256 = :sha256 AND status IN ('waiting', 'running')
+""")
+
+
+def _transcript_result(row: Any) -> DocumentTranscriptResult:
+    return DocumentTranscriptResult(
+        id=row.id,
+        model=row.model or "",
+        created_at=row.created_at,
+        duration=row.duration,
+        transcribed=row.transcribed,
+        segments=row.segments,
+        uncertain=row.uncertain,
+        characters=row.characters,
+        audio=row.audio,
+    )
+
+
+async def document_transcript(
+    session: AsyncSession, sha256: str | None
+) -> DocumentTranscript | None:
+    """The valid transcript and the open transcribe task of a document's content (D296); None
+    without either, or without a SHA-256 (D18)."""
+    if sha256 is None:
+        return None
+    result = (await session.execute(_TRANSCRIPT, {"sha256": sha256})).first()
+    task = (await session.execute(_OPEN_TRANSCRIPTION, {"sha256": sha256})).first()
+    if result is None and task is None:
+        return None
+    return DocumentTranscript(
+        result=None if result is None else _transcript_result(result),
+        task=None
+        if task is None
+        else DocumentTranscriptTask(
+            id=task.id, status=AiTaskStatus(task.status), seconds_read=task.seconds_read
         ),
     )
 

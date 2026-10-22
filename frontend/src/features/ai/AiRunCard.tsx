@@ -1,15 +1,15 @@
 import { useId, useState } from "react";
 
 import { useStartAiRun, useStopAiRun } from "../../api/queries";
-import type { AiJob, AiStatus, OcrEngineChoice } from "../../api/types";
+import type { AiJob, AiProgress, AiStatus, OcrEngineChoice } from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { Spinner } from "../../components/Spinner";
-import { formatDateTime, formatNumber } from "../../lib/format";
+import { formatClock, formatDateTime, formatNumber } from "../../lib/format";
 import { StepList } from "../import/StepList";
 import styles from "./AiPage.module.css";
 import { EngineSelect } from "./EngineSelect";
-import { aiErrorText } from "./labels";
+import { aiErrorText, minutesText, queueCounts } from "./labels";
 
 const STATUS_TEXTS: Record<AiJob["status"], string> = {
   running: "läuft",
@@ -18,13 +18,37 @@ const STATUS_TEXTS: Record<AiJob["status"], string> = {
   failed: "fehlgeschlagen",
 };
 
+/** "3 Dokumente gelesen, davon 1 ohne Schrift oder Sprache", "· 12 Minuten transkribiert": what
+ *  a run read, its recordings in minutes (D295). */
+function readText(job: AiJob): string {
+  const progress = job.progress;
+  const blank = job.options.kinds.includes("transcribe")
+    ? "ohne Schrift oder Sprache"
+    : "ohne Schrift";
+  return [
+    `${formatNumber(progress.done + progress.no_text)} Dokumente gelesen`,
+    progress.no_text > 0 && `, davon ${formatNumber(progress.no_text)} ${blank}`,
+    (progress.minutes ?? 0) > 0 && ` · ${minutesText(progress.minutes ?? 0)} transkribiert`,
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
+/** "Anruf.ogg · 1:05 von 3:12": the file in work and, for a recording, how far it is. */
+function currentPlace(progress: AiProgress): string | null {
+  if (typeof progress.position !== "number") return null;
+  const duration = progress.duration ? ` von ${formatClock(progress.duration)}` : "";
+  return ` · ${formatClock(progress.position)}${duration}`;
+}
+
 /** The run (D187): its start form with the defaults of the settings, its steps and figures while
  *  it lives, stop; the last one's outcome afterwards. One run at a time, never beside an import. */
 export function AiRunCard({ status }: { status: AiStatus }) {
   const job = status.job;
   const alive = Boolean(job?.alive && job.status === "running");
-  const waiting = status.queue.ocr.waiting;
+  // Documents to read or transcribe, and texts to summarise (D300), share the queue.
   const summaries = status.queue.summarize.waiting;
+  const waiting = queueCounts(status.queue).waiting - summaries;
   return (
     <Card aria-labelledby="ai-run-title">
       <CardTitle id="ai-run-title">Lauf</CardTitle>
@@ -68,8 +92,7 @@ function LiveRun({ job }: { job: AiJob }) {
             {" · "}
           </>
         )}
-        {`${formatNumber(progress.done + progress.no_text)} Dokumente gelesen`}
-        {progress.no_text > 0 && `, davon ${formatNumber(progress.no_text)} ohne Schrift`}
+        {readText(job)}
         {progress.failed > 0 && ` · ${formatNumber(progress.failed)} fehlgeschlagen`}
         {progress.summaries > 0 && ` · ${summariesText(progress.summaries)}`}
         {` · ${formatNumber(progress.queued)} noch vorgemerkt`}
@@ -78,6 +101,7 @@ function LiveRun({ job }: { job: AiJob }) {
         <p className={styles.muted}>
           {"In Arbeit: "}
           <span className={styles.mono}>{progress.current}</span>
+          {currentPlace(progress)}
         </p>
       )}
       {progress.unreachable_since && (
@@ -109,8 +133,7 @@ function LastRun({ job }: { job: AiJob }) {
   const ended = job.status === "running" ? "abgebrochen" : STATUS_TEXTS[job.status];
   return (
     <p className={styles.muted}>
-      {`Letzter Lauf ${ended} am ${formatDateTime(when)}: ${formatNumber(progress.done + progress.no_text)} Dokumente gelesen`}
-      {progress.no_text > 0 && `, davon ${formatNumber(progress.no_text)} ohne Schrift`}
+      {`Letzter Lauf ${ended} am ${formatDateTime(when)}: ${readText(job)}`}
       {progress.failed > 0 && `, ${formatNumber(progress.failed)} fehlgeschlagen`}
       {progress.summaries > 0 && `; ${summariesText(progress.summaries)}`}
       {"."}
@@ -141,22 +164,31 @@ function StartForm({
   const [model, setModel] = useState(defaults.vision_model);
   const [textModel, setTextModel] = useState(defaults.text_model);
   const [maxPages, setMaxPages] = useState(String(defaults.max_pages));
+  // The limit per recording (D292), offered once the server knows the transcriber.
+  const transcriber = status.transcription;
+  const [maxMinutes, setMaxMinutes] = useState(
+    String(defaults.max_minutes ?? transcriber?.max_minutes ?? 180),
+  );
   const start = useStartAiRun();
   const chosen = status.vision ? engine : "tesseract";
   const pages = Number(maxPages);
   const pagesValid = Number.isInteger(pages) && pages >= 1 && pages <= 10_000;
+  const minutes = Number(maxMinutes);
+  const minutesValid =
+    !transcriber || (Number.isInteger(minutes) && minutes >= 1 && minutes <= 10_000);
 
   return (
     <form
       className={styles.runForm}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!pagesValid) return;
+        if (!pagesValid || !minutesValid) return;
         start.mutate({
           engine: chosen,
           max_pages: pages,
           ...(status.vision && model.trim() ? { vision_model: model.trim() } : {}),
           ...(status.text && textModel.trim() ? { text_model: textModel.trim() } : {}),
+          ...(transcriber ? { max_minutes: minutes } : {}),
         });
       }}
     >
@@ -216,6 +248,21 @@ function StartForm({
             onChange={(event) => setMaxPages(event.target.value)}
           />
         </div>
+        {transcriber && (
+          <div className={styles.field}>
+            <label htmlFor={`${id}-minutes`} className={styles.fieldLabel}>
+              Minuten je Aufnahme
+            </label>
+            <input
+              id={`${id}-minutes`}
+              className={styles.input}
+              inputMode="numeric"
+              value={maxMinutes}
+              aria-invalid={!minutesValid}
+              onChange={(event) => setMaxMinutes(event.target.value)}
+            />
+          </div>
+        )}
       </div>
       {start.error && (
         <p className={styles.warning} role="alert">
@@ -226,7 +273,7 @@ function StartForm({
         <Button
           type="submit"
           variant="primary"
-          disabled={waiting + summaries === 0 || !pagesValid || start.isPending}
+          disabled={waiting + summaries === 0 || !pagesValid || !minutesValid || start.isPending}
         >
           KI-Lauf starten
         </Button>

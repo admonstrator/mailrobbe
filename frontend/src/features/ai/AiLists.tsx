@@ -23,7 +23,13 @@ import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
-import { formatBytes, formatDateTime, formatElapsed, formatNumber } from "../../lib/format";
+import {
+  formatBytes,
+  formatClock,
+  formatDateTime,
+  formatElapsed,
+  formatNumber,
+} from "../../lib/format";
 import { Dialog } from "../persons/Dialog";
 import styles from "./AiPage.module.css";
 import {
@@ -31,11 +37,33 @@ import {
   ENGINE_LABELS,
   engineName,
   pageNumbers,
+  queueCounts,
   RESULT_STATE_LABELS,
   SUMMARY_LABEL,
+  TASK_KIND_LABELS,
   TASK_STATUS_LABELS,
   TASK_STATUSES,
+  transcriberName,
 } from "./labels";
+
+/** "2 von 3 Seiten", "3 Seiten", or "–" when nothing is known. */
+function pagesAmount(read: number, total: number | null): string {
+  if (total !== null) return `${formatNumber(read)} von ${formatNumber(total)} Seiten`;
+  return read > 0 ? `${formatNumber(read)} ${read === 1 ? "Seite" : "Seiten"}` : "–";
+}
+
+/** A summary's parts read (D303): "1 von 4", "2", or "–". */
+function partsAmount(read: number, total: number | null): string {
+  if (total !== null) return `${formatNumber(read)} von ${formatNumber(total)}`;
+  return read > 0 ? formatNumber(read) : "–";
+}
+
+/** A recording's part read of its length (D293): "1:05 von 3:12", "3:12", or "–". */
+function secondsAmount(read: number | null | undefined, length: number | null | undefined): string {
+  if (read && length && read < length - 1) return `${formatClock(read)} von ${formatClock(length)}`;
+  if (length) return formatClock(length);
+  return read ? formatClock(read) : "–";
+}
 
 function DocumentCell({ document }: { document: AiDocumentRef | null }) {
   if (!document) return <span className={styles.muted}>gelöscht</span>;
@@ -65,20 +93,6 @@ function ElementCell({ item }: { item: Element }) {
 }
 
 /** The tasks of every kind by status: OCR and summaries share the queue and its actions. */
-function queueCounts(status: AiStatus): Record<AiTaskStatus, number> {
-  const counts: Record<AiTaskStatus, number> = {
-    waiting: 0,
-    running: 0,
-    done: 0,
-    failed: 0,
-    cancelled: 0,
-  };
-  for (const kind of Object.values(status.queue)) {
-    for (const key of TASK_STATUSES) counts[key] += kind[key];
-  }
-  return counts;
-}
-
 /** A filter button of a list; none pressed shows everything. */
 function Toggle({
   active,
@@ -128,7 +142,9 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
   const tasks = useAiTasks({ status: filter }, alive);
   const retry = useAiTaskAction("retry");
   const cancel = useAiTaskAction("cancel");
-  const counts = queueCounts(status);
+  // Text recognition and transcription share the queue (D295).
+  const counts = queueCounts(status.queue);
+  const transcriber = transcriberName(status.transcription?.model ?? null);
   const items = tasks.data?.pages.flatMap((page) => page.items) ?? [];
   const error = retry.error ?? cancel.error;
   const toggle = (value: AiTaskStatus) =>
@@ -195,7 +211,7 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
                 <th>Dokument oder Mail</th>
                 <th>Status</th>
                 <th>Verfahren</th>
-                <th className={styles.num}>Seiten</th>
+                <th className={styles.num}>Umfang</th>
                 <th>Vorgemerkt</th>
                 <th>
                   <span className="sr-only">Aktionen</span>
@@ -207,6 +223,7 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
                 <TaskRow
                   key={task.id}
                   task={task}
+                  transcriber={transcriber}
                   busy={retry.isPending || cancel.isPending}
                   onRetry={() => retry.mutate({ ids: [task.id] })}
                   onCancel={() => cancel.mutate({ ids: [task.id] })}
@@ -225,24 +242,28 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
   );
 }
 
+/** A task: its document, status, kind and engine, how much of it is read (pages, or a
+ *  recording's seconds of its length), when and by whom it was queued. */
 function TaskRow({
   task,
+  transcriber,
   busy,
   onRetry,
   onCancel,
 }: {
   task: AiTaskItem;
+  transcriber: string;
   busy: boolean;
   onRetry: () => void;
   onCancel: () => void;
 }) {
-  const pages =
-    task.pages_total !== null
-      ? `${formatNumber(task.pages_read)} von ${formatNumber(task.pages_total)}`
-      : task.pages_read > 0
-        ? formatNumber(task.pages_read)
-        : "–";
   const summary = task.kind === "summarize";
+  const transcribe = task.kind === "transcribe";
+  const amount = transcribe
+    ? secondsAmount(task.seconds_read, task.document?.duration)
+    : summary
+      ? partsAmount(task.pages_read, task.pages_total)
+      : pagesAmount(task.pages_read, task.pages_total);
   return (
     <tr>
       <td>
@@ -258,9 +279,12 @@ function TaskRow({
           <span className={styles.muted}>{` · ${formatNumber(task.attempts)} Versuche`}</span>
         )}
       </td>
-      <td>{summary ? SUMMARY_LABEL : ENGINE_LABELS[task.engine]}</td>
+      <td>
+        {summary ? SUMMARY_LABEL : transcribe ? transcriber : ENGINE_LABELS[task.engine]}
+        {!summary && <span className={styles.sub}>{TASK_KIND_LABELS[task.kind]}</span>}
+      </td>
       <td className={styles.num} title={summary ? "Abschnitte" : undefined}>
-        {pages}
+        {amount}
       </td>
       <td className={styles.nowrap}>
         {formatDateTime(task.queued_at)}
@@ -301,9 +325,9 @@ export function ResultsCard({ alive }: { alive: boolean }) {
     <Card aria-labelledby="ai-results-title">
       <CardTitle id="ai-results-title">Ergebnisse</CardTitle>
       <p className={styles.muted}>
-        Jeder erkannte Text bleibt hier verzeichnet. Verworfen geht er aus der Suche, das Dokument
-        bekommt einen früheren Text zurück oder steht wieder ohne Text da. Eine verworfene
-        Zusammenfassung verschwindet mit ihren Schlagwörtern und Hinweisen.
+        Jeder erkannte Text und jedes Transkript bleibt hier verzeichnet. Verworfen geht es aus der
+        Suche, das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da. Eine
+        verworfene Zusammenfassung verschwindet mit ihren Schlagwörtern und Hinweisen.
       </p>
       <div className={styles.chips} role="group" aria-label="Nach Zustand filtern">
         {RESULT_FILTERS.map((value) => (
@@ -329,9 +353,9 @@ export function ResultsCard({ alive }: { alive: boolean }) {
               <tr>
                 <th>Dokument oder Mail</th>
                 <th>Verfahren</th>
-                <th className={styles.num}>Seiten</th>
+                <th className={styles.num}>Umfang</th>
                 <th className={styles.num}>Zeichen</th>
-                <th>Erkannt</th>
+                <th>Erstellt</th>
                 <th>Zustand</th>
                 <th>
                   <span className="sr-only">Aktionen</span>
@@ -367,10 +391,18 @@ function ResultRow({
   if (result.kind === "summarize") {
     return <SummaryRow result={result} total={total} onDiscard={onDiscard} />;
   }
+  const transcript = result.kind === "transcribe";
+  const lines = result.segments ?? 0;
+  const uncertain = result.uncertain_segments ?? 0;
   return (
     <tr>
       <td>
         <DocumentCell document={result.document} />
+        {transcript && lines > 0 && (
+          <span className={styles.sub}>
+            {`${formatNumber(lines)} ${lines === 1 ? "Zeile" : "Zeilen"}${uncertain > 0 ? `, davon ${formatNumber(uncertain)} unsicher` : ""}`}
+          </span>
+        )}
         {result.uncertain.length > 0 && (
           <span className={styles.sub}>{`Unsicher: ${pageNumbers(result.uncertain)}`}</span>
         )}
@@ -381,14 +413,21 @@ function ResultRow({
         )}
       </td>
       <td>
-        {engineName(result.engine, result.model)}
+        {transcript ? transcriberName(result.model) : engineName(result.engine, result.model)}
         {result.remote && <span className={cx(styles.place, styles.remote)}>Internet</span>}
+        <span className={styles.sub}>{TASK_KIND_LABELS[result.kind]}</span>
       </td>
       <td className={styles.num}>
-        {`${formatNumber(result.pages_text)} von ${formatNumber(total)}`}
+        {transcript
+          ? secondsAmount(result.transcribed, result.duration)
+          : pagesAmount(result.pages_text, total)}
       </td>
       <td className={styles.num}>
-        {result.characters > 0 ? formatNumber(result.characters) : "keine Schrift"}
+        {result.characters > 0
+          ? formatNumber(result.characters)
+          : transcript
+            ? "keine Sprache"
+            : "keine Schrift"}
       </td>
       <td className={styles.nowrap}>
         {formatDateTime(result.created_at)}
@@ -493,9 +532,11 @@ function DiscardDialog({ target, onClose }: { target: DiscardTarget; onClose: ()
       title={
         summary
           ? "Zusammenfassung verwerfen?"
-          : one
-            ? "Erkannten Text verwerfen?"
-            : "Alle Texte dieses Laufs verwerfen?"
+          : !one
+            ? "Alle Texte dieses Laufs verwerfen?"
+            : target.result.kind === "transcribe"
+              ? "Transkript verwerfen?"
+              : "Erkannten Text verwerfen?"
       }
       onClose={onClose}
     >
@@ -511,7 +552,7 @@ function DiscardDialog({ target, onClose }: { target: DiscardTarget; onClose: ()
             ? `Die Zusammenfassung von „${elementName(target.result)}“ verschwindet mit ihren Schlagwörtern und Hinweisen, auch aus den Filtern der Mailliste.`
             : one
               ? `Der Text von „${target.result.document?.name ?? "ohne Namen"}“ wird aus der Suche genommen; das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da.`
-              : `Jeder noch gültige Text und jede Zusammenfassung, die Lauf ${formatNumber(target.job)} erzeugt hat, wird verworfen; erkannte Texte gehen aus der Suche. Das lässt sich nur durch einen neuen Lauf rückgängig machen.`}
+              : `Jeder noch gültige Text und jede Zusammenfassung, die Lauf ${formatNumber(target.job)} erkannt, transkribiert oder erzeugt hat, wird verworfen; Texte und Transkripte gehen aus der Suche. Das lässt sich nur durch einen neuen Lauf rückgängig machen.`}
         </p>
       )}
       {discard.error && (

@@ -485,7 +485,11 @@ def test_upgrade_renders_offline_without_database() -> None:
         in sql
     )
     assert (
-        "UPDATE alembic_version SET version_num='0021' WHERE alembic_version.version_num = '0019'"
+        "UPDATE alembic_version SET version_num='0020' WHERE alembic_version.version_num = '0019'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0021' WHERE alembic_version.version_num = '0020'"
         in sql
     )
 

@@ -474,6 +474,8 @@ class Document(Base):
     text_truncated: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     text_error: Mapped[str | None] = mapped_column(Text)  # English, one line
     pages: Mapped[int | None] = mapped_column(Integer)  # pages, sheets or slides
+    # seconds of a recording, known once a transcription decoded it (migration 0020, D293)
+    duration: Mapped[float | None] = mapped_column(Float)
     extractor_version: Mapped[int] = mapped_column(SmallInteger, server_default="0")
     extracted_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     # Figures over the mails carrying it that are not duplicates (D70), set by finalize.
@@ -1580,8 +1582,12 @@ class AiResult(Base):
     prompt_version: Mapped[int | None] = mapped_column(SmallInteger)  # of ai.toml (D189)
     options: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     body: Mapped[str] = mapped_column(Text, server_default="")  # the text; "" when none was found
-    pages: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))  # OcrPage
+    # OcrPage values, or for a transcript its TranscriptSegment values (ai.model)
+    pages: Mapped[list[Any]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     pages_total: Mapped[int | None] = mapped_column(Integer)  # of the document; None: unknown
+    # A transcript's (migration 0020, D293): seconds of the media and how far it read; None for OCR
+    duration: Mapped[float | None] = mapped_column(Float)
+    transcribed: Mapped[float | None] = mapped_column(Float)
     tokens_in: Mapped[int] = mapped_column(Integer, server_default="0")
     tokens_out: Mapped[int] = mapped_column(Integer, server_default="0")
     seconds: Mapped[float] = mapped_column(Float, server_default="0")

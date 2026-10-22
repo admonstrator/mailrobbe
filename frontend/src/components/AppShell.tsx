@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet } from "react-router";
+import { useEffect, useId, useRef, useState } from "react";
+import { Link, matchPath, NavLink, Outlet, useLocation } from "react-router";
 
 import { useStats } from "../api/queries";
 import type { ImportState } from "../api/types";
@@ -9,22 +9,42 @@ import { useEditor } from "../lib/editor";
 import { formatNumber } from "../lib/format";
 import styles from "./AppShell.module.css";
 import { EditorDialog } from "./EditorDialog";
+import { ChevronDownIcon } from "./icons";
 
-const NAVIGATION = [
+interface NavItem {
+  to: string;
+  label: string;
+}
+
+/** The screens of daily work stand in the header, the others in two menus (D312). */
+const NAVIGATION: (NavItem | { label: string; items: NavItem[] })[] = [
   { to: "/mails", label: "Mails" },
   { to: "/personen", label: "Personen" },
   { to: "/anhaenge", label: "Anhänge" },
-  { to: "/entitaeten", label: "Entitäten" },
-  { to: "/auffaelligkeiten", label: "Signale" },
-  { to: "/karte", label: "Karte" },
-  { to: "/orte", label: "Orte" },
-  { to: "/zeitachse", label: "Zeitachse" },
-  { to: "/themen", label: "Themen" },
+  {
+    label: "Auswerten",
+    items: [
+      { to: "/entitaeten", label: "Entitäten" },
+      { to: "/auffaelligkeiten", label: "Signale" },
+      { to: "/karte", label: "Karte" },
+      { to: "/orte", label: "Orte" },
+      { to: "/zeitachse", label: "Zeitachse" },
+      { to: "/themen", label: "Themen" },
+    ],
+  },
   { to: "/akten", label: "Akten" },
-  { to: "/ausgeblendet", label: "Ausgeblendet" },
-  { to: "/import", label: "Import" },
-  { to: "/ki", label: "KI" },
+  {
+    label: "System",
+    items: [
+      { to: "/ausgeblendet", label: "Ausgeblendet" },
+      { to: "/import", label: "Import" },
+      { to: "/ki", label: "KI" },
+    ],
+  },
 ];
+
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cx(styles.navLink, isActive && styles.active);
 
 /** The frame of every screen: header with logo, navigation, global search and figures. */
 export function AppShell() {
@@ -37,21 +57,93 @@ export function AppShell() {
           <span className={styles.logoText}>Mailrobbe</span>
         </Link>
         <nav aria-label="Hauptnavigation" className={styles.nav}>
-          {NAVIGATION.map(({ to, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => cx(styles.navLink, isActive && styles.active)}
-            >
-              {label}
-            </NavLink>
-          ))}
+          {NAVIGATION.map((entry) =>
+            "items" in entry ? (
+              <NavMenu key={entry.label} label={entry.label} items={entry.items} />
+            ) : (
+              <NavLink key={entry.to} to={entry.to} className={navLinkClass}>
+                {entry.label}
+              </NavLink>
+            ),
+          )}
         </nav>
         <GlobalSearch />
         <HeaderFigures />
         <EditorName />
       </header>
       <Outlet />
+    </div>
+  );
+}
+
+/** A menu of the navigation: marked active while one of its screens is open. The closed panel
+    stays in the page, hidden by its style, so the navigation always holds every screen's link. It
+    is placed fixed below its button, so the navigation's sideways scrolling on narrow windows
+    does not cut it off. */
+function NavMenu({ label, items }: { label: string; items: NavItem[] }) {
+  const { pathname } = useLocation();
+  const [left, setLeft] = useState<number | null>(null);
+  const area = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  const open = left !== null;
+  const active = items.some(({ to }) => matchPath({ path: to, end: false }, pathname));
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setLeft(null);
+    const outside = (event: PointerEvent) => {
+      if (!area.current?.contains(event.target as Node)) close();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      close();
+      button.current?.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    const rect = button.current?.getBoundingClientRect();
+    setLeft(open || !rect ? null : Math.max(8, Math.min(rect.left, window.innerWidth - 228)));
+  };
+
+  return (
+    <div ref={area} className={styles.menu}>
+      <button
+        ref={button}
+        type="button"
+        className={cx(styles.navLink, styles.menuButton, active && styles.active)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={toggle}
+      >
+        {label}
+        <ChevronDownIcon size={14} className={styles.chevron} />
+      </button>
+      <div
+        id={panelId}
+        className={cx(styles.panel, open && styles.panelOpen)}
+        style={left === null ? undefined : { left }}
+        onClick={() => setLeft(null)}
+      >
+        {items.map(({ to, label: text }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) => cx(styles.panelLink, isActive && styles.active)}
+          >
+            {text}
+          </NavLink>
+        ))}
+      </div>
     </div>
   );
 }
