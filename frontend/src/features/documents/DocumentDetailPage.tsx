@@ -24,6 +24,7 @@ import {
 import { StatusLabel } from "./DocumentTable";
 import { DocumentTextCard } from "./DocumentTextCard";
 import { KindIcon } from "./KindIcon";
+import { MachineMark } from "./MachineMark";
 import { MetadataCard } from "./MetadataCard";
 import { ProtectionCard } from "./ProtectionCard";
 import {
@@ -199,6 +200,9 @@ function DecryptedDownload({ document }: { document: DocumentDetail }) {
 function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref<HTMLElement> }) {
   const meta = [...documentMeta(document), document.mime_type];
   const first = document.first_mail;
+  const machine =
+    (document.text_origin === "ocr" || document.text_origin === "transcript") &&
+    document.text_status === "text";
 
   return (
     <Card ref={ref} className={styles.header}>
@@ -270,14 +274,19 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
               ) : (
                 <StatusLabel status={document.text_status} />
               )}
+              {machine && <MachineMark />}
               {document.extracted_at && (
                 <span
                   className={styles.muted}
-                >{`ausgelesen ${formatDateTime(document.extracted_at)}`}</span>
+                >{`${machine ? "erkannt" : "ausgelesen"} ${formatDateTime(
+                  document.extracted_at,
+                )}`}</span>
               )}
             </span>
             <span>
-              {TEXT_STATUS_TEXTS[document.text_status]}
+              {machine
+                ? "Der Text wurde aus den Seitenbildern erkannt (siehe „Erkannter Text“); die Volltextsuche findet das Dokument über seine Wörter."
+                : TEXT_STATUS_TEXTS[document.text_status]}
               {document.text_status === "text" &&
                 document.text_truncated &&
                 " Gespeichert sind die ersten 400.000 Zeichen."}
