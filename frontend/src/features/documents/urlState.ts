@@ -9,6 +9,7 @@ import {
   type DocumentFilters,
   type DocumentKind,
   type DocumentListParams,
+  type DocumentProtection,
   type DocumentSort,
   type DocumentTextStatus,
 } from "../../api/types";
@@ -20,7 +21,7 @@ import {
   positiveInt,
   type ListState,
 } from "../mails/listState";
-import { DOCUMENT_KINDS, TEXT_STATUSES } from "./labels";
+import { DOCUMENT_KINDS, PROTECTIONS, TEXT_STATUSES } from "./labels";
 
 export type DocumentPersonRole = NonNullable<DocumentFilters["person_role"]>;
 
@@ -29,6 +30,8 @@ export interface DocumentListState extends Paging {
   name: string;
   kind: DocumentKind[];
   text_status: DocumentTextStatus[];
+  /** Locked or opened with a password (D233): any of these. */
+  protection: DocumentProtection[];
   date_from: string | null;
   date_to: string | null;
   person: number | null;
@@ -50,6 +53,7 @@ export const DEFAULT_DOCUMENT_LIST_STATE: DocumentListState = {
   name: "",
   kind: [],
   text_status: [],
+  protection: [],
   date_from: null,
   date_to: null,
   person: null,
@@ -79,6 +83,7 @@ export function parseDocumentListState(search: URLSearchParams): DocumentListSta
     name: search.get("name")?.trim() ?? "",
     kind: DOCUMENT_KINDS.filter((kind) => search.getAll("kind").includes(kind)),
     text_status: TEXT_STATUSES.filter((status) => search.getAll("text_status").includes(status)),
+    protection: PROTECTIONS.filter((value) => search.getAll("protection").includes(value)),
     date_from: isDay(from) ? from : null,
     date_to: isDay(to) ? to : null,
     person,
@@ -105,6 +110,7 @@ export function toDocumentFilters(state: DocumentListState): DocumentFilters {
   if (state.name) filters.name = state.name;
   if (state.kind.length) filters.kind = state.kind;
   if (state.text_status.length) filters.text_status = state.text_status;
+  if (state.protection.length) filters.protection = state.protection;
   if (state.date_from) filters.date_from = state.date_from;
   if (state.date_to) filters.date_to = state.date_to;
   if (state.person !== null) filters.person = state.person;
@@ -166,7 +172,7 @@ export function hasDocumentFilters(state: DocumentListState): boolean {
  *  other values keep their counts while some are checked. */
 export function facetFilters(
   filters: DocumentFilters,
-  group: "kind" | "text_status" | "author" | "program",
+  group: "kind" | "text_status" | "protection" | "author" | "program",
 ): DocumentFilters {
   const rest = { ...filters };
   delete rest[group];

@@ -1,0 +1,173 @@
+/* The card "Verschlüsselt" of the document page (D233 to D237): the state in one line, the try
+   of a password below a hairline, the found password as evidence in rows of label and value. */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lead {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.text {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Shown as typed, not masked: a found password is evidence (D208). */
+.input {
+  flex: 1 1 240px;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 7px 10px;
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: 14px;
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.check input {
+  margin: 0;
+}
+
+.busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+  font-size: 13px;
+}
+
+.answer {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.answer p {
+  margin: 0;
+}
+
+.opened {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
+
+.password {
+  overflow-wrap: anywhere;
+}
+
+.value {
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: var(--color-field);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  user-select: all;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  font-size: 13px;
+}
+
+.fact dt {
+  color: var(--color-muted);
+}
+
+.fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.evidence {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The line(s) around the password, as written. */
+.context {
+  margin: 0;
+  border-left: 3px solid var(--color-border-strong);
+  padding: 6px 10px;
+  background: var(--color-hover);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.context mark {
+  border-radius: 2px;
+  padding: 0 1px;
+  background: var(--color-no-key-soft);
+  color: var(--color-text);
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+@media (max-width: 759px) {
+  .fact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+}
