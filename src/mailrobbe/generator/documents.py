@@ -38,7 +38,16 @@ filler_truth() states what the extraction makes of them.
 DocumentTruth (model.py) is what manifest.jsonl lists for each attachment of a mail, in the
 order importer.parse.mime_parts finds them: SHA-256, file name, kind, expected text status,
 marker, pages, the preview the API offers and the media type its endpoint sends; for a protected
-document its password and tier, for a ZIP its entries (MemberTruth).
+document its password and tier, for a ZIP its entries (MemberTruth); for a document with set text
+its OCR marker and words.
+
+Set text for OCR (milestone 15): a share of the scanned PDFs show pages of set text instead of
+filler (a letter, minutes or notes), and a share of the new photos are a phone photo of such a
+page (JPEG) or a poster (PNG). Each such document holds its own marker word, "Scanmarke" and a
+code of letters and digits Tesseract does not confuse, which the manifest lists as ocr_marker
+with the longer words of its text (ocr_words), so tests and smoke tests can check that OCR found
+them. Whether a document has set text and what it says come from random streams of its seed
+alone, so every other document keeps its bytes.
 """
 
 import binascii
@@ -78,6 +87,7 @@ TEXT_MAX_SIZE = 50 * 1024**2
 HASH_LIMIT = 50 * 1024**2
 PREVIEW_MAX_SIZE = 50 * 1024**2
 MARKER_WORD = "Dokmarke"
+SCAN_MARKER_WORD = "Scanmarke"
 
 REUSE_SHARE = 0.8  # attachments of people that are a recent document again
 RENAME_SHARE = 0.12  # of those, passed on under another file name
@@ -104,6 +114,13 @@ OUT_OF_RANGE = 4
 _TEXT_SIZE_CAP = 200_000  # text formats are written, not padded: their size is their content
 _PROTECTED_ZIP_CAP = 3 * 1024**2  # the encryption runs byte by byte in Python
 _CACHE_BYTES = 96 * 1024**2  # built documents kept per process
+SET_TEXT_SCAN_SHARE = 0.4  # scanned PDFs whose pages show set text
+SET_TEXT_PICTURE_SHARE = 0.1  # new photos that show a page (JPEG) or a poster (PNG)
+_SCAN_LINES = 30  # lines of set text per scanned page (fileformats.scan_page)
+_PICTURE_LINES = 18
+_SET_TEXT_WIDTH = 54  # characters per line of set text
+_OCR_WORDS = 12  # words of a set text the manifest lists
+_SCAN_CODE = "ACDEFHKLMNPRTUVWXY3479"  # no 0/O, 1/I/J, 2/Z, 5/S, 6/G, 8/B for Tesseract
 
 # Template file names of the plan (vocabulary.ATTACHMENT_TYPES and the planner's own) -> the
 # form of their documents and the themes their content may have.
@@ -499,10 +516,13 @@ class Built:
     password: str | None = None  # a protected document's, and its tier (DocumentSpec)
     tier: str | None = None
     members: tuple[MemberTruth, ...] | None = None  # a ZIP's entries
+    ocr_marker: str | None = None  # a document with set text (SetText)
+    ocr_words: tuple[str, ...] | None = None
 
     def truth(self, filename: str, mime_type: str) -> DocumentTruth:
         """The truth of an attachment carrying this document under that name and type."""
         preview, media_type = _preview(self.kind, filename, mime_type, self.size, self.media_type)
+        latitude, longitude = self.position or (None, None)
         return DocumentTruth(
             self.sha256,
             filename,
@@ -516,7 +536,10 @@ class Built:
             self.password,
             self.tier,
             None if self.members is None else tuple(m.as_json() for m in self.members),
-            *(self.position or (None, None)),
+            latitude,
+            longitude,
+            ocr_marker=self.ocr_marker,
+            ocr_words=self.ocr_words,
         )
 
 
@@ -584,6 +607,7 @@ def _build(spec: DocumentSpec, size: int) -> Built:
     status = _STATUSES.get(spec.form, DocumentTextStatus.TEXT)
     if spec.form in ("pdf_encrypted", "pdf_damaged"):
         pages = None  # the extraction cannot count them
+    text = set_text(spec)
     return Built(
         encoded=ff.encode_base64(data),
         sha256=hashlib.sha256(data).hexdigest(),
@@ -597,6 +621,8 @@ def _build(spec: DocumentSpec, size: int) -> Built:
         tier=spec.tier,
         members=members,
         position=photo_position(spec.gps) if spec.form == "jpeg" else None,
+        ocr_marker=text.marker if text else None,
+        ocr_words=text.words if text else None,
     )
 
 
@@ -696,6 +722,8 @@ def damaged(truths: list[DocumentTruth], raw: bytes) -> list[DocumentTruth]:
             media_type=None,
             latitude=None,
             longitude=None,
+            ocr_marker=None,
+            ocr_words=None,
         )
         if bad
         else truth
@@ -741,6 +769,15 @@ def _document(
     """document_bytes, and the entries of a ZIP."""
     rng = random.Random(f"document:{spec.seed}")
     form = spec.form
+    text = set_text(spec)
+    if text is not None and form == "pdf_scan":
+        pictures = [ff.scan_page(lines) for lines in text.pages]
+        return ff.pdf([], rng, images=pictures, size=size), len(pictures), None
+    if text is not None and form == "jpeg":
+        exif = b"" if spec.gps is None else ff.exif_segment(spec.gps)
+        return ff.document_photo(text.pages[0], rng, size, exif), None, None
+    if text is not None and form == "png":
+        return ff.poster(text.pages[0], rng, size), None, None
     if form in RECORDING_FORMS:
         fixture = ff.fixture(f"{form}-{rng.randint(1, RECORDING_FORMS[form][1])}.{form}")
         return fixture, None, None
@@ -792,6 +829,69 @@ def _document(
         data, members = content.archive(size, password)
         return data, None, members
     raise ValueError(f"unknown document form {form!r}")
+
+
+@dataclass(frozen=True, slots=True)
+class SetText:
+    """The set text a scanned page, a photo of a page or a poster shows (module docstring)."""
+
+    pages: list[list[str]]  # lines per page
+    marker: str  # the OCR marker, on the first page
+    words: tuple[str, ...]  # longer words of the text, for checking an OCR result
+
+
+def scan_marker(seed: int) -> str:
+    """The OCR marker of a document: Scanmarke and six capitals and digits."""
+    rng = random.Random(f"scan-marker:{seed}")
+    return SCAN_MARKER_WORD + "".join(rng.choice(_SCAN_CODE) for _ in range(6))
+
+
+def set_text(spec: DocumentSpec) -> SetText | None:
+    """The set text of a document, None for most: only a share of the scans and of the new
+    photos (not the inline pictures of mail bodies) have one."""
+    share = {"pdf_scan": SET_TEXT_SCAN_SHARE, "jpeg": SET_TEXT_PICTURE_SHARE,
+             "png": SET_TEXT_PICTURE_SHARE}.get(spec.form)  # fmt: skip
+    if share is None or spec.theme == "inline":
+        return None
+    rng = random.Random(f"set-text:{spec.seed}")
+    if rng.random() >= share:
+        return None
+    mark = scan_marker(spec.seed)
+    if spec.form == "png":
+        content = _Content(replace(spec, theme="notes"), rng, 0)
+        lines = [
+            "Einladung",
+            rng.choice(vocab.EVENTS_DE),
+            f"am {content.date()} um {rng.randint(10, 19)} Uhr",
+            f"in {content.city}, {content._street()}",
+            "",
+            *_wrap(content.fill(rng.choice(_MINUTES)), 40),
+            "",
+            content.org,
+            f"Kennung {mark}",
+        ]
+        pages = [lines]
+    else:
+        theme = rng.choice(("letter", "minutes", "notes"))
+        content = _Content(replace(spec, theme=theme), rng, 0)
+        lines = [
+            piece
+            for line in content.lines()
+            for piece in (_wrap(line.replace(content.marker, mark), _SET_TEXT_WIDTH) or [""])
+        ]
+        if spec.form == "jpeg":
+            pages = [lines[:_PICTURE_LINES]]
+        else:
+            pages = [lines[i : i + _SCAN_LINES] for i in range(0, len(lines), _SCAN_LINES)][:2]
+        if mark not in "\n".join(pages[0]):  # its reference line was cut off
+            pages[0].insert(1, f"Aktenzeichen: {mark}")
+    seen: dict[str, None] = {}
+    for line in (line for page in pages for line in page):
+        for word in line.split():
+            word = word.strip('.,:;„“"()§-')
+            if len(word) >= 6 and word.isalpha() and word != mark:
+                seen.setdefault(word, None)
+    return SetText(pages, mark, tuple(list(seen)[:_OCR_WORDS]))
 
 
 def _protect_password(spec: DocumentSpec) -> str:
