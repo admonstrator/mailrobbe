@@ -81,7 +81,9 @@ export function MetadataCard({ document }: { document: DocumentDetail }) {
           ))}
           {metadata.error && (
             <p className={styles.damaged}>
-              Ein Teil der Datei ist beschädigt; aufgeführt ist, was sich davor lesen ließ.{" "}
+              {metadata.error.startsWith("encrypted")
+                ? "Die Datei ist verschlüsselt; aufgeführt ist, was sich ohne Kennwort lesen ließ."
+                : "Ein Teil der Datei ist beschädigt; aufgeführt ist, was sich davor lesen ließ."}{" "}
               <code className={styles.error}>{metadata.error}</code>
             </p>
           )}
