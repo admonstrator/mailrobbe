@@ -15,10 +15,14 @@ bytes are stored in the cache and served from there with Range requests (Starlet
 FileResponse: 206, 416, ETag); when the cache cannot store them, from memory without ranges.
 
 One document is converted or stored once at a time: a second request for it waits for the first
-and then finds the result in the cache.
+and then finds the result in the cache. An opened document (D236) is decrypted first, in a
+process of its own (attachments.protected.decrypt); its page is cached under a key of its own
+(the SHA-256 of its SHA-256 and "opened"), apart from what the locked bytes gave before, and the
+plain bytes are never stored (D209).
 """
 
 import asyncio
+import hashlib
 import logging
 import weakref
 from pathlib import Path
@@ -37,6 +41,7 @@ from mailrobbe.attachments.content import (
     read_attachment,
 )
 from mailrobbe.attachments.kinds import HEAD_SIZE, classify
+from mailrobbe.attachments.protected import DecryptFailed, decrypt
 from mailrobbe.config import Settings
 from mailrobbe.preview.cache import Failed, PreviewCache
 from mailrobbe.preview.convert import ConversionFailed, convert
@@ -98,6 +103,8 @@ async def attachment_html(
     attachment_id: AttachmentId, session: Session, settings: AppSettings, previews: AppPreviews
 ) -> Response:
     source, sha256 = await _source(session, settings, attachment_id)
+    if source.password is not None:  # the page of the opened document, not of its locked bytes
+        sha256 = hashlib.sha256(f"{sha256} opened".encode()).hexdigest()
     found = await asyncio.to_thread(previews.cache.page, sha256)
     if found is None:
         async with previews.lock(f"html {sha256}"):
@@ -185,6 +192,19 @@ async def _convert(
 ) -> bytes | Failed:
     """Read, check and convert a document, and cache what came of it."""
     data = await _read(settings, source)
+    if source.password is not None:  # an opened document (D236): decrypted first, never stored
+        async with previews.slots:
+            try:
+                data = await decrypt(
+                    data,
+                    source.filename,
+                    source.mime_type,
+                    source.password,
+                    timeout=settings.preview_timeout,
+                    memory=int(settings.preview_memory),
+                )
+            except DecryptFailed as error:
+                raise api_error(422, "decrypt_failed", str(error)) from None
     fmt = classify(source.filename, source.mime_type, data[:HEAD_SIZE])
     if fmt.name not in HTML_FORMATS:
         raise api_error(

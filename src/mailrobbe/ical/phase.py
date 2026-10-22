@@ -84,7 +84,7 @@ _CANDIDATES = text("""
     FROM mail m JOIN mbox_file f ON f.id = m.mbox_file_id
     WHERE m.id = ANY(CAST(:ids AS bigint[])) AND (
         EXISTS (
-            SELECT 1 FROM attachment a WHERE a.mail_id = m.id AND (
+            SELECT 1 FROM attachment a WHERE a.mail_id = m.id AND a.container_id IS NULL AND (
                 lower(a.mime_type) = ANY(CAST(:types AS text[]))
                 OR lower(right(a.filename, 4)) = ANY(CAST(:suffixes AS text[]))))
         OR m.subject ~* :subject

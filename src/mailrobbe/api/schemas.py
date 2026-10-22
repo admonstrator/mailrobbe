@@ -1860,7 +1860,8 @@ class DocumentContainerRef(BaseModel):
 
 
 class PasswordTry(BaseModel):
-    password: str = Field(min_length=1, max_length=PASSWORD_LENGTH)
+    # as typed; white space around it is left out (passwords hold none, D234)
+    password: str = Field(min_length=1, max_length=PASSWORD_LENGTH, pattern=r"\S")
 
 
 class PasswordTryResult(BaseModel):

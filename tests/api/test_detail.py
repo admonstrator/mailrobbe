@@ -108,7 +108,9 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
                 "SELECT a.*, d.kind::text AS kind, d.text_status::text AS text_status, d.pages, "
                 "d.mails AS document_mails, d.metadata_status::text AS metadata_status, "
                 "d.metadata_author, d.metadata_modified_by, d.metadata_program, "
-                "d.metadata_device, d.metadata_created, d.metadata_gps FROM attachment a "
+                "d.metadata_device, d.metadata_created, d.metadata_gps, "
+                "d.protection::text AS protection, d.members_status::text AS members_status "
+                "FROM attachment a "
                 "LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
             ):
                 attachments[row["mail_id"]].append(row)
@@ -185,6 +187,42 @@ def _expected_figures(
         together = None if pair is None or root == sender else archive.edges.get(pair)
         expected.append((mails, contacts, together))
     return expected
+
+
+def _shown_attachment(row: Row, rows: list[Row]) -> dict[str, Any]:
+    """An attachment as the detail shows it, a container's members under it (D231)."""
+    locked = row["protection"] == "locked"
+    return {
+        "id": row["id"],
+        "filename": row["filename"],
+        "mime_type": row["mime_type"],
+        "size": row["size_bytes"],
+        "sha256": row["sha256"],
+        "document_id": row["document_id"],
+        "kind": row["kind"],
+        "text_status": row["text_status"],
+        "pages": row["pages"],
+        "document_mails": row["document_mails"],
+        "preview": None
+        if locked
+        else preview_kind(
+            None if row["kind"] is None else DocumentKind(row["kind"]),
+            row["filename"],
+            row["mime_type"],
+            row["size_bytes"],
+            hashed=row["sha256"] is not None,
+            max_size=Settings().preview_max_size,
+        ),
+        "metadata": _metadata_summary(row),
+        "protection": row["protection"],
+        "path": row["path"],
+        "members_status": row["members_status"],
+        "members": [
+            _shown_attachment(member, rows)
+            for member in sorted(rows, key=lambda each: each["position"])
+            if member["container_id"] == row["id"]
+        ],
+    }
 
 
 def _metadata_summary(row: Row) -> dict[str, Any] | None:
@@ -268,29 +306,9 @@ async def test_the_detail_of_every_mail(client: httpx.AsyncClient, archive: Arch
             for p in detail.participants
         }, index
 
+        own = archive.attachments[mail_id]
         assert [a.model_dump() for a in detail.attachments] == [
-            {
-                "id": row["id"],
-                "filename": row["filename"],
-                "mime_type": row["mime_type"],
-                "size": row["size_bytes"],
-                "sha256": row["sha256"],
-                "document_id": row["document_id"],
-                "kind": row["kind"],
-                "text_status": row["text_status"],
-                "pages": row["pages"],
-                "document_mails": row["document_mails"],
-                "preview": preview_kind(
-                    None if row["kind"] is None else DocumentKind(row["kind"]),
-                    row["filename"],
-                    row["mime_type"],
-                    row["size_bytes"],
-                    hashed=row["sha256"] is not None,
-                    max_size=Settings().preview_max_size,
-                ),
-                "metadata": _metadata_summary(row),
-            }
-            for row in archive.attachments[mail_id]
+            _shown_attachment(row, own) for row in own if row["container_id"] is None
         ]
         # finalize gave every attachment its document, the attachments phase every text status
         assert all(a.document_id and a.document_mails for a in detail.attachments), index

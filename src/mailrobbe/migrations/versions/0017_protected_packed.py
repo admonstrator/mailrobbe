@@ -78,9 +78,9 @@ def upgrade() -> None:
     )
 
     # Protection and unpacking of a document (D233, D231), and how far the passwords step got
-    # (D235). Existing documents start with protection and members_status NULL (decided at the
-    # next run's archives and passwords steps); the columns have constant defaults, so no row is
-    # rewritten and nothing is read from the MBOX files here.
+    # (D235). Existing documents start with members_status NULL (decided at the next run's
+    # archives step); the columns have constant defaults, so adding them rewrites no row, and
+    # nothing is read from the MBOX files here.
     op.add_column("document", sa.Column("protection", protection))
     op.add_column("document", sa.Column("members_status", members_status))
     op.add_column(
@@ -103,6 +103,9 @@ def upgrade() -> None:
             "include_passwords", sa.Boolean(), nullable=False, server_default=sa.text("false")
         ),
     )
+    # The documents the text extraction already found encrypted are locked from the start, so the
+    # list, the figures and the typed-in passwords (D237) see them before the next run.
+    op.execute("UPDATE document SET protection = 'locked' WHERE text_status = 'encrypted'")
     op.create_index(
         "ix_document_protection",
         "document",
