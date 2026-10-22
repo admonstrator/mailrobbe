@@ -65,6 +65,7 @@ from mailrobbe.api.schemas import (
     AiEstimate,
     AiJob,
     AiQueued,
+    AiQueuedRun,
     AiQueueRequest,
     AiResultItem,
     AiResultPage,
@@ -260,13 +261,15 @@ def check_service(service: Service, settings: Settings) -> ServiceCheck:
 
 @router.post("/tasks", dependencies=JSON_BODY)
 async def enqueue(
-    request: AiQueueRequest, session: Session, settings: AppSettings, editor: Editor
+    request: AiQueueRequest, session: Session, settings: AppSettings, editor: Editor, runs: Runs
 ) -> AiQueued:
     given = [request.work_list, request.document_ids, request.filters]
     if sum(value is not None for value in given) != 1:
         raise api_error(
             400, "invalid_selection", "give exactly one of work_list, document_ids and filters"
         )
+    if request.start and request.document_ids is None:
+        raise api_error(400, "invalid_selection", "start needs document_ids")
     if request.engine == "vision" and not await _vision_usable(settings):
         raise api_error(400, "invalid_option", "no usable vision service is configured")
     if request.work_list is not None:
@@ -284,9 +287,37 @@ async def enqueue(
         include_logos=request.include_logos,
     )
     await session.commit()
+    run = None
+    if request.start and queued.queued + queued.raised:
+        run = await _start_for(session, settings, runs, sorted(set(ids)))
     return AiQueued(
-        queued=queued.queued, raised=queued.raised, unreadable=queued.unreadable, logos=queued.logos
+        queued=queued.queued,
+        raised=queued.raised,
+        unreadable=queued.unreadable,
+        logos=queued.logos,
+        run=run,
     )
+
+
+async def _start_for(
+    session: AsyncSession, settings: Settings, runs: Runs, document_ids: list[int]
+) -> AiQueuedRun:
+    """Start a run reading only these documents (D280), with the latest run's options; a live
+    AI run takes them next instead, and any other live run leaves them waiting."""
+    if await jobs.job_alive(session, JobKind.AI):
+        return "running"
+    latest = await jobs.latest_job(session, JobKind.AI)
+    _, defaults = await asyncio.to_thread(_settings_view, settings, latest)
+    arguments = _run_arguments(defaults.ocr_engine, defaults.vision_model, defaults.max_pages)
+    arguments += [f"--document={document_id}" for document_id in document_ids]
+    environment = processes.child_environment(settings)
+    try:
+        await _start(session, settings, runs, JobKind.AI, arguments, environment)
+    except fastapi.HTTPException as error:
+        if error.status_code != 409:
+            raise
+        return "running" if await jobs.job_alive(session, JobKind.AI) else "busy"
+    return "started"
 
 
 async def _vision_usable(settings: Settings) -> bool:
@@ -509,16 +540,18 @@ async def start_run(
     model = defaults.vision_model if request.vision_model is None else request.vision_model
     if any(not char.isprintable() for char in model):
         raise api_error(400, "invalid_option", "the vision model's name has control characters")
-    arguments = [
-        "run",
-        f"--engine={engine}",
-        f"--max-pages={request.max_pages or defaults.max_pages}",
-    ]
-    if model.strip():
-        arguments.append(f"--vision-model={model.strip()}")
+    arguments = _run_arguments(engine, model, request.max_pages or defaults.max_pages)
     environment = processes.child_environment(settings)
     job = await _start(session, settings, runs, JobKind.AI, arguments, environment)
     return await ai_job(session, settings, job)
+
+
+def _run_arguments(engine: OcrEngineChoice, model: str, max_pages: int) -> list[str]:
+    """The arguments of `mailrobbe ai run` for these options."""
+    arguments = ["run", f"--engine={engine}", f"--max-pages={max_pages}"]
+    if model.strip():
+        arguments.append(f"--vision-model={model.strip()}")
+    return arguments
 
 
 @router.post("/run/stop", dependencies=JSON_BODY)

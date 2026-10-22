@@ -84,6 +84,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         type=_positive,
         help="requests to the vision service at once (default: MAILROBBE_AI_CONCURRENCY)",
     )
+    work.add_argument(
+        "--document",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="read only this queued document, leaving the rest of the queue waiting; repeatable",
+    )
     work.add_argument("--quiet", action="store_true", help="no progress output")
     tasks.add_parser(
         "check",
@@ -161,6 +169,8 @@ def options(settings: Settings, args: argparse.Namespace) -> AiOptions:
         update["max_pages"] = args.max_pages
     if args.concurrency:
         update["concurrency"] = args.concurrency
+    if args.document:
+        update["documents"] = sorted(set(args.document))
     return found.model_copy(update=update)
 
 

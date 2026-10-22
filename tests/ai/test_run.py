@@ -363,6 +363,27 @@ async def test_a_run_reads_the_queue_in_order_and_stores_the_texts(
     assert (ocr.unit, ocr.done, ocr.total) == ("pages", 5, 5)
 
 
+async def test_a_run_for_one_document_leaves_the_queue_waiting(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Scan.pdf", "Flyer.pdf", "Foto.jpg")
+    flyer = await document(database, "Flyer.pdf")
+    fake = Fake(tesseract_reader=lambda name, number: tesseract_page(name, number))
+    settings = settings_for(database, archive)
+    options = options_for(settings, documents=[flyer.id])
+    result = await run_ai(settings, options, engines=fake.engines())
+
+    assert result.exit_code == 0
+    assert {read[1] for read in fake.reads} == {"Flyer.pdf"}
+    assert (result.summary.queued, result.summary.done) == (1, 1)
+    queued = await tasks(database)
+    assert {name: row.status for name, row in queued.items()} == {
+        "Scan.pdf": "waiting",
+        "Flyer.pdf": "done",
+        "Foto.jpg": "waiting",
+    }
+
+
 async def test_nothing_queued_skips_the_later_steps(archive: Archive, database: str) -> None:
     settings = settings_for(database, archive)
     result = await run_ai(settings, options_for(settings), engines=Fake().engines())

@@ -311,8 +311,20 @@ async def test_a_work_list_is_queued_once_and_raised_after(
     dashboard: Dashboard, work: Work
 ) -> None:
     body = {"work_list": "scanned"}
-    assert await queue(dashboard, body) == {"queued": 3, "raised": 0, "unreadable": 0, "logos": 0}
-    assert await queue(dashboard, body) == {"queued": 0, "raised": 3, "unreadable": 0, "logos": 0}
+    assert await queue(dashboard, body) == {
+        "queued": 3,
+        "raised": 0,
+        "unreadable": 0,
+        "logos": 0,
+        "run": None,
+    }
+    assert await queue(dashboard, body) == {
+        "queued": 0,
+        "raised": 3,
+        "unreadable": 0,
+        "logos": 0,
+        "run": None,
+    }
     listed = await tasks(dashboard)
     # Newest first; a work list is queued by its mails, so the scans' order is the archive's.
     assert [task["id"] for task in listed] == sorted((task["id"] for task in listed), reverse=True)
@@ -329,7 +341,13 @@ async def test_ids_leave_out_logos_and_what_ocr_cannot_read(
     dashboard: Dashboard, work: Work
 ) -> None:
     body = {"document_ids": [*work.images, work.text, 2**40], "include_logos": False}
-    assert await queue(dashboard, body) == {"queued": 2, "raised": 0, "unreadable": 2, "logos": 1}
+    assert await queue(dashboard, body) == {
+        "queued": 2,
+        "raised": 0,
+        "unreadable": 2,
+        "logos": 1,
+        "run": None,
+    }
     with_logos = await queue(dashboard, {"document_ids": work.images, "include_logos": True})
     assert (with_logos["queued"], with_logos["raised"]) == (1, 2)
 
@@ -349,7 +367,7 @@ async def test_the_document_list_filters_are_queued_by_its_own_conditions(
 ) -> None:
     filters = {"kind": ["pdf"], "text_status": ["scanned", "text"]}
     queued = await queue(dashboard, {"filters": filters})
-    assert queued == {"queued": 3, "raised": 0, "unreadable": 0, "logos": 0}
+    assert queued == {"queued": 3, "raised": 0, "unreadable": 0, "logos": 0, "run": None}
     summary = await get(
         dashboard.client, "/api/documents/summary", [("kind", "pdf"), ("text_status", "scanned")]
     )
@@ -550,6 +568,10 @@ async def test_hit_lines_say_when_the_text_is_machine_made(
     hits = await get(dashboard.client, f"/api/mails/{mail}/hits", [("q", WORD)])
     [hit] = hits["attachments"]
     assert (hit["in_text"], hit["machine"]) == (True, True)
+    # the mail's attachment list says so too (D280)
+    detail = await get(dashboard.client, f"/api/mails/{mail}")
+    ocr = {item["document_id"]: item["ocr"] for item in detail["attachments"]}
+    assert ocr[work.scans[0]] == "recognised"
     # a word of a text read from the file is no machine hit
     word = await rows(
         dashboard.url,
@@ -589,6 +611,36 @@ async def test_a_run_starts_with_the_defaults_and_stops(
     # the next start takes the latest run's choice (D49)
     assert (await status(dashboard))["defaults"]["max_pages"] == 7
     assert await error_code(dashboard.client, "/api/ai/run/stop", {}, 409) == "no_job"
+
+
+async def test_a_document_starts_a_run_of_its_own(
+    dashboard: Dashboard, work: Work, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "wait")
+    await queue(dashboard, {"work_list": "scanned"})
+    body = {"document_ids": [work.scans[1]], "single": True, "start": True}
+    assert (await queue(dashboard, body))["run"] == "started"
+    job = (await status(dashboard))["job"]
+    assert job["alive"] and job["options"]["documents"] == [work.scans[1]]
+    detail = await get(
+        dashboard.client, f"/api/mails/{await carrier(dashboard.url, work.scans[1])}"
+    )
+    ocr = {item["document_id"]: item["ocr"] for item in detail["attachments"]}
+    assert ocr[work.scans[1]] == "queued"
+    # while it lives, another document is queued first and taken next
+    again = {"document_ids": [work.scans[0]], "single": True, "start": True}
+    assert (await queue(dashboard, again))["run"] == "running"
+    await post(dashboard.client, "/api/ai/run/stop", {})
+    await reaped(dashboard)
+    # an import keeps it from starting; the document waits in the queue
+    async with holding(dashboard.url, JobKind.IMPORT):
+        assert (await queue(dashboard, again))["run"] == "busy"
+    unreadable = {"document_ids": [work.text], "start": True}
+    assert (await queue(dashboard, unreadable))["run"] is None
+    selection = {"work_list": "scanned", "start": True}
+    assert (
+        await error_code(dashboard.client, "/api/ai/tasks", selection, 400) == "invalid_selection"
+    )
 
 
 async def test_a_run_waits_for_an_import(

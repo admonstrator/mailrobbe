@@ -39,6 +39,7 @@ import type {
   AiTaskPage,
   AiTaskParams,
   AliasTier,
+  AttachmentInfo,
   BlockDetail,
   BlockInfo,
   BlockListParams,
@@ -305,7 +306,18 @@ export function useMailDetail(id: number, enabled = true) {
     queryKey: queryKeys.mail(id),
     queryFn: ({ signal }) => apiGet<MailDetail>(`/api/mails/${id}`, undefined, signal),
     enabled,
+    // asked again while an attachment's text recognition is queued or running (D280)
+    refetchInterval: (query) => (ocrQueued(query.state.data?.attachments) ? OCR_POLL : false),
   });
+}
+
+/** How often a page asks again while a text recognition it shows is queued or running. */
+export const OCR_POLL = 3_000;
+
+function ocrQueued(attachments: AttachmentInfo[] | undefined): boolean {
+  return (attachments ?? []).some(
+    (attachment) => attachment.ocr === "queued" || ocrQueued(attachment.members),
+  );
 }
 
 /** A body view, read from the MBOX file when first asked for; the file does not change. */
@@ -935,6 +947,8 @@ export function useDocument(id: number, enabled = true) {
     queryKey: queryKeys.document(id),
     queryFn: ({ signal }) => apiGet<DocumentDetail>(`/api/documents/${id}`, undefined, signal),
     enabled,
+    // asked again while its text recognition is queued or running, so the result shows (D280)
+    refetchInterval: (query) => (query.state.data?.ai?.task ? OCR_POLL : false),
   });
 }
 
@@ -1597,6 +1611,7 @@ export function useCheckAiService() {
 function aiChanged(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: aiKeys.all });
   void queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+  void queryClient.invalidateQueries({ queryKey: ["mail"] }); // the attachments' OCR state
 }
 
 export function useEnqueueAi() {

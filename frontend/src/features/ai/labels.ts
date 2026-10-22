@@ -119,6 +119,23 @@ export function queuedText(queued: AiQueued): string {
   return parts.join(", ");
 }
 
+/** What starting the recognition of one document did (D280). */
+export function startedText(queued: AiQueued): string {
+  if (queued.queued + queued.raised === 0) {
+    return "Dieses Dokument kann die Texterkennung nicht lesen.";
+  }
+  switch (queued.run) {
+    case "started":
+      return "Die Texterkennung läuft; das Ergebnis erscheint hier, sobald sie fertig ist.";
+    case "running":
+      return "Ein KI-Lauf ist schon unterwegs und liest dieses Dokument als nächstes.";
+    case "busy":
+      return "Vorgemerkt: Gerade läuft ein Import. Danach lässt sich der Lauf auf der Seite „KI“ starten.";
+    default:
+      return "Vorgemerkt: Der nächste KI-Lauf liest dieses Dokument zuerst.";
+  }
+}
+
 /** The notice for an action the API refused or that failed. */
 export function aiErrorText(error: Error): string {
   if (error instanceof ApiError) {
