@@ -2868,7 +2868,7 @@ export interface AiQueueRequest {
   engine?: OcrEngineChoice;
   include_logos?: boolean;
   single?: boolean; // one element from its page: first in the queue
-  start?: boolean; // with document_ids or mail_ids: a run for just these at once (D280, D307)
+  start?: boolean; // ids: a run for just these at once (D280, D307); summarize filters: one for the queue (D308)
   kind?: AiTaskKind; // only this kind; none: what fits each document (OCR); summarize by name
   mail_ids?: number[];
   mail_filters?: MailFilters; // an Akte is { collection: [id] }

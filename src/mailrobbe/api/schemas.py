@@ -3133,8 +3133,9 @@ class AiQueueRequest(BaseModel):
     engine: OcrEngineChoice = "auto"
     include_logos: bool = False  # images in more than LOGO_MAILS mails too
     single: bool = False  # one document from its page: first in the queue, a logo too
-    # With document_ids: start a run reading only these documents at once (D280); with
-    # mail_ids too (D307).
+    # With document_ids or mail_ids: start a run for only these at once (D280, D307); with
+    # filters or mail_filters (summarize only): start a run for the whole queue unless an AI run
+    # is alive (D308).
     start: bool = False
     # Only this kind of task; None: what fits each document (OCR). Summaries are asked for by
     # name (D308); 400 invalid_option for a kind the selection cannot have.
