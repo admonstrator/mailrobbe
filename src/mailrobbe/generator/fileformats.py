@@ -14,9 +14,10 @@ as written; content streams are deflated. Encrypted PDFs use the standard securi
 revision 4 with AES-128 (AESV2), with a user password, as Acrobat writes them. Scanned PDFs
 have pages that show only an image.
 
-Pictures: PNGs drawn here, JPEGs from the photos in media/; noise where every decoder skips it
-(a private PNG chunk, JPEG comment segments) brings them to the planned size and makes each one
-a file of its own. Recordings are the files in media/ as they are, made once with ffmpeg from
+Pictures: PNGs drawn here, JPEGs from the photos in media/, some with the EXIF of a phone or
+camera and its GPS position (exif_segment); noise where every decoder skips it (a private PNG
+chunk, JPEG comment segments) brings them to the planned size and makes each one a file of its
+own. Recordings are the files in media/ as they are, made once with ffmpeg from
 synthetic sources (media/README.md).
 """
 
@@ -30,12 +31,14 @@ import zipfile
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+from mailrobbe.generator.model import PhotoGps
 
 Table = Sequence[Sequence[str | float]]  # rows of cells; floats are amounts (numbers in XLSX)
 
@@ -986,18 +989,98 @@ def _png_chunk(kind: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
 
 
-def jpeg(rng: random.Random, size: int, *, damaged: bool = False) -> bytes:
+def jpeg(rng: random.Random, size: int, *, damaged: bool = False, exif: bytes = b"") -> bytes:
     """A photo of media/ (made with ffmpeg) of about `size` bytes: comment segments of noise
-    after its JFIF header make up the rest, so every photo has bytes of its own. A damaged one
-    stops inside them, before the frame header."""
+    after its JFIF header (and its EXIF, exif_segment) make up the rest, so every photo has
+    bytes of its own. A damaged one stops inside them, before the frame header."""
     photo = fixture(f"jpeg-{rng.randint(1, _PHOTOS)}.jpeg")
     start = 4 + int.from_bytes(photo[4:6], "big")  # behind SOI and APP0
-    pad = max(size - len(photo), 64)
+    pad = max(size - len(photo) - len(exif), 64)
     noise = filler(rng, pad - 4 * -(-pad // (_COMMENT + 4)), b"")
     comments = b"".join(
         b"\xff\xfe" + struct.pack(">H", len(piece) + 2) + piece
         for piece in (noise[i : i + _COMMENT] for i in range(0, len(noise), _COMMENT))
     )
     if damaged:
-        return photo[:start] + comments[: rng.randint(5, len(comments) - 1)]
-    return photo[:start] + comments + photo[start:]
+        return photo[:start] + exif + comments[: rng.randint(5, len(comments) - 1)]
+    return photo[:start] + exif + comments + photo[start:]
+
+
+# EXIF (D241) --------------------------------------------------------------------------------
+
+_BYTE, _ASCII, _LONG, _RATIONAL = 1, 2, 4, 5
+_SIZES = {_BYTE: 1, _ASCII: 1, _LONG: 4, _RATIONAL: 8}
+_Entry = tuple[int, int, bytes]  # tag, type, its values as written
+
+
+def exif_segment(gps: PhotoGps) -> bytes:
+    """The APP1 segment of a phone's or camera's photo: make and model (IFD0), the time taken
+    and its UTC offset (Exif IFD), and the position as degrees, minutes and seconds with the
+    altitude and the GPS time in UTC (GPS IFD), little-endian as phones write it."""
+    utc = gps.taken - timedelta(hours=int(gps.offset[:3]), minutes=int(gps.offset[4:]))
+    ifd0 = [_text(0x010F, gps.make), _text(0x0110, gps.model)]
+    exif = [_text(0x9003, f"{gps.taken:%Y:%m:%d %H:%M:%S}"), _text(0x9011, gps.offset)]
+    position = [
+        (0x0000, _BYTE, bytes((2, 3, 0, 0))),
+        _text(0x0001, "N" if gps.latitude >= 0 else "S"),
+        (0x0002, _RATIONAL, _rationals(*_dms(gps.latitude))),
+        _text(0x0003, "E" if gps.longitude >= 0 else "W"),
+        (0x0004, _RATIONAL, _rationals(*_dms(gps.longitude))),
+        (0x0005, _BYTE, b"\x00"),
+        (0x0006, _RATIONAL, _rationals((round(gps.altitude * 10), 10))),
+        (0x0007, _RATIONAL, _rationals((utc.hour, 1), (utc.minute, 1), (utc.second, 1))),
+        _text(0x001D, f"{utc:%Y:%m:%d}"),
+    ]
+    body = b"Exif\x00\x00" + _tiff(ifd0, exif, position)
+    return b"\xff\xe1" + struct.pack(">H", len(body) + 2) + body
+
+
+def _dms(value: float) -> tuple[tuple[int, int], tuple[int, int], tuple[int, int]]:
+    """Degrees, minutes and thousandths of seconds of a coordinate, without its sign."""
+    thousandths = round(abs(value) * 3_600_000)
+    degrees, rest = divmod(thousandths, 3_600_000)
+    minutes, seconds = divmod(rest, 60_000)
+    return (degrees, 1), (minutes, 1), (seconds, 1000)
+
+
+def dms_degrees(value: float) -> float:
+    """The coordinate as a reader computes it back from exif_segment's rationals, rounded to
+    seven places as attachments.metadata.exif stores it, with its sign."""
+    (degrees, _), (minutes, _), (seconds, scale) = _dms(value)
+    found = round(degrees / 1 + minutes / 1 / 60 + seconds / scale / 3600, 7)
+    return -found if value < 0 else found
+
+
+def _text(tag: int, value: str) -> _Entry:
+    return tag, _ASCII, value.encode("ascii") + b"\x00"
+
+
+def _rationals(*pairs: tuple[int, int]) -> bytes:
+    return b"".join(struct.pack("<II", numerator, denominator) for numerator, denominator in pairs)
+
+
+def _tiff(ifd0: list[_Entry], exif: list[_Entry], gps: list[_Entry]) -> bytes:
+    """A TIFF structure: IFD0 pointing to the Exif and GPS IFDs, then the values that do not fit
+    into an entry."""
+
+    def size(entries: list[_Entry]) -> int:
+        return 2 + 12 * len(entries) + 4
+
+    exif_at = 8 + size(ifd0) + 2 * 12
+    gps_at = exif_at + size(exif)
+    first = [*ifd0, (0x8769, _LONG, struct.pack("<I", exif_at)),
+             (0x8825, _LONG, struct.pack("<I", gps_at))]  # fmt: skip
+    data = bytearray()
+    data_at = gps_at + size(gps)
+    tables = bytearray()
+    for entries in (first, exif, gps):
+        tables += struct.pack("<H", len(entries))
+        for tag, kind, value in sorted(entries):
+            count = len(value) // _SIZES[kind]
+            if len(value) <= 4:
+                tables += struct.pack("<HHI", tag, kind, count) + value.ljust(4, b"\x00")
+            else:
+                tables += struct.pack("<HHII", tag, kind, count, data_at + len(data))
+                data += value + b"\x00" * (len(value) % 2)  # values start on a word
+        tables += struct.pack("<I", 0)
+    return b"II*\x00" + struct.pack("<I", 8) + bytes(tables) + bytes(data)

@@ -114,6 +114,12 @@
   text-decoration: underline;
 }
 
+/* A photo's position (D249), under its links. */
+.position {
+  display: block;
+  margin-top: 6px;
+}
+
 .downloadOnly {
   color: var(--color-muted);
 }

@@ -1,6 +1,6 @@
 """The `mailrobbe import` command: a run (jobrun) of scan, header refresh, worker pool, finalize,
 archives, text extraction, passwords, metadata, calendar, near duplicates, hide rules,
-paragraphs, entities, signals and topics.
+paragraphs, entities, places, signals and topics.
 
 The run records itself in `job` (D47) with its phases scan, headers (only when older files need it,
 D52), import, finalize, attachments (with the steps archives, when containers wait to be unpacked,
@@ -8,13 +8,15 @@ D231; attachments, when documents wait for their text, D72; passwords, when a lo
 be opened, D235; metadata, when documents wait for their metadata, D167), calendar (only when mails
 wait for a look, D154), near (fingerprints when mails wait for one, groups always, D153), hidden
 (always, D221), paragraphs (the split when mails wait for it, the standard blocks always, D224,
-D225), entities (only when texts wait for their scan, D84), signals (always, D135) and topics (only
-when the archive changed since they were computed, D146), and reports its figures (ImportFigures)
-every few seconds, with one step per phase and per part of the finalize and the topics (STEPS,
-D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the workers store their
-batch, the files pause, the global figures count what is stored, and the finalize and every later
-phase are left to the next run; during the attachments, calendar, near, paragraphs, entities and
-signals phases, what is stored so far stays, and the topics stay as last computed.
+D225), entities (only when texts wait for their scan, D84), places (only when place entities or
+invitations wait for a point, or the lists changed, D242, D243), signals (always, D135) and topics
+(only when the archive changed since they were computed, D146), and reports its figures
+(ImportFigures) every few seconds, with one step per phase and per part of the finalize and the
+topics (STEPS, D110). It stops on Ctrl-C, SIGTERM and the dashboard's stop request alike: the
+workers store their batch, the files pause, the global figures count what is stored, and the
+finalize and every later phase are left to the next run; during the attachments, calendar, near,
+paragraphs, entities, places and signals phases, what is stored so far stays, and the topics stay
+as last computed.
 
 Exit status: 0 when every file is done (import errors of single mails are normal), 1 when a file
 ended in error, the signals phase failed (a time zone PostgreSQL does not know, D133) or the
@@ -57,6 +59,7 @@ from mailrobbe.jobrun import EXIT_INTERRUPTED, JobRun, RunRefused, job_run
 from mailrobbe.jobs import ImportOptions, application_name
 from mailrobbe.near import phase as near
 from mailrobbe.passwords import phase as passwords
+from mailrobbe.places import phase as places
 from mailrobbe.signals import phase as signals
 from mailrobbe.signals.model import rules as signal_rules
 from mailrobbe.topics import phase as topics
@@ -79,6 +82,7 @@ STEPS = (
     hiding.STEP,
     *blocks.STEPS,
     "entities",
+    places.STEP,
     "signals",
     *topics.STEPS,
 )  # in order
@@ -226,6 +230,8 @@ async def _import(
     scanned = 0
     if not stop.is_set():
         scanned = await _scan_entities(sessionmaker, workers, job)
+    if not stop.is_set():
+        await _locate_places(sessionmaker, job)
     failure = None
     if not stop.is_set():
         failure = await _compute_signals(engine, settings, job)
@@ -467,6 +473,19 @@ async def _scan_entities(
     return result.mails + result.documents
 
 
+async def _locate_places(sessionmaker: async_sessionmaker[AsyncSession], job: JobRun) -> None:
+    """The places phase (D242, D243), when place entities or invitations wait for a point or
+    the lists changed."""
+    async with sessionmaker() as session:
+        plan = await places.waiting(session)
+    if not plan.outdated and not plan.rows:
+        job.steps.skip(places.STEP)
+        return
+    job.set_phase("places")
+    with job.steps.step(places.STEP, unit="places", total=plan.rows) as step:
+        await places.locate_places(sessionmaker, plan, job.stop, step)
+
+
 async def _compute_signals(engine: AsyncEngine, settings: Settings, job: JobRun) -> str | None:
     """The signals phase (D135), after every import that was not stopped; why it failed."""
     job.set_phase("signals")
@@ -555,6 +574,10 @@ async def _summary(
     ).one()
     persons = await session.scalar(text("SELECT count(*) FROM person"))
     found = await session.scalar(text("SELECT count(*) FROM entity"))
+    located = await session.scalar(text("SELECT count(*) FROM entity WHERE latitude IS NOT NULL"))
+    meeting = await session.scalar(
+        text("SELECT count(*) FROM calendar_event WHERE latitude IS NOT NULL")
+    )
     events, invited = (
         await session.execute(text("SELECT count(*), count(DISTINCT mail_id) FROM calendar_event"))
     ).one()
@@ -600,6 +623,7 @@ async def _summary(
         f"calendar:      {events} events in {invited} mails",
         f"near:          {groups} groups of near duplicates, {grouped} mails in them",
         f"entities:      {found} ({scanned} texts scanned in this run)",
+        f"places:        {located} places named with a point, {meeting} events with one",
         f"signals:       {signalled} mails with a signal, {silent} persons silent",
         f"topics:        {_topics_line(computed)}",
         f"elapsed:       {elapsed:.1f} s, {imported / max(elapsed, 1e-9):.0f} mails/s",

@@ -115,7 +115,7 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
         DocumentMetadataStatus,
         ["pending", "found", "empty", "unsupported", "too_large", "failed"],
     ),
-    "job_kind": (JobKind, ["import", "dkim", "dkim_keys"]),
+    "job_kind": (JobKind, ["import", "dkim", "dkim_keys", "map"]),
     "job_status": (JobStatus, ["running", "done", "stopped", "failed"]),
     "review_status": (ReviewStatus, ["seen", "relevant", "irrelevant"]),
     "key_origin": (KeyOrigin, ["dns", "observed", "documented", "reconstructed"]),
@@ -276,7 +276,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0017"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0018"
 
 
 @pytest.mark.db
@@ -455,6 +455,14 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0016' WHERE alembic_version.version_num = '0015'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0017' WHERE alembic_version.version_num = '0016'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0018' WHERE alembic_version.version_num = '0017'"
         in sql
     )
 

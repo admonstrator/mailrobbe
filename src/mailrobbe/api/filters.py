@@ -9,8 +9,9 @@ attachments' documents (D73): both GIN indexes give mail ids, which PostgreSQL O
 (full_text); first_ids's walk tests the mails it passes one by one instead, as it did for the
 mail's own text alone. The entity and amount filters (D86) take the same two forms over the
 mentions of the mail and of its attachments' documents (_mentioned), the signal filter (D136)
-over the rows the last signals phase stored in mail_signal (_signal). Near duplicates (D153)
-and calendar events (D155) are EXISTS subqueries on mail_near and calendar_event.
+over the rows the last signals phase stored in mail_signal (_signal). Near duplicates (D153),
+calendar events (D155) and photos in an area of the map (D248) are EXISTS subqueries on
+mail_near, calendar_event and attachment with its document.
 
 The search options narrow the full text words without an index of their own (D171 to D175,
 D226). Places are the weights of the two tsvectors: the query's lexemes carry the weights of the
@@ -60,6 +61,7 @@ from sqlalchemy import (
     Numeric,
     ScalarSelect,
     Select,
+    SQLColumnExpression,
     Text,
     UnaryExpression,
     and_,
@@ -131,6 +133,7 @@ from mailrobbe.db.models import (
 from mailrobbe.enums import DkimStatus, EntityContext, EntityKind, ParticipationRole, ReviewStatus
 from mailrobbe.hiding.model import visible
 from mailrobbe.persons.labels import label_matches
+from mailrobbe.places.model import BBox
 from mailrobbe.signals.model import signal_keys
 
 _sort_key: ColumnElement[datetime] = literal_column(MAIL_SORT_KEY, TIMESTAMPTZ)
@@ -248,6 +251,9 @@ def mail_conditions(
     # Milestone 18: the mails holding a paragraph (D227), and the hide rules (D222).
     if filters.block is not None:
         where.append(_holds_block(parse_hash(filters.block)))
+    # Milestone 20: a photo inside an area of the map (D248).
+    if filters.photo_area is not None:
+        where.append(_photo_in(parse_area(filters.photo_area)))
     if not filters.include_hidden:
         where.append(VISIBLE)
     if filters.collapse_near:  # last: it looks at every other condition
@@ -740,6 +746,46 @@ def _holds_block(value: int) -> ColumnElement[bool]:
 def _event(condition: ColumnElement[bool]) -> ColumnElement[bool]:
     """One of the mail's calendar events meets the condition."""
     return exists().where(CalendarEvent.mail_id == Mail.id, condition)
+
+
+# Photos in an area of the map (D248) ---------------------------------------------------------
+
+
+def parse_area(value: str) -> BBox:
+    """photo_area's "west,south,east,north" as numbers; FilterError for a longitude beyond 180
+    degrees, a latitude beyond 90 or south above north. West above east crosses the 180th
+    meridian."""
+    try:
+        west, south, east, north = (float(part) for part in value.split(","))
+    except ValueError:
+        raise FilterError(f"not an area: {value}") from None
+    if not (-180 <= west <= 180 and -180 <= east <= 180 and -90 <= south <= north <= 90):
+        raise FilterError(f"not an area of the map: {value}")
+    return west, south, east, north
+
+
+def in_area(
+    latitude: SQLColumnExpression[float | None],
+    longitude: SQLColumnExpression[float | None],
+    area: BBox,
+) -> ColumnElement[bool]:
+    """The position lies in the area, its borders included: a range of latitude, which
+    ix_document_metadata_position serves, and of longitude, or two of them across the 180th
+    meridian."""
+    west, south, east, north = area
+    across = (
+        longitude.between(west, east) if west <= east else or_(longitude >= west, longitude <= east)
+    )
+    return and_(latitude.between(south, north), across)
+
+
+def _photo_in(area: BBox) -> ColumnElement[bool]:
+    """One of the mail's attachments is a photo whose position lies in the area."""
+    return exists().where(
+        Attachment.mail_id == Mail.id,
+        Document.id == Attachment.document_id,
+        in_area(Document.metadata_latitude, Document.metadata_longitude, area),
+    )
 
 
 # Order and keyset ----------------------------------------------------------------------------

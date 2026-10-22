@@ -56,6 +56,7 @@ const full: ListState = {
   include_hidden: true,
   body_part: "own",
   block: "00ff00ff00ff00ff",
+  photo_area: "5.87,47.27,15.04,55.06",
   sort: "date_asc",
   cursor: "eyJrIjoxfQ",
   limit: 100,
@@ -114,6 +115,7 @@ describe("list state in the URL", () => {
       "include_hidden",
       "body_part",
       "block",
+      "photo_area",
       "sort",
       "cursor",
       "limit",
@@ -353,6 +355,22 @@ describe("hidden mails, the parts of the text and standard blocks in the URL (mi
 
   it("hands the parts of the text to the hits of a mail (D226)", () => {
     expect(toHitsParams(parse("q=Rat&body_part=full"))).toEqual({ q: "Rat", body_part: "full" });
+  });
+});
+
+describe("the area of the map's photos in the URL (D248)", () => {
+  it("keeps an area the API takes, one across the 180th meridian too", () => {
+    expect(parse("photo_area=5.87,47.27,15.04,55.06").photo_area).toBe("5.87,47.27,15.04,55.06");
+    expect(parse("photo_area=170,-20,-170,10").photo_area).toBe("170,-20,-170,10");
+    expect(toFilters(parse("photo_area=-180,-90,180,90"))).toEqual({
+      photo_area: "-180,-90,180,90",
+    });
+  });
+
+  it("drops one it cannot use", () => {
+    for (const area of ["5,47,15", "5,55,15,47", "5,47,190,55", "5,-95,15,55", "a,b,c,d"]) {
+      expect(parse(`photo_area=${area}`).photo_area).toBeNull();
+    }
   });
 });
 

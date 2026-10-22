@@ -108,9 +108,9 @@ async def _load(url: str, generated: GeneratedArchive) -> Archive:
                 "SELECT a.*, d.kind::text AS kind, d.text_status::text AS text_status, d.pages, "
                 "d.mails AS document_mails, d.metadata_status::text AS metadata_status, "
                 "d.metadata_author, d.metadata_modified_by, d.metadata_program, "
-                "d.metadata_device, d.metadata_created, d.metadata_gps, "
-                "d.protection::text AS protection, d.members_status::text AS members_status "
-                "FROM attachment a "
+                "d.metadata_device, d.metadata_created, d.metadata_gps, d.metadata_latitude, "
+                "d.metadata_longitude, d.protection::text AS protection, "
+                "d.members_status::text AS members_status FROM attachment a "
                 "LEFT JOIN document d ON d.id = a.document_id ORDER BY a.id"
             ):
                 attachments[row["mail_id"]].append(row)
@@ -235,6 +235,8 @@ def _metadata_summary(row: Row) -> dict[str, Any] | None:
         "device": row["metadata_device"],
         "created": row["metadata_created"],
         "gps": bool(row["metadata_gps"]),
+        "latitude": row["metadata_latitude"],  # D249
+        "longitude": row["metadata_longitude"],
     }
     return summary if row["metadata_status"] == "found" and any(summary.values()) else None
 

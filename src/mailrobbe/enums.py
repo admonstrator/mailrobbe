@@ -116,6 +116,7 @@ class JobKind(StrEnum):
     IMPORT = "import"  # mailrobbe import
     DKIM = "dkim"  # mailrobbe dkim
     DKIM_KEYS = "dkim_keys"  # mailrobbe dkim-keys: keys of deleted selectors (D101)
+    MAP = "map"  # mailrobbe map download: the detail map (D246)
 
 
 class JobStatus(StrEnum):
@@ -230,6 +231,15 @@ class PasswordTier(StrEnum):
     OPENED = "opened"  # it opened another document before
     ARCHIVE = "archive"  # anywhere else in the archive
     TYPED = "typed"  # typed in by hand on the document's page
+
+
+class PlaceStatus(StrEnum):
+    """entity.place_status and calendar_event.place_status (D242, D243): what the places step
+    found for a place entity or an invitation's location; NULL until it looked."""
+
+    FOUND = "found"  # a point: latitude, longitude and place_label are set
+    AMBIGUOUS = "ambiguous"  # several places of this name, none clearly the one meant
+    UNKNOWN = "unknown"  # no place of the shipped lists
 
 
 class EntityKind(StrEnum):

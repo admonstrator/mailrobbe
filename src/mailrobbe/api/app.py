@@ -21,9 +21,11 @@ from mailrobbe.api import (
     imports,
     keys,
     mails,
+    maps,
     marks,
     notes,
     persons,
+    places,
     previews,
     processes,
     protected,
@@ -94,6 +96,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(topics.router)
     app.include_router(hiding.router)
     app.include_router(blocks.router)
+    app.include_router(places.router)
+    app.include_router(maps.router)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

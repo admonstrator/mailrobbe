@@ -1,5 +1,6 @@
 """`mailrobbe bench` against a real server: uvicorn in a thread, on the imported test archive."""
 
+import asyncio
 import json
 import socket
 import threading
@@ -16,7 +17,7 @@ from pydantic import SecretStr
 from mailrobbe import cli
 from mailrobbe.api.app import create_app
 from mailrobbe.config import Settings
-from tests.api.conftest import api_settings
+from tests.api.conftest import _execute, api_settings
 from tests.conftest import GeneratedArchive
 
 pytestmark = pytest.mark.db
@@ -40,6 +41,13 @@ def running_server(settings: Settings) -> Iterator[str]:
         server.should_exit = True
         thread.join(20)
         sock.close()
+
+
+# A position for the document of the lowest id, so that the archive has a photo (D241).
+PHOTO_POSITION = """
+    UPDATE document SET metadata_latitude = 52.52, metadata_longitude = 13.405
+    WHERE id = (SELECT min(document_id) FROM attachment)
+"""
 
 
 def research_file(url: str) -> None:
@@ -66,6 +74,7 @@ def test_bench_measures_every_scenario_of_a_real_server(
 ) -> None:
     settings = api_settings(mutable_database_url, generated_archive, tmp_path / "no-frontend")
     report = tmp_path / "bench.json"
+    asyncio.run(_execute(mutable_database_url, [PHOTO_POSITION]))  # for the places scenarios
     with running_server(settings) as url:
         research_file(url)
         status = cli.main(
@@ -76,12 +85,13 @@ def test_bench_measures_every_scenario_of_a_real_server(
     results = json.loads(report.read_text())
     assert results["skipped"] == []
     assert results["failed"] == 0
-    assert len(results["scenarios"]) == results["requests"] == 59
+    assert len(results["scenarios"]) == results["requests"] == 69
     assert all(row["errors"] == [] and row["size_bytes"] > 0 for row in results["scenarios"])
     assert results["samples"]["top_person"] is not None
     assert results["samples"]["tag"] is not None
     assert results["samples"]["document_words"] and results["samples"]["document_id"]
-    assert "All 59 requests succeeded" in output
+    assert results["samples"]["photo_id"] is not None
+    assert "All 69 requests succeeded" in output
     for row in results["scenarios"]:
         assert row["name"] in output
 

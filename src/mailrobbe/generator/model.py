@@ -56,6 +56,19 @@ class Address:
 
 
 @dataclass(frozen=True, slots=True)
+class PhotoGps:
+    """Where, when and with what a photo was taken, as its EXIF states it (D241)."""
+
+    latitude: float  # signed decimal degrees as written: 0, 0 for a camera without a fix, and
+    longitude: float  # once a latitude beyond 90 degrees, which no reader takes
+    altitude: float  # metres
+    taken: datetime  # local wall time, naive
+    offset: str  # its UTC offset, "+01:00" or "+02:00"
+    make: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
 class DocumentSpec:
     """A real document an attachment carries (generator.documents); its bytes follow from this
     and the attachment's size, so every mail that carries it carries the same bytes."""
@@ -64,6 +77,7 @@ class DocumentSpec:
     form: str  # pdf, pdf_scan, pdf_encrypted, pdf_damaged, docx, odt, xlsx, pptx, csv, txt, ...
     theme: str  # what it is about: minutes, invoice, donations, ...
     when: datetime  # date of the mail that first carried it
+    gps: PhotoGps | None = None  # a photo's EXIF with its GPS position (form jpeg)
     # A protected document (pdf_encrypted, zip_protected): its password, and where the plan
     # wrote it (generator.protection): the PasswordTier the passwords step opens it with, None
     # when it is written nowhere and the document stays locked.
@@ -118,6 +132,9 @@ class DocumentTruth:
     password: str | None = None
     tier: str | None = None
     members: tuple[dict[str, Any], ...] | None = None
+    # The position the metadata step stores (D241): None without one, for 0, 0 and out of range.
+    latitude: float | None = None
+    longitude: float | None = None
 
     def as_json(self) -> dict[str, Any]:
         data = {name: getattr(self, name) for name in self.__slots__}
@@ -140,6 +157,9 @@ class EventTruth:
     # event, without offset for a floating time (no zone).
     start: str
     attendees: int
+    # The town its location names as the plan wrote it (D243): the step places gives the event
+    # a point there. None: no location, or a room or a call that names no town.
+    place: str | None = None
 
     def as_json(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in self.__slots__}
@@ -163,6 +183,7 @@ class Meeting:
     attendees: tuple[Address, ...]  # the recipients of the invitation
     rooms: tuple[Address, ...] = ()  # booked rooms: attendees that no mail reaches
     sequence: int = 0
+    place: str | None = None  # the town of an address as the location (EventTruth.place)
 
 
 @dataclass(frozen=True, slots=True)

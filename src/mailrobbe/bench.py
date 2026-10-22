@@ -5,8 +5,9 @@ It first picks its samples through the API itself: the newest mails and words of
 subjects, the person with the most mails and one from the middle of the person list, that
 person's strongest contact and busiest year, the top sender domains, thresholds at which the
 map's excerpts stay below 2,000 nodes, from the research file the review status, the tag and
-the Akte with the most mails, and the document carried by the most mails and words of the
-busiest document with text. So it needs nothing but the server's URL and runs on the
+the Akte with the most mails, the document carried by the most mails and words of the
+busiest document with text, and the photo taken first with its position (D248), around which
+the places scenarios look. So it needs nothing but the server's URL and runs on the
 host or in the container (`docker compose exec backend mailrobbe bench`) against any archive.
 Then it requests every scenario `--rounds` times, one request after the other over one
 keep-alive connection, and prints the median, the 95th percentile and the maximum of each,
@@ -155,6 +156,9 @@ class Samples:
     document_id: int | None = None  # the document carried by the most mails
     text_document_id: int | None = None  # the one with text carried by the most mails
     document_words: list[str] = field(default_factory=list)  # most common words of its text
+    photos: int = 0  # documents with a position (D241)
+    photo_id: int | None = None  # the photo taken first
+    photo_point: tuple[float, float] | None = None  # its latitude and longitude
 
 
 def pick_samples(client: Client) -> Samples:
@@ -186,6 +190,12 @@ def pick_samples(client: Client) -> Samples:
     samples.documents = sum(client.json("/api/import/summary")["documents"].values())
     if samples.documents:
         _pick_documents(client, samples)
+    samples.photos = client.json("/api/places/summary")["photos"]
+    if samples.photos:
+        listed = client.json("/api/places/photo-list", [("limit", 1), ("include_hidden", "true")])
+        for item in listed["items"]:
+            samples.photo_id = item["document_id"]
+            samples.photo_point = (item["latitude"], item["longitude"])
     return samples
 
 
@@ -400,6 +410,26 @@ def scenarios(samples: Samples, with_export: bool = False) -> tuple[list[Scenari
         *(word and mails(("q", word)) for word in document_words),
     )
 
+    photo = None if s.photo_id is None else f"/api/places/photos/{s.photo_id}"
+    around: list[tuple[str, object]] = []
+    area = None
+    if s.photo_point is not None:
+        lat, lon = s.photo_point
+        around = [("lat", lat), ("lon", lon), ("radius_km", 10)]
+        west, east = max(lon - 0.5, -180), min(lon + 0.5, 180)
+        south, north = max(lat - 0.5, -90), min(lat + 0.5, 90)
+        area = ",".join(f"{value:.4f}" for value in (west, south, east, north))
+    add("places summary", "/api/places/summary")
+    add("map photos, unfiltered", "/api/places/photos")
+    add("map photos, one year", year and with_query("/api/places/photos", year))
+    add("photo detail", photo)
+    add("photos around a point", around and with_query("/api/places/photo-list", around))
+    add("photos by capture time", "/api/places/photo-list")
+    add("map places from texts, unfiltered", "/api/places/texts")
+    add("map places from texts, one year", year and with_query("/api/places/texts", year))
+    add("map places of invitations", "/api/places/events")
+    add("mails in a map area", area and mails(("photo_area", area)))
+
     add("import status", "/api/import/status")
     add("import summary", "/api/import/summary")
     add("import errors", "/api/import/errors")
@@ -518,6 +548,9 @@ def describe(samples: Samples) -> list[str]:
             f"  document words  {', '.join(s.document_words)} "
             f"(from the text of #{s.text_document_id})"
         )
+    if s.photo_id is not None and s.photo_point is not None:
+        lat, lon = s.photo_point
+        lines.append(f"  photo           #{s.photo_id} of {s.photos:,}, at {lat:.4f}, {lon:.4f}")
     return lines
 
 

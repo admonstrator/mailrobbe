@@ -8,6 +8,7 @@ from mailrobbe.dkim.keys import cli as keys_cli
 from mailrobbe.generator import cli as generator_cli
 from mailrobbe.graph import cli as graph_cli
 from mailrobbe.importer import cli as importer_cli
+from mailrobbe.places import cli as map_cli
 
 
 def _serve(args: argparse.Namespace) -> int:
@@ -64,6 +65,10 @@ def build_parser() -> argparse.ArgumentParser:
     graph = commands.add_parser("graph", help="recompute or export the relationship map's edges")
     graph_cli.add_arguments(graph)
     graph.set_defaults(handler=graph_cli.run)
+
+    detail_map = commands.add_parser("map", help="download or delete the detail map")
+    map_cli.add_arguments(detail_map)
+    detail_map.set_defaults(handler=map_cli.run)
 
     measure = commands.add_parser(
         "bench", help="measure the API's response times against a running server"

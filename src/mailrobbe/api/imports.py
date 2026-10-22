@@ -8,8 +8,9 @@ job rows only, never mail. A run is alive while its process holds the advisory l
 left a statement running in the database (JobInfo.leftover, D113).
 
 Starting a run starts a child process (processes.py) and answers with the job row it recorded;
-one run at a time, of either kind. Pausing and stopping set job.stop_requested, which the run
-reads every 2 s, so they work for runs started on a command line too.
+one run at a time, of either kind (a map download of api/maps.py runs beside them, D246).
+Pausing and stopping set job.stop_requested, which the run reads every 2 s, so they work for
+runs started on a command line too.
 
 Every POST takes a JSON body (pause and stop take {}) declared as application/json. A page on
 another site can make the browser post forms, text or a body without a content type here, with
@@ -414,12 +415,16 @@ async def _start(
     arguments: list[str],
     environment: dict[str, str],
 ) -> Job:
-    """Start a run unless one of either kind is alive or starting; its job row."""
-    _require_mbox_dir(settings)
-    if runs.lock.locked() or runs.children:
+    """Start a run unless one it excludes (processes.excluded) is alive or starting; its job
+    row. A map download needs no MBOX directory."""
+    if kind is not JobKind.MAP:
+        _require_mbox_dir(settings)
+    excluded = processes.excluded(kind)
+    lock = runs.lock_of(kind)
+    if lock.locked() or runs.children_of(excluded):
         raise api_error(409, "job_running", "a run started from the dashboard has not ended")
-    async with runs.lock:
-        for other in JobKind:
+    async with lock:
+        for other in excluded:
             if await jobs.job_alive(session, other):
                 raise api_error(409, "job_running", f"a mailrobbe {other} run is alive")
         try:

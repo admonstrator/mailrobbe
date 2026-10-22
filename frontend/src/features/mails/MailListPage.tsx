@@ -29,6 +29,7 @@ import { formatNumber } from "../../lib/format";
 import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { personName as shownName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
+import { placesHrefOf } from "../places/urlState";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
 import { MiniTimeline } from "../timeline/MiniTimeline";
 import { hasSelection, selectionHref } from "../topics/urlState";
@@ -213,6 +214,13 @@ export function MailListPage() {
                 Begriffe
               </Link>
             )}
+            <Link
+              to={placesHrefOf(state)}
+              className={buttonClass("link", "sm")}
+              title="Die Fotos, Orte und Termine dieser Mails auf der Karte"
+            >
+              Auf der Karte
+            </Link>
             <span className={styles.hits} aria-live="polite">
               {hitText(summary.data, state)}
             </span>

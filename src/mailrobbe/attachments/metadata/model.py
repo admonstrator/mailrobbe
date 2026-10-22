@@ -28,6 +28,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TypeGuard
 
 from mailrobbe.attachments.kinds import classify
 from mailrobbe.enums import DocumentKind, DocumentMetadataStatus
@@ -64,7 +65,12 @@ class Summary:
     program: str | None = None
     device: str | None = None
     created: datetime | None = None  # in UTC; only a time the file states with its zone
-    gps: bool = False
+    gps: bool = False  # it has GPS coordinates, whatever their values
+    # The position the photo was taken at (D241), by the rule of migration 0017: both coordinates
+    # numbers in range and not exactly 0, 0 (a camera's "no fix"); the GPS time in UTC.
+    latitude: float | None = None
+    longitude: float | None = None
+    gps_time: datetime | None = None  # only with a position
 
 
 def clean(value: str, limit: int = VALUE_LIMIT) -> str:
@@ -252,6 +258,7 @@ def summarize(fields: Fields) -> Summary:
     dates = (parse_iso(fields.get(source, {}).get(key)) for source, key in _CREATED)
     created = next((date for date in dates if date and date.year in CREATED_YEARS), None)
     gps = fields.get("gps", {})
+    position = _position(gps.get("latitude"), gps.get("longitude"))
     return Summary(
         author=text(_AUTHORS),
         modified_by=text(_MODIFIERS),
@@ -259,7 +266,40 @@ def summarize(fields: Fields) -> Summary:
         device=clean(device, SUMMARY_LIMIT) or None,
         created=created,
         gps="latitude" in gps and "longitude" in gps,
+        latitude=None if position is None else position[0],
+        longitude=None if position is None else position[1],
+        gps_time=None if position is None else _gps_time(gps.get("timestamp")),
     )
+
+
+# The GPS time the summary takes (migration 0017): ISO 8601 in UTC, a valid second, the years
+# 1900 to 2199.
+_GPS_TIME = re.compile(r"(19\d\d|2[01]\d\d)-\d\d-\d\dT\d\d:\d\d:[0-5]\d(\.\d+)?Z", re.ASCII)
+
+
+def _position(latitude: Value | None, longitude: Value | None) -> tuple[float, float] | None:
+    """Both coordinates as numbers in range, not exactly 0, 0; else None."""
+    if not (_number(latitude) and _number(longitude)):
+        return None
+    if abs(latitude) > 90 or abs(longitude) > 180 or (latitude == 0 and longitude == 0):
+        return None
+    return float(latitude), float(longitude)
+
+
+def _number(value: Value | None) -> TypeGuard[int | float]:
+    """A number as jsonb stores one: no truth value, nothing infinite."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    return isinstance(value, int) or math.isfinite(value)
+
+
+def _gps_time(value: Value | None) -> datetime | None:
+    if not isinstance(value, str) or not _GPS_TIME.fullmatch(value):
+        return None
+    try:
+        return datetime.fromisoformat(value).astimezone(UTC)
+    except ValueError:
+        return None
 
 
 # Formats whose metadata is read (metadata.READERS), by the name kinds.classify gives them.

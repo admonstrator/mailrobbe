@@ -1,0 +1,29 @@
+# Names of countries that texts use and countries.tsv (Natural Earth) does not list, written by
+# hand: "Name = Code", the ISO 3166-1 code of countries.tsv (GB-ENG and the other parts of the
+# United Kingdom by their ISO 3166-2 code). A name of several countries lists them all; the
+# step places takes the most populous when it has ten times the inhabitants of the next (D242),
+# so Kongo is the Democratic Republic and Korea stays ambiguous.
+
+Amerika = US
+America = US
+Birma = MM
+Bosnien = BA
+Bundesrepublik Deutschland = DE
+Burma = MM
+Congo = CD, CG
+Great Britain = GB
+Großbritannien = GB
+Holland = NL
+Kirgistan = KG
+Kongo = CD, CG
+Korea = KR, KP
+Mazedonien = MK
+Russische Föderation = RU
+Tschechei = CZ
+Tschechische Republik = CZ
+U.S.A. = US
+UK = GB
+USA = US
+Vatikan = VA
+Vereinigte Staaten von Amerika = US
+Weißrussland = BY

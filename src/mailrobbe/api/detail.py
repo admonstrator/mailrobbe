@@ -563,6 +563,8 @@ async def _attachments(
             Document.metadata_gps,
             Document.protection,
             Document.members_status,
+            Document.metadata_latitude,
+            Document.metadata_longitude,
         )
         .outerjoin(Document, Document.id == Attachment.document_id)
         .where(Attachment.mail_id == mail_id)
@@ -578,6 +580,8 @@ async def _attachments(
             device=row.metadata_device,
             created=row.metadata_created,
             gps=bool(row.metadata_gps),
+            latitude=row.metadata_latitude,  # D249
+            longitude=row.metadata_longitude,
         )
         found = row.metadata_status == DocumentMetadataStatus.FOUND
         return summary if found and summary != MetadataSummary() else None

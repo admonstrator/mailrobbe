@@ -1,7 +1,7 @@
 """Protected and packed attachments: containers, their members, and found passwords
 
-Revision ID: 0017
-Revises: 0016
+Revision ID: 0018
+Revises: 0017
 Create Date: 2026-10-22
 """
 
@@ -11,8 +11,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0017"
-down_revision: str | None = "0016"
+revision: str = "0018"
+down_revision: str | None = "0017"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
