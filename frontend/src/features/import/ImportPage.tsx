@@ -19,6 +19,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { CrossIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
+import { AiRunLine } from "./AiRunLine";
 import { ArchiveTiles } from "./ArchiveTiles";
 import { KeyRecoveryCard } from "../keys/KeyRecoveryCard";
 import { DkimResult } from "./DkimResult";
@@ -123,6 +124,7 @@ function Dashboard({ status }: { status: ImportStatus }) {
         </div>
       )}
       <RunCard status={status} duplicates={summary.data?.duplicates} onError={showError} />
+      <AiRunLine run={status.ai_job} />
       {summary.data ? (
         <ArchiveTiles summary={summary.data} />
       ) : summary.isError ? (

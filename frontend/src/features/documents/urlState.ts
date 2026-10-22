@@ -12,6 +12,7 @@ import {
   type DocumentProtection,
   type DocumentSort,
   type DocumentTextStatus,
+  type TextOrigin,
 } from "../../api/types";
 import { FIRST_PAGE, pagingParams, pagingQuery, parsePaging, type Paging } from "../../lib/paging";
 import {
@@ -21,7 +22,7 @@ import {
   positiveInt,
   type ListState,
 } from "../mails/listState";
-import { DOCUMENT_KINDS, PROTECTIONS, TEXT_STATUSES } from "./labels";
+import { DOCUMENT_KINDS, PROTECTIONS, TEXT_ORIGINS, TEXT_STATUSES } from "./labels";
 
 export type DocumentPersonRole = NonNullable<DocumentFilters["person_role"]>;
 
@@ -42,6 +43,8 @@ export interface DocumentListState extends Paging {
   /** What the files say about themselves (D167): any of these authors and programs, exact. */
   author: string[];
   program: string[];
+  /** Where the text comes from (D185): the file, a text recognition, a transcript. */
+  text_origin: TextOrigin[];
   sort: DocumentSort;
 }
 
@@ -62,6 +65,7 @@ export const DEFAULT_DOCUMENT_LIST_STATE: DocumentListState = {
   external: false,
   author: [],
   program: [],
+  text_origin: [],
   sort: "recent",
   cursor: null,
   page: 1,
@@ -93,6 +97,7 @@ export function parseDocumentListState(search: URLSearchParams): DocumentListSta
     external: search.get("external") === "true",
     author: metadataValues(search.getAll("author")),
     program: metadataValues(search.getAll("program")),
+    text_origin: TEXT_ORIGINS.filter((origin) => search.getAll("text_origin").includes(origin)),
     sort: SORTS.find((sort) => sort === search.get("sort")) ?? "recent",
   };
 }
@@ -119,6 +124,7 @@ export function toDocumentFilters(state: DocumentListState): DocumentFilters {
   if (state.external) filters.external = true;
   if (state.author.length) filters.author = state.author;
   if (state.program.length) filters.program = state.program;
+  if (state.text_origin.length) filters.text_origin = state.text_origin;
   return filters;
 }
 
@@ -172,7 +178,7 @@ export function hasDocumentFilters(state: DocumentListState): boolean {
  *  other values keep their counts while some are checked. */
 export function facetFilters(
   filters: DocumentFilters,
-  group: "kind" | "text_status" | "protection" | "author" | "program",
+  group: "kind" | "text_status" | "protection" | "author" | "program" | "text_origin",
 ): DocumentFilters {
   const rest = { ...filters };
   delete rest[group];

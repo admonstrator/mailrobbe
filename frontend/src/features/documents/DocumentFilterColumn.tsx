@@ -12,6 +12,8 @@ import {
   KIND_LABELS,
   PROTECTION_FILTER_LABELS,
   PROTECTIONS,
+  TEXT_ORIGIN_LABELS,
+  TEXT_ORIGINS,
   TEXT_STATUS_FILTER_LABELS,
   TEXT_STATUSES,
 } from "./labels";
@@ -141,11 +143,25 @@ export function DocumentFilterColumn({
             </Checkbox>
             {status === "scanned" && (
               <p className={styles.hint}>
-                Ohne Textebene: Die Volltextsuche findet sie nicht, bis eine spätere Texterkennung
-                (OCR) sie liest.
+                Ohne Textebene: Die Volltextsuche findet sie erst, wenn die Texterkennung (Seite
+                „KI“) sie gelesen hat.
               </p>
             )}
           </div>
+        ))}
+      </FilterGroup>
+
+      <FilterGroup id="documents.origin" title="Textquelle" active={state.text_origin.length > 0}>
+        {TEXT_ORIGINS.map((origin) => (
+          <Checkbox
+            key={origin}
+            checked={state.text_origin.includes(origin)}
+            onChange={(checked) =>
+              change({ text_origin: toggle(state.text_origin, origin, checked, TEXT_ORIGINS) })
+            }
+          >
+            {TEXT_ORIGIN_LABELS[origin]}
+          </Checkbox>
         ))}
       </FilterGroup>
 

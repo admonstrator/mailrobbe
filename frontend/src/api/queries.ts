@@ -26,6 +26,18 @@ import {
 import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
+  AiChanged,
+  AiJob,
+  AiQueued,
+  AiQueueRequest,
+  AiResultPage,
+  AiResultParams,
+  AiRunRequest,
+  AiSendLogPage,
+  AiStatus,
+  AiTaskAction,
+  AiTaskPage,
+  AiTaskParams,
   AliasTier,
   BlockDetail,
   BlockInfo,
@@ -138,6 +150,7 @@ import type {
   SelectorListParams,
   SelectorPage,
   SelectorSummary,
+  ServiceCheck,
   SignalFacets,
   SignalOverview,
   SocialCard,
@@ -570,7 +583,12 @@ export type ImportErrorFilters = Pick<ImportErrorParams, "kind" | "mbox_file">;
 
 /** An import or a DKIM run is alive: its process holds the lock of its kind. */
 export function runAlive(status: ImportStatus | undefined): boolean {
-  return Boolean(status?.import_job?.alive || status?.dkim_job?.alive || status?.keys_job?.alive);
+  return Boolean(
+    status?.import_job?.alive ||
+    status?.dkim_job?.alive ||
+    status?.keys_job?.alive ||
+    status?.ai_job?.alive,
+  );
 }
 
 /** How often the dashboard asks for the status (D48): every 2 s while a run is alive, else
@@ -1538,5 +1556,142 @@ export function useDeleteDetailMap() {
   return useMutation({
     mutationFn: () => apiDelete("/api/map/detail"),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: placeKeys.mapStatus }),
+  });
+}
+
+// AI services (milestone 15, D180 to D189) ------------------------------------------------------
+
+export const aiKeys = {
+  /** Prefix of everything about the AI page; a queue change, a discard or a run changes it. */
+  all: ["ai"] as const,
+  status: ["ai", "status"] as const,
+  tasks: (params: AiTaskParams) => ["ai", "tasks", params] as const,
+  results: (params: AiResultParams) => ["ai", "results", params] as const,
+  sendLog: ["ai", "send-log"] as const,
+};
+
+/** How often the AI page asks for the status (D48): every 2 s while a run is alive, else every
+ *  30 s, which also notices a run started on a command line. */
+export function aiStatusInterval(status: AiStatus | undefined): number {
+  return status?.job?.alive ? 2_000 : 30_000;
+}
+
+export function useAiStatus() {
+  return useQuery({
+    queryKey: aiKeys.status,
+    queryFn: ({ signal }) => apiGet<AiStatus>("/api/ai/status", undefined, signal),
+    refetchInterval: (query) => aiStatusInterval(query.state.data),
+  });
+}
+
+/** Asks a service and runs its real test (D180); may take as long as MAILROBBE_AI_TIMEOUT. */
+export function useCheckAiService() {
+  return useMutation({
+    mutationFn: (capability: string) =>
+      apiPost<ServiceCheck>(`/api/ai/services/${capability}/check`, {}),
+  });
+}
+
+/** After a change of the queue or of the results: the AI page, and documents whose text or task
+ *  it changes, the mail lists' hit lines with them. */
+function aiChanged(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: aiKeys.all });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.documents });
+}
+
+export function useEnqueueAi() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: AiQueueRequest) => apiPost<AiQueued>("/api/ai/tasks", request),
+    onSuccess: () => aiChanged(queryClient),
+  });
+}
+
+/** Tasks newest first, a page at a time; asked again every 4 s while a run is alive. */
+export function useAiTasks(params: AiTaskParams, alive = false) {
+  return useInfiniteQuery({
+    queryKey: aiKeys.tasks(params),
+    queryFn: ({ pageParam, signal }) =>
+      apiGet<AiTaskPage>("/api/ai/tasks", { ...params, cursor: pageParam ?? undefined }, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    placeholderData: keepPreviousData,
+    refetchInterval: alive ? 4_000 : false,
+  });
+}
+
+export function useAiTaskAction(action: "retry" | "cancel") {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AiTaskAction) => apiPost<AiChanged>(`/api/ai/tasks/${action}`, body),
+    onSuccess: () => aiChanged(queryClient),
+  });
+}
+
+export function useAiResults(params: AiResultParams, alive = false) {
+  return useInfiniteQuery({
+    queryKey: aiKeys.results(params),
+    queryFn: ({ pageParam, signal }) =>
+      apiGet<AiResultPage>(
+        "/api/ai/results",
+        { ...params, cursor: pageParam ?? undefined },
+        signal,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    placeholderData: keepPreviousData,
+    refetchInterval: alive ? 4_000 : false,
+  });
+}
+
+/** Discards one result (its id) or every valid result of a run (job). */
+export function useDiscardAi() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (target: { result: number } | { job: number }) =>
+      apiPost<AiChanged>(
+        "result" in target
+          ? `/api/ai/results/${target.result}/discard`
+          : `/api/ai/jobs/${target.job}/discard`,
+        {},
+      ),
+    onSuccess: () => {
+      aiChanged(queryClient);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.mails });
+    },
+  });
+}
+
+export function useAiSendLog(enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: aiKeys.sendLog,
+    queryFn: ({ pageParam, signal }) =>
+      apiGet<AiSendLogPage>("/api/ai/send-log", { cursor: pageParam ?? undefined }, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    enabled,
+  });
+}
+
+/** Puts the run an action returned into the cached status at once, then asks again. */
+function showAiRun(queryClient: QueryClient, job: AiJob) {
+  queryClient.setQueryData<AiStatus>(aiKeys.status, (status) => status && { ...status, job });
+  void queryClient.invalidateQueries({ queryKey: aiKeys.all });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.importStatus });
+}
+
+export function useStartAiRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: AiRunRequest) => apiPost<AiJob>("/api/ai/run", request),
+    onSuccess: (job) => showAiRun(queryClient, job),
+  });
+}
+
+export function useStopAiRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<AiJob>("/api/ai/run/stop", {}),
+    onSuccess: (job) => showAiRun(queryClient, job),
   });
 }

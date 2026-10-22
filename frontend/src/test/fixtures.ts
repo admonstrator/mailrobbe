@@ -2,6 +2,11 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  AiJob,
+  AiResultPage,
+  AiSendLogPage,
+  AiStatus,
+  AiTaskPage,
   CalendarEventInfo,
   CertainMergePlan,
   CertainMergeResult,
@@ -4311,4 +4316,268 @@ export const mapStatusFailed: MapStatus = {
     finished_at: "2026-10-22T07:10:00Z",
     message: "range request failed three times: HTTP 503 from build.protomaps.com",
   },
+};
+
+// AI and OCR (milestone 15) ---------------------------------------------------------------------
+
+const aiDefaults: AiStatus["defaults"] = {
+  kinds: ["ocr"],
+  ocr_engine: "auto",
+  vision_model: "qwen2.5vl:7b",
+  max_pages: 50,
+  languages: "deu+eng",
+  uncertain: 60,
+  concurrency: 1,
+  tesseract_workers: 4,
+  vision_url: "http://host.docker.internal:11434",
+  vision_remote: false,
+};
+
+const aiQueueEmpty = { waiting: 0, running: 0, done: 0, failed: 0, cancelled: 0 };
+
+/** The AI page with a local vision model, two work lists and some queued tasks, no run. */
+export const aiStatus: AiStatus = {
+  enabled: true,
+  vision: true,
+  tesseract: true,
+  ocr_languages: "deu+eng",
+  services: [
+    {
+      capability: "vision",
+      url: "http://host.docker.internal:11434",
+      model: "qwen2.5vl:7b",
+      protocol: "auto",
+      locality: "local",
+      refused: null,
+      key: false,
+    },
+  ],
+  allow_remote: false,
+  remote_token_budget: 0,
+  ocr_engine: "auto",
+  queue: {
+    ocr: { waiting: 12, running: 0, done: 31, failed: 2, cancelled: 1 },
+    transcribe: aiQueueEmpty,
+    summarize: aiQueueEmpty,
+  },
+  work_lists: [
+    {
+      key: "scanned",
+      documents: 214,
+      pages: 1_380,
+      without_pages: 3,
+      bytes: 412_000_000,
+      estimates: [
+        { engine: "tesseract", model: "", seconds: 5_520, estimated: true, seconds_per_page: 4 },
+        {
+          engine: "vision",
+          model: "qwen2.5vl:7b",
+          seconds: 55_200,
+          estimated: true,
+          seconds_per_page: 40,
+        },
+      ],
+      engine: "tesseract",
+    },
+    {
+      key: "images",
+      documents: 0,
+      pages: 0,
+      without_pages: 0,
+      bytes: 0,
+      estimates: [],
+      engine: "vision",
+    },
+  ],
+  remote_used: false,
+  job: null,
+  defaults: aiDefaults,
+};
+
+/** A remote vision service the settings refuse (D181). */
+export const aiStatusRemoteRefused: AiStatus = {
+  ...aiStatus,
+  vision: false,
+  services: [
+    {
+      capability: "vision",
+      url: "https://api.vision.example/v1",
+      model: "reader-large",
+      protocol: "openai",
+      locality: "remote",
+      refused: "remote service without MAILROBBE_AI_ALLOW_REMOTE",
+      key: true,
+    },
+  ],
+};
+
+export const aiJobRunning: AiJob = {
+  id: 41,
+  kind: "ai",
+  origin: "ui",
+  status: "running",
+  alive: true,
+  stop_requested: false,
+  started_at: "2026-10-22T08:00:00Z",
+  updated_at: "2026-10-22T08:10:00Z",
+  report_age_seconds: 1,
+  finished_at: null,
+  message: null,
+  leftover: null,
+  phase: "ocr",
+  options: aiDefaults,
+  progress: {
+    steps: [
+      doneStep("check", 2),
+      {
+        ...waitingStep("ocr"),
+        status: "running",
+        unit: "pages",
+        done: 37,
+        total: 120,
+        started_at: "2026-10-22T08:00:02Z",
+        seconds: 598,
+        rate: 0.06,
+        eta_seconds: 1_380,
+      },
+      waitingStep("entities"),
+      waitingStep("signals"),
+    ],
+    database: null,
+    queued: 9,
+    done: 3,
+    no_text: 1,
+    failed: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+    current: "Scan_20180306_7499.pdf",
+    unreachable_since: null,
+  },
+};
+
+export const aiStatusRunning: AiStatus = {
+  ...aiStatus,
+  queue: { ...aiStatus.queue, ocr: { ...aiStatus.queue.ocr, waiting: 9, running: 1 } },
+  job: aiJobRunning,
+};
+
+export const aiTaskPage: AiTaskPage = {
+  items: [
+    {
+      id: 301,
+      kind: "ocr",
+      document: { id: 5150, name: "Scan_20180306_7499.pdf", kind: "pdf", pages: 3 },
+      engine: "auto",
+      priority: 1,
+      status: "waiting",
+      attempts: 0,
+      error: null,
+      queued_by: "Mara",
+      queued_at: "2026-10-22T07:50:00Z",
+      started_at: null,
+      finished_at: null,
+      pages_read: 0,
+      pages_total: 3,
+      result_id: null,
+    },
+    {
+      id: 298,
+      kind: "ocr",
+      document: { id: 5151, name: "Quittung_Spende.jpg", kind: "image", pages: null },
+      engine: "vision",
+      priority: 0,
+      status: "failed",
+      attempts: 3,
+      error: "service did not answer within 120 s",
+      queued_by: null,
+      queued_at: "2026-10-21T19:00:00Z",
+      started_at: "2026-10-21T19:05:00Z",
+      finished_at: "2026-10-21T19:11:00Z",
+      pages_read: 0,
+      pages_total: null,
+      result_id: null,
+    },
+  ],
+  next_cursor: null,
+};
+
+export const aiResultPage: AiResultPage = {
+  items: [
+    {
+      id: 77,
+      kind: "ocr",
+      document: { id: 5150, name: "Scan_20180306_7499.pdf", kind: "pdf", pages: 3 },
+      engine: "mixed",
+      model: "qwen2.5vl:7b",
+      remote: false,
+      pages_read: 3,
+      pages_text: 2,
+      pages_total: 3,
+      uncertain: [2],
+      failed: [3],
+      characters: 2_841,
+      seconds: 64,
+      state: "valid",
+      created_at: "2026-10-21T18:30:00Z",
+      job_id: 40,
+      discarded_by: null,
+      discarded_at: null,
+    },
+  ],
+  next_cursor: null,
+};
+
+export const aiSendLogPage: AiSendLogPage = {
+  items: [
+    {
+      id: 5,
+      sent_at: "2026-10-21T18:29:00Z",
+      service_url: "https://api.vision.example/v1",
+      kind: "ocr",
+      document: { id: 5150, name: "Scan_20180306_7499.pdf", kind: "pdf", pages: 3 },
+      bytes: 412_331,
+      job_id: 40,
+    },
+  ],
+  next_cursor: null,
+  total: 1,
+};
+
+/** A scan whose text an AI run recognised: two of three pages, one uncertain, one failed. */
+export const ocrDocument: DocumentDetail = {
+  ...documentDetail,
+  id: 5150,
+  name: "Scan_20180306_7499.pdf",
+  size: 2_400_000,
+  pages: 3,
+  text_status: "text",
+  text_origin: "ocr",
+  ocr_readable: true,
+  ai: {
+    result: {
+      id: 77,
+      engine: "mixed",
+      model: "qwen2.5vl:7b",
+      remote: false,
+      created_at: "2026-10-21T18:30:00Z",
+      pages_total: 3,
+      pages_read: 3,
+      pages_text: 2,
+      uncertain: [2],
+      failed: [3],
+      characters: 2_841,
+    },
+    task: null,
+  },
+  metadata: { status: "empty", error: null, fields: {}, summary: null },
+};
+
+/** The same scan before any run: no text, OCR can read it. */
+export const scannedDocument: DocumentDetail = {
+  ...ocrDocument,
+  id: 5152,
+  name: "Scan_20190411_0012.pdf",
+  text_status: "scanned",
+  text_origin: "extracted",
+  ai: { result: null, task: null },
 };

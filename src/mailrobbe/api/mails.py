@@ -63,7 +63,7 @@ from mailrobbe.api.filters import (
     unfiltered,
 )
 from mailrobbe.api.fulltext import full_text_search
-from mailrobbe.api.hits import page_hits
+from mailrobbe.api.hits import machine_hits, page_hits
 from mailrobbe.api.query import DKIM_KEYS, QueryError, parse_query
 from mailrobbe.api.schemas import (
     COUNT_LIMIT,
@@ -243,6 +243,10 @@ async def list_mails(
             item.hits = counts = hits[item.id]
             itself, attached = counts.subject + counts.body, counts.attachment + counts.filename
             item.attachment_match = itself == 0 and attached > 0
+        in_texts = [item.id for item in items if hits[item.id].attachment > 0]
+        machine = await machine_hits(session, in_texts, search)  # D189
+        for item in items:
+            item.attachment_machine = item.id in machine
     else:
         through_attachments = await _found_through_attachments(session, terms, ids)
         for item in items:

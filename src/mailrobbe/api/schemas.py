@@ -198,6 +198,31 @@ photo's capture time and device. MailFilters has photo_area, MetadataSummary the
     GET    /api/map/tiles/{file}                 the detail map's PMTiles file, with Range
                                                  requests (206, 416, ETag); 404 for any other
 
+AI services (milestone 15, D180 to D189). DocumentFilters has text_origin, DocumentListItem and
+DocumentDetail the text origin, DocumentDetail the AI result and open task and whether OCR can
+read it, DocumentSummary the readable documents, AttachmentHit and MailListItem whether a hit
+stands in a machine made text, ImportStatus the latest AI run; writes take the editor from
+X-Mailrobbe-Editor (D54):
+
+    GET  /api/ai/status                          AiStatus: services as configured, queue, work
+                                                 lists with estimates, the latest run (D188)
+    POST /api/ai/services/{capability}/check     ServiceCheck: the service asked and tested
+                                                 now; 404 not_found without one
+    POST /api/ai/tasks                           AiQueueRequest -> AiQueued (D186); 400
+                                                 invalid_selection, too_many_documents
+    GET  /api/ai/tasks?AiTaskParams              AiTaskPage, newest first
+    POST /api/ai/tasks/retry                     AiTaskAction -> AiChanged: failed and cancelled
+                                                 ones queued again
+    POST /api/ai/tasks/cancel                    AiTaskAction -> AiChanged: waiting ones taken off
+    GET  /api/ai/results?AiResultParams          AiResultPage, newest first
+    POST /api/ai/results/{id}/discard            AiChanged; 404 not_found for none or one
+                                                 discarded before (D185)
+    POST /api/ai/jobs/{id}/discard               AiChanged: every valid result of the run
+    GET  /api/ai/send-log?AiSendLogParams        AiSendLogPage, newest first (D181)
+    POST /api/ai/run                             AiRunRequest -> 202 AiJob (D187); 409
+                                                 job_running while an import or AI run lives
+    POST /api/ai/run/stop                        AiJob, its stop requested
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -215,6 +240,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from mailrobbe.ai.model import (
+    AiOptions,
+    AiProgress,
+    Capability,
+    Locality,
+    OcrEngine,
+    OcrEngineChoice,
+    Protocol,
+)
 from mailrobbe.dkim.keys.model import (
     DkimKeysOptions,
     DkimKeysPhase,
@@ -222,6 +256,9 @@ from mailrobbe.dkim.keys.model import (
     DkimKeysTask,
 )
 from mailrobbe.enums import (
+    AiResultState,
+    AiTaskKind,
+    AiTaskStatus,
     AliasTier,
     DkimReason,
     DkimStatus,
@@ -245,6 +282,7 @@ from mailrobbe.enums import (
     PasswordTier,
     PersonKind,
     ReviewStatus,
+    TextOrigin,
 )
 from mailrobbe.jobs import DbActivity, DkimOptions, DkimProgress, ImportOptions, ImportProgress
 from mailrobbe.persons.suggestions import SuggestionReason
@@ -357,6 +395,7 @@ ErrorCode = Literal[
     "not_locked",  # 409: the document is not locked, or (decrypted) has no password found yet
     "decrypt_failed",  # 422: the found password did not decrypt it; message says why
     "map_off",  # 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
+    "too_many_documents",  # 400: a selection for the AI queue above AI_QUEUE_LIMIT (D186)
 ]
 
 
@@ -508,6 +547,9 @@ class MailListItem(BaseModel):
     near_count: int = 0  # the other mails of its group of near duplicates (D153); 0: none
     event: EventKey | None = None  # the kind of the mail's first calendar event (D155)
     hits: MailHitCounts | None = None  # q has full text words: where they occur (D176)
+    # the text of an attachment that holds a counted word was recognised by an AI run, not read
+    # from its file (D189); the UI marks the hit "maschinell erkannt"
+    attachment_machine: bool = False
 
 
 class MailPage(BaseModel):
@@ -1401,6 +1443,7 @@ class ImportStatus(BaseModel):
     # the latest import run, or the server's settings before the first (D49).
     defaults: ImportOptions
     keys_job: DkimKeysJob | None = None  # the latest dkim-keys run (D101)
+    ai_job: "AiJob | None" = None  # the latest AI run (D187), which an import waits for
 
 
 class FailReasonCount(BaseModel):
@@ -1794,6 +1837,7 @@ class DocumentFilters(BaseModel):
     author: list[str] = []
     program: list[str] = []
     protection: list[DocumentProtection] = []  # any of these (D233); empty: all
+    text_origin: list[TextOrigin] = []  # where its text comes from (D185, D189); empty: all
 
 
 class DocumentListParams(DocumentFilters):
@@ -1824,6 +1868,7 @@ class DocumentListItem(BaseModel):
     snippet: str | None = None
     protection: DocumentProtection | None = None  # D233
     contained: bool = False  # it was found inside a container (D231)
+    text_origin: TextOrigin = TextOrigin.EXTRACTED  # ocr: its text is machine made (D189)
 
 
 class DocumentPage(BaseModel):
@@ -1853,6 +1898,9 @@ class DocumentSummary(BaseModel):
     authors: list[MetadataValueCount] | None = None
     programs: list[MetadataValueCount] | None = None
     protection: dict[DocumentProtection, int] | None = None  # every protection, 0 if none (D233)
+    # Of them, those OCR can read (ai.queue.OCR_READABLE), logos included: what "Für KI vormerken"
+    # would queue at most (D186); None: ran out of time.
+    ocr_readable: int | None = None
 
 
 class DocumentNameCount(BaseModel):
@@ -1987,6 +2035,9 @@ class DocumentDetail(BaseModel):
     password: DocumentPassword | None = None
     members: DocumentMembers | None = None  # a container's entries (D231); None otherwise
     containers: list[DocumentContainerRef] = []  # where it was found inside (D231)
+    text_origin: TextOrigin = TextOrigin.EXTRACTED  # D185
+    ai: "DocumentAi | None" = None  # its OCR result and open task (D189); None without either
+    ocr_readable: bool = False  # OCR can read it (ai.queue.OCR_READABLE): "Text erkennen"
 
 
 class DocumentText(BaseModel):
@@ -2011,6 +2062,7 @@ class AttachmentHit(BaseModel):
     # stems begins; None: only the name holds it, or a form the stems do not begin (rare)
     snippet: str | None
     in_text: bool = False  # its document's text holds a word (D176)
+    machine: bool = False  # that text was recognised by an AI run (D189)
 
 
 class MailHits(BaseModel):
@@ -2944,3 +2996,253 @@ class MapDownloadRequest(BaseModel):
     region: MapRegionKey
     detail: MapDetailKey
     bbox: BBox | None = None  # region view: the map's view, west below east; else not given
+
+
+# AI services (milestone 15, D180 to D189) ----------------------------------------------------
+#
+# The services are configured in the .env only (D180); the status shows them as configured,
+# without asking them, and the check asks one and runs its real test. The queue holds a
+# selection, never the whole archive (D186); a run of kind ai works it through (D187).
+
+AiWorkList = Literal["scanned", "images"]  # ai.queue.WorkList
+AiPhase = Literal["check", "ocr", "entities", "entity_figures", "signals"]  # ai.model.AI_STEPS
+AI_QUEUE_LIMIT = 50_000  # documents one request may queue (D186)
+AI_PAGE_SIZE = 50  # default page of the task, result and send log lists
+# Seconds per page without a measurement (D188); an image counts as one page.
+AI_RULE_SECONDS: dict[OcrEngine, float] = {"tesseract": 4.0, "vision": 40.0}
+
+
+class AiServiceInfo(BaseModel):
+    """One configured service as the settings name it (D180, D181), not asked."""
+
+    capability: Capability
+    url: str  # display_url: without credentials, query and fragment
+    model: str  # MAILROBBE_AI_<CAPABILITY>_MODEL; "" when not set
+    protocol: Protocol | Literal["auto"]  # the setting; the check says what was detected
+    locality: Locality | None  # None: the URL can never name a service (refused says why)
+    refused: str | None  # English, one line: why the settings forbid it (ai.model.refusal)
+    key: bool  # a key is set (never shown)
+
+
+class AiEstimate(BaseModel):
+    """How long a selection takes with one engine (D188)."""
+
+    engine: OcrEngine
+    model: str  # the vision model; "" for Tesseract
+    seconds: float
+    # True: by the rule of thumb (AI_RULE_SECONDS), "geschätzt"; False: from ai_calibration
+    estimated: bool
+    seconds_per_page: float
+
+
+class AiWorkListInfo(BaseModel):
+    """A work list of the AI page (D186): what is still without a valid OCR result."""
+
+    key: AiWorkList
+    documents: int
+    pages: int  # pages known; an image counts as one
+    without_pages: int  # documents whose pages are not known, one page each in the estimate
+    bytes: int
+    # One per engine at hand (Tesseract always, the vision model when one is usable), for at
+    # most max_pages of the defaults per document.
+    estimates: list[AiEstimate]
+    engine: OcrEngine  # the engine "auto" takes for this list (D182)
+
+
+class AiJob(JobInfo):
+    """A run of `mailrobbe ai run` (D187)."""
+
+    phase: AiPhase | None
+    options: AiOptions
+    progress: AiProgress
+
+
+class AiStatus(BaseModel):
+    """What the AI page polls: every 2 s while a run is alive, else rarely (D48)."""
+
+    # OCR is always possible: Tesseract runs in the server's container; vision says whether a
+    # vision model is configured and allowed besides.
+    enabled: bool
+    vision: bool
+    tesseract: bool  # the tesseract program is installed where the server runs
+    ocr_languages: str  # MAILROBBE_AI_OCR_LANGUAGES
+    services: list[AiServiceInfo]  # every configured one, by capability
+    allow_remote: bool  # MAILROBBE_AI_ALLOW_REMOTE (D181)
+    remote_token_budget: int  # MAILROBBE_AI_REMOTE_TOKEN_BUDGET
+    ocr_engine: OcrEngineChoice  # MAILROBBE_AI_OCR_ENGINE
+    queue: dict[AiTaskKind, dict[AiTaskStatus, int]]  # every kind and status present
+    work_lists: list[AiWorkListInfo]  # scanned, then images
+    # The send log has entries, or a configured service is remote: the page shows "Gesendet".
+    remote_used: bool
+    job: AiJob | None  # the latest AI run; None before the first
+    defaults: AiOptions  # the options of the latest run, or the settings' before the first (D49)
+
+
+class AiQueueRequest(BaseModel):
+    """What to queue for OCR: exactly one of work_list, document_ids and filters (D186)."""
+
+    work_list: AiWorkList | None = None
+    document_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)
+    filters: DocumentFilters | None = None  # the document list's, resolved by its own SQL
+    engine: OcrEngineChoice = "auto"
+    include_logos: bool = False  # images in more than LOGO_MAILS mails too
+    single: bool = False  # one document from its page: first in the queue, a logo too
+
+
+class AiQueued(BaseModel):
+    """What queuing did (ai.queue.Queued)."""
+
+    queued: int  # new tasks
+    raised: int  # already open: priority and engine updated
+    unreadable: int  # not readable by OCR: a text of its own, no SHA-256, unknown id
+    logos: int  # images in more than LOGO_MAILS mails, left out
+
+
+class AiDocumentRef(BaseModel):
+    """The document a task, result or send is about, by its content."""
+
+    id: int
+    name: str | None
+    kind: DocumentKind | None
+    pages: int | None
+
+
+class AiTaskParams(BaseModel):
+    status: list[AiTaskStatus] = []  # any of these; empty: all
+    cursor: str | None = None  # next_cursor of an AiTaskPage with the same status
+    limit: int = Field(AI_PAGE_SIZE, ge=1, le=200)
+
+
+class AiTaskItem(BaseModel):
+    id: int
+    kind: AiTaskKind
+    document: AiDocumentRef | None  # None: no document has the content any more
+    engine: OcrEngineChoice
+    priority: int
+    status: AiTaskStatus
+    attempts: int
+    error: str | None  # English, one line
+    queued_by: str | None  # D54
+    queued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    pages_read: int  # pages of ai_task.partial, kept across a stop (D187)
+    pages_total: int | None
+    result_id: int | None
+
+
+class AiTaskPage(BaseModel):
+    items: list[AiTaskItem]
+    next_cursor: str | None
+
+
+class AiTaskAction(BaseModel):
+    """Retry or cancel: these tasks, or with all every one the action applies to."""
+
+    ids: list[int] = Field(default=[], max_length=AI_QUEUE_LIMIT)
+    all: bool = False
+
+
+class AiChanged(BaseModel):
+    changed: int  # tasks put back or taken off, results discarded
+
+
+class AiResultParams(BaseModel):
+    state: list[AiResultState] = []  # any of these; empty: all
+    job_id: int | None = None  # of this run only
+    cursor: str | None = None
+    limit: int = Field(AI_PAGE_SIZE, ge=1, le=200)
+
+
+class AiResultItem(BaseModel):
+    """One ai_result (D185), without its text."""
+
+    id: int
+    kind: AiTaskKind
+    document: AiDocumentRef | None
+    engine: str  # tesseract, vision or mixed
+    model: str | None
+    remote: bool
+    pages_read: int  # pages it holds, failed ones included
+    pages_text: int  # of them, pages with writing
+    pages_total: int | None
+    uncertain: list[int]  # page numbers marked uncertain (D184)
+    failed: list[int]  # page numbers that failed and were skipped
+    characters: int  # of its text
+    seconds: float
+    state: AiResultState
+    created_at: datetime
+    job_id: int | None
+    discarded_by: str | None
+    discarded_at: datetime | None
+
+
+class AiResultPage(BaseModel):
+    items: list[AiResultItem]
+    next_cursor: str | None
+
+
+class AiSendLogParams(BaseModel):
+    cursor: str | None = None
+    limit: int = Field(AI_PAGE_SIZE, ge=1, le=200)
+
+
+class AiSendItem(BaseModel):
+    """One request to a service outside the own machine and network (D181)."""
+
+    id: int
+    sent_at: datetime
+    service_url: str  # without credentials
+    kind: AiTaskKind
+    document: AiDocumentRef | None
+    bytes: int
+    job_id: int | None
+
+
+class AiSendLogPage(BaseModel):
+    items: list[AiSendItem]
+    next_cursor: str | None
+    total: int
+
+
+class AiRunRequest(BaseModel):
+    """A start of `mailrobbe ai run` from the AI page; what is left out comes from the defaults
+    (D49)."""
+
+    engine: OcrEngineChoice | None = None  # for tasks queued with auto
+    vision_model: str | None = Field(default=None, max_length=200)
+    max_pages: int | None = Field(default=None, ge=1, le=10_000)
+
+
+class DocumentAiResult(BaseModel):
+    """The valid OCR result of a document's content, as its text card names it (D189)."""
+
+    id: int
+    engine: str  # tesseract, vision or mixed
+    model: str | None
+    remote: bool
+    created_at: datetime
+    pages_total: int | None
+    pages_read: int
+    pages_text: int
+    uncertain: list[int]
+    failed: list[int]
+    characters: int  # 0: no writing found
+
+
+class DocumentAiTask(BaseModel):
+    """The open OCR task of a document's content: vorgemerkt or läuft."""
+
+    id: int
+    status: AiTaskStatus  # waiting or running
+    engine: OcrEngineChoice
+    pages_read: int
+
+
+class DocumentAi(BaseModel):
+    result: DocumentAiResult | None
+    task: DocumentAiTask | None
+
+
+ImportStatus.model_rebuild()
+DocumentDetail.model_rebuild()

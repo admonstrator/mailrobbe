@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { AttachmentHit, AttachmentInfo, MailHits } from "../../api/types";
 import { Card } from "../../components/Card";
 import { formatNumber } from "../../lib/format";
+import { MachineMark } from "../documents/MachineMark";
 import styles from "./SearchHitsCard.module.css";
 
 /** The element id of an attachment in AttachmentsCard, which a hit scrolls to. */
@@ -56,6 +57,12 @@ export function SearchHitsCard({
           >
             {names.get(hit.attachment_id) ?? `#${hit.attachment_id}`}
           </button>
+          {key === "text" && hit.machine && (
+            <>
+              {" "}
+              <MachineMark />
+            </>
+          )}
         </span>
       ))}
       {times(count)}

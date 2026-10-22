@@ -1,0 +1,230 @@
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import type { AiStatus, ServiceCheck } from "../../api/types";
+import {
+  aiJobRunning,
+  aiResultPage,
+  aiSendLogPage,
+  aiStatus,
+  aiStatusRemoteRefused,
+  aiStatusRunning,
+  aiTaskPage,
+} from "../../test/fixtures";
+import { fixtureApi, renderApp, renderElement, type ApiCall } from "../../test/render";
+import { AiRunLine } from "../import/AiRunLine";
+
+const check: ServiceCheck = {
+  capability: "vision",
+  url: "http://host.docker.internal:11434",
+  locality: "local",
+  refused: null,
+  reachable: true,
+  protocol: "ollama",
+  models: [
+    { name: "qwen2.5vl:7b", vision: true },
+    { name: "llama3.2", vision: false },
+  ],
+  model: "qwen2.5vl:7b",
+  model_found: true,
+  test: "passed",
+  test_detail: "MAILROBBE 2026",
+  seconds: 6.4,
+  error: null,
+  checked_at: "2026-10-22T08:00:00Z",
+};
+
+/** The fixture backend with the AI endpoints; status is the one the test gives. */
+function aiApi(status: AiStatus) {
+  return (call: ApiCall): unknown => {
+    const path = call.url.pathname;
+    if (path === "/api/ai/status") return status;
+    if (path === "/api/ai/tasks" && call.method === "GET") return aiTaskPage;
+    if (path === "/api/ai/tasks") return { queued: 214, raised: 2, unreadable: 0, logos: 0 };
+    if (path === "/api/ai/tasks/retry" || path === "/api/ai/tasks/cancel") return { changed: 1 };
+    if (path === "/api/ai/results") return aiResultPage;
+    if (path.endsWith("/discard")) return { changed: 1 };
+    if (path === "/api/ai/send-log") return aiSendLogPage;
+    if (path === "/api/ai/services/vision/check") return check;
+    if (path === "/api/ai/run") return Response.json(aiJobRunning, { status: 202 });
+    if (path === "/api/ai/run/stop") return { ...aiJobRunning, stop_requested: true };
+    return fixtureApi(call);
+  };
+}
+
+const posts = (calls: ApiCall[], path: string) =>
+  calls.filter((call) => call.method === "POST" && call.url.pathname === path);
+const card = (name: string) => screen.getByRole("region", { name });
+
+describe("AI page", () => {
+  it("is in the navigation and explains what it does", async () => {
+    renderApp("/ki", aiApi(aiStatus));
+    expect(await screen.findByRole("heading", { level: 1, name: "KI" })).toBeTruthy();
+    expect(document.title).toBe("KI · Mailrobbe");
+    const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
+    expect(within(navigation).getByRole("link", { name: "KI" }).getAttribute("href")).toBe("/ki");
+    expect(screen.getByText(/Die KI bewertet nichts/)).toBeTruthy();
+  });
+
+  it("lists Tesseract and the local service, and tests it", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    await screen.findByRole("heading", { name: "Dienste" });
+    const services = card("Dienste");
+    expect(within(services).getByText("im Container")).toBeTruthy();
+    expect(within(services).getByText("lokal")).toBeTruthy();
+    expect(within(services).getByText("http://host.docker.internal:11434")).toBeTruthy();
+    expect(within(services).getByText("qwen2.5vl:7b")).toBeTruthy();
+    fireEvent.click(within(services).getByRole("button", { name: "Testen" }));
+    const result = await within(services).findByRole("status");
+    expect(result.textContent).toContain("Erreichbar (Ollama)");
+    expect(result.textContent).toContain("Modelle: qwen2.5vl:7b, llama3.2");
+    expect(result.textContent).toContain("Test bestanden · 6,4 s");
+    expect(result.textContent).toContain("Antwort: MAILROBBE 2026");
+    expect(posts(calls, "/api/ai/services/vision/check")).toHaveLength(1);
+  });
+
+  it("says why a remote service is refused and how to allow it", async () => {
+    renderApp("/ki", aiApi(aiStatusRemoteRefused));
+    await screen.findByRole("heading", { name: "Dienste" });
+    const services = card("Dienste");
+    expect(within(services).getByText("Internet")).toBeTruthy();
+    expect(within(services).getByText(/MAILROBBE_AI_ALLOW_REMOTE=true/)).toBeTruthy();
+    expect(within(services).getByRole("button", { name: "Testen" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    // Without a usable vision model, Tesseract is the only engine.
+    const lists = card("Arbeitslisten");
+    const select = within(lists).getByRole("combobox", { name: "Verfahren" });
+    expect([...select.querySelectorAll("option")].map((option) => option.textContent)).toEqual([
+      "Tesseract",
+    ]);
+  });
+
+  it("shows the work lists with their estimates and queues one", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    await screen.findByRole("heading", { name: "Arbeitslisten" });
+    const lists = card("Arbeitslisten");
+    const scanned = within(lists).getByRole("region", { name: "Gescannte PDFs" });
+    expect(scanned.textContent).toContain("214 Dokumente · 1.380 Seiten (bei 3 unbekannt)");
+    expect(scanned.textContent).toContain("geschätzt ca.");
+    // Images: nothing to queue.
+    const images = within(lists).getByRole("region", { name: "Bilder ab 100 KB" });
+    expect(within(images).queryByRole("button", { name: "Vormerken" })).toBeNull();
+
+    fireEvent.change(within(scanned).getByRole("combobox", { name: "Verfahren" }), {
+      target: { value: "tesseract" },
+    });
+    fireEvent.click(within(scanned).getByRole("button", { name: "Vormerken" }));
+    expect(
+      await within(scanned).findByText("214 Dokumente vorgemerkt, 2 schon vorgemerkt"),
+    ).toBeTruthy();
+    expect(posts(calls, "/api/ai/tasks").map((call) => call.body)).toEqual([
+      { work_list: "scanned", engine: "tesseract" },
+    ]);
+  });
+
+  it("lists the queue with retry and cancel", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const queue = await screen.findByRole("region", { name: "Warteschlange" });
+    await within(queue).findByRole("link", { name: "Scan_20180306_7499.pdf" });
+    expect(within(queue).getByText("service did not answer within 120 s")).toBeTruthy();
+    expect(within(queue).getByText("zuerst")).toBeTruthy();
+
+    fireEvent.click(within(queue).getByRole("button", { name: "Erneut" }));
+    fireEvent.click(within(queue).getByRole("button", { name: "Abbrechen" }));
+    fireEvent.click(
+      within(queue).getByRole("button", { name: "Alle fehlgeschlagenen erneut (2)" }),
+    );
+    await waitFor(() => expect(posts(calls, "/api/ai/tasks/retry")).toHaveLength(2));
+    expect(posts(calls, "/api/ai/tasks/retry").map((call) => call.body)).toEqual([
+      { ids: [298] },
+      { all: true },
+    ]);
+    expect(posts(calls, "/api/ai/tasks/cancel").map((call) => call.body)).toEqual([{ ids: [301] }]);
+
+    fireEvent.click(within(queue).getByRole("button", { name: "fehlgeschlagen 2" }));
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.url.pathname === "/api/ai/tasks" &&
+            call.url.searchParams.getAll("status").join() === "failed",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("discards a result after a confirmation", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const results = await screen.findByRole("region", { name: "Ergebnisse" });
+    await within(results).findByRole("link", { name: "Scan_20180306_7499.pdf" });
+    expect(within(results).getByText("Tesseract und qwen2.5vl:7b")).toBeTruthy();
+    expect(within(results).getByText("Nicht gelesen: Seite 3")).toBeTruthy();
+
+    fireEvent.click(within(results).getByRole("button", { name: "ganzen Lauf" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Alle Texte dieses Laufs verwerfen?",
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Verwerfen" }));
+    expect(await within(dialog).findByText("1 Text verworfen.")).toBeTruthy();
+    expect(posts(calls, "/api/ai/jobs/40/discard")).toHaveLength(1);
+  });
+
+  it("starts a run with the defaults", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const run = await screen.findByRole("region", { name: "Lauf" });
+    expect(within(run).getByText(/12 Dokumente sind vorgemerkt/)).toBeTruthy();
+    expect(within(run).getByRole("textbox", { name: "Bildmodell" })).toHaveProperty(
+      "value",
+      "qwen2.5vl:7b",
+    );
+    fireEvent.click(within(run).getByRole("button", { name: "KI-Lauf starten" }));
+    await waitFor(() => expect(posts(calls, "/api/ai/run")).toHaveLength(1));
+    expect(posts(calls, "/api/ai/run")[0].body).toEqual({
+      engine: "auto",
+      max_pages: 50,
+      vision_model: "qwen2.5vl:7b",
+    });
+  });
+
+  it("shows a live run with its pages and steps, and stops it", async () => {
+    const { calls } = renderApp("/ki", aiApi(aiStatusRunning));
+    const run = await screen.findByRole("region", { name: "Lauf" });
+    expect(await within(run).findByText("37 von 120 Seiten")).toBeTruthy();
+    expect(within(run).getByText("Scan_20180306_7499.pdf")).toBeTruthy();
+    expect(within(run).getByText("Texterkennung")).toBeTruthy();
+    fireEvent.click(within(run).getByRole("button", { name: "Anhalten" }));
+    await waitFor(() => expect(posts(calls, "/api/ai/run/stop")).toHaveLength(1));
+  });
+
+  it("lists what was sent once something went to the internet", async () => {
+    renderApp("/ki", aiApi({ ...aiStatus, remote_used: true }));
+    const sent = await screen.findByRole("region", { name: "Gesendet" });
+    expect(await within(sent).findByText("https://api.vision.example/v1")).toBeTruthy();
+    expect(within(sent).getByText(/1 Sendung\b/)).toBeTruthy();
+  });
+
+  it("has no Gesendet card while nothing left the machine", async () => {
+    renderApp("/ki", aiApi(aiStatus));
+    await screen.findByRole("region", { name: "Lauf" });
+    expect(screen.queryByRole("region", { name: "Gesendet" })).toBeNull();
+  });
+});
+
+describe("AI run on the dashboard", () => {
+  it("says a run lives, with its pages, and links the page", () => {
+    renderElement(<AiRunLine run={aiJobRunning} />);
+    const line = screen.getByRole("region", { name: "KI-Lauf" });
+    expect(line.textContent).toContain("KI-Lauf läuft · 37 von 120 Seiten");
+    expect(line.textContent).toContain("Ein Import kann erst danach starten.");
+    expect(within(line).getByRole("link", { name: "Zur Seite „KI“" }).getAttribute("href")).toBe(
+      "/ki",
+    );
+  });
+
+  it("shows nothing without a live run", () => {
+    renderElement(<AiRunLine run={{ ...aiJobRunning, alive: false, status: "done" }} />);
+    expect(screen.queryByRole("region", { name: "KI-Lauf" })).toBeNull();
+  });
+});

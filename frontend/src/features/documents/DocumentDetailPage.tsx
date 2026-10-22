@@ -119,7 +119,9 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
         )}
         {document.members && <ContentsCard document={document} members={document.members} />}
         <DocumentMails document={document} state={state} href={href} />
-        {hasStoredText(document.text_status) && <DocumentTextCard document={document} />}
+        {(hasStoredText(document.text_status) || document.ocr_readable || document.ai) && (
+          <DocumentTextCard document={document} />
+        )}
       </main>
       <aside className={styles.side} aria-label="Zum Dokument">
         {document.preview === "image" && <DocumentPreview key={document.id} document={document} />}

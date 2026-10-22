@@ -89,7 +89,9 @@ function attachmentMatch(mail: MailListItem): string | null {
     ...(mail.hits.attachment > 0 ? ["im Text"] : []),
     ...(mail.hits.filename > 0 ? ["im Dateinamen"] : []),
   ];
-  return places.length ? `Suchbegriff steht ${places.join(" und ")} eines Anhangs` : null;
+  if (!places.length) return null;
+  const machine = mail.attachment_machine ? ", maschinell erkannt (KI)" : "";
+  return `Suchbegriff steht ${places.join(" und ")} eines Anhangs${machine}`;
 }
 
 /** The checkboxes of the rows: which are selected and how a click changes that. */
@@ -264,7 +266,7 @@ export function MailTable({
                       {mail.has_attachments && <PaperclipIcon size={14} label="Anhang" />}
                       {inAttachment && (
                         <span className={styles.inAttachment} title={inAttachment}>
-                          im Anhang
+                          {mail.attachment_machine ? "im Anhang · maschinell erkannt" : "im Anhang"}
                         </span>
                       )}
                     </td>
