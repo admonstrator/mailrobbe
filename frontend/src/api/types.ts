@@ -473,6 +473,7 @@ export interface MailDetail {
   near_size: number;
   events: CalendarEventInfo[]; // its calendar events in mail order (D155)
   hidden?: MailHiding | null; // an enabled hide rule matches it (D222)
+  list_id?: string | null; // its List-Id, as a hide rule names it (D221)
 }
 
 export const NEAR_LIMIT = 50;
