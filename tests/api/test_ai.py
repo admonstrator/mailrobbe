@@ -7,7 +7,8 @@ PDFs made scans (2 pages, 3 pages, pages unknown), the other scans and every oth
 of the work lists' way, and three images of 200 KB, one of them in more than LOGO_MAILS mails.
 Results are stored through ai.store, as a run stores them; the run is tests/api/fake_run.py in
 place of `mailrobbe ai` (processes.CLI), as in test_imports.py. The service check is replaced
-(api.ai.check_service), so nothing asks a real service.
+(api.ai.check_service), or asks the fake service of tests/ai/fakes.py, so nothing asks a real
+service.
 """
 
 from collections.abc import AsyncIterator
@@ -26,6 +27,7 @@ from mailrobbe.api import ai as ai_api
 from mailrobbe.api.schemas import AI_RULE_SECONDS
 from mailrobbe.config import Settings
 from mailrobbe.enums import JobKind
+from tests.ai.fakes import fake_service
 from tests.api.conftest import api_settings
 from tests.api.test_imports import Dashboard, error_code, fake, holding, post, reaped, serve, until
 from tests.api.test_mails import Params, get, rows
@@ -270,6 +272,26 @@ async def test_the_check_asks_the_service(
     found = await post(dashboard.client, "/api/ai/services/vision/check", {})
     assert (found["test"], found["protocol"], found["seconds"]) == ("passed", "ollama", 1.5)
     assert [service.model for service in asked] == ["vision-test"]
+
+
+async def test_the_check_runs_the_real_test_against_a_service(
+    work: Work, mutable_database_url: str, generated_archive: GeneratedArchive, tmp_path: Path
+) -> None:
+    answer = "robbe\u20107342\nPrüfung der Texterkennung"
+    with fake_service("ollama", models={"vision-test": True}, answer=answer) as fake:
+        settings = ai_settings(
+            mutable_database_url,
+            generated_archive,
+            tmp_path,
+            ai_vision_url=fake.url,
+            ai_vision_model="vision-test",
+        )
+        async with serve(settings) as served:
+            found = await post(served.client, "/api/ai/services/vision/check", {})
+        assert len(fake.chats) == 1
+    assert (found["reachable"], found["protocol"], found["model_found"]) == (True, "ollama", True)
+    assert (found["test"], found["error"], found["locality"]) == ("passed", None, "local")
+    assert [model["name"] for model in found["models"]] == ["vision-test"]
 
 
 # Queue -----------------------------------------------------------------------------------------

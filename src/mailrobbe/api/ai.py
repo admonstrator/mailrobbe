@@ -27,7 +27,6 @@ editor from X-Mailrobbe-Editor (D54).
 import asyncio
 import base64
 import binascii
-import importlib
 import shutil
 from collections.abc import Sequence
 from typing import Annotated
@@ -39,7 +38,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe import jobs
-from mailrobbe.ai import queue, store
+from mailrobbe.ai import queue, services, store
 from mailrobbe.ai.model import (
     AiOptions,
     Capability,
@@ -253,9 +252,7 @@ async def check(_: NoOptions, capability: Capability, settings: AppSettings) -> 
 
 def check_service(service: Service, settings: Settings) -> ServiceCheck:
     """ai.services.check_service with its test (blocking; tests replace this)."""
-    services = importlib.import_module("mailrobbe.ai.services")
-    found: ServiceCheck = services.check_service(service, settings, test=True)
-    return found
+    return services.check_service(service, settings, test=True)
 
 
 # Queue -----------------------------------------------------------------------------------------
