@@ -49,7 +49,7 @@ Local web software that imports large MBOX archives (target: about 400,000 mails
 - `src/mailrobbe/aggregates.py`: aggregation tables; `refresh_aggregates` runs edges, person figures, alias suggestions and `global_stats` in that order (finalize, `mailrobbe dkim`, merges; D33), and `global_stats` is also refreshed lazily by the API (D19)
 - `src/mailrobbe/cli.py`: the `mailrobbe` command (`serve`, `migrate`, `generate`, `import`, `dkim`, `dkim-keys`, `graph`, `map`, `bench`)
 - `tests/`: mirrors the package; `tests/db` needs PostgreSQL
-- `site/`: the project page at https://mailrobbe.admon.me (static HTML and CSS, German), deployed by `.github/workflows/pages.yml`; its screenshots in `site/img/` come from the generated test archive only and the README uses them too (D194)
+- `site/`: the project page at https://mailrobbe.admon.me (static HTML and CSS, German, one inline script for the lightbox), deployed by `.github/workflows/pages.yml`; its screenshots in `site/img/` come from the generated test archive only and the README uses them too (D194)
 
 ## Commands
 
@@ -90,4 +90,4 @@ Check exit codes explicitly (`uv run mypy; echo $?`); piping into `tail` hides a
 
 ## Target machine
 
-The import runs on macOS (Docker Desktop) or Linux with about 10 GB RAM for Postgres and the importer together. Compose defaults follow that: `shared_buffers` 2 GB, `maintenance_work_mem` 1 GB, importer workers `min(8, CPU count)` (`MAILROBBE_IMPORT_WORKERS`). Bind mounts are slow on macOS, so the importer must read MBOX files sequentially and in large blocks. All values can be overridden in `.env`.
+The import runs on macOS (Docker Desktop), Windows (Docker Desktop with WSL 2, D196) or Linux with about 10 GB RAM for Postgres and the importer together. Compose defaults follow that: `shared_buffers` 2 GB, `maintenance_work_mem` 1 GB, importer workers `min(8, CPU count)` (`MAILROBBE_IMPORT_WORKERS`). Bind mounts are slow on macOS, so the importer must read MBOX files sequentially and in large blocks. All values can be overridden in `.env`.
