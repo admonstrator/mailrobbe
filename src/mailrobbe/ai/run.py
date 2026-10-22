@@ -81,8 +81,7 @@ log = logging.getLogger(__name__)
 EXIT_OK = 0
 EXIT_FAILED = 1
 # The steps of a run in order: the entities phase computes the entity figures at its end, so
-# AI_STEPS' entity_figures is part of entities here.
-RUN_STEPS = tuple(step for step in AI_STEPS if step != "entity_figures")
+RUN_STEPS = AI_STEPS
 RENDER_BATCH = 4  # pages rendered at once (at least as many as are read at once)
 WAIT_FIRST = 30.0  # seconds before asking a service again that did not answer (D184)
 WAIT_MAX = 600.0  # the pause doubles up to this

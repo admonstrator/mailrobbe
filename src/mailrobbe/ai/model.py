@@ -33,7 +33,7 @@ IMAGE_MIN_BYTES = 100 * 1024  # smaller images are not on the work list "Bilder"
 NO_TEXT_MARK = "[kein Text]"  # the vision prompt's answer for a page without writing
 PAGE_SEPARATOR = "\n\f\n"  # between the pages of a recognised text
 # The steps of an AI run (job.steps, D187), in order.
-AI_STEPS = ("check", "ocr", "entities", "entity_figures", "signals")
+AI_STEPS = ("check", "ocr", "entities", "signals")  # entities computes its figures at its end
 
 
 class ForbiddenService(ValueError):

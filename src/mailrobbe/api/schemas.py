@@ -3005,7 +3005,7 @@ class MapDownloadRequest(BaseModel):
 # selection, never the whole archive (D186); a run of kind ai works it through (D187).
 
 AiWorkList = Literal["scanned", "images"]  # ai.queue.WorkList
-AiPhase = Literal["check", "ocr", "entities", "entity_figures", "signals"]  # ai.model.AI_STEPS
+AiPhase = Literal["check", "ocr", "entities", "signals"]  # ai.model.AI_STEPS
 AI_QUEUE_LIMIT = 50_000  # documents one request may queue (D186)
 AI_PAGE_SIZE = 50  # default page of the task, result and send log lists
 # Seconds per page without a measurement (D188); an image counts as one page.

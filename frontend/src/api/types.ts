@@ -2726,7 +2726,7 @@ export type AiTaskKind = "ocr" | "transcribe" | "summarize";
 export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelled";
 export type AiResultState = "valid" | "replaced" | "discarded";
 export type AiWorkList = "scanned" | "images";
-export type AiPhase = "check" | "ocr" | "entities" | "entity_figures" | "signals";
+export type AiPhase = "check" | "ocr" | "entities" | "signals";
 
 export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
 export const AI_PAGE_SIZE = 50;
