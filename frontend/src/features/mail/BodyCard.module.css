@@ -23,6 +23,18 @@
   font-size: 13px;
 }
 
+/* A long text scrolls inside the card, no taller than the HTML view; the padding on the left
+   keeps the paragraphs' handles (ParagraphMenu) in view. */
+.textScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: max(420px, calc(var(--content-height) - 164px));
+  margin-left: -22px;
+  padding-left: 22px;
+  overflow-y: auto;
+}
+
 .text {
   font-size: 14px;
   line-height: 1.6;
