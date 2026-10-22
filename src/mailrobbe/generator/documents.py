@@ -54,6 +54,7 @@ from mailrobbe.generator.model import (
     DocumentSpec,
     DocumentTruth,
     EventTruth,
+    PhotoGps,
     stage_rng,
 )
 from mailrobbe.generator.population import transliterate
@@ -78,6 +79,13 @@ EMPTY_TEXT_SHARE = 0.15  # notes files without any text
 PAPER_SHARE = 0.13  # new documents of people that are association papers (PAPERS)
 RECORDING_SHARE = 0.03  # new documents of people that are recordings (RECORDINGS)
 RECENT_DOCUMENTS = 200  # documents that may be passed on again
+# Photos with a GPS position in their EXIF (D241): a share of the new JPEG photos, taken in
+# outings of a few photos with one camera in one town; every NO_FIX_EVERY-th says 0, 0 (a camera
+# without a fix) and the GPS photo number OUT_OF_RANGE a latitude beyond 90 degrees.
+GPS_SHARE = 1 / 3
+OUTING_PHOTOS = (2, 6)
+NO_FIX_EVERY = 10
+OUT_OF_RANGE = 4
 _TEXT_SIZE_CAP = 200_000  # text formats are written, not padded: their size is their content
 _CACHE_BYTES = 96 * 1024**2  # built documents kept per process
 
@@ -230,6 +238,10 @@ class DocumentPool:
         self._shared: dict[str, AttachmentSpec] = {}  # bounded: senders times years
         self._count = 0
         self._inline = 0
+        # The photos' positions come from a stream of their own, so the documents stay the same.
+        self._photos = stage_rng(seed, "plan-photos")
+        self._outing: _Outing | None = None
+        self._gps_photos = 0
 
     def attach(
         self,
@@ -287,13 +299,48 @@ class DocumentPool:
         self._count += 1
         size = min(spec.size, _TEXT_SIZE_CAP) if form in _TEXT_FORMS else spec.size
         made = replace(
-            spec, mime_type=mime_type, size=size, document=DocumentSpec(seed, form, theme, when)
+            spec,
+            mime_type=mime_type,
+            size=size,
+            document=DocumentSpec(
+                seed, form, theme, when, self._gps(when) if form == "jpeg" else None
+            ),
         )
         if shared is not None:
             self._shared[shared] = made
         elif circulate:
             self._recent.append(made)
         return made
+
+    def _gps(self, when: datetime) -> PhotoGps | None:
+        """The EXIF of a new photo, for GPS_SHARE of them: the next of the current outing, or
+        the first of a new one some hours before the mail (its wall time in UTC, so the photos'
+        local time with its offset of one or two hours is earlier still)."""
+        rng = self._photos
+        if rng.random() >= GPS_SHARE:
+            return None
+        outing = self._outing
+        if outing is None or outing.left == 0:
+            make, model = rng.choice(vocab.CAMERAS)
+            back = timedelta(minutes=rng.randint(90, 72 * 60))
+            utc = when - (when.utcoffset() or timedelta())
+            start = (utc - back).replace(tzinfo=None, microsecond=0)
+            city = rng.choice(vocab.CITIES_DE)
+            outing = _Outing(city, make, model, start, rng.randint(*OUTING_PHOTOS))
+        taken = outing.last + timedelta(seconds=rng.randint(40, 1500))
+        self._outing = replace(outing, last=taken, left=outing.left - 1)
+        north, east = vocab.CITY_POINTS[outing.city]
+        north = round(north + rng.gauss(0, 0.01), 6)
+        east = round(east + rng.gauss(0, 0.015), 6)
+        number = self._gps_photos
+        self._gps_photos += 1
+        if number == OUT_OF_RANGE:
+            north = 123.456789
+        elif number % NO_FIX_EVERY == NO_FIX_EVERY - 1:
+            north = east = 0.0
+        offset = "+02:00" if 4 <= taken.month <= 10 else "+01:00"  # summer time, roughly
+        altitude = round(rng.uniform(5, 600), 1)
+        return PhotoGps(north, east, altitude, taken, offset, outing.make, outing.model)
 
     def inline(self, spec: AttachmentSpec, when: datetime) -> AttachmentSpec:
         """An inline picture of a mail body (a logo in the signature, a pasted screenshot): a
@@ -344,6 +391,17 @@ def _recording(
     return replace(spec, filename=filename, mime_type=mime_type), TEMPLATES[pattern]
 
 
+@dataclass(frozen=True, slots=True)
+class _Outing:
+    """Photos taken one after another with one camera in one town."""
+
+    city: str  # of vocabulary.CITIES_DE
+    make: str
+    model: str
+    last: datetime  # when the last of them was taken, local and naive
+    left: int  # photos still to come
+
+
 _RENAMES = ("_Kopie", "_final", "_neu", "_v2", "_überarbeitet", " (1)")
 
 
@@ -370,6 +428,7 @@ class Built:
     marker: str | None
     pages: int | None
     media_type: str | None  # what a preview endpoint sends for a picture or recording
+    position: tuple[float, float] | None  # a photo's, as the metadata step stores it
 
     def truth(self, filename: str, mime_type: str) -> DocumentTruth:
         """The truth of an attachment carrying this document under that name and type."""
@@ -384,6 +443,7 @@ class Built:
             self.size,
             preview,
             media_type,
+            *(self.position or (None, None)),
         )
 
 
@@ -448,7 +508,19 @@ def _build(spec: DocumentSpec, size: int) -> Built:
         marker=marker(spec.seed) if status is DocumentTextStatus.TEXT else None,
         pages=pages,
         media_type=_media_type(spec.form),
+        position=photo_position(spec.gps) if spec.form == "jpeg" else None,
     )
+
+
+def photo_position(gps: PhotoGps | None) -> tuple[float, float] | None:
+    """The position the metadata step stores for a photo's EXIF (D241): the coordinates as the
+    reader computes them back; none for 0, 0 and for a latitude beyond 90 degrees."""
+    if gps is None:
+        return None
+    north, east = ff.dms_degrees(gps.latitude), ff.dms_degrees(gps.longitude)
+    if abs(north) > 90 or abs(east) > 180 or north == east == 0:
+        return None
+    return north, east
 
 
 def _media_type(form: str) -> str | None:
@@ -521,13 +593,21 @@ def content_truth(spec: AttachmentSpec) -> DocumentTruth:
 
 def damaged(truths: list[DocumentTruth], raw: bytes) -> list[DocumentTruth]:
     """The truths after the invalid_base64 fault: an attachment whose base64 it broke has
-    unknown bytes (sha256, status, marker, pages, preview and media type None)."""
+    unknown bytes (sha256, status, marker, pages, preview, media type and position None)."""
     flags = damaged_attachments(raw)
     if len(flags) != len(truths):
         raise ValueError(f"{len(truths)} attachments planned, {len(flags)} found")
     return [
         replace(
-            truth, sha256=None, status=None, marker=None, pages=None, preview=None, media_type=None
+            truth,
+            sha256=None,
+            status=None,
+            marker=None,
+            pages=None,
+            preview=None,
+            media_type=None,
+            latitude=None,
+            longitude=None,
         )
         if bad
         else truth
@@ -570,7 +650,8 @@ def document_bytes(spec: DocumentSpec, size: int) -> tuple[bytes, int | None]:
     if form.removesuffix("_damaged") == "png":
         return ff.png(rng, size, damaged=form != "png"), None
     if form.removesuffix("_damaged") == "jpeg":
-        return ff.jpeg(rng, size, damaged=form != "jpeg"), None
+        exif = b"" if spec.gps is None else ff.exif_segment(spec.gps)
+        return ff.jpeg(rng, size, damaged=form != "jpeg", exif=exif), None
     if form == "pdf_scan":
         count = rng.randint(1, 2) if spec.theme == "plan" else rng.randint(1, 5)
         share = max(size - 1500 * count, 2000) // count
@@ -1057,7 +1138,8 @@ class _Content:
             "END:VEVENT", "END:VCALENDAR",
         ]  # fmt: skip
         data = ("\r\n".join(_fold(line) for line in lines) + "\r\n").encode()
-        return data, EventTruth("REQUEST", uid, None, "request", summary, start.isoformat(), 0)
+        truth = EventTruth("REQUEST", uid, None, "request", summary, start.isoformat(), 0)
+        return data, replace(truth, place=self.city)
 
     def vcard(self) -> bytes:
         rng = self.rng

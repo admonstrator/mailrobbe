@@ -239,7 +239,7 @@ def test_manifest_lists_the_events(rendered: list[RenderedMail]) -> None:
     record = manifest_record(0, mail, "mbox-0001.mbox", 0, len(mail.raw))
     assert record.calendar == [truth.as_json() for truth in mail.calendar]
     assert set(record.calendar[0]) == {
-        "method", "uid", "sequence", "kind", "summary", "start", "attendees",
+        "method", "uid", "sequence", "kind", "summary", "start", "attendees", "place",
     }  # fmt: skip
     plain = render(PlannedMail(
         index=1, seed=9, date=WHEN, sender=Address("a@x.example"), to=(Address("b@x.example"),),
