@@ -82,13 +82,13 @@ from sqlalchemy.sql import operators
 from sqlalchemy.sql.util import ClauseAdapter
 
 from mailrobbe.api.fulltext import (
-    DOCUMENT_TSV_WEIGHTS,
     DOCUMENT_WEIGHTS,
-    MAIL_TSV_WEIGHTS,
     FullText,
     Words,
+    document_matches,
     full_text_search,
-    in_places,
+    mail_matches,
+    mail_recheck,
     mail_weights,
     stored_texts,
     text_search,
@@ -276,19 +276,25 @@ def text_conditions(search: FullText) -> list[ColumnElement[bool]]:
     with a minus must not occur (D175)."""
     where = []
     part = search.body_part
+    whole = search.whole_word
     if search.search:
-        words = search.prefilter() if search.whole_word else search.search
+        words = search.prefilter() if whole else search.search
         query = None if words is None else ts_query(words)
-        groups = search.groups if search.whole_word else None
-        where.append(full_text(search.fields, query, groups, part))
+        groups = search.groups if whole else None
+        # the prefilter has no negated word
+        monotone = whole or not any(w.negated for group in search.groups for w in group)
+        where.append(full_text(search.fields, query, groups, part, monotone))
     # each a condition of its own: a placed word in its place, a proximity term in the places
     # of the free words
     alone = [(frozenset((field,)), words) for field, words in search.placed]
     alone += [(search.fields, words) for words in search.near]
     for fields, typed in alone:
         written = replace(typed, negated=False)
-        groups = ((written,),) if search.whole_word else None
-        found = full_text(fields, words_query(written, search.whole_word), groups, part)
+        groups = ((written,),) if whole else None
+        query = words_query(written, whole)
+        # a proximity term's phrases are rechecked on every candidate anyway (mail_recheck)
+        monotone = written.distance is None or whole
+        found = full_text(fields, query, groups, part, monotone)
         where.append(_negated([found]) if typed.negated else found)
     return where
 
@@ -298,12 +304,14 @@ def full_text(
     query: ColumnElement[Any] | None,
     groups: _Groups | None,
     body_part: BodyPart,
+    monotone: bool = False,
 ) -> ColumnElement[bool]:
     """D73: the words occur in the mail's own subject and text, or in the file names and text of
     one of its attachments' documents, each side in its places among fields (D171), a side
     without any left out, the mail's text in the parts of body_part (D226). query is what the
-    GIN indexes are asked (None: nothing to ask, every text is read); groups, for whole words,
-    decide on the texts (D173).
+    GIN indexes are asked (None: nothing to ask, every text is read); monotone when it has no
+    negated word, so that the mail's side can be asked it as it is (fulltext.mail_recheck);
+    groups, for whole words, decide on the texts (D173).
 
     For a set of mails (counts, CSV, all matches of a rare word) each side uses its GIN index:
     the mails' own ids and those of the matching documents' mails (one array, computed once) are
@@ -313,17 +321,27 @@ def full_text(
     ids, see _mentioned), and negated an anti join (_negated). first_ids's walk takes the second
     form, which looks at one mail's attachments at a time and so never collects every matching
     document of a common word.
+
+    Where the mail's side has a recheck (D226), both forms are the condition of before D226
+    and, beside it, the recheck or a document. The bitmaps then answer the first part exactly,
+    and a mail without ranges passes the second by its columns, so that PostgreSQL reads its
+    tsvector no more than before D226; inside the OR the recheck would make it read the
+    tsvector of every candidate. The documents' side is asked there once more, per mail, for
+    the mails with ranges that hold the words outside the places only.
     """
     texts = stored_texts(body_part)
-    own = _in_unit(
-        Mail.tsv, mail_weights(body_part), MAIL_TSV_WEIGHTS, texts, fields, query, groups
-    )
-    document = _in_unit(
-        Document.tsv, DOCUMENT_WEIGHTS, DOCUMENT_TSV_WEIGHTS, texts, fields, query, groups
-    )
+    places = mail_weights(body_part)
+
+    def in_mail(asked: ColumnElement[Any], chosen: str) -> ColumnElement[bool]:
+        return mail_matches(asked, chosen, monotone)
+
+    own = _in_unit(in_mail, places, texts, fields, query, groups)
+    chosen = weights(fields, places)
+    recheck = None if query is None or not chosen else mail_recheck(query, chosen, monotone)
+    document = _in_unit(document_matches, DOCUMENT_WEIGHTS, texts, fields, query, groups)
     if document is None:
         assert own is not None, "fields name at least one place"
-        return own
+        return own if recheck is None else and_(own, recheck)
     attached = (
         select(true())
         .select_from(Attachment)
@@ -347,34 +365,36 @@ def full_text(
         .where(document)
     )
     found = or_(own, Mail.id == any_(func.array(documents.scalar_subquery())))
-    _WALK_FORMS[found] = or_(own, by_mail)
+    walk = or_(own, by_mail)
+    if recheck is not None:
+        kept = or_(recheck, by_mail)
+        found, walk = and_(found, kept), and_(walk, kept)
+    _WALK_FORMS[found] = walk
     return found
 
 
 def _in_unit(
-    tsv: QueryableAttribute[Any],
+    matches: Callable[[ColumnElement[Any], str], ColumnElement[bool]],
     places: dict[SearchField, str],
-    every: str,
     texts: dict[SearchField, ColumnElement[Any]],
     fields: frozenset[SearchField],
     query: ColumnElement[Any] | None,
     groups: _Groups | None,
 ) -> ColumnElement[bool] | None:
     """The words in one unit of the search, a mail's own subject and text or a document's file
-    names and text (places: the weights of its tsvector by place, every: all it carries),
-    limited to fields; None when none of fields is among places.
+    names and text (places: the weights of its tsvector by place), limited to fields; None when
+    none of fields is among places.
 
-    tsv is asked with the query's lexemes limited to the fields' weights, or with the query as it
-    is when those are every weight of the tsvector, as before D171. Whole words are looked for
-    in the same condition after it, in the texts of the places, so that PostgreSQL reads the
-    texts of the index's candidates only.
+    The unit's tsvector holds the query in the fields' weights (matches: fulltext.mail_matches
+    or document_matches). Whole words are looked for in the same condition after it, in the
+    texts of the places, so that PostgreSQL reads the texts of the index's candidates only.
     """
     chosen = weights(fields, places)
     if not chosen:
         return None
     found: list[ColumnElement[bool]] = []
     if query is not None:
-        found.append(tsv.bool_op("@@")(in_places(query, chosen, every)))
+        found.append(matches(query, chosen))
     if groups is not None:
         found.append(_whole_words(groups, [texts[place] for place in places if place in fields]))
     return and_(*found)
