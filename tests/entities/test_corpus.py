@@ -1,6 +1,8 @@
 """What the generator writes into the archive is found (SPEC 3.6): its IBANs (valid check
 digits, bank codes starting with 9) and amounts in the documents, the amounts and signature
-phone numbers in the mails, each as a mention of the text it stands in."""
+phone numbers in the mails, each as a mention of the text it stands in. A mail's standard
+blocks are left out (D205): a signature many mails share is one, so its phone number is no
+mention there."""
 
 import re
 from collections import defaultdict
@@ -8,6 +10,7 @@ from decimal import Decimal
 
 import pytest
 
+from mailrobbe.entities.phase import without_blocks
 from tests.entities.conftest import rows
 
 pytestmark = [pytest.mark.db, pytest.mark.slow]
@@ -42,9 +45,12 @@ async def document_texts(url: str) -> list[tuple[int, str]]:
 
 
 async def mail_texts(url: str) -> list[tuple[int, str]]:
+    """Each mail's subject and text as the entities phase reads them, standard blocks blanked."""
     return [
-        (mail, f"{subject or ''}\n{body or ''}")
-        for mail, subject, body in await rows(url, "SELECT id, subject, body_text FROM mail")
+        (mail, f"{subject or ''}\n{without_blocks(body, blocks or ()) or ''}")
+        for mail, subject, body, blocks in await rows(
+            url, "SELECT id, subject, body_text, blocks FROM mail"
+        )
     ]
 
 
