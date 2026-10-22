@@ -4,10 +4,7 @@ read through engine doubles, and once through the real Tesseract."""
 import asyncio
 import io
 import logging
-import os
 import shutil
-import subprocess
-import tempfile
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
@@ -31,12 +28,14 @@ from mailrobbe.ai.model import (
     ServiceCheck,
     locality,
 )
+from mailrobbe.ai.prompts import load_prompts
 from mailrobbe.ai.queue import enqueue_ocr
 from mailrobbe.ai.run import EngineErrors, Engines, run_ai
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import JobKind
 from mailrobbe.importer.cli import run_import
+from tests.ai.fakes import fake_service
 from tests.attachments.doubles import attachment_mail, digest
 from tests.conftest import _temporary_database
 from tests.importer.doubles import SEPARATOR
@@ -240,6 +239,7 @@ class Fake:
     tesseract_reader: Reader | None = None
     vision_reader: Reader | None = None
     render_error: set[str] = field(default_factory=set)  # file names that cannot be rendered
+    tesseract_missing: bool = False
     check_result: dict[str, Any] = field(default_factory=dict)
     renders: list[tuple[str, str, int, int]] = field(default_factory=list)
     reads: list[tuple[str, str, int]] = field(default_factory=list)  # engine, name, number
@@ -248,6 +248,7 @@ class Fake:
         return Engines(
             render=self.render,
             tesseract=self.tesseract,
+            languages=self.languages,
             vision=self.vision,
             check=self.check,
             prompts=Prompts,
@@ -266,6 +267,10 @@ class Fake:
         total = 1 if kind == "image" else len(PdfReader(io.BytesIO(data)).pages)
         numbers = range(first, min(total, first + count - 1) + 1)
         return Rendered(total, [Page(n, f"{name}|{n}|{purpose}".encode()) for n in numbers])
+
+    def languages(self, languages: str) -> None:
+        if self.tesseract_missing:
+            raise TesseractMissing(f"Tesseract has no language data for {languages}")
 
     def tesseract(self, png: bytes, number: int, **_: Any) -> OcrPage:
         name = png.decode().split("|")[0]
@@ -546,6 +551,18 @@ async def test_a_task_left_running_by_a_dead_run_waits_again(
 # Failures (D184) --------------------------------------------------------------------------------
 
 
+async def test_tesseract_without_its_languages_stops_before_any_task(
+    archive: Archive, database: str
+) -> None:
+    await queue(database, "Flyer.pdf")
+    fake = Fake(tesseract_missing=True)
+    settings = settings_for(database, archive)
+    result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == ai_run.EXIT_FAILED and fake.renders == []
+    assert result.summary.message.endswith("Tesseract has no language data for deu+eng")
+    assert (await tasks(database))["Flyer.pdf"].status == "waiting"
+
+
 async def test_a_task_fails_after_three_attempts(archive: Archive, database: str) -> None:
     await queue(database, "Flyer.pdf", "Foto.jpg")
     fake = Fake(render_error={"Flyer.pdf"})
@@ -802,65 +819,6 @@ async def test_an_import_and_an_ai_run_exclude_each_other(archive: Archive, data
 # The real Tesseract -----------------------------------------------------------------------------
 
 
-def _tool_engines() -> Engines:
-    """pdftoppm and tesseract on the command line, while ai.ocr is not there yet."""
-
-    def render(data: bytes, kind: str, *, first: int, count: int, **_: Any) -> Rendered:
-        total = len(PdfReader(io.BytesIO(data)).pages)
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "in.pdf"
-            source.write_bytes(data)
-            last = min(total, first + count - 1)
-            subprocess.run(
-                [
-                    "pdftoppm",
-                    "-r",
-                    "300",
-                    "-f",
-                    str(first),
-                    "-l",
-                    str(last),
-                    "-png",
-                    source,
-                    Path(directory) / "page",
-                ],
-                check=True,
-            )
-            files = sorted(Path(directory).glob("page-*.png"))
-            pages = [Page(first + index, path.read_bytes()) for index, path in enumerate(files)]
-        return Rendered(total, pages)
-
-    def tesseract(png: bytes, number: int, *, languages: str, **_: Any) -> OcrPage:
-        found = subprocess.run(
-            ["tesseract", "stdin", "stdout", "-l", languages],
-            input=png,
-            capture_output=True,
-            check=True,
-            # OpenMP threads of several Tesseracts at once slow each down a hundredfold
-            env={**os.environ, "OMP_THREAD_LIMIT": "1"},
-        )
-        return OcrPage(number=number, engine="tesseract", text=found.stdout.decode().strip())
-
-    def unused(*_: Any, **__: Any) -> Any:
-        raise AssertionError("not used")
-
-    return Engines(
-        render=render,
-        tesseract=tesseract,
-        vision=unused,
-        check=unused,
-        prompts=unused,
-        errors=EngineErrors(Unreachable, ModelMissing, AnswerError, RenderError, TesseractMissing),
-    )
-
-
-def real_engines() -> Engines:
-    try:
-        return ai_run.default_engines()
-    except ImportError:
-        return _tool_engines()
-
-
 @pytest.mark.skipif(
     shutil.which("tesseract") is None or shutil.which("pdftoppm") is None,
     reason="needs tesseract and pdftoppm",
@@ -869,7 +827,7 @@ async def test_the_real_tesseract_makes_a_scan_searchable(archive: Archive, data
     await queue(database, "Brief.pdf")
     settings = settings_for(database, archive)
     result = await run_ai(
-        settings, options_for(settings, ocr_engine="tesseract"), engines=real_engines()
+        settings, options_for(settings, ocr_engine="tesseract"), engines=ai_run.default_engines()
     )
     assert result.exit_code == 0 and result.summary.done == 1
     found = await rows(
@@ -879,3 +837,28 @@ async def test_the_real_tesseract_makes_a_scan_searchable(archive: Archive, data
         {"word": WORD},
     )
     assert [(row.name, row.origin) for row in found] == [("Brief.pdf", "ocr")]
+
+
+@pytest.mark.parametrize("flavour", ["lmstudio", "ollama"])
+async def test_the_real_engines_read_a_photo_with_a_vision_service(
+    archive: Archive, database: str, flavour: Any
+) -> None:
+    await queue(database, "Foto.jpg", "Brief.pdf")
+    with fake_service(flavour, answer="Schild am Eingang", tokens=(900, 12)) as fake:
+        settings = settings_for(
+            database, archive, ai_vision_url=fake.url, ai_vision_model="vision-model"
+        )
+        result = await run_ai(settings, options_for(settings), engines=ai_run.default_engines())
+        assert len(fake.chats) == 1  # the photo; the scan is Tesseract's and certain
+        assert fake.images()[0].startswith(b"\x89PNG")
+    assert result.exit_code == 0 and result.summary.done == 2
+    image = await document(database, "Foto.jpg")
+    assert (image.extracted_text, image.result_engine, image.model) == (
+        "Schild am Eingang",
+        "vision",
+        "vision-model",
+    )
+    assert (image.service_url, image.prompt_version) == (fake.url, load_prompts().version)
+    assert (result.summary.tokens_in, result.summary.tokens_out) == (900, 12)
+    letter = await document(database, "Brief.pdf")
+    assert WORD in letter.extracted_text and letter.result_engine == "tesseract"

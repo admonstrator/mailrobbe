@@ -5,7 +5,7 @@
               waiting tasks need or may use is checked: refused (D181), reachable, its model
               offered. A missing model, or a vision service tasks need and cannot have, stops the
               run before it takes a task; one "auto" could use and cannot leaves everything to
-              Tesseract
+              Tesseract, whose languages are checked too
     ocr       the waiting OCR tasks one at a time, highest priority first, then the documents
               carried by most mails (D186): the bytes read from the MBOX file, pages rendered in
               small batches from the first page not read yet (ai.ocr.render, a child process),
@@ -44,12 +44,12 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from importlib import import_module
 from typing import Any, Protocol
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
+from mailrobbe.ai import services
 from mailrobbe.ai.model import (
     AI_STEPS,
     AI_TASK_ATTEMPTS,
@@ -65,6 +65,8 @@ from mailrobbe.ai.model import (
     page_text,
     refusal,
 )
+from mailrobbe.ai.ocr import render, tesseract, vision
+from mailrobbe.ai.prompts import load_prompts
 from mailrobbe.ai.store import reapply_results, store_ocr_result
 from mailrobbe.attachments.content import AttachmentChanged, document_sources, read_attachment
 from mailrobbe.config import Settings
@@ -99,7 +101,7 @@ class RenderedPage(Protocol):
 
 class Rendering(Protocol):
     @property
-    def pages_total(self) -> int: ...
+    def pages_total(self) -> int | None: ...
     @property
     def pages(self) -> Sequence[RenderedPage]: ...
 
@@ -123,6 +125,8 @@ class Engines:
     render: Callable[..., Rendering]
     # tesseract(png, number, *, languages, uncertain, timeout) -> OcrPage
     tesseract: Callable[..., OcrPage]
+    # languages(languages): raises tesseract_missing unless Tesseract has them all
+    languages: Callable[[str], None]
     # vision(service, png, number, *, prompts, protocol, timeout) -> OcrPage
     vision: Callable[..., OcrPage]
     # check(service, settings, *, test) -> ServiceCheck, never raises
@@ -133,18 +137,14 @@ class Engines:
 
 
 def default_engines() -> Engines:
-    """ai.ocr and ai.services, imported only when a run needs them (a test hands in doubles)."""
-    render = import_module("mailrobbe.ai.ocr.render")
-    tesseract = import_module("mailrobbe.ai.ocr.tesseract")
-    vision = import_module("mailrobbe.ai.ocr.vision")
-    prompts = import_module("mailrobbe.ai.prompts")
-    services = import_module("mailrobbe.ai.services")
+    """ai.ocr and ai.services."""
     return Engines(
         render=render.render,
         tesseract=tesseract.read_page,
+        languages=tesseract.check_languages,
         vision=vision.read_page,
         check=services.check_service,
-        prompts=prompts.load_prompts,
+        prompts=load_prompts,
         errors=EngineErrors(
             unreachable=services.Unreachable,
             model_missing=services.ModelMissing,
@@ -407,6 +407,12 @@ class _Run:
             wanted = choice == "auto" and int(waiting.auto) > 0
             if needed or wanted:
                 await self._check_vision(needed)
+            tesseract_tasks = int(waiting.tasks) - int(waiting.vision) - int(waiting.auto)
+            if tesseract_tasks > 0 or (int(waiting.auto) > 0 and choice != "vision"):
+                try:
+                    await asyncio.to_thread(self.engines.languages, self.options.languages)
+                except self.engines.errors.tesseract_missing as error:
+                    raise _Ended(JobStatus.FAILED, describe(error), EXIT_FAILED) from None
         self.pages_waiting = int(waiting.pages)
 
     async def _check_vision(self, needed: bool) -> None:
