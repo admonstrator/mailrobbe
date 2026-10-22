@@ -1,5 +1,5 @@
-"""The run side of `mailrobbe import`, `mailrobbe dkim` and `mailrobbe dkim-keys` (D46, D47);
-jobs.py is the table side.
+"""The run side of `mailrobbe import`, `mailrobbe dkim`, `mailrobbe dkim-keys` and `mailrobbe map
+download` (D46, D47, D246); jobs.py is the table side.
 
     job_run      connect; take the kind's advisory lock on a connection of the run's own; check
                  the schema; end what dead runs of the kind left in the database; record the
@@ -75,11 +75,13 @@ _BUSY = {
     JobKind.IMPORT: "another import is running",
     JobKind.DKIM: "another DKIM check is running",
     JobKind.DKIM_KEYS: "another DKIM check or key search is running",
+    JobKind.MAP: "another map download is running",
 }
 _ABORTED = {
     JobKind.IMPORT: "aborted: run `mailrobbe import` again to continue",
     JobKind.DKIM: "aborted: the mails checked so far are stored",
     JobKind.DKIM_KEYS: "aborted: the keys and mails stored so far stay",
+    JobKind.MAP: "aborted: run `mailrobbe map download` again to continue",
 }
 _ERRORS = (OSError, SQLAlchemyError)
 
