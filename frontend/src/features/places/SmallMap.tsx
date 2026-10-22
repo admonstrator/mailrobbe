@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useMapStatus, useMapTowns } from "../../api/queries";
 import type { DetailMap, TownLabel } from "../../api/types";
@@ -56,12 +56,18 @@ function Drawn({
       }),
     [towns, detail, lat, lon],
   );
-  const { failed } = useMap(container, style, {
+  const { map, failed } = useMap(container, style, {
     center: [lon, lat],
     zoom: smallMapZoom(detail, lat, lon),
     interactive: false,
     attributionControl: { compact: true },
   });
+  // MapLibre opens a compact attribution until the map is first dragged, which this one never
+  // is, so the sources would cover half of it; they start folded behind the (i) button.
+  useEffect(() => {
+    const control = map?.getContainer().querySelector(".maplibregl-compact-show");
+    control?.classList.remove("maplibregl-compact-show");
+  }, [map]);
   if (failed) {
     return <p className={styles.failed}>Die Karte braucht WebGL, das in diesem Browser fehlt.</p>;
   }

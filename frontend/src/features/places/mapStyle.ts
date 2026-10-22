@@ -47,6 +47,15 @@ export const MAP_COLORS = {
  *  alone shows it. */
 export const DETAIL_MIN_ZOOM = 5;
 
+/** The lowest zoom the detail map shows: the one whose tiles are about as wide as its region,
+ *  so the extract of a small view does not draw its coarse tiles as a block far around it;
+ *  never below DETAIL_MIN_ZOOM nor above its highest zoom. */
+export function detailMinZoom([west, south, east, north]: BBox, maxZoom: number): number {
+  const span = Math.max(east - west, north - south);
+  const zoom = span > 0 ? Math.floor(Math.log2(360 / span)) : maxZoom;
+  return Math.min(Math.max(DETAIL_MIN_ZOOM, zoom), maxZoom);
+}
+
 /** The layers of the page a click picks a point from, topmost first. */
 export const CLICK_LAYERS = ["photos-cluster", "photos-point", "events-circle", "texts-circle"];
 
@@ -234,7 +243,7 @@ export function mapStyle(input: StyleInput): StyleSpecification {
       type: "vector",
       tiles: [`pmtiles://${new URL(detail.url, origin).href}/{z}/{x}/{y}`],
       bounds: detail.bbox,
-      minzoom: DETAIL_MIN_ZOOM,
+      minzoom: detailMinZoom(detail.bbox, detail.max_zoom),
       maxzoom: detail.max_zoom,
       attribution: DETAIL_ATTRIBUTION,
     };
