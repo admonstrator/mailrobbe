@@ -123,10 +123,10 @@ describe("research card", () => {
 
   it("folds to one line that the browser remembers, and the keys still work", async () => {
     const { calls, card } = await openCard();
-    const toggle = within(card).getByRole("button", { name: "Einklappen" });
+    const toggle = within(card).getByRole("button", { name: "Recherche" });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(toggle);
-    expect(localStorage.getItem("mailrobbe.researchFolded")).toBe("1");
+    expect(localStorage.getItem("mailrobbe.folds")).toBe('{"mail.research":false}');
     const summary = () => document.getElementById(toggle.getAttribute("aria-controls")!)!;
     expect(summary().textContent).toBe("Relevant2 Notizen2 Schlagwörter1 Akte");
     expect(within(card).queryByRole("group", { name: "Status" })).toBeNull();
@@ -140,19 +140,19 @@ describe("research card", () => {
     await waitFor(() => expect(within(summary()).getByText("Markiert")).toBeTruthy());
     expect(writes(calls).map((call) => call.body)).toEqual([{ review: "seen" }, { flagged: true }]);
 
-    // A mail opened later starts folded; unfolding forgets it.
+    // A mail opened later starts folded; unfolding remembers that too.
     cleanup();
     const again = await openCard();
-    const unfold = within(again.card).getByRole("button", { name: "Ausklappen" });
+    const unfold = within(again.card).getByRole("button", { name: "Recherche" });
     expect(unfold.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(unfold);
-    expect(localStorage.getItem("mailrobbe.researchFolded")).toBeNull();
+    expect(localStorage.getItem("mailrobbe.folds")).toBe('{"mail.research":true}');
     expect(within(again.card).getByRole("group", { name: "Status" })).toBeTruthy();
   });
 
   it("starts unfolded and still folds when the browser keeps nothing", async () => {
     const blocked = (key: string) => {
-      if (key === "mailrobbe.researchFolded") throw new DOMException("blocked", "SecurityError");
+      if (key === "mailrobbe.folds") throw new DOMException("blocked", "SecurityError");
     };
     const { getItem, setItem } = Storage.prototype;
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
@@ -165,8 +165,10 @@ describe("research card", () => {
     });
     try {
       const { card } = await openCard();
-      fireEvent.click(within(card).getByRole("button", { name: "Einklappen" }));
-      expect(within(card).getByRole("button", { name: "Ausklappen" })).toBeTruthy();
+      const toggle = within(card).getByRole("button", { name: "Recherche" });
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
     } finally {
       vi.restoreAllMocks();
     }
@@ -343,6 +345,9 @@ describe("research card", () => {
   it("offers the PDF next to the EML download", async () => {
     await openCard();
     const actions = screen.getByRole("heading", { name: "Aktionen" }).closest("section")!;
+    // Folded until opened once, with what it holds beside its heading.
+    expect(within(actions).getByText("EML, PDF, Bild, Rohmail")).toBeTruthy();
+    fireEvent.click(within(actions).getByRole("button", { name: "Aktionen" }));
     expect(
       within(actions)
         .getAllByRole("link")

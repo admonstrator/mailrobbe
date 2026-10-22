@@ -60,7 +60,7 @@ export function BodyCard({
     { id: "text", label: "Text" },
     {
       id: "html",
-      label: "HTML (sandboxed)",
+      label: "HTML",
       disabled: !hasHtml,
       title: text.data && !hasHtml ? "Diese Mail hat keinen HTML-Teil." : undefined,
     },
@@ -70,14 +70,7 @@ export function BodyCard({
 
   return (
     <Card ref={ref} className={styles.card} aria-label="Inhalt">
-      <Tabs
-        items={tabs}
-        active={tab}
-        onSelect={onTab}
-        idPrefix={ID_PREFIX}
-        label="Ansicht"
-        end="Body wird on-demand aus der MBOX gelesen"
-      />
+      <Tabs items={tabs} active={tab} onSelect={onTab} idPrefix={ID_PREFIX} label="Ansicht" />
       <div {...tabPanelProps(ID_PREFIX, tab)} className={styles.panel}>
         {tab === "text" && (
           <Loaded query={text}>{(data) => <TextView data={data} marks={marks} />}</Loaded>

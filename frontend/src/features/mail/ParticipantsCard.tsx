@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import type { Participant, ParticipationRole } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
 import { buttonClass } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { GraphIcon } from "../../components/icons";
 import { personPath } from "../../components/PersonLink";
 import { formatNumber } from "../../lib/format";
@@ -36,8 +36,12 @@ export function ParticipantsCard({ participants }: { participants: Participant[]
   const ids = [...new Set(participants.map((person) => person.person_id))];
 
   return (
-    <Card variant="side" className={styles.card}>
-      <CardTitle variant="caps">Beteiligte</CardTitle>
+    <FoldCard
+      id="mail.participants"
+      className={styles.card}
+      title="Beteiligte"
+      summary={ids.length === 1 ? "1 Person" : `${formatNumber(ids.length)} Personen`}
+    >
       <ul className={styles.list}>
         {participants.map((person) => {
           const line = figures(person, senderName);
@@ -79,6 +83,6 @@ export function ParticipantsCard({ participants }: { participants: Participant[]
             : `Diese ${formatNumber(ids.length)} im Graphen zeigen`}
         </Link>
       )}
-    </Card>
+    </FoldCard>
   );
 }

@@ -41,17 +41,18 @@ const photo: AttachmentInfo = {
 };
 
 describe("attachments of a mail", () => {
-  it("sit in the side column and download from the MBOX and lead to their documents", async () => {
+  it("sit below the text and download from the MBOX and lead to their documents", async () => {
     renderApp("/mails/184221");
     const card = await attachmentsCard();
-    expect(card.closest("aside")).toBeTruthy();
+    expect(card.closest("main")).toBeTruthy();
+    const body = screen.getByRole("region", { name: "Inhalt" });
+    expect(body.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const contract = item(card, "Rahmenvereinbarung_2026_final.pdf");
     expect(within(contract).getByRole("img", { name: "PDF" })).toBeTruthy();
+    // The kind in words, its MIME type on hover.
     const mime = within(contract).getByTitle("application/pdf");
-    expect(mime.parentElement!.textContent).toBe(
-      "application/pdf · 14 Seiten · 168 KB · SHA-256 91ab…",
-    );
+    expect(mime.parentElement!.textContent).toBe("PDF · 14 Seiten · 168 KB · SHA-256 91ab…");
     // The whole name on hover, since a long one is cut after two lines.
     expect(within(contract).getByTitle("Rahmenvereinbarung_2026_final.pdf")).toBeTruthy();
     const download = within(contract).getByRole("link", {

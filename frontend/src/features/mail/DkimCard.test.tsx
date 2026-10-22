@@ -1,8 +1,8 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { mailDetailKeys } from "../../test/fixtures";
-import { fixtureApi, renderApp } from "../../test/render";
+import { fixtureApi, openFolds, renderApp } from "../../test/render";
 
 const card = () => screen.getByRole("heading", { name: "DKIM-Prüfung" }).closest("section")!;
 
@@ -11,7 +11,38 @@ function signature(number: number): HTMLElement {
 }
 
 describe("DKIM box", () => {
+  it("is one line below the text until opened, which the badge in the header does", async () => {
+    renderApp("/mails/170311", (call) =>
+      call.url.pathname === "/api/mails/170311" ? mailDetailKeys : fixtureApi(call),
+    );
+    await screen.findByRole("heading", { name: "Jahresabschluss 2020 – Unterlagen" });
+    const toggle = within(card()).getByRole("button", { name: "DKIM-Prüfung" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(card()).queryByRole("heading", { name: "Signatur 1" })).toBeNull();
+    expect(
+      within(card()).getByText(
+        /^2 Signaturen · Signatur stimmig · Schlüssel nicht im DNS \(Selector gelöscht\) · geprüft am /,
+      ),
+    ).toBeTruthy();
+    // Neu prüfen stays in reach while folded.
+    expect(within(card()).getByRole("button", { name: "Neu prüfen" })).toBeTruthy();
+    // The text comes before it.
+    const inhalt = screen.getByRole("region", { name: "Inhalt" });
+    expect(inhalt.compareDocumentPosition(card()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const scrolled: Element[] = [];
+    // jsdom does not scroll
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this);
+    };
+    fireEvent.click(screen.getByRole("button", { name: "Signatur stimmig" }));
+    await waitFor(() => expect(signature(1)).toBeTruthy());
+    expect(scrolled).toEqual([card()]);
+    expect(localStorage.getItem("mailrobbe.folds")).toBe('{"mail.dkim":true}');
+  });
+
   it("names the key's origin and, for a reconstructed key, what it does not show", async () => {
+    openFolds("mail.dkim");
     renderApp("/mails/170311", (call) =>
       call.url.pathname === "/api/mails/170311" ? mailDetailKeys : fixtureApi(call),
     );
@@ -53,6 +84,7 @@ describe("DKIM box", () => {
   });
 
   it("marks a key from today's DNS without a key block", async () => {
+    openFolds("mail.dkim");
     renderApp("/mails/184221");
     await screen.findByText("DNS heute");
     expect(within(card()).getByText("DNS heute").getAttribute("title")).toBe(

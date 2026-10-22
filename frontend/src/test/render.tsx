@@ -11,6 +11,7 @@ import {
   type MapDownloadRequest,
   type SelectorPage,
 } from "../api/types";
+import { setFoldOpen } from "../lib/folds";
 import { routes } from "../routes";
 import * as fx from "./fixtures";
 
@@ -268,6 +269,11 @@ function renderRoutes(routeList: RouteObject[], path: string, api: (call: ApiCal
 }
 
 /** Renders the app at path against a fake backend; calls records every request. */
+/** Opens folding blocks (lib/folds) before a render, as in a browser that opened them once. */
+export function openFolds(...ids: string[]): void {
+  for (const id of ids) setFoldOpen(id, true);
+}
+
 export function renderApp(path: string, api: (call: ApiCall) => unknown = fixtureApi) {
   return renderRoutes(routes, path, api);
 }

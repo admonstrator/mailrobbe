@@ -1,18 +1,25 @@
+/* The header's count scrolls here, below the compact bar (48 px, D166). */
+.card {
+  scroll-margin-top: 56px;
+}
+
 .list {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 0 -8px;
+  margin: 0 -10px;
   padding: 0;
   list-style: none;
 }
 
+/* Kind, what the file is, and its links at the right; narrow, the links go below the text. */
 .item {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: 10px;
+  gap: 4px 12px;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 8px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-tile);
   /* The jump from a search hit stops below the header (the window's scroll padding) and the
@@ -35,10 +42,11 @@
 
 .text {
   display: flex;
+  flex: 1 1 280px;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-  font-size: 13px;
+  font-size: 13.5px;
 }
 
 /* Two lines at most; the whole name in the title. */
@@ -54,18 +62,8 @@
 
 .meta {
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: 12.5px;
   overflow-wrap: anywhere;
-}
-
-/* Office types are long (application/vnd.openxmlformats-...): cut, the whole one in the title. */
-.mime {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
 }
 
 .status {
@@ -80,7 +78,7 @@
 
 /* What the file says about itself (D167), as found. */
 .described {
-  font-size: 12px;
+  font-size: 12.5px;
   overflow-wrap: anywhere;
 }
 
@@ -94,9 +92,11 @@
 .links {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 12px;
-  margin-top: 3px;
-  font-size: 12px;
+  justify-content: flex-end;
+  gap: 2px 14px;
+  margin-left: auto;
+  padding-left: 32px;
+  font-size: 13px;
 }
 
 /* "Vorschau": a link-like button, or a quiet note. */

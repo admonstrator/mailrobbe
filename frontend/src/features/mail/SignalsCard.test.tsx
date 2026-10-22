@@ -145,13 +145,13 @@ describe("why a mail shows signals", () => {
     expect(await within(card).findByText("Private Adresse")).toBeTruthy();
   });
 
-  it("sits in the side column right after the research card and the attachments", async () => {
+  it("sits in the side column right after the research card", async () => {
     renderApp("/mails/184221");
     await signalsCard();
     const side = screen.getByRole("complementary", { name: "Zur Mail" });
     const titles = within(side)
       .getAllByRole("heading", { level: 2 })
       .map((heading) => heading.textContent);
-    expect(titles.slice(0, 3)).toEqual(["Recherche", "Anhänge (2)", "Warum fällt diese Mail auf"]);
+    expect(titles.slice(0, 3)).toEqual(["Recherche", "Warum fällt diese Mail auf", "Beteiligte"]);
   });
 });

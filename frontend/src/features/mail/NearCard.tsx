@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import { Link } from "react-router";
 
 import type { MailDetail, NearMail } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
+import { FoldCard } from "../../components/FoldCard";
 import { DkimDot } from "../../components/DkimDot";
 import { PersonLink } from "../../components/PersonLink";
 import { dkimKey } from "../../lib/dkim";
@@ -38,8 +38,7 @@ export function NearCard({
 }) {
   const more = mail.near_size - 1 - mail.near.length;
   return (
-    <Card variant="side">
-      <CardTitle variant="caps">{formatNumber(mail.near_size)} nahezu gleiche Mails</CardTitle>
+    <FoldCard id="mail.near" title={`${formatNumber(mail.near_size)} nahezu gleiche Mails`}>
       <ol className={styles.list}>
         {mail.near.map((near) => (
           <li key={near.id} className={styles.item}>
@@ -68,6 +67,6 @@ export function NearCard({
           <Link to={`/mails?near_group=${mail.near_group}`}>Alle in der Mailliste</Link>
         </p>
       )}
-    </Card>
+    </FoldCard>
   );
 }

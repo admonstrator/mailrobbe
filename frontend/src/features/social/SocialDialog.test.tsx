@@ -1,9 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { renderApp } from "../../test/render";
+import { openFolds, renderApp } from "../../test/render";
 
 async function openDialog(): Promise<HTMLElement> {
+  openFolds("mail.actions");
   renderApp("/mails/184221");
   fireEvent.click(await screen.findByRole("button", { name: "Als Bild für Soziale Medien" }));
   return await screen.findByRole("dialog");

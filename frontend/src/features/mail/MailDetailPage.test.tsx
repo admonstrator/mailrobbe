@@ -23,11 +23,18 @@ describe("mail detail", () => {
     ).toBeTruthy();
     expect(screen.getByText("DKIM gültig")).toBeTruthy();
     expect(screen.getByText("So, 18.10.2026 14:32:07")).toBeTruthy();
+    // The technical fields and the DKIM check are folded below the text until opened once.
+    const tech = card("Technische Angaben");
+    expect(within(tech).queryByText(/export-2026-Q4\.mbox/)).toBeNull();
+    fireEvent.click(within(tech).getByRole("button", { name: "Technische Angaben" }));
     expect(
-      screen.getByText("export-2026-Q4.mbox · Offset 1.883.204.117 · 184 KB", { exact: false }),
+      within(tech).getByText("export-2026-Q4.mbox · Offset 1.883.204.117 · 184 KB", {
+        exact: false,
+      }),
     ).toBeTruthy();
 
     const dkim = card("DKIM-Prüfung");
+    fireEvent.click(within(dkim).getByRole("button", { name: "DKIM-Prüfung" }));
     expect(
       within(dkim).getByText("geprüft am 20.10.2026 03:14 · DNS-Antwort aus Cache (TTL 12 h)"),
     ).toBeTruthy();
@@ -128,11 +135,8 @@ describe("mail detail", () => {
   it("shows a preview over the page, whose keys stay in it", async () => {
     const { router, calls } = renderApp(`/mails/184221?${listQuery}`);
     await screen.findByText("Treffer 1 von 1.207");
-    const side = screen.getByRole("complementary", { name: "Zur Mail" });
-    const attachments = within(side)
-      .getByRole("heading", { name: "Anhänge (2)" })
-      .closest("section")!;
-    expect(screen.getByRole("main").contains(attachments)).toBe(false);
+    const attachments = screen.getByRole("heading", { name: "Anhänge (2)" }).closest("section")!;
+    expect(screen.getByRole("main").contains(attachments)).toBe(true);
 
     fireEvent.click(within(attachments).getByRole("button", { name: "Vorschau" }));
     const dialog = await screen.findByRole("dialog", { name: "Rahmenvereinbarung_2026_final.pdf" });
@@ -292,6 +296,7 @@ describe("mail detail", () => {
     const { calls } = renderApp("/mails/184221", (call) =>
       call.url.pathname.endsWith("/dkim/recheck") ? failed : fixtureApi(call),
     );
+    // Neu prüfen works folded too, and opens the box to show the result.
     fireEvent.click(await screen.findByRole("button", { name: "Neu prüfen" }));
     expect(await screen.findByText("Body nach dem Signieren verändert")).toBeTruthy();
     expect(screen.getByText("DKIM ungültig")).toBeTruthy();

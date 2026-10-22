@@ -19,11 +19,13 @@ import {
   type ReviewKey,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { Card } from "../../components/Card";
 import { EditorDialog } from "../../components/EditorDialog";
+import { FoldHeading } from "../../components/FoldCard";
 import { FlagIcon } from "../../components/icons";
 import { cx } from "../../lib/cx";
 import { getEditor, useEditor } from "../../lib/editor";
+import { useFold } from "../../lib/folds";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import { isPlainKey } from "../../lib/keys";
 import { permalinkPath, REVIEW_KEYS, REVIEW_LABELS, TAG_COLORS } from "../../lib/research";
@@ -39,25 +41,6 @@ const REVIEW_SHORTCUTS: Record<ReviewKey, string> = {
   irrelevant: "n",
 };
 const FLAG_KEY = "m";
-
-const FOLDED_KEY = "mailrobbe.researchFolded";
-
-function loadFolded(): boolean {
-  try {
-    return localStorage.getItem(FOLDED_KEY) === "1";
-  } catch {
-    return false; // storage blocked: unfolded
-  }
-}
-
-function saveFolded(folded: boolean): void {
-  try {
-    if (folded) localStorage.setItem(FOLDED_KEY, "1");
-    else localStorage.removeItem(FOLDED_KEY);
-  } catch {
-    // storage blocked: the choice lasts until the page is left
-  }
-}
 
 const counted = (n: number, one: string, many: string) =>
   `${formatNumber(n)} ${n === 1 ? one : many}`;
@@ -77,7 +60,8 @@ function linkErrorText(error: Error | null): string | null {
 
 /** What the research file records about this mail (D55 to D61): review status and bookmark,
  *  also by key, tags, Akten, notes and the permalink. Opening a mail sets nothing. It folds to
- *  one line (D166), which the browser remembers; the keys work folded too. */
+ *  one line (D166) like every block of the page, which the browser remembers (lib/folds); the
+ *  keys work folded too. */
 export function ResearchCard({ mail }: { mail: MailDetail }) {
   const { mark, tags, collections, notes } = mail.research;
   const research = useResearch();
@@ -89,7 +73,8 @@ export function ResearchCard({ mail }: { mail: MailDetail }) {
   const editor = useEditor();
   const [unnamed, setUnnamed] = useState(false);
   const [editorDialog, setEditorDialog] = useState(false);
-  const [folded, setFolded] = useState(loadFolded);
+  const [open, setOpen] = useFold("mail.research", true);
+  const folded = !open;
   const titleId = useId();
   const statusId = useId();
   const bodyId = useId();
@@ -168,11 +153,6 @@ export function ResearchCard({ mail }: { mail: MailDetail }) {
   const reviewBy = review === mark.review ? attribution(mark.review_by, mark.review_at) : null;
   const flaggedBy = flagged && mark.flagged ? attribution(mark.flagged_by, mark.flagged_at) : null;
 
-  function toggleFolded() {
-    saveFolded(!folded);
-    setFolded(!folded);
-  }
-
   const saveError = save.isError && (
     <p className={styles.error} role="alert">
       Nicht gespeichert. Bitte noch einmal versuchen.
@@ -182,18 +162,9 @@ export function ResearchCard({ mail }: { mail: MailDetail }) {
   return (
     <Card variant="side" aria-labelledby={titleId}>
       <div className={styles.head}>
-        <CardTitle variant="caps" id={titleId}>
+        <FoldHeading id={titleId} open={open} controls={bodyId} onToggle={() => setOpen(!open)}>
           Recherche
-        </CardTitle>
-        <Button
-          variant="link"
-          size="xs"
-          aria-expanded={!folded}
-          aria-controls={bodyId}
-          onClick={toggleFolded}
-        >
-          {folded ? "Ausklappen" : "Einklappen"}
-        </Button>
+        </FoldHeading>
       </div>
       {unnamed && !editor && (
         <p className={styles.unnamed}>

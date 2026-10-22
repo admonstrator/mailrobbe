@@ -25,7 +25,7 @@ import { BodyCard, type BodyTab } from "./BodyCard";
 import { DkimCard } from "./DkimCard";
 import { EntitiesCard } from "./EntitiesCard";
 import { EventCard } from "./EventCard";
-import { CompactHeader, HeaderCard } from "./HeaderCard";
+import { CompactHeader, HeaderCard, TechCard } from "./HeaderCard";
 import styles from "./MailDetailPage.module.css";
 import { NearCard } from "./NearCard";
 import { ParticipantsCard } from "./ParticipantsCard";
@@ -34,8 +34,10 @@ import { SearchHitsCard } from "./SearchHitsCard";
 import { SignalsCard } from "./SignalsCard";
 import { ThreadCard } from "./ThreadCard";
 
-/** The mail detail (SPEC 5.2). The list's parameters travel in the query string, so Vorherige,
- *  Nächste and the way back follow the list the mail was opened from. */
+/** The mail detail (SPEC 5.2), laid out as a mail program shows a mail: header, text and
+ *  attachments first, the DKIM check and the technical fields folded below them; every block
+ *  folds, as the browser remembers. The list's parameters travel in the query string, so
+ *  Vorherige, Nächste and the way back follow the list the mail was opened from. */
 export function MailDetailPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -170,12 +172,8 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
                 }}
               />
             )}
-            <DkimCard mail={detail.data} />
             <EventCard events={detail.data.events} mailId={id} mailHref={mailHref} />
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
-          </main>
-          <aside className={styles.side} aria-label="Zur Mail">
-            <ResearchCard mail={detail.data} />
             {detail.data.attachments.length > 0 && (
               <AttachmentsCard
                 attachments={detail.data.attachments}
@@ -183,6 +181,11 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
                 marks={marks}
               />
             )}
+            <DkimCard mail={detail.data} />
+            <TechCard mail={detail.data} mailHref={mailHref} />
+          </main>
+          <aside className={styles.side} aria-label="Zur Mail">
+            <ResearchCard mail={detail.data} />
             <SignalsCard mailId={id} />
             <ParticipantsCard participants={detail.data.participants} />
             {detail.data.thread_size > 0 && <ThreadCard mail={detail.data} mailHref={mailHref} />}
