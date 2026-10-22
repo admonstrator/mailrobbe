@@ -52,6 +52,7 @@ import type {
   DocumentSummary,
   DocumentText,
   DomainCount,
+  EventPlaces,
   EntityDetail,
   EntityFacetParams,
   EntityFacets,
@@ -97,6 +98,9 @@ import type {
   MailSignals,
   MailText,
   ManualKeyRequest,
+  MapDownloadRequest,
+  MapJob,
+  MapStatus,
   Mark,
   MarkUpdate,
   MboxFileInfo,
@@ -116,6 +120,12 @@ import type {
   PersonPage,
   PersonProfile,
   PersonSignals,
+  PhotoDetail,
+  PhotoList,
+  PhotoListParams,
+  PhotoPoints,
+  PlaceParams,
+  PlaceSummary,
   ResearchOverview,
   SavedSearch,
   SavedSearchCreate,
@@ -133,6 +143,7 @@ import type {
   TagInfo,
   TagRef,
   TagUpdate,
+  TextPlaces,
   ThemeInfo,
   Timeline,
   TimelineParams,
@@ -141,6 +152,7 @@ import type {
   TopicPeriods,
   TopicTermParams,
   TopicTerms,
+  TownLabel,
 } from "./types";
 
 export function createQueryClient(): QueryClient {
@@ -1357,4 +1369,133 @@ export function useUpdateHideRule() {
 
 export function useDeleteHideRule() {
   return useHideRuleWrite((id: number) => apiDelete(`/api/hide-rules/${id}`));
+}
+
+// Places and maps (D240 to D249) ----------------------------------------------------------------
+
+export const placeKeys = {
+  summary: ["places", "summary"] as const,
+  /** Under the mail list's prefix: a research write or a hide rule changes which mails match. */
+  photos: (params: PlaceParams) => ["mails", "places", "photos", params] as const,
+  texts: (params: PlaceParams) => ["mails", "places", "texts", params] as const,
+  events: (params: PlaceParams) => ["mails", "places", "events", params] as const,
+  photoList: (params: PhotoListParams) => ["mails", "places", "photo-list", params] as const,
+  photo: (id: number) => ["places", "photo", id] as const,
+  towns: ["map", "towns"] as const,
+  mapStatus: ["map", "status"] as const,
+};
+
+/** Photos, devices and what the places step found; it changes with an import run. */
+export function usePlaceSummary() {
+  return useQuery({
+    queryKey: placeKeys.summary,
+    queryFn: ({ signal }) => apiGet<PlaceSummary>("/api/places/summary", undefined, signal),
+  });
+}
+
+/** The three layers of the map (D247); the previous answer stays while the next loads, so a
+ *  layer keeps its points while a filter changes. */
+export function usePhotoPoints(params: PlaceParams, enabled = true) {
+  return useQuery({
+    queryKey: placeKeys.photos(params),
+    queryFn: ({ signal }) => apiGet<PhotoPoints>("/api/places/photos", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useTextPlaces(params: PlaceParams, enabled = true) {
+  return useQuery({
+    queryKey: placeKeys.texts(params),
+    queryFn: ({ signal }) => apiGet<TextPlaces>("/api/places/texts", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEventPlaces(params: PlaceParams, enabled = true) {
+  return useQuery({
+    queryKey: placeKeys.events(params),
+    queryFn: ({ signal }) => apiGet<EventPlaces>("/api/places/events", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** One photo with its mails and the nearest town (D248). */
+export function usePhotoDetail(id: number, enabled = true) {
+  return useQuery({
+    queryKey: placeKeys.photo(id),
+    queryFn: ({ signal }) => apiGet<PhotoDetail>(`/api/places/photos/${id}`, undefined, signal),
+    enabled,
+  });
+}
+
+/** "Fotos im Umkreis" (with a point) and "Fotos dieses Geräts" (a device, no point). */
+export function usePhotoList(params: PhotoListParams, enabled = true) {
+  return useQuery({
+    queryKey: placeKeys.photoList(params),
+    queryFn: ({ signal }) => apiGet<PhotoList>("/api/places/photo-list", params, signal),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** The overview map's town labels (D244); they change only with a new release. */
+export function useMapTowns() {
+  return useQuery({
+    queryKey: placeKeys.towns,
+    queryFn: ({ signal }) => apiGet<TownLabel[]>("/api/map/towns", undefined, signal),
+    staleTime: Infinity,
+  });
+}
+
+/** How often the map status is asked for: every 2 s while a download runs (D246), else every
+ *  30 s, which also notices a run started on a command line. */
+export function mapStatusInterval(status: MapStatus | undefined): number {
+  return status?.job?.alive ? 2_000 : 30_000;
+}
+
+/** poll false: asked once, for the small maps, which only need to know the detail map. */
+export function useMapStatus(poll = true) {
+  return useQuery({
+    queryKey: placeKeys.mapStatus,
+    queryFn: ({ signal }) => apiGet<MapStatus>("/api/map/status", undefined, signal),
+    refetchInterval: poll ? (query) => mapStatusInterval(query.state.data) : false,
+  });
+}
+
+/** Puts the run an action returned into the cached status at once, then asks again. */
+function showMapRun(queryClient: QueryClient, job: MapJob) {
+  queryClient.setQueryData<MapStatus>(
+    placeKeys.mapStatus,
+    (status) => status && { ...status, job },
+  );
+  void queryClient.invalidateQueries({ queryKey: placeKeys.mapStatus });
+}
+
+/** Starts a download of a detail map, or continues a stopped one of the same choice (D246). */
+export function useStartMapDownload() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: MapDownloadRequest) => apiPost<MapJob>("/api/map/download", request),
+    onSuccess: (job) => showMapRun(queryClient, job),
+  });
+}
+
+export function useStopMapDownload() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<MapJob>("/api/map/download/stop", {}),
+    onSuccess: (job) => showMapRun(queryClient, job),
+  });
+}
+
+/** Deletes the detail map and a stopped download's part, which frees their space. */
+export function useDeleteDetailMap() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete("/api/map/detail"),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: placeKeys.mapStatus }),
+  });
 }

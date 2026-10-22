@@ -322,5 +322,13 @@ export function filterChips(state: ListState, terms: QueryTerm[], names: ChipNam
       next: withFilters(state, { event_uid: null }),
     });
   }
+  // The view of the page "Orte" (D248).
+  if (state.photo_area) {
+    chips.push({
+      id: "photo_area",
+      label: "Fotos im Kartenausschnitt",
+      next: withFilters(state, { photo_area: null }),
+    });
+  }
   return chips;
 }

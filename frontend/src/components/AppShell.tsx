@@ -17,6 +17,7 @@ const NAVIGATION = [
   { to: "/entitaeten", label: "Entitäten" },
   { to: "/auffaelligkeiten", label: "Signale" },
   { to: "/karte", label: "Karte" },
+  { to: "/orte", label: "Orte" },
   { to: "/zeitachse", label: "Zeitachse" },
   { to: "/themen", label: "Themen" },
   { to: "/akten", label: "Akten" },

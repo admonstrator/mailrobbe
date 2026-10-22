@@ -1,0 +1,80 @@
+/* The page "Orte" fills the window below the shell header: the filter column, the map with its
+   toolbar, and the details on the right, each scrolling on its own. */
+
+.page {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 340px;
+  height: var(--content-height);
+  min-height: 560px;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.toolbarNote {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 12.5px;
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.map {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.side {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px 18px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  scrollbar-width: thin;
+}
+
+/* Narrower windows: the details go below the map, the map keeps most of the height. */
+@media (max-width: 1180px) {
+  .page {
+    grid-template-columns: 260px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .page > aside:first-child {
+    grid-row: 1 / span 2;
+  }
+
+  .side {
+    max-height: 40vh;
+    border-top: 1px solid var(--color-border);
+    border-left: 0;
+  }
+}
