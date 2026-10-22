@@ -2,7 +2,9 @@
 // also loads in plain Node (type stripping) for screenshot scripts.
 
 import type {
+  AiFacets,
   AiJob,
+  AiQueued,
   AiResultPage,
   AiSendLogPage,
   AiStatus,
@@ -4614,4 +4616,73 @@ export const scannedDocument: DocumentDetail = {
   text_status: "scanned",
   text_origin: "extracted",
   ai: { result: null, task: null },
+};
+
+// Summaries and AI tags (milestone 17): facets, tag lookup, summarising many -------------------
+
+/** The AI facets of the whole archive (D309): tags most mails first, themes in the order of
+ *  themes.toml. */
+export const aiFacets: AiFacets = {
+  tags: [
+    { id: 12, label: "Spende", mails: 214 },
+    { id: 5, label: "Parteitag", mails: 96 },
+    { id: 31, label: "Vorstandssitzung", mails: 41 },
+    { id: 8, label: "Barzahlung", mails: 17 },
+  ],
+  themes: [
+    { key: "spenden", label: "Spendenaffären", mails: 58 },
+    { key: "gewalt", label: "Gewalt", mails: 6 },
+  ],
+  mails: null,
+  sampled: false,
+};
+
+/** The same among the 1,207 mails with an attachment (summaryFiltered). */
+export const aiFacetsFiltered: AiFacets = {
+  tags: [
+    { id: 12, label: "Spende", mails: 38 },
+    { id: 31, label: "Vorstandssitzung", mails: 9 },
+  ],
+  themes: [{ key: "spenden", label: "Spendenaffären", mails: 11 }],
+  mails: 1_207,
+  sampled: false,
+};
+
+/** An archive without summaries. */
+export const aiFacetsEmpty: AiFacets = { tags: [], themes: [], mails: null, sampled: false };
+
+/** The AI page's status with a usable local text service (D300). */
+export const aiStatusText: AiStatus = {
+  ...aiStatus,
+  services: [
+    ...aiStatus.services,
+    {
+      capability: "text",
+      url: "http://host.docker.internal:11434",
+      model: "text-local",
+      protocol: "auto",
+      locality: "local",
+      refused: null,
+      key: false,
+    },
+  ],
+  text: true,
+};
+
+/** The preview of summarising the mails with an attachment (D308): 312 short, by the rule of
+ *  thumb. */
+export const summarizePreview: AiQueued = {
+  queued: 1_207,
+  raised: 0,
+  unreadable: 0,
+  logos: 0,
+  run: null,
+  short: 312,
+  estimate: {
+    model: "text-local",
+    tasks: 1_207,
+    tokens: 1_850_000,
+    seconds: 7_800,
+    estimated: true,
+  },
 };
