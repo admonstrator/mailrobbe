@@ -40,6 +40,12 @@
   overflow-wrap: anywhere;
 }
 
+.sub {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12.5px;
+}
+
 .technical {
   display: block;
   color: var(--color-muted);
@@ -316,6 +322,11 @@
   padding: 8px 10px;
   border-bottom: 1px solid var(--color-border-subtle);
   vertical-align: top;
+}
+
+/* On a phone the table scrolls; the file name keeps room to be read. */
+.table td:first-child {
+  min-width: 180px;
 }
 
 .num {

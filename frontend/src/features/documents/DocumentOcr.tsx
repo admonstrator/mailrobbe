@@ -16,7 +16,6 @@ import { EngineSelect } from "../ai/EngineSelect";
 import { aiErrorText, engineName, machineLine, pageNumbers, queuedText } from "../ai/labels";
 import { Dialog } from "../persons/Dialog";
 import styles from "./DocumentOcr.module.css";
-import { MachineMark } from "./MachineMark";
 
 /** What the text recognition did and can do for one document (D189), in its text card: the line
  *  "Maschinell erkannt · Tesseract · Datum · n von m Seiten" with the uncertain and failed pages,
@@ -46,7 +45,6 @@ export function OcrBar({ document }: { document: DocumentDetail }) {
     <div className={styles.bar}>
       {result && result.characters > 0 && (
         <p className={styles.line}>
-          <MachineMark />
           <span>
             {machineLine(result)}
             {result.remote && " · über einen Dienst im Internet"}

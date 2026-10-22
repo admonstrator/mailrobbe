@@ -21,7 +21,7 @@ import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
-import { formatBytes, formatDateTime, formatDuration, formatNumber } from "../../lib/format";
+import { formatBytes, formatDateTime, formatElapsed, formatNumber } from "../../lib/format";
 import { Dialog } from "../persons/Dialog";
 import styles from "./AiPage.module.css";
 import {
@@ -329,7 +329,7 @@ function ResultRow({
       <td>
         <DocumentCell document={result.document} />
         {result.uncertain.length > 0 && (
-          <span className={styles.muted}>{`Unsicher: ${pageNumbers(result.uncertain)}`}</span>
+          <span className={styles.sub}>{`Unsicher: ${pageNumbers(result.uncertain)}`}</span>
         )}
         {result.failed.length > 0 && (
           <span
@@ -349,7 +349,7 @@ function ResultRow({
       </td>
       <td className={styles.nowrap}>
         {formatDateTime(result.created_at)}
-        <span className={styles.muted}>{` · ${formatDuration(result.seconds)}`}</span>
+        <span className={styles.muted}>{` · ${formatElapsed(result.seconds)}`}</span>
         {result.job_id !== null && (
           <span className={styles.muted}>{` · Lauf ${formatNumber(result.job_id)}`}</span>
         )}

@@ -4441,7 +4441,6 @@ export const aiJobRunning: AiJob = {
         eta_seconds: 1_380,
       },
       waitingStep("entities"),
-      waitingStep("entity_figures"),
       waitingStep("signals"),
     ],
     database: null,
