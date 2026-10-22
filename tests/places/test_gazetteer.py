@@ -206,6 +206,10 @@ def test_every_hand_written_town_name_resolves() -> None:
         ("Hotel am Markt, Weimar", "Weimar, Thüringen, Deutschland"),
         ("Messe Frankfurt, Halle 3", "Frankfurt am Main, Hessen, Deutschland"),
         ("Konferenzraum Berlin", "Berlin, Deutschland"),
+        ("Am Markt 12, Köln", "Köln, Nordrhein-Westfalen, Deutschland"),  # not Markt in Austria
+        ("Treffen in Berlin", "Berlin, Deutschland"),  # not Treffen am Ossiacher See
+        ("Grugahalle, Essen", "Essen, Nordrhein-Westfalen, Deutschland"),
+        ("Sitzung in Hof", "Hof, Bayern, Deutschland"),
         (
             "Stadthalle Neustadt an der Weinstraße",
             "Neustadt an der Weinstraße, Rheinland-Pfalz, Deutschland",
@@ -236,6 +240,11 @@ def test_postcode_point() -> None:
         "Kantine, 1. OG",
         "https://teams.example/meet/123456",
         "Einwahl: +49 30 1234 5678",
+        "Großer Saal",
+        "Haus am See",
+        "Café Central",
+        "Sitzungssaal Rathaus Hof",  # a common word, alone only after in, aus, nach, bei
+        "Essen",
     ],
 )
 def test_locations_without_a_town(location: str) -> None:

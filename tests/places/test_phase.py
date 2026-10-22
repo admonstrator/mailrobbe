@@ -6,10 +6,10 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from sqlalchemy import make_url, pool, text
+from sqlalchemy import CursorResult, make_url, pool, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from mailrobbe import migrate
@@ -47,7 +47,7 @@ async def sessions(url: str) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
 async def execute(url: str, query: str, **parameters: Any) -> list[Any]:
     async with sessions(url) as sessionmaker, sessionmaker() as session, session.begin():
-        result = await session.execute(text(query), parameters)
+        result = cast(CursorResult[Any], await session.execute(text(query), parameters))
         return list(result) if result.returns_rows else []
 
 
@@ -213,10 +213,10 @@ async def test_a_stop_keeps_what_is_stored_and_the_next_step_goes_on(
     async with sessions(url) as sessionmaker:
         async with sessionmaker() as session:
             plan = await phase.waiting(session)
-        step = Stopping("places", plan.rows)
-        await phase.locate_places(sessionmaker, plan, stop, step)
+        stopping = Stopping("places", plan.rows)
+        await phase.locate_places(sessionmaker, plan, stop, stopping)
 
-    assert step.done == 1
+    assert stopping.done == 1
     statuses = [row[0] for row in (await entities(url)).values()]
     assert statuses.count(None) == 4  # three places and the organisation
     # The reset recorded the new version, so the next step goes on where this one stopped.
@@ -229,7 +229,7 @@ async def test_a_row_the_rules_fail_on_fails_alone(
     url: str, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     caplog.set_level(logging.INFO, logger="mailrobbe")
-    real = phase.locate_name
+    real = gazetteer.locate_name
 
     def locate(label: str, detail: str | None) -> gazetteer.Located:
         if label == "Schweiz":

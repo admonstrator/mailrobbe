@@ -34,6 +34,8 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
+from mailrobbe.entities.gazetteer import DATA_DIR as ENTITY_DATA
+from mailrobbe.entities.gazetteer import entries
 from mailrobbe.enums import PlaceStatus
 
 DATA_DIR = Path(__file__).with_name("data")
@@ -139,8 +141,10 @@ def base_name(name: str) -> str | None:
 
 
 def data_files() -> tuple[Path, ...]:
-    """The lists the rules read, in name order (SOURCES.md is none)."""
-    return tuple(sorted(path for path in DATA_DIR.iterdir() if path.suffix != ".md"))
+    """The lists the rules read, in name order (SOURCES.md is none), with the entities' lists
+    the locations are read by (ENTITY_LISTS)."""
+    own = (path for path in DATA_DIR.iterdir() if path.suffix != ".md")
+    return tuple(sorted((*own, *(ENTITY_DATA / name for name in ENTITY_LISTS))))
 
 
 def _table(name: str) -> Iterator[list[str]]:
@@ -181,7 +185,7 @@ class _Names:
     other: Index  # by the other names of the towns of the four countries
     world: Index  # by the other names of the world's towns
     base: Index  # by the names of the four countries' towns without what follows them
-    words: int  # words of the longest name locations are read by (own, other, base)
+    words: int  # words of the longest name locations are read by (own, other)
 
 
 @cache
@@ -199,9 +203,9 @@ def _names() -> _Names:
         _add(other if dach else world, others, number)
         if dach:
             _add(base, [cut for name in (*names, *others) if (cut := base_name(name))], number)
-    read = _finish(own), _finish(other), _finish(base)  # what locations are read by
+    read = _finish(own), _finish(other)  # what locations are read by
     words = max(key.count(" ") + 1 for index in read for key in index)
-    return _Names(read[0], read[1], _finish(world), read[2], words)
+    return _Names(read[0], read[1], _finish(world), _finish(base), words)
 
 
 def _finish(index: defaultdict[str, list[int]]) -> Index:
@@ -433,17 +437,30 @@ _POSTCODE = re.compile(r"(?<![\w.,])(?:(D|A|CH|FL)-)?(\d{5}|\d{4})(?![\w]|[.,]\d
 _PREFIXES = {"D": "DE", "A": "AT", "CH": "CH", "FL": "LI"}
 _WORD = re.compile(r"\w+")
 _SEGMENT = re.compile(r"[,;:|\n]")  # a town's name does not reach over these
+# A word after these is part of a street's or a building's name (Am Markt, Haus am See).
+_NAMING = frozenset({"am", "im", "zum", "zur", "beim", "vom"})
+# Words of rooms and buildings that are towns too. They, the entities' words that are no names
+# and their towns that are common words (ENTITY_LISTS) name a town in a location only after in,
+# aus, nach, bei, or as a part of their own after a comma ("Grugahalle, Essen"), as in a text.
+_ROOM_WORDS = (
+    "Haus", "Saal", "Werk", "Halle", "Hof", "Burg", "Schloss", "Kirche", "Garten", "Markt",
+    "Messe", "Zentrum", "Forum", "Arena", "Treffpunkt", "Central",
+)  # fmt: skip
+ENTITY_LISTS = ("ambiguous_places.txt", "common_words.txt")  # of entities/data
+_AFTER = frozenset({"in", "aus", "nach", "bei"})
 
 
 def locate_location(location: str) -> Located:
     """The point of an invitation's location (D243): a postcode followed by its town (the
     postcode list decides; another word after it counts when the town is named elsewhere in the
     location) is the postcode's point; else a town of the lists named in it as a whole word,
-    capitalised, the longest name first; else unknown (Raum 3.14, Teams-Besprechung). Locations
-    are read by the towns' own names and the other names and names without what follows them of
-    the four countries' towns only: the world's other names hold words a room has too (Raum for
-    Rauma). An invitation without a location is no case for this (the step places leaves it
-    alone)."""
+    capitalised and not after am, im, zum (Am Markt is a street), a common word only after in,
+    aus, nach, bei or alone after a comma (_ROOM_WORDS), the longest name first; else unknown
+    (Raum 3.14, Teams-Besprechung). Locations are read by the towns' own names and the
+    other names of the four countries' towns only, their names without what follows them are
+    rivals only: the world's other names hold words a room has too (Raum for Rauma), and the
+    first words of names are common words (Treffen am Ossiacher See). An invitation without a
+    location is no case for this (the step places leaves it alone)."""
     location = location[:LOCATION_LIMIT]
     found = _postcode_place(location)
     if found is not None:
@@ -492,23 +509,34 @@ def _named_town(location: str) -> Located:
     best_own: tuple[int, ...] = ()
     best_cut: tuple[int, ...] = ()
     best_length = 0
-    for segment in _SEGMENT.split(location):
+    common = _common_words()
+    for number, segment in enumerate(_SEGMENT.split(location)):
         words = _WORD.findall(segment)
         keys = [fold(word) for word in words]
         for start, word in enumerate(words):
-            if not word[0].isupper():
+            before = keys[start - 1] if start else None
+            if not word[0].isupper() or before in _NAMING:
                 continue
             for end in range(min(len(words), start + names.words), start, -1):
                 key = " ".join(keys[start:end])
                 if len(key) <= best_length:
                     break
                 own, other = names.own.get(key, ()), names.other.get(key, ())
-                cut = names.base.get(key, ())
-                if own or other or cut:
+                alone = number > 0 and len(words) == end - start  # ", Essen"
+                if key in common and before not in _AFTER and not alone:
+                    break
+                if own or other:  # the names without what follows them only as rivals
+                    cut = names.base.get(key, ())
                     best, best_own, best_cut = _merged(own, other, cut), own, cut
                     best_length = len(key)
                     break
     return _decide(best, best_own, best_cut) if best else UNKNOWN
+
+
+@cache
+def _common_words() -> frozenset[str]:
+    words = (*_ROOM_WORDS, *(word for name in ENTITY_LISTS for word in entries(name)))
+    return frozenset(fold(word) for word in words)
 
 
 # The nearest town --------------------------------------------------------------------------
