@@ -46,6 +46,10 @@ export class FakeMap {
     return this.styles[this.styles.length - 1];
   }
 
+  getContainer(): HTMLElement {
+    return this.options.container as HTMLElement;
+  }
+
   on(type: string, handler: Handler) {
     let set = this.handlers.get(type);
     if (!set) this.handlers.set(type, (set = new Set()));

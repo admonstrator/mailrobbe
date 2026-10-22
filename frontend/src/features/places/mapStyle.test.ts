@@ -5,6 +5,7 @@ import {
   circleRadius,
   DETAIL_ATTRIBUTION,
   DETAIL_MIN_ZOOM,
+  detailMinZoom,
   mapStyle,
   townMinZoom,
   type LayerSpecification,
@@ -50,6 +51,10 @@ describe("the style of the maps (D244, D245)", () => {
       maxzoom: 14,
       attribution: DETAIL_ATTRIBUTION,
     });
+    // The extract of a small view starts where its tiles are about as wide as the view.
+    expect(detailMinZoom([6.88, 50.89, 7.03, 50.98], 15)).toBe(11);
+    expect(detailMinZoom(detailMap.bbox, 14)).toBe(DETAIL_MIN_ZOOM);
+    expect(detailMinZoom([9.5, 47.1, 9.5, 47.1], 15)).toBe(15);
     expect(DETAIL_ATTRIBUTION).toContain("© OpenStreetMap-Mitwirkende");
     expect(DETAIL_ATTRIBUTION).toContain("Protomaps");
     const ids = style.layers.map((one) => one.id);

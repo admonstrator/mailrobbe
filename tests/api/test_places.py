@@ -381,11 +381,12 @@ async def test_one_photo_with_its_mails_and_the_nearest_town(
 
 
 async def test_a_photo_of_a_hidden_mail_and_one_without_a_capture_time(
-    places_client: httpx.AsyncClient, mails: dict[int, int]
+    places_client: httpx.AsyncClient, mails: dict[int, int], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(gazetteer, "nearest_town", nearest_at(None))
     hidden = PhotoDetail.model_validate(await get(places_client, "/api/places/photos/9005"))
     assert [mail.id for mail in hidden.mails] == [mails[7]]  # the detail shows it (D222)
-    assert hidden.nearest is None  # the lists are not there
+    assert hidden.nearest is None  # no town of the lists near it
     gps_only = PhotoDetail.model_validate(await get(places_client, "/api/places/photos/9002"))
     assert gps_only.taken_at == datetime(2021, 6, 1, 9, tzinfo=UTC)
     assert gps_only.taken_text is None and gps_only.altitude is None
