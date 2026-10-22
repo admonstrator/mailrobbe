@@ -117,12 +117,12 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
         <DocumentHeader ref={header} document={document} />
         {document.protection && <ProtectionCard document={document} />}
         <DocumentTiles document={document} />
+        <SummaryCard target="document" id={document.id} />
         {document.preview && document.preview !== "image" && document.protection !== "locked" && (
           <PreviewCard document={document} kind={document.preview} />
         )}
         {document.members && <ContentsCard document={document} members={document.members} />}
         <DocumentMails document={document} state={state} href={href} />
-        <SummaryCard target="document" id={document.id} />
         {(hasStoredText(document.text_status) || document.ocr_readable || document.ai) && (
           <DocumentTextCard document={document} />
         )}
