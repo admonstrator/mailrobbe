@@ -276,7 +276,9 @@ class KeyOrigin(StrEnum):
     """Where the key a DKIM result rests on comes from (D100): dkim_result.key_origin,
     dkim_key.origin, dkim_key_evidence.origin. Strongest first."""
 
-    DNS = "dns"  # the domain publishes it today (dns_cache, live DNS or the override table)
+    # the domain published it in DNS and Mailrobbe asked it there itself, today or earlier
+    # (dns_cache, live DNS or the override table); kept once seen (D106)
+    DNS = "dns"
     OBSERVED = "observed"  # a third party saw it in the domain's DNS (key archive live_dns)
     DOCUMENTED = "documented"  # a document holds it: a find in the archive, a manual record
     RECONSTRUCTED = "reconstructed"  # computed from signatures; binds it to no domain
@@ -306,7 +308,7 @@ class KeyLookupSource(StrEnum):
     ARCHIVE_TEXT = "archive_text"  # a key record quoted in a mail or an attachment's text
     MANUAL = "manual"  # entered by a person, with a reference
     ZKEMAIL = "zkemail"  # the ZK Email DKIM archive, one request per domain
-    DNS = "dns"  # today's DNS answer of another selector of the same domain
+    DNS = "dns"  # a DNS answer of the name, or of another selector of the same domain
 
 
 class LookupOutcome(StrEnum):

@@ -73,6 +73,7 @@ DNS_GIVES_NO_KEY = {
 @pytest.mark.parametrize(
     ("origin", "status"),
     [
+        (KeyOrigin.DNS, PASS),  # kept from an earlier DNS answer (D106)
         (KeyOrigin.OBSERVED, PASS),
         (KeyOrigin.DOCUMENTED, PASS),
         (KeyOrigin.RECONSTRUCTED, CONSISTENT),
@@ -124,6 +125,40 @@ def test_results_of_todays_dns_stay_and_name_their_origin() -> None:
         assert check(raw, keys, other) == expected[dns], dns
     # a changed header breaks the signature for every key
     assert check(changed_subject(raw), Keys(), candidate()) == expected["not found"]
+
+
+def test_a_key_kept_from_before_the_domain_replaced_it_still_verifies() -> None:
+    raw = sign(MESSAGE)
+    keys = Keys(published("rsa1024"))  # today the name publishes another key
+    today = candidate("rsa1024", KeyOrigin.DNS)  # kept as well, the same as DNS gives
+    assert check(raw, keys, today) == (FAIL, R.SIGNATURE_MISMATCH, None, KeyOrigin.DNS, 1024)
+    assert check(raw, keys, today, candidate(origin=KeyOrigin.DNS, key_id=8)) == (
+        PASS,
+        None,
+        8,
+        KeyOrigin.DNS,
+        2048,
+    )
+
+
+@pytest.mark.parametrize("dns", ["not found", "revoked", "timeout"])
+def test_without_a_key_in_dns_the_newest_kept_one_judges_as_dns_did(dns: str) -> None:
+    raw = sign(MESSAGE)
+    older, newest = candidate("rsa1024", KeyOrigin.DNS, 3), candidate("rsa1024", KeyOrigin.DNS, 4)
+    keys = DNS_GIVES_NO_KEY[dns]
+    # a changed header: signature_mismatch, as when DNS still gave the key
+    expected = (FAIL, R.SIGNATURE_MISMATCH, 4, KeyOrigin.DNS, 1024)
+    assert check(changed_subject(raw), keys, older, newest) == expected
+    assert check(changed_body(changed_subject(raw)), keys, newest) == (
+        FAIL,
+        R.BODY_HASH_MISMATCH,
+        4,
+        KeyOrigin.DNS,
+        1024,
+    )
+    # a key from another source does not judge: what DNS says, no key fitting
+    alone = (TEMP_ERROR, R.DNS_TIMEOUT) if dns == "timeout" else (NO_KEY, R.KEY_MISMATCH)
+    assert check(changed_subject(raw), keys, candidate()) == (*alone, None, None, None)
 
 
 def test_without_candidates_no_key_keeps_its_reason() -> None:

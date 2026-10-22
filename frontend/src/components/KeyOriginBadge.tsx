@@ -3,7 +3,7 @@ import { cx } from "../lib/cx";
 import { KEY_ORIGIN_LABELS, KEY_ORIGIN_TEXTS } from "../lib/dkim";
 import styles from "./KeyOriginBadge.module.css";
 
-/** Where the key a signature rests on comes from (D100): "DNS heute", "im DNS beobachtet",
+/** Where the key a signature rests on comes from (D100): "DNS", "im DNS beobachtet",
  *  "dokumentiert", "rekonstruiert"; the tooltip says what that shows. */
 export function KeyOriginBadge({ origin }: { origin: KeyOrigin }) {
   return (

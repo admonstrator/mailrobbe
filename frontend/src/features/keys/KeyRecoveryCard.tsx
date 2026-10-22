@@ -98,7 +98,9 @@ export function KeyRecoveryCard() {
 }
 
 function Figures({ summary }: { summary: SelectorSummary }) {
-  const keys = KEY_ORIGINS.filter((origin) => summary.keys[origin] > 0);
+  // Keys kept from DNS (D106) are no finds: they get a line of their own.
+  const keys = KEY_ORIGINS.filter((origin) => origin !== "dns" && summary.keys[origin] > 0);
+  const kept = summary.keys.dns;
   return (
     <>
       <dl className={styles.figures}>
@@ -137,6 +139,12 @@ function Figures({ summary }: { summary: SelectorSummary }) {
                   .join(" · ")}
           </dd>
         </div>
+        {kept > 0 && (
+          <div title="Jeder Schlüssel, den Mailrobbe im DNS gesehen hat, bleibt gespeichert. Löscht oder tauscht die Domain ihn später, bestätigt er die Signaturen weiter.">
+            <dt>Aus dem DNS aufbewahrt</dt>
+            <dd>{`${formatNumber(kept)} Schlüssel`}</dd>
+          </div>
+        )}
       </dl>
       {summary.factorable > 0 && (
         <p className={styles.warning}>

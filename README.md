@@ -85,7 +85,7 @@ Ausblendregeln nehmen Newsletter, Verteiler und Systemmails aus Liste und Suche,
 
 ### Echtheit prüfen statt vermuten
 
-Bevor eine Mail zitiert wird, will man wissen, ob sie so verschickt wurde. Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert; das Siegel oben in der Mail zeigt das Ergebnis, ein Klick darauf die Prüfung mit Domain, Selektor und Schlüssel. Gültig heißt: Die Mail wurde mit dem Schlüssel der Domain unterschrieben und ist seither unverändert. Bei älteren Mails steht der Schlüssel oft nicht mehr im DNS. Dann sucht Mailrobbe unter Import, „Gelöschte Selektoren“, auf Knopfdruck weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus zwei Signaturen. Jede Signatur sagt, woher ihr Schlüssel stammt.
+Bevor eine Mail zitiert wird, will man wissen, ob sie so verschickt wurde. Jede DKIM-Signatur wird einzeln geprüft und mit Grund gespeichert; das Siegel oben in der Mail zeigt das Ergebnis, ein Klick darauf die Prüfung mit Domain, Selektor und Schlüssel. Gültig heißt: Die Mail wurde mit dem Schlüssel der Domain unterschrieben und ist seither unverändert. Bei älteren Mails steht der Schlüssel oft nicht mehr im DNS. Dann sucht Mailrobbe unter Import, „Gelöschte Selektoren“, auf Knopfdruck weiter: im Archiv selbst, in einem öffentlichen Schlüsselarchiv und rechnerisch aus zwei Signaturen. Jede Signatur sagt, woher ihr Schlüssel stammt. Jeder Schlüssel, den Mailrobbe einmal im DNS gesehen hat, bleibt gespeichert: Löscht oder tauscht die Domain ihn später, bleibt eine gültige Mail auch bei erneuter Prüfung gültig.
 
 ![Mail-Detail mit aufgeklappter DKIM-Prüfung, Anhängen, Prüfstatus, Schlagwort und Notiz](site/img/mail.webp)
 

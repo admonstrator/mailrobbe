@@ -371,7 +371,14 @@ async def test_the_summary(dashboard: Dashboard, retired: Retired) -> None:
             "GROUP BY dkim_status",
         )
     )
-    asked = await rows(dashboard.url, "SELECT max(asked_at) FROM dkim_key_lookup")
+    asked = await rows(
+        dashboard.url, "SELECT max(asked_at) FROM dkim_key_lookup WHERE source <> 'dns'"
+    )
+    # the keys today's DNS gave, kept (D106), each with the DNS answer as its lookup
+    [[kept_keys]] = await rows(dashboard.url, "SELECT count(*) FROM dkim_key WHERE origin = 'dns'")
+    [[kept_answers]] = await rows(
+        dashboard.url, "SELECT count(*) FROM dkim_key_lookup WHERE source = 'dns'"
+    )
     summary = SelectorSummary.model_validate(
         await get(dashboard.client, "/api/dkim/selectors/summary")
     )
@@ -383,17 +390,19 @@ async def test_the_summary(dashboard: Dashboard, retired: Retired) -> None:
         ),
         names_resolved=len(expected.resolved),
         mails_consistent=mails["consistent"],
-        keys={origin: int(origin is KeyOrigin.RECONSTRUCTED) for origin in KeyOrigin},
+        keys={origin: int(origin is KeyOrigin.RECONSTRUCTED) for origin in KeyOrigin}
+        | {KeyOrigin.DNS: kept_keys},
         factorable=0,
         signatures={
             origin: sum(r.key_origin == origin for r in expected.signatures) for origin in KeyOrigin
         },
         lookups={
             source: int(source is KeyLookupSource.RECONSTRUCTION) for source in KeyLookupSource
-        },
+        }
+        | {KeyLookupSource.DNS: kept_answers},
         last_lookup_at=asked[0][0],
     )
-    assert summary.names_missing > 0 and summary.reconstructable > 0
+    assert summary.names_missing > 0 and summary.reconstructable > 0 and kept_keys > 0
     assert summary.mails_consistent == len({r.mail_id for r in retired.verified if not r.duplicate})
 
 
@@ -494,6 +503,19 @@ async def test_unknown_names(dashboard: Dashboard) -> None:
 # Manual keys and raw answers ------------------------------------------------------------------
 
 
+async def _unkept_records(url: str, name: str, archive: GeneratedArchive) -> list[str]:
+    """The generator's records but the one today's DNS gives for the name, kept (D106)."""
+    kept = {row.key_sha256 for row in await rows(url, KEPT, name=name)}
+    return [
+        record
+        for record in _generator_records(archive)
+        if (identity := key_identity(record)) is not None and identity.key_sha256 not in kept
+    ]
+
+
+KEPT = "SELECT key_sha256 FROM dkim_key WHERE name = :name AND origin = 'dns'"
+
+
 async def _open_name(url: str, retired: Retired) -> str:
     """The name with the most open signatures besides the reconstructed one."""
     expected = await _expected(url)
@@ -513,7 +535,7 @@ async def test_a_manual_key_with_an_evidence_file(
     fake(monkeypatch, "done")
     client = dashboard.client
     name = await _open_name(dashboard.url, retired)
-    record = _generator_records(generated_archive)[-1]
+    record = (await _unkept_records(dashboard.url, name, generated_archive))[-1]
     p = record.partition("p=")[2]
     evidence = b'; zone file of 2019\nsel._domainkey IN TXT "v=DKIM1; p=..."\n\xff\x00'
     body = {
@@ -531,7 +553,7 @@ async def test_a_manual_key_with_an_evidence_file(
     assert response.status_code == 201, response.text
     page = response.json()
     assert page["name"] == name
-    [key] = page["keys"]
+    [key] = [key for key in page["keys"] if key["origin"] != "dns"]
     identity = key_identity(record)
     assert identity is not None
     assert (key["origin"], key["key_sha256"], key["bits"], key["signatures"]) == (
@@ -590,12 +612,12 @@ async def test_a_manual_key_while_a_run_is_alive(
     client = dashboard.client
     started = await post(client, "/api/dkim/keys/run", {"task": "reconstruct"}, 202)
     name = await _open_name(dashboard.url, retired)
-    p = _generator_records(generated_archive)[0].partition("p=")[2]
+    p = (await _unkept_records(dashboard.url, name, generated_archive))[0].partition("p=")[2]
     response = await client.post(
         f"/api/dkim/selectors/{name}/keys", json={"record": p, "reference": "Screenshot"}
     )
     assert response.status_code == 201, response.text
-    [key] = response.json()["keys"]
+    [key] = [key for key in response.json()["keys"] if key["origin"] != "dns"]
     assert (key["origin"], key["evidence"][0]["editor"], key["evidence"][0]["raw_size"]) == (
         "documented",
         None,
@@ -735,6 +757,9 @@ async def test_the_archive_preview(
         if url == LOCAL_ARCHIVE:  # an archive on this machine is asked for every domain
             assert preview["skipped"] == []
             assert [item["domain"] for item in preview["domains"]] == order
+            # no fetch was interrupted: none is done, every domain is asked (D107)
+            assert preview["continues"] is None
+            assert not any(item["done"] for item in preview["domains"])
             for item in preview["domains"]:
                 selectors, mails = concerned[item["domain"]]
                 assert (item["names"], item["mails"]) == (len(selectors), len(mails))
@@ -767,6 +792,7 @@ async def test_a_key_run_from_start_to_stop(
         "task": "reconstruct",
         "names": [retired.name],
         "domains": [],
+        "skip_domains": [],
         "workers": 2,
         "archive_url": None,
     }
@@ -783,6 +809,11 @@ async def test_a_key_run_from_start_to_stop(
     run = {"task": "fetch", "domains": [f" {retired.domain.upper()}. ", retired.domain]}
     job = await post(client, "/api/dkim/keys/run", run, 202)
     assert (job["options"]["task"], job["options"]["domains"]) == ("fetch", [retired.domain])
+    await _reaped(dashboard)
+    # every domain but one, without a list of the others (D107)
+    run = {"task": "fetch", "skip_domains": [retired.domain.upper()]}
+    job = await post(client, "/api/dkim/keys/run", run, 202)
+    assert (job["options"]["domains"], job["options"]["skip_domains"]) == ([], [retired.domain])
     await _reaped(dashboard)
 
 
@@ -802,6 +833,11 @@ async def test_key_runs_that_are_refused(
         ({"task": "reconstruct", "domains": [retired.domain]}, "invalid_option"),
         ({"task": "fetch", "domains": ["not a domain"]}, "invalid_option"),
         ({"task": "fetch", "domains": ["localhost"]}, "invalid_option"),
+        ({"task": "search", "skip_domains": [retired.domain]}, "invalid_option"),
+        (
+            {"task": "fetch", "domains": [retired.domain], "skip_domains": [retired.domain]},
+            "invalid_option",
+        ),
         ({"task": "check", "names": ["nothing"]}, "invalid_key"),
     ]
     for body, code in refused:

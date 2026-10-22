@@ -1,16 +1,40 @@
 import { useState, type FormEvent } from "react";
 
 import { useArchivePreview, useStartKeysRun } from "../../api/queries";
-import type { KeyArchivePreview } from "../../api/types";
+import {
+  RUN_LIST_LIMIT,
+  type ArchiveDomain,
+  type DkimKeysRunRequest,
+  type KeyArchivePreview,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import { Dialog } from "../persons/Dialog";
 import styles from "./ArchivePreviewDialog.module.css";
-import { keysErrorText, RUN_LIST_LIMIT } from "./labels";
+import { keysErrorText } from "./labels";
+
+/** The run for the checked domains (D107): every domain less the unchecked ones, as long as no
+ *  domain the interrupted fetch answered is checked again, which the run leaves out by itself;
+ *  otherwise exactly the checked ones. null when that list would be too long for one request. */
+export function fetchRequest(
+  domains: readonly ArchiveDomain[],
+  left: ReadonlySet<string>,
+): DkimKeysRunRequest | null {
+  const chosen = domains.filter(({ domain }) => !left.has(domain));
+  if (chosen.every(({ done }) => !done)) {
+    const skip = domains.filter(({ domain, done }) => !done && left.has(domain));
+    if (skip.length > RUN_LIST_LIMIT) return null;
+    if (skip.length === 0) return { task: "fetch" };
+    return { task: "fetch", skip_domains: skip.map(({ domain }) => domain) };
+  }
+  if (chosen.length > RUN_LIST_LIMIT) return null;
+  return { task: "fetch", domains: chosen.map(({ domain }) => domain) };
+}
 
 /** "Schlüsselarchiv abfragen" (D102): which domains a fetch would send to which archive and
- *  when each was last asked, before anything is sent; the fetch asks only the checked ones. */
+ *  when each was last asked, before anything is sent; the fetch asks only the checked ones,
+ *  one after the other, and after an interrupted fetch only those it did not get to (D107). */
 export function ArchivePreviewDialog({
   busy,
   onClose,
@@ -64,10 +88,13 @@ function DomainForm({
   onClose: () => void;
 }) {
   const start = useStartKeysRun();
-  // Every domain starts checked; the set holds those unchecked.
-  const [left, setLeft] = useState<ReadonlySet<string>>(new Set());
+  // Every domain starts checked but those an interrupted fetch answered already; the set holds
+  // those unchecked.
+  const answered = preview.domains.filter(({ done }) => done).map(({ domain }) => domain);
+  const [left, setLeft] = useState<ReadonlySet<string>>(() => new Set(answered));
   const chosen = preview.domains.map(({ domain }) => domain).filter((domain) => !left.has(domain));
-  const tooMany = chosen.length > RUN_LIST_LIMIT;
+  const request = fetchRequest(preview.domains, left);
+  const tooMany = request === null;
 
   function toggle(domain: string, checked: boolean) {
     const next = new Set(left);
@@ -78,8 +105,8 @@ function DomainForm({
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (chosen.length === 0 || tooMany) return;
-    start.mutate({ task: "fetch", domains: chosen }, { onSuccess: onClose });
+    if (chosen.length === 0 || request === null) return;
+    start.mutate(request, { onSuccess: onClose });
   }
 
   return (
@@ -89,16 +116,22 @@ function DomainForm({
       </p>
       <p className={styles.privacy}>
         Mailrobbe schickt dem Archiv nur die Namen der angehakten Domains, eine Anfrage je Domain.
-        Selektoren, Mails, Adressen und alles andere bleiben hier; hochgeladen wird nichts.
+        Selektoren, Mails, Adressen und alles andere bleiben hier; hochgeladen wird nichts. Die
+        Anfragen gehen nacheinander hinaus; ein angehaltener Lauf macht beim nächsten Start weiter.
       </p>
+      {preview.continues && (
+        <p className={styles.text}>
+          {`Die Abfrage vom ${formatDateTime(preview.continues)} ist nicht zu Ende gelaufen. ${formatNumber(answered.length)} ${answered.length === 1 ? "Domain hat" : "Domains haben"} seither geantwortet und ${answered.length === 1 ? "bleibt" : "bleiben"} diesmal aus.`}
+        </p>
+      )}
       {preview.domains.length === 0 ? (
         <p className={styles.text}>Keine Domain zu fragen: Kein Selektor ist ohne Schlüssel.</p>
       ) : (
         <>
           <div className={styles.listHead}>
             <span>{`${formatNumber(chosen.length)} von ${formatNumber(preview.domains.length)} Domains gewählt`}</span>
-            <Button variant="link" size="xs" onClick={() => setLeft(new Set())}>
-              Alle
+            <Button variant="link" size="xs" onClick={() => setLeft(new Set(answered))}>
+              {answered.length > 0 ? "Alle übrigen" : "Alle"}
             </Button>
             <Button
               variant="link"
@@ -119,7 +152,7 @@ function DomainForm({
                 </tr>
               </thead>
               <tbody>
-                {preview.domains.map(({ domain, names, mails, last_asked_at }) => (
+                {preview.domains.map(({ domain, names, mails, last_asked_at, done }) => (
                   <tr key={domain}>
                     <td>
                       <label className={styles.domain}>
@@ -135,6 +168,7 @@ function DomainForm({
                     <td className={styles.num}>{formatNumber(mails)}</td>
                     <td className={styles.muted}>
                       {last_asked_at ? formatDateTime(last_asked_at) : "noch nie"}
+                      {done && " · beantwortet"}
                     </td>
                   </tr>
                 ))}
@@ -150,7 +184,7 @@ function DomainForm({
       )}
       {tooMany && (
         <p className={styles.error} role="alert">
-          {`Eine Abfrage nimmt höchstens ${formatNumber(RUN_LIST_LIMIT)} Domains; bitte weniger wählen.`}
+          {`Eine Abfrage nimmt höchstens ${formatNumber(RUN_LIST_LIMIT)} einzeln gewählte oder abgewählte Domains; „Alle“ fragt jede Domain ohne Grenze.`}
         </p>
       )}
       {start.isError && (

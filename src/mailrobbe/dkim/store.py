@@ -19,6 +19,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
 from mailrobbe.db.models import DkimResult, DnsCache, Mail
+from mailrobbe.dkim.keys.store import keep_dns_keys
 from mailrobbe.dkim.model import DnsAnswer, MailVerdict
 from mailrobbe.enums import DkimReason, DkimStatus, DnsStatus
 
@@ -48,7 +49,8 @@ async def upsert_dns_cache(db: Executor, answers: Iterable[DnsAnswer]) -> None:
     """Insert or replace dns_cache rows by name; answers with ttl 0 are skipped.
 
     Of several answers for one name only the last is written: one statement cannot update the
-    same row twice.
+    same row twice. The key of every found answer is kept beyond the cache row (D106,
+    keys.store.keep_dns_keys), so a later not found or error replaces the row, never the key.
     """
     latest = {answer.name: answer for answer in answers if answer.ttl > 0}
     if not latest:
@@ -74,6 +76,8 @@ async def upsert_dns_cache(db: Executor, answers: Iterable[DnsAnswer]) -> None:
         for answer in latest.values()
     ]
     await db.execute(statement, rows)
+    # After the rows: their locks keep concurrent batches from keeping one answer twice.
+    await keep_dns_keys(db, latest.values())
 
 
 async def save_verdicts(

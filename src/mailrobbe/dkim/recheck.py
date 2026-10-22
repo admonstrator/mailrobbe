@@ -47,7 +47,7 @@ from mailrobbe.db.models import DkimResult, Mail, MboxFile
 from mailrobbe.db.session import create_engine
 from mailrobbe.dkim import store
 from mailrobbe.dkim.checker import DkimChecker
-from mailrobbe.dkim.keys.store import load_candidates, of_key_names
+from mailrobbe.dkim.keys.store import keep_cached_keys, load_candidates, of_key_names
 from mailrobbe.dkim.model import DnsAnswer, KeyCandidates, MailVerdict
 from mailrobbe.enums import DkimStatus, JobKind, JobOrigin, JobStatus
 from mailrobbe.jobrun import (
@@ -216,6 +216,7 @@ async def check_mails(
     files = await connection.execute(select(MboxFile.id, MboxFile.path))
     paths = {file_id: path for file_id, path in files}
     answers = await store.load_dns_cache(connection)
+    await keep_cached_keys(connection)  # D106
     candidates = await load_candidates(connection)
     await connection.commit()
     jobs = max(1, min(jobs, math.ceil(selected / CHUNK)))

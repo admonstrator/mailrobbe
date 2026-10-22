@@ -2294,10 +2294,10 @@ export const selectorSummary: SelectorSummary = {
   reconstructable: 164,
   names_resolved: 12,
   mails_consistent: 5_336,
-  keys: { dns: 0, observed: 3, documented: 1, reconstructed: 11 },
+  keys: { dns: 2_417, observed: 3, documented: 1, reconstructed: 11 },
   factorable: 1,
   signatures: { dns: 190_412, observed: 140, documented: 0, reconstructed: 5_336 },
-  lookups: { reconstruction: 12, archive_text: 1, manual: 1, zkemail: 4, dns: 0 },
+  lookups: { reconstruction: 12, archive_text: 1, manual: 1, zkemail: 4, dns: 2_417 },
   last_lookup_at: "2026-10-21T10:30:00Z",
 };
 
@@ -2310,11 +2310,19 @@ export const archivePreview: KeyArchivePreview = {
       names: 4,
       mails: 6_210,
       last_asked_at: "2026-10-01T10:00:00Z",
+      done: false,
     },
-    { domain: "stadtwerke-beispiel.example", names: 2, mails: 1_904, last_asked_at: null },
-    { domain: "verein-nord.example", names: 1, mails: 1, last_asked_at: null },
+    {
+      domain: "stadtwerke-beispiel.example",
+      names: 2,
+      mails: 1_904,
+      last_asked_at: null,
+      done: false,
+    },
+    { domain: "verein-nord.example", names: 1, mails: 1, last_asked_at: null, done: false },
   ],
   skipped: [],
+  continues: null,
 };
 
 /** The public archive: every domain of a generated archive is reserved, so none goes out. */
@@ -2322,6 +2330,7 @@ export const archivePreviewPublic: KeyArchivePreview = {
   url: "https://archive.zk.email",
   domains: [],
   skipped: ["nordlicht-gmbh.example", "stadtwerke-beispiel.example"],
+  continues: null,
 };
 
 /** A reconstruction of every concerned name from the dashboard, half through. */
@@ -2339,7 +2348,14 @@ export const keysJobRunning: DkimKeysJob = {
   message: null,
   leftover: null,
   phase: "reconstruct",
-  options: { task: "reconstruct", names: [], domains: [], workers: 4, archive_url: null },
+  options: {
+    task: "reconstruct",
+    names: [],
+    domains: [],
+    skip_domains: [],
+    workers: 4,
+    archive_url: null,
+  },
   progress: {
     workers: 4,
     names: 164,

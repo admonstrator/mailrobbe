@@ -70,7 +70,7 @@ export const KEY_ORIGINS: readonly KeyOrigin[] = ["dns", "observed", "documented
 
 /** The badge of a key's origin, beside a signature's status. */
 export const KEY_ORIGIN_LABELS: Record<KeyOrigin, string> = {
-  dns: "DNS heute",
+  dns: "DNS",
   observed: "im DNS beobachtet",
   documented: "dokumentiert",
   reconstructed: "rekonstruiert",
@@ -78,7 +78,7 @@ export const KEY_ORIGIN_LABELS: Record<KeyOrigin, string> = {
 
 /** What each origin shows, in one sentence: the badge's tooltip. */
 export const KEY_ORIGIN_TEXTS: Record<KeyOrigin, string> = {
-  dns: "Die Domain veröffentlicht diesen Schlüssel heute im DNS.",
+  dns: "Mailrobbe hat diesen Schlüssel selbst im DNS der Domain abgefragt, heute oder früher; einmal gesehen bleibt er gespeichert.",
   observed: "Ein Dritter hat diesen Schlüssel im DNS der Domain gesehen.",
   documented: "Ein Dokument enthält diesen Schlüssel: ein Fund im Archiv oder ein Beleg von Hand.",
   reconstructed:
@@ -91,7 +91,7 @@ export const KEY_SOURCE_LABELS: Record<KeyLookupSource, string> = {
   archive_text: "Fund im Archiv",
   manual: "Von Hand eingetragen",
   zkemail: "ZK-Email-Archiv",
-  dns: "DNS eines anderen Selektors",
+  dns: "DNS",
 };
 
 /** What happened at a piece of evidence's asked_at, per source. */
@@ -115,6 +115,18 @@ export function evidenceTimes(from: string | null, to: string | null): string | 
  *  01.03.2024 bis 30.09.2025". */
 export function evidenceLine(evidence: KeyEvidenceInfo): string {
   const used = evidence.signatures.length;
+  if (evidence.source === "dns") {
+    // Mailrobbe's own DNS answers: when it saw the key there, first and last (D106)
+    const from = evidence.observed_from ?? evidence.asked_at;
+    const to = evidence.observed_to ?? from;
+    const seen =
+      formatDate(from) === formatDate(to)
+        ? `im DNS gesehen am ${formatDate(from)}`
+        : `im DNS gesehen ${formatDate(from)} bis ${formatDate(to)}`;
+    return [KEY_SOURCE_LABELS.dns, seen, evidence.reference && `unter ${evidence.reference}`]
+      .filter(Boolean)
+      .join(" · ");
+  }
   return [
     KEY_SOURCE_LABELS[evidence.source],
     `${KEY_SOURCE_VERBS[evidence.source]} ${formatDate(evidence.asked_at)}`,

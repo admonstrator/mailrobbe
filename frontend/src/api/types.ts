@@ -1731,6 +1731,7 @@ export interface DkimKeysOptions {
   task: DkimKeysTask;
   names: string[]; // empty: every name concerned
   domains: string[]; // fetch; empty: every domain concerned
+  skip_domains: string[]; // fetch without domains: every domain concerned but these
   workers: number;
   archive_url: string | null; // fetch: the key archive asked
 }
@@ -1885,18 +1886,24 @@ export interface ArchiveDomain {
   names: number;
   mails: number;
   last_asked_at: string | null;
+  done: boolean; // answered by the interrupted fetch a fetch over every domain continues (D107)
 }
 
 export interface KeyArchivePreview {
   url: string | null; // null: switched off
   domains: ArchiveDomain[]; // most mails first
   skipped: string[]; // reserved TLDs, sent only to an archive on this machine
+  continues: string | null; // start of the interrupted fetch a new one goes on with (D107)
 }
+
+/** Names or domains one run request names; "every" needs no list (D107). */
+export const RUN_LIST_LIMIT = 1000;
 
 export interface DkimKeysRunRequest {
   task: DkimKeysTask;
   names?: string[];
-  domains?: string[];
+  domains?: string[]; // fetch: only these
+  skip_domains?: string[]; // fetch without domains: every domain concerned but these
   workers?: number | null;
 }
 

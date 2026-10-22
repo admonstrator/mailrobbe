@@ -1,8 +1,9 @@
-"""keys.identity and keys.store: one key per name and content, its origin the strongest evidence."""
+"""keys.identity and keys.store: one key per name and content, its origin the strongest evidence,
+and every key today's DNS gives kept (D106)."""
 
 import base64
 import functools
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -10,16 +11,19 @@ from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup
+from mailrobbe.db.models import DkimKey, DkimKeyEvidence, DkimKeyLookup, DnsCache
 from mailrobbe.dkim.keys.identity import key_identity, rsa_record, split_key_name
 from mailrobbe.dkim.keys.store import (
     TOOL_VERSION,
     Evidence,
+    keep_cached_keys,
     load_candidates,
     save_evidence,
     save_lookup,
 )
-from mailrobbe.enums import KeyLookupSource, KeyOrigin, LookupOutcome
+from mailrobbe.dkim.model import FOUND_TTL, NOT_FOUND_TTL, TEMP_ERROR_TTL, DnsAnswer
+from mailrobbe.dkim.store import load_dns_cache, upsert_dns_cache
+from mailrobbe.enums import DnsStatus, KeyLookupSource, KeyOrigin, LookupOutcome
 
 NAME = "s2019._domainkey.nordwind.example"
 
@@ -160,3 +164,110 @@ async def test_no_key_without_a_usable_record_and_factorable_keys_are_no_candida
     await db_session.flush()
     candidates = await load_candidates(db_session)
     assert [candidate.key_id for candidate in candidates[NAME]] == [kept]
+
+
+async def _kept(session: AsyncSession) -> list[tuple[object, ...]]:
+    """Key, lookup and evidence of every key kept from DNS."""
+    rows = await session.execute(
+        select(
+            DkimKey.name,
+            DkimKey.origin,
+            DkimKey.record,
+            DkimKeyLookup.source,
+            DkimKeyLookup.query,
+            DkimKeyLookup.asked_at,
+            DkimKeyLookup.raw,
+            DkimKeyEvidence.observed_from,
+            DkimKeyEvidence.observed_to,
+        )
+        .join(DkimKeyEvidence, DkimKeyEvidence.key_id == DkimKey.id)
+        .join(DkimKeyLookup, DkimKeyLookup.id == DkimKeyEvidence.lookup_id)
+        .where(DkimKeyEvidence.origin == KeyOrigin.DNS)
+        .order_by(DkimKey.name, DkimKeyEvidence.id)
+    )
+    return [tuple(row) for row in rows]
+
+
+@pytest.mark.db
+async def test_a_key_dns_gave_stays_when_dns_drops_it(db_session: AsyncSession) -> None:
+    numbers = _rsa().public_key().public_numbers()
+    record = rsa_record(numbers.n, numbers.e)
+    seen = datetime(2026, 10, 21, 8, tzinfo=UTC)
+    week = timedelta(days=8)
+    await upsert_dns_cache(db_session, [DnsAnswer(NAME, DnsStatus.FOUND, record, seen, FOUND_TTL)])
+    # asked again a week later: the same answer, then none, then an error
+    for answer in (
+        DnsAnswer(NAME, DnsStatus.FOUND, record, seen + week, FOUND_TTL),
+        DnsAnswer(NAME, DnsStatus.NOT_FOUND, None, seen + 2 * week, NOT_FOUND_TTL),
+        DnsAnswer(NAME, DnsStatus.TEMP_ERROR, None, seen + 3 * week, TEMP_ERROR_TTL),
+    ):
+        await upsert_dns_cache(db_session, [answer])
+
+    [cached] = await load_dns_cache(db_session)
+    assert (cached.status, cached.record) == (DnsStatus.TEMP_ERROR, None)  # the cache moved on
+    assert await _kept(db_session) == [
+        (
+            NAME,
+            KeyOrigin.DNS,
+            record,
+            KeyLookupSource.DNS.value,
+            NAME,
+            seen,
+            record.encode(),
+            seen,
+            seen + week,
+        )
+    ]
+    [candidate] = (await load_candidates(db_session))[NAME]
+    assert (candidate.origin, candidate.record) == (KeyOrigin.DNS, record)
+
+    # the domain publishes another key under the name: both stay, the old one first
+    other = _rsa(2048).public_key().public_numbers()
+    replaced = rsa_record(other.n, other.e)
+    await upsert_dns_cache(
+        db_session, [DnsAnswer(NAME, DnsStatus.FOUND, replaced, seen + 4 * week, FOUND_TTL)]
+    )
+    assert [c.record for c in (await load_candidates(db_session))[NAME]] == [record, replaced]
+
+
+@pytest.mark.db
+async def test_the_cache_rows_of_earlier_runs_are_kept_once(db_session: AsyncSession) -> None:
+    numbers = _rsa().public_key().public_numbers()
+    record = rsa_record(numbers.n, numbers.e)
+    fetched = datetime(2026, 10, 21, 8, tzinfo=UTC)
+    revoked = "s2._domainkey.nordwind.example"
+    db_session.add_all(
+        [
+            DnsCache(
+                name=NAME, status=DnsStatus.FOUND, record=record, fetched_at=fetched, ttl=FOUND_TTL
+            ),
+            DnsCache(
+                name=revoked,
+                status=DnsStatus.FOUND,
+                record="v=DKIM1; p=",
+                fetched_at=fetched,
+                ttl=FOUND_TTL,
+            ),
+            DnsCache(
+                name="old._domainkey.nordwind.example",
+                status=DnsStatus.NOT_FOUND,
+                record=None,
+                fetched_at=fetched,
+                ttl=NOT_FOUND_TTL,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    await keep_cached_keys(db_session)
+    await keep_cached_keys(db_session)  # nothing left to keep
+
+    [kept] = await _kept(db_session)
+    assert kept[:2] == (NAME, KeyOrigin.DNS) and kept[5:] == (
+        fetched,
+        record.encode(),
+        fetched,
+        fetched,
+    )
+    count = select(func.count()).select_from(DkimKeyLookup)
+    assert await db_session.scalar(count) == 1

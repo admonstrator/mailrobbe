@@ -30,6 +30,7 @@ class DkimKeysOptions(BaseModel):
     task: DkimKeysTask
     names: list[str] = []  # key names; empty: every name concerned
     domains: list[str] = []  # fetch: the domains asked; empty: every domain concerned
+    skip_domains: list[str] = []  # fetch without domains: every domain concerned but these
     workers: int = 1
     archive_url: str | None = None  # fetch: the key archive asked
 

@@ -13,9 +13,6 @@ import type {
 } from "../../api/types";
 import { formatDate, formatNumber } from "../../lib/format";
 
-/** Names and domains one run request may carry (DkimKeysRunRequest). */
-export const RUN_LIST_LIMIT = 1000;
-
 /** What a run does, as the title of its line: "Rekonstruktion läuft". */
 export const TASK_LABELS: Record<DkimKeysTask, string> = {
   reconstruct: "Rekonstruktion",
