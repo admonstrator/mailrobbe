@@ -318,8 +318,8 @@ class _Store:
             text(
                 "UPDATE document SET members_status = CAST(:status AS document_members_status), "
                 "members_version = :version, members_error = :error, "
-                "protection = CASE WHEN :protection IS NULL THEN protection "
-                "ELSE CAST(:protection AS document_protection) END WHERE id = :id"
+                "protection = coalesce(CAST(:protection AS document_protection), protection) "
+                "WHERE id = :id"
             ),
             {
                 "id": result.document_id,
