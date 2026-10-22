@@ -1,0 +1,24 @@
+/* The small map fills the box PhotoPosition gives it. */
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.map :global(.maplibregl-ctrl-attrib) {
+  font-family: var(--font-sans);
+  font-size: 10px;
+}
+
+.failed {
+  display: flex;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: center;
+}
