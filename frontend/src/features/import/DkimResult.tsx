@@ -1,10 +1,13 @@
 import type { DkimKey, ImportSummary } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
 import { DkimDot } from "../../components/DkimDot";
 import { DKIM_KEYS, DKIM_REASON_TEXTS } from "../../lib/dkim";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import styles from "./DkimResult.module.css";
 import { DKIM_RESULT_LABELS } from "./labels";
+import { HelpTip } from "./PageHead";
+
+const RECHECK_HINT =
+  "„DKIM für ‚Schlüssel fehlt‘ neu prüfen“ im Menü … prüft Mails ohne Ergebnis, mit „Schlüssel fehlt“ oder mit DNS-Fehler erneut.";
 
 /** Always in the legend; DNS errors and unchecked mails only when there are any. */
 const MAIN_KEYS: readonly DkimKey[] = ["pass", "fail", "no_key", "unsigned"];
@@ -19,8 +22,13 @@ export function DkimResult({ summary }: { summary: ImportSummary }) {
   const reasons = summary.fail_reasons.slice(0, TOP_REASONS);
 
   return (
-    <Card variant="side" className={styles.card} aria-labelledby="import-dkim-title">
-      <CardTitle id="import-dkim-title">DKIM-Ergebnis bisher</CardTitle>
+    <section className={styles.card} aria-labelledby="import-dkim-title">
+      <div className={styles.head}>
+        <h2 id="import-dkim-title" className={styles.title}>
+          DKIM-Ergebnis bisher
+        </h2>
+        <HelpTip text={RECHECK_HINT} />
+      </div>
       {total === 0 ? (
         <p className={styles.empty}>Noch keine Mail geprüft.</p>
       ) : (
@@ -66,6 +74,6 @@ export function DkimResult({ summary }: { summary: ImportSummary }) {
           {`Stand ${formatDateTime(summary.updated_at)}`}
         </p>
       )}
-    </Card>
+    </section>
   );
 }

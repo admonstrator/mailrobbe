@@ -59,11 +59,11 @@ describe("attachments on the import dashboard", () => {
     },
   });
 
-  /** What follows the label in the step's row. */
+  /** The running step's detail, chosen at first beside the run's steps. */
   async function attachmentsStep(): Promise<string> {
-    const label = "Text aus Anhängen lesen";
-    const row = (await screen.findByText(label)).closest("li")!;
-    return row.textContent!.slice(label.length);
+    const detail = await screen.findByRole("region", { name: "Gewählter Schritt" });
+    expect(within(detail).getByRole("heading").textContent).toBe("Text aus Anhängen lesen");
+    return detail.querySelector("p")!.textContent!;
   }
 
   it("shows the attachments step with its progress, rate and estimated remaining time", async () => {
@@ -88,8 +88,9 @@ describe("attachments on the import dashboard", () => {
   });
 
   it("counts attachments and documents by text status, each leading to its list", async () => {
-    renderApp("/import");
-    const attachments = await screen.findByText("118.204");
+    renderApp("/import?tab=ergebnis");
+    const tiles = await screen.findByRole("list", { name: "Kennzahlen des Archivs" });
+    const attachments = within(tiles).getByText("118.204");
     expect(attachments.closest("li")).toBe(tile("Anhänge"));
     expect(
       within(tile("Anhänge"))
@@ -122,7 +123,7 @@ describe("attachments on the import dashboard", () => {
 
   it("says that the next import evaluates attachments without documents", async () => {
     renderApp(
-      "/import",
+      "/import?tab=ergebnis",
       backend(importStatus, { ...importSummary, attachments: 4_211, documents: noDocuments }),
     );
     expect(await screen.findByText("werden beim nächsten Import ausgewertet")).toBeTruthy();
@@ -135,7 +136,7 @@ describe("attachments on the import dashboard", () => {
 
   it("says when the archive has no attachments", async () => {
     renderApp(
-      "/import",
+      "/import?tab=ergebnis",
       backend(importStatus, { ...importSummary, attachments: 0, documents: noDocuments }),
     );
     expect(await screen.findByText("keine Anhänge")).toBeTruthy();
@@ -144,7 +145,7 @@ describe("attachments on the import dashboard", () => {
 
   it("notes documents waiting for the next import", async () => {
     renderApp(
-      "/import",
+      "/import?tab=ergebnis",
       backend(importStatus, {
         ...importSummary,
         documents: { ...noDocuments, pending: 300, text: 700 },

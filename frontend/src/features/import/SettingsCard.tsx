@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 
 import type { ImportOptions } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
 import { settingsValues, type SettingsDraft } from "./model";
 import styles from "./SettingsCard.module.css";
 
@@ -18,8 +17,10 @@ export function SettingsCard({
 }) {
   const values = settingsValues(defaults, draft);
   return (
-    <Card variant="side" aria-labelledby="import-settings-title">
-      <CardTitle id="import-settings-title">Nächster Start</CardTitle>
+    <section className={styles.card} aria-labelledby="import-settings-title">
+      <h2 id="import-settings-title" className={styles.title}>
+        Nächster Start
+      </h2>
       <div className={styles.grid}>
         <label htmlFor="import-workers">Parallele Worker</label>
         <input
@@ -62,6 +63,6 @@ export function SettingsCard({
         Gilt nur für den nächsten Start aus dem Dashboard; dauerhaft unter{" "}
         <Link to="/einstellungen">Einstellungen</Link>.
       </p>
-    </Card>
+    </section>
   );
 }
