@@ -1,11 +1,12 @@
 import { useStopDkimRun } from "../../api/queries";
-import type { DbActivity, DkimJob, ImportJob, ImportStatus } from "../../api/types";
+import type { DbActivity, DkimJob, ImportJob, ImportStatus, ImportSummary } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { formatBytes, formatDateTime, formatElapsed, formatNumber } from "../../lib/format";
-import { databaseText, MBOX_DIR_MISSING, RUN_TITLES, stepLabel } from "./labels";
-import { importRunState, SILENT_SECONDS } from "./model";
+import { databaseText, MBOX_DIR_MISSING, RUN_BADGES, stepLabel } from "./labels";
+import { importRunState, SILENT_SECONDS, type RunState } from "./model";
+import { Figures, type BadgeTone, type Figure } from "./PageHead";
 import styles from "./RunCard.module.css";
+import { RunSteps } from "./RunSteps";
 import { StepList } from "./StepList";
 
 const rate = (perSecond: number) => formatNumber(Math.round(perSecond));
@@ -17,8 +18,31 @@ const ENDED: Record<ImportJob["status"], string> = {
   failed: "abgebrochen",
 };
 
+const BADGE_TONES: Record<RunState, BadgeTone> = {
+  none: "quiet",
+  running: "accent",
+  pausing: "warning",
+  paused: "warning",
+  done: "done",
+  aborted: "error",
+  orphaned: "error",
+};
+
+/** The state beside the title: "Läuft · Schritt 7 von 15". */
+export function runBadge(job: ImportJob | null): { text: string; tone: BadgeTone } {
+  const state = importRunState(job);
+  const steps = job?.progress.steps ?? [];
+  const current = steps.findLastIndex((step) => step.status === "running");
+  const alive = state === "running" || state === "pausing";
+  const text =
+    alive && current >= 0
+      ? `${RUN_BADGES[state]} · Schritt ${current + 1} von ${steps.length}`
+      : RUN_BADGES[state];
+  return { text, tone: BADGE_TONES[state] };
+}
+
 /** "Gestartet 20.10.2026 01:02 · letzte Meldung vor 2 s", or when the run ended. */
-function timeline(job: ImportJob, alive: boolean): string {
+export function runTimeline(job: ImportJob, alive: boolean): string {
   const parts = [
     `Gestartet ${formatDateTime(job.started_at)}${job.origin === "cli" ? " über die Kommandozeile" : ""}`,
   ];
@@ -28,19 +52,22 @@ function timeline(job: ImportJob, alive: boolean): string {
   return parts.join(" · ");
 }
 
-/** The steps of a run (D110): open while it lives or lies orphaned, folded once it ended. */
-function Steps({ run, open }: { run: ImportJob | DkimJob; open: boolean }) {
-  const { steps, database } = run.progress;
-  if (steps.length === 0) return null; // a run recorded before D110
-  const list = (
-    <StepList steps={steps} alive={run.alive} age={run.report_age_seconds} database={database} />
-  );
-  if (open) return list;
+/** The muted line below the title: when the run started or ended, workers, the source. */
+export function RunSub({ status }: { status: ImportStatus }) {
+  const { totals, import_job: job } = status;
+  const state = importRunState(job);
+  const alive = state === "running" || state === "pausing";
+  const workers = alive && job && job.progress.workers > 0 ? job.progress.workers : 0;
   return (
-    <details className={styles.history}>
-      <summary>Schritte des Laufs</summary>
-      {list}
-    </details>
+    <>
+      {job && <span>{runTimeline(job, alive)}</span>}
+      {workers > 0 && (
+        <span className={styles.workers}>{`${formatNumber(workers)} Worker aktiv`}</span>
+      )}
+      <span className={styles.source}>
+        {`Quelle: ${status.mbox_dir} · ${formatNumber(totals.files)} ${totals.files === 1 ? "Datei" : "Dateien"} · ${formatBytes(totals.size_bytes)}`}
+      </span>
+    </>
   );
 }
 
@@ -64,17 +91,15 @@ function Leftover({ activity }: { activity: DbActivity | null }) {
   );
 }
 
-/** The latest import run (D47): state, source, overall progress over bytes, throughput, its steps
- *  (D110); below it the DKIM run while it is alive or the latest of the two. */
-export function RunCard({
+/** The overall progress over bytes and the figures of the run and the archive (D47), with the
+ *  warnings of a missing directory and a silent run. */
+export function RunProgress({
   status,
-  duplicates,
-  onError,
+  summary,
 }: {
   status: ImportStatus;
-  /** From the summary; left out until it is loaded. */
-  duplicates: number | undefined;
-  onError: (error: Error) => void;
+  /** Left out until it is loaded. */
+  summary: ImportSummary | undefined;
 }) {
   const { totals, import_job: job } = status;
   const state = importRunState(job);
@@ -83,28 +108,53 @@ export function RunCard({
   const percent = Math.floor(ratio * 100);
   const complete = totals.size_bytes > 0 && totals.bytes_done >= totals.size_bytes;
 
+  const figures: Figure[] = [
+    {
+      value: formatNumber(totals.mails_parsed),
+      label:
+        totals.mails_estimated !== null && !complete
+          ? `von ca. ${formatNumber(totals.mails_estimated)} Mails geparst (${percent} %)`
+          : "Mails geparst",
+    },
+  ];
+  if (alive && job?.phase === "import") {
+    figures.push(
+      { value: rate(job.progress.mails_per_second), label: "Mails/s Parsing" },
+      { value: rate(job.progress.dkim_per_second), label: "Mails/s DKIM" },
+    );
+  }
+  if (summary) {
+    figures.push({
+      value: formatNumber(summary.duplicates),
+      label: "Duplikate",
+      title: "Gleiche Message-ID und gleicher Hash",
+    });
+  }
+  figures.push({
+    value: formatNumber(totals.error_count),
+    label: "Importfehler",
+    warn: totals.error_count > 0,
+  });
+  if (summary) {
+    figures.push(
+      { value: formatNumber(summary.persons), label: "Personen" },
+      { value: formatNumber(summary.attachments), label: "Anhänge" },
+      {
+        value: formatBytes(summary.db_size_bytes),
+        label: "Datenbank",
+        title: "Metadaten und Index",
+      },
+    );
+  }
+
   return (
-    <Card className={styles.card} aria-labelledby="import-run-title">
-      <div className={styles.head}>
-        <h1 id="import-run-title" className={styles.title}>
-          {RUN_TITLES[state]}
-        </h1>
-        {alive && job && job.progress.workers > 0 && (
-          <span className={styles.badge}>
-            <span className={styles.badgeDot} aria-hidden="true" />
-            {`${formatNumber(job.progress.workers)} Worker aktiv`}
-          </span>
-        )}
-        <span className={styles.source}>
-          {`Quelle: ${status.mbox_dir} · ${formatNumber(totals.files)} ${totals.files === 1 ? "Datei" : "Dateien"} · ${formatBytes(totals.size_bytes)}`}
-        </span>
-        {job && <span className={styles.timeline}>{timeline(job, alive)}</span>}
-      </div>
+    <div className={styles.progress}>
       {!status.mbox_dir_ok && (
         <p className={styles.warning}>
           {MBOX_DIR_MISSING} Prüfe den Bind-Mount und MAILROBBE_MBOX_DIR.
         </p>
       )}
+      {job && <Silent run={job} />}
       <div
         className={styles.bar}
         role="progressbar"
@@ -113,39 +163,50 @@ export function RunCard({
         aria-valuemax={100}
         aria-valuenow={percent}
       >
-        <span className={styles.fill} style={{ width: `${ratio * 100}%` }} />
+        <span
+          className={complete ? styles.fillDone : styles.fill}
+          style={{ width: `${ratio * 100}%` }}
+        />
       </div>
-      <ul className={styles.figures} aria-label="Importfortschritt">
-        <li>
-          <strong>{formatNumber(totals.mails_parsed)}</strong>
-          {totals.mails_estimated !== null && !complete
-            ? ` von ca. ${formatNumber(totals.mails_estimated)} Mails geparst (${percent} %)`
-            : " Mails geparst"}
-        </li>
-        {alive && job?.phase === "import" && (
-          <>
-            <li>
-              <strong>{rate(job.progress.mails_per_second)}</strong> Mails/s Parsing
-            </li>
-            <li>
-              <strong>{rate(job.progress.dkim_per_second)}</strong> Mails/s DKIM
-            </li>
-          </>
-        )}
-        {duplicates !== undefined && (
-          <li>
-            <strong>{formatNumber(duplicates)}</strong> Duplikate (Message-ID + Hash)
-          </li>
-        )}
-        <li>
-          <strong>{formatNumber(totals.error_count)}</strong> Importfehler
-        </li>
-      </ul>
-      {job && <Silent run={job} />}
-      {job && <Steps run={job} open={alive || state === "orphaned"} />}
+      <Figures items={figures} label="Importfortschritt" />
+    </div>
+  );
+}
+
+/** The tab "Lauf": the steps of the latest import run (D110) with the chosen step's detail, what
+ *  an aborted run left, and the DKIM run below while it lives or ended last. */
+export function RunTab({
+  status,
+  onError,
+}: {
+  status: ImportStatus;
+  onError: (error: Error) => void;
+}) {
+  const job = status.import_job;
+  const state = importRunState(job);
+  const alive = state === "running" || state === "pausing";
+  return (
+    <div className={styles.tab}>
+      {job && job.progress.steps.length > 0 ? (
+        <RunSteps
+          steps={job.progress.steps}
+          alive={job.alive}
+          age={job.report_age_seconds}
+          database={job.progress.database}
+        />
+      ) : (
+        <p className={styles.none}>
+          {job ? "Dieser Lauf hat keine Schritte aufgezeichnet." : "Es gab noch keinen Importlauf."}
+        </p>
+      )}
       {(state === "aborted" || state === "orphaned") && job && <Aborted job={job} />}
+      {alive && (
+        <p className={styles.hint}>
+          Anhalten unterbricht nach dem laufenden Stapel; der nächste Start macht hier weiter.
+        </p>
+      )}
       <DkimBand run={status.dkim_job} importJob={job} onError={onError} />
-    </Card>
+    </div>
   );
 }
 
@@ -170,8 +231,8 @@ function Aborted({ job }: { job: ImportJob }) {
   );
 }
 
-/** The DKIM run of D13: live with a stop button, or one line on how it ended while no import
- *  has started since. */
+/** The DKIM run of D13: live with a stop button and its steps, or one line on how it ended
+ *  while no import has started since. */
 function DkimBand({
   run,
   importJob,
@@ -188,11 +249,11 @@ function DkimBand({
 
   if (run.alive && run.status === "running") {
     return (
-      <div className={styles.band}>
+      <section className={styles.band} aria-label="DKIM-Prüfung">
         <div className={styles.bandHead}>
-          <span className={styles.bandText}>
+          <h2 className={styles.bandText}>
             {run.stop_requested ? "DKIM-Prüfung wird abgebrochen …" : "DKIM-Prüfung läuft"}
-          </span>
+          </h2>
           <Button
             size="sm"
             disabled={run.stop_requested || stop.isPending}
@@ -202,15 +263,22 @@ function DkimBand({
           </Button>
         </div>
         <Silent run={run} />
-        <Steps run={run} open />
-      </div>
+        {run.progress.steps.length > 0 && (
+          <StepList
+            steps={run.progress.steps}
+            alive={run.alive}
+            age={run.report_age_seconds}
+            database={run.progress.database}
+          />
+        )}
+      </section>
     );
   }
 
   const ended = run.finished_at ? ` · ${formatDateTime(run.finished_at)}` : "";
   const skippedText = skipped > 0 ? `, ${formatNumber(skipped)} übersprungen` : "";
   return (
-    <div className={styles.band}>
+    <section className={styles.band} aria-label="DKIM-Prüfung">
       <span className={styles.bandText}>
         {run.status === "done"
           ? `DKIM-Prüfung fertig: ${formatNumber(checked)} Mails geprüft${skippedText}${ended}`
@@ -224,6 +292,6 @@ function DkimBand({
         )}
       </span>
       <Leftover activity={run.leftover} />
-    </div>
+    </section>
   );
 }

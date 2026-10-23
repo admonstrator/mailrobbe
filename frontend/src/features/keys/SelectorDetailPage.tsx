@@ -1,16 +1,17 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useSelector, useStartKeysRun } from "../../api/queries";
 import type { DkimKeysJob, SelectorDetail } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { CrossIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
+import { tabPanelProps, Tabs } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { formatDateTime, formatNumber } from "../../lib/format";
+import { Figures, PageHead } from "../import/PageHead";
 import { KeyList } from "./KeyList";
 import { KeysRun, useKeysRun } from "./KeysRun";
 import { dnsStatusLabel, keysErrorText, periodText } from "./labels";
@@ -19,6 +20,10 @@ import styles from "./SelectorDetailPage.module.css";
 import { LookupTable, SelectorMails } from "./SelectorTables";
 import { StatusMix } from "./StatusMix";
 import { SELECTOR_LIST_PATH } from "./urlState";
+
+type SelectorTab = "schluessel" | "abfragen" | "mails";
+
+const TABS: readonly SelectorTab[] = ["schluessel", "abfragen", "mails"];
 
 interface Notice {
   tone: "info" | "error";
@@ -49,7 +54,7 @@ function SelectorView({ name }: { name: string }) {
           <Spinner label="Selektor wird geladen" />
         </div>
       ) : detail.isError ? (
-        <Card className={styles.message}>
+        <div className={styles.message}>
           {detail.error instanceof ApiError && detail.error.code === "not_found" ? (
             <ErrorState
               title="Diesen Selektor gibt es nicht."
@@ -69,7 +74,7 @@ function SelectorView({ name }: { name: string }) {
               Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
             </ErrorState>
           )}
-        </Card>
+        </div>
       ) : (
         <SelectorContent detail={detail.data} />
       )}
@@ -87,6 +92,19 @@ function SelectorContent({ detail }: { detail: SelectorDetail }) {
   const start = useStartKeysRun();
   const [notice, setNotice] = useState<Notice | null>(null);
   const [manual, setManual] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("tab") as SelectorTab | null;
+  const tab: SelectorTab = requested && TABS.includes(requested) ? requested : "schluessel";
+  const select = (next: SelectorTab) =>
+    setParams(
+      (before) => {
+        const search = new URLSearchParams(before);
+        if (next === "schluessel") search.delete("tab");
+        else search.set("tab", next);
+        return search;
+      },
+      { replace: true, preventScrollReset: true },
+    );
   const showError = (text: string) => setNotice({ tone: "error", text });
 
   function run(task: "reconstruct" | "check") {
@@ -106,15 +124,15 @@ function SelectorContent({ detail }: { detail: SelectorDetail }) {
 
   return (
     <div className={styles.content}>
-      <Card className={styles.header}>
-        <div className={styles.identity}>
-          <div className={styles.titles}>
-            <h1 className={styles.name}>{detail.name}</h1>
-            <p className={styles.meta}>
-              Selektor <strong>{detail.selector}</strong> · Domain <strong>{detail.domain}</strong>
-            </p>
-          </div>
-          <div className={styles.actions}>
+      <PageHead
+        title={<span className={styles.name}>{detail.name}</span>}
+        sub={
+          <span className={styles.meta}>
+            Selektor <strong>{detail.selector}</strong> · Domain <strong>{detail.domain}</strong>
+          </span>
+        }
+        actions={
+          <>
             <Button
               disabled={reconstructBlocked !== null}
               title={
@@ -134,29 +152,29 @@ function SelectorContent({ detail }: { detail: SelectorDetail }) {
             >
               Schlüssel von Hand hinzufügen
             </Button>
-          </div>
+          </>
+        }
+      />
+      <dl className={styles.facts}>
+        <div className={styles.fact}>
+          <dt>DNS heute</dt>
+          <dd>
+            {dnsStatusLabel(detail.dns_status)}
+            {detail.dns_fetched_at && (
+              <span
+                className={styles.muted}
+              >{` · abgefragt ${formatDateTime(detail.dns_fetched_at)}`}</span>
+            )}
+            {detail.dns_record && <pre className={styles.record}>{detail.dns_record}</pre>}
+          </dd>
         </div>
-        <dl className={styles.facts}>
-          <div className={styles.fact}>
-            <dt>DNS heute</dt>
-            <dd>
-              {dnsStatusLabel(detail.dns_status)}
-              {detail.dns_fetched_at && (
-                <span
-                  className={styles.muted}
-                >{` · abgefragt ${formatDateTime(detail.dns_fetched_at)}`}</span>
-              )}
-              {detail.dns_record && <pre className={styles.record}>{detail.dns_record}</pre>}
-            </dd>
-          </div>
-          <div className={styles.fact}>
-            <dt>Signaturen</dt>
-            <dd>
-              <StatusMix statuses={detail.statuses} labels />
-            </dd>
-          </div>
-        </dl>
-      </Card>
+        <div className={styles.fact}>
+          <dt>Signaturen</dt>
+          <dd>
+            <StatusMix statuses={detail.statuses} labels />
+          </dd>
+        </div>
+      </dl>
 
       {concerns(job, detail.name) && <KeysRun job={job} onError={showError} />}
       {notice && (
@@ -177,40 +195,59 @@ function SelectorContent({ detail }: { detail: SelectorDetail }) {
         </div>
       )}
 
-      <ul className={styles.tiles} aria-label="Kennzahlen">
-        <Tile label="Signaturen" value={formatNumber(detail.signatures)} sub="ohne Duplikate" />
-        <Tile label="Mails" value={formatNumber(detail.mails)} sub="mit dieser Signatur" />
-        <Tile
-          label="RSA-Signaturen"
-          value={formatNumber(detail.rsa_signatures)}
-          sub={detail.rsa_signatures >= 2 ? "rekonstruierbar" : "zu wenige zum Rekonstruieren"}
-        />
-        <Tile
-          label="Zeitraum"
-          value={periodText(detail.first_signed, detail.last_signed)}
-          sub="erste bis letzte Signatur (t=)"
-          small
-        />
-      </ul>
+      <Figures
+        label="Kennzahlen"
+        items={[
+          { value: formatNumber(detail.signatures), label: "Signaturen", sub: "ohne Duplikate" },
+          { value: formatNumber(detail.mails), label: "Mails", sub: "mit dieser Signatur" },
+          {
+            value: formatNumber(detail.rsa_signatures),
+            label: "RSA-Signaturen",
+            sub: detail.rsa_signatures >= 2 ? "rekonstruierbar" : "zu wenige zum Rekonstruieren",
+          },
+          {
+            value: periodText(detail.first_signed, detail.last_signed),
+            label: "Zeitraum",
+            sub: "erste bis letzte Signatur (t=)",
+          },
+        ]}
+      />
 
-      <Card aria-labelledby="selector-keys-title">
-        <CardTitle id="selector-keys-title">
-          {`Schlüssel aus anderen Quellen (${formatNumber(detail.keys.length)})`}
-        </CardTitle>
-        <KeyList keys={detail.keys} checkBlocked={blocked} onCheck={() => run("check")} />
-      </Card>
-
-      <Card aria-labelledby="selector-lookups-title">
-        <CardTitle id="selector-lookups-title">
-          {`Abfragen (${formatNumber(detail.lookups.length)})`}
-        </CardTitle>
-        <LookupTable lookups={detail.lookups} />
-      </Card>
-
-      <Card aria-labelledby="selector-mails-title">
-        <CardTitle id="selector-mails-title">Mails, neueste zuerst</CardTitle>
-        <SelectorMails mails={detail.recent_mails} total={detail.mails} />
-      </Card>
+      <Tabs
+        idPrefix="selector"
+        label="Bereiche des Selektors"
+        active={tab}
+        onSelect={select}
+        items={[
+          { id: "schluessel", label: "Schlüssel", count: formatNumber(detail.keys.length) },
+          { id: "abfragen", label: "Abfragen", count: formatNumber(detail.lookups.length) },
+          { id: "mails", label: "Mails", count: formatNumber(detail.mails) },
+        ]}
+      />
+      <div {...tabPanelProps("selector", tab)}>
+        {tab === "schluessel" ? (
+          <section className={styles.panel} aria-labelledby="selector-keys-title">
+            <h2 id="selector-keys-title" className="sr-only">
+              {`Schlüssel aus anderen Quellen (${formatNumber(detail.keys.length)})`}
+            </h2>
+            <KeyList keys={detail.keys} checkBlocked={blocked} onCheck={() => run("check")} />
+          </section>
+        ) : tab === "abfragen" ? (
+          <section className={styles.panel} aria-labelledby="selector-lookups-title">
+            <h2 id="selector-lookups-title" className="sr-only">
+              {`Abfragen (${formatNumber(detail.lookups.length)})`}
+            </h2>
+            <LookupTable lookups={detail.lookups} />
+          </section>
+        ) : (
+          <section className={styles.panel} aria-labelledby="selector-mails-title">
+            <h2 id="selector-mails-title" className="sr-only">
+              Mails, neueste zuerst
+            </h2>
+            <SelectorMails mails={detail.recent_mails} total={detail.mails} />
+          </section>
+        )}
+      </div>
 
       {manual && (
         <ManualKeyDialog
@@ -226,25 +263,5 @@ function SelectorContent({ detail }: { detail: SelectorDetail }) {
         />
       )}
     </div>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  sub,
-  small = false,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  small?: boolean;
-}) {
-  return (
-    <li className={styles.tile}>
-      <span className={styles.tileLabel}>{label}</span>
-      <span className={cx(styles.tileValue, small && styles.small)}>{value}</span>
-      <span className={styles.tileSub}>{sub}</span>
-    </li>
   );
 }

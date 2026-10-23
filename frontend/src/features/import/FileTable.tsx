@@ -2,12 +2,12 @@ import { useState } from "react";
 
 import type { ImportStatus, MboxFileInfo, MboxStatus } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatNumber } from "../../lib/format";
 import styles from "./FileTable.module.css";
 import { FILE_FILTER_LABELS, FILE_STATUS_LABELS } from "./labels";
 import { FILE_GROUPS, fileRows, type FileFilter, type FileRow as Row } from "./model";
+import { HelpTip } from "./PageHead";
 
 const FILTERS: readonly FileFilter[] = ["all", ...FILE_GROUPS];
 
@@ -49,12 +49,12 @@ export function FileTable({
   const rows = fileRows(status.files, filter, expanded);
 
   return (
-    <Card className={styles.card} aria-labelledby="import-files-title">
+    <section className={styles.card} aria-labelledby="import-files-title">
       <div className={styles.head}>
-        <CardTitle id="import-files-title">MBOX-Dateien</CardTitle>
-        <span className={styles.intro}>
-          Fortschritt pro Datei über Byte-Offset, Wiederaufnahme nach Abbruch möglich
-        </span>
+        <h2 id="import-files-title" className={styles.title}>
+          MBOX-Dateien
+        </h2>
+        <HelpTip text="Fortschritt pro Datei über Byte-Offset, Wiederaufnahme nach Abbruch möglich" />
         <label htmlFor="import-file-status" className={styles.filterLabel}>
           Status
         </label>
@@ -124,7 +124,7 @@ export function FileTable({
           </tbody>
         </table>
       </div>
-    </Card>
+    </section>
   );
 }
 

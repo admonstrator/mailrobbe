@@ -23,6 +23,9 @@ describe("selector list", () => {
     expect(document.title).toBe("Gelöschte Selektoren · Mailrobbe");
     expect(screen.getByRole("heading", { level: 1, name: "Gelöschte Selektoren" })).toBeTruthy();
     expect(screen.getByText("56 Selektoren")).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: /^Schlüsselnamen \(Selektor und Domain\)/ }),
+    ).toBeTruthy();
     expect(listCalls(calls)[0].url.search).toBe("");
     // The import stays the active screen in the navigation.
     const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });

@@ -65,7 +65,16 @@ describe("AI page", () => {
     expect(document.title).toBe("KI · Mailrobbe");
     const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
     expect(within(navigation).getByRole("link", { name: "KI" }).getAttribute("href")).toBe("/ki");
-    expect(screen.getByText(/Die KI bewertet nichts/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: /Die KI bewertet nichts/ })).toBeTruthy();
+    // The services and work lists come first; the run and the results have tabs of their own.
+    const tabs = await screen.findByRole("tablist", { name: "Bereiche der KI" });
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["Dienste und Arbeitslisten", "Lauf und Warteschlange12", "Ergebnisse"]);
+    fireEvent.click(within(tabs).getByRole("tab", { name: "Ergebnisse" }));
+    expect(await screen.findByRole("region", { name: "Ergebnisse" })).toBeTruthy();
   });
 
   it("lists Tesseract and the local service, and tests it", async () => {
@@ -128,7 +137,7 @@ describe("AI page", () => {
   });
 
   it("lists the queue with retry and cancel", async () => {
-    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const { calls } = renderApp("/ki?tab=lauf", aiApi(aiStatus));
     const queue = await screen.findByRole("region", { name: "Warteschlange" });
     await within(queue).findByRole("link", { name: "Scan_20180306_7499.pdf" });
     expect(within(queue).getByText("service did not answer within 120 s")).toBeTruthy();
@@ -159,7 +168,7 @@ describe("AI page", () => {
   });
 
   it("discards a result after a confirmation", async () => {
-    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const { calls } = renderApp("/ki?tab=ergebnisse", aiApi(aiStatus));
     const results = await screen.findByRole("region", { name: "Ergebnisse" });
     await within(results).findByRole("link", { name: "Scan_20180306_7499.pdf" });
     expect(within(results).getByText("Tesseract und qwen2.5vl:7b")).toBeTruthy();
@@ -175,7 +184,7 @@ describe("AI page", () => {
   });
 
   it("starts a run with the defaults", async () => {
-    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const { calls } = renderApp("/ki?tab=lauf", aiApi(aiStatus));
     const run = await screen.findByRole("region", { name: "Lauf" });
     expect(within(run).getByText(/12 Dokumente sind vorgemerkt/)).toBeTruthy();
     expect(within(run).getByRole("textbox", { name: "Bildmodell" })).toHaveProperty(
@@ -193,7 +202,7 @@ describe("AI page", () => {
   });
 
   it("shows a live run with its pages and steps, and stops it", async () => {
-    const { calls } = renderApp("/ki", aiApi(aiStatusRunning));
+    const { calls } = renderApp("/ki?tab=lauf", aiApi(aiStatusRunning));
     const run = await screen.findByRole("region", { name: "Lauf" });
     expect(await within(run).findByText("37 von 120 Seiten")).toBeTruthy();
     expect(within(run).getByText("Scan_20180306_7499.pdf")).toBeTruthy();
@@ -203,15 +212,15 @@ describe("AI page", () => {
   });
 
   it("lists what was sent once something went to the internet", async () => {
-    renderApp("/ki", aiApi({ ...aiStatus, remote_used: true }));
+    renderApp("/ki?tab=ergebnisse", aiApi({ ...aiStatus, remote_used: true }));
     const sent = await screen.findByRole("region", { name: "Gesendet" });
     expect(await within(sent).findByText("https://api.vision.example/v1")).toBeTruthy();
     expect(within(sent).getByText(/1 Sendung\b/)).toBeTruthy();
   });
 
   it("has no Gesendet card while nothing left the machine", async () => {
-    renderApp("/ki", aiApi(aiStatus));
-    await screen.findByRole("region", { name: "Lauf" });
+    renderApp("/ki?tab=ergebnisse", aiApi(aiStatus));
+    await screen.findByRole("region", { name: "Ergebnisse" });
     expect(screen.queryByRole("region", { name: "Gesendet" })).toBeNull();
   });
 });
@@ -280,7 +289,7 @@ describe("transcription on the AI page (D295)", () => {
   });
 
   it("names the kind of tasks and results and shows a recording's length", async () => {
-    renderApp("/ki", aiApi(aiStatus));
+    renderApp("/ki?tab=lauf", aiApi(aiStatus));
     const queue = await screen.findByRole("region", { name: "Warteschlange" });
     const task = (
       await within(queue).findByRole("link", { name: "Sprachnachricht_Vorstand.ogg" })
@@ -292,7 +301,8 @@ describe("transcription on the AI page (D295)", () => {
     expect(within(scan).getByText("Texterkennung")).toBeTruthy();
     expect(within(scan).getByText("0 von 3 Seiten")).toBeTruthy();
 
-    const results = screen.getByRole("region", { name: "Ergebnisse" });
+    fireEvent.click(screen.getByRole("tab", { name: "Ergebnisse" }));
+    const results = await screen.findByRole("region", { name: "Ergebnisse" });
     const result = (
       await within(results).findByRole("link", { name: "Sprachnachricht_Vorstand.ogg" })
     ).closest("tr")!;
@@ -309,7 +319,7 @@ describe("transcription on the AI page (D295)", () => {
       ...aiStatus.queue,
       transcribe: { waiting: 3, running: 0, done: 5, failed: 1, cancelled: 0 },
     };
-    renderApp("/ki", aiApi({ ...aiStatus, queue }));
+    renderApp("/ki?tab=lauf", aiApi({ ...aiStatus, queue }));
     const tasks = await screen.findByRole("region", { name: "Warteschlange" });
     expect(within(tasks).getByRole("button", { name: "vorgemerkt 15" })).toBeTruthy();
     expect(
@@ -319,7 +329,7 @@ describe("transcription on the AI page (D295)", () => {
   });
 
   it("starts a run with the minutes per recording", async () => {
-    const { calls } = renderApp("/ki", aiApi(aiStatus));
+    const { calls } = renderApp("/ki?tab=lauf", aiApi(aiStatus));
     const run = await screen.findByRole("region", { name: "Lauf" });
     const minutes = within(run).getByRole("textbox", { name: "Minuten je Aufnahme" });
     expect(minutes).toHaveProperty("value", "180");
@@ -330,7 +340,7 @@ describe("transcription on the AI page (D295)", () => {
   });
 
   it("shows a run transcribing with its minutes and the place in the recording", async () => {
-    renderApp("/ki", aiApi({ ...aiStatus, job: aiJobTranscribing }));
+    renderApp("/ki?tab=lauf", aiApi({ ...aiStatus, job: aiJobTranscribing }));
     const run = await screen.findByRole("region", { name: "Lauf" });
     expect(await within(run).findByText("Transkription")).toBeTruthy();
     expect(run.textContent).toContain("13 Minuten transkribiert");
