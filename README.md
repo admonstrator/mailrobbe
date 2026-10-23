@@ -179,27 +179,6 @@ Das Suchmenü stellt zusätzlich ein: Suchbereich, ganzes Wort, Mindesttrefferza
 
 ---
 
-## Für Technik und Entwicklung
-
-```sh
-docker compose run --rm backend mailrobbe import        # Ctrl-C pausiert, nächster Aufruf setzt fort
-docker compose run --rm backend mailrobbe dkim          # DKIM nachprüfen
-docker compose run --rm backend mailrobbe dkim-keys     # Schlüssel gelöschter Selektoren
-docker compose run --rm -T backend mailrobbe graph export - > mailrobbe.graphml
-docker compose exec backend mailrobbe map download --region de --detail streets
-```
-
-Testdaten ohne echte Mails: `docker compose run --rm generator --mails 10000` baut ein synthetisches MBOX-Archiv mit DKIM, Anhängen, Kennwörtern und Störfällen — daraus stammen auch alle Bilder dieser Seite.
-
-- [docs/SPEC.md](docs/SPEC.md) — Spezifikation: Architektur, Datenmodell, API, Meilensteine
-- [docs/DECISIONS.md](docs/DECISIONS.md) — alle Entscheidungen, mit Begründung
-- [docs/DKIM-RECOVERY.md](docs/DKIM-RECOVERY.md) — Schlüssel gelöschter Selektoren wiederfinden
-- [docs/LOADTEST.md](docs/LOADTEST.md) — Lasttest mit 400.000 Mails
-- [CLAUDE.md](CLAUDE.md) — Aufbau, Befehle, Konventionen, Tests
-- [site/](site/) — die [Website](https://mailrobbe.admon.me/)
-
----
-
 ## Häufige Fragen
 
 **Verändert Mailrobbe meine Mails?** Nein. MBOX-Dateien sind schreibgeschützt, die Datenbank hält nur Metadaten und Suchindex. Jeder Abruf liest frisch aus der Datei und prüft gegen die Prüfsumme vom Import.
@@ -236,8 +215,8 @@ Es kann nicht: entscheiden, ob etwas wahr, wichtig oder strafbar ist. Das bleibt
 
 <div align="center">
 
-**Mailrobbe ist von admon, für Recherchen in Mail-Leaks und großen Mailarchiven.**
+**Mailrobbe wurde mit KI-Unterstützung und vielen Energydrinks von [admon](https://admon.me) entwickelt.**
 
-Wenn es dir nützt, freut sich das Repository über einen Stern.
+Wenn es dir nützt, freut sich das Repository über einen Stern oder eine kleine Spende, um die Energydrinks zu finanzieren.
 
 </div>
