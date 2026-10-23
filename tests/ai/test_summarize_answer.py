@@ -9,6 +9,7 @@ import pytest
 
 from mailrobbe.ai.model import (
     QUOTE_MAX_CHARS,
+    SUMMARY_MAX_HINTS,
     SUMMARY_MAX_TAGS,
     TAG_MAX_CHARS,
     THEME_HINTS_PER_THEME,
@@ -43,6 +44,8 @@ def test_the_schema_is_strict_and_names_the_theme_keys() -> None:
     item = schema["properties"]["themes"]["items"]
     assert item["properties"]["theme"]["enum"] == ["spenden", "vereine"]
     assert item["required"] == ["theme", "quote"] and item["additionalProperties"] is False
+    assert schema["properties"]["tags"]["maxItems"] == SUMMARY_MAX_TAGS
+    assert schema["properties"]["themes"]["maxItems"] == SUMMARY_MAX_HINTS
     assert "enum" not in answer_schema([])["properties"]["themes"]["items"]["properties"]["theme"]
 
 

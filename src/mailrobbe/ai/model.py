@@ -52,11 +52,15 @@ SEGMENT_SECONDS = 15.0  # longest line of a transcript; a line ends at a sentenc
 SUMMARY_MIN_WORDS = 50  # own text below this: tags and theme hints only, no summary (D302)
 SUMMARY_MAX_PARTS = 20  # parts of a long text summarised; beyond, the first ones only (D303)
 SUMMARY_MAX_TAGS = 6  # AI tags kept per summary (D304)
+SUMMARY_MAX_HINTS = 6  # theme quotes one answer may give (D304)
 TAG_MAX_CHARS = 40  # longer tags are dropped, not cut
 QUOTE_MAX_CHARS = 300  # longer quotes are dropped, not cut
 THEME_HINTS_PER_THEME = 3  # quotes kept per theme and summary
 CHARS_PER_TOKEN = 3.5  # German text, without a tokenizer (D303)
-SUMMARY_ANSWER_TOKENS = 1200  # max_tokens of one answer: a summary, tags and quotes
+# An answer's max_tokens is what the context leaves beside the request (summarize.parts), at least
+# the room a part always leaves for it and at most the ceiling against a model that never stops.
+SUMMARY_ANSWER_TOKENS = 1200  # room for the answer that part_chars keeps free
+SUMMARY_ANSWER_MAX_TOKENS = 8192
 VOCABULARY_TAGS = 200  # the most used AI tags the prompt offers besides the team's tags (D305)
 # Seconds without a measurement (D188): per task, and per 1,000 tokens of input.
 SUMMARY_RULE_SECONDS_PER_TASK = 3.0

@@ -31,7 +31,7 @@ Regeln:
 # Prompts.summarize. Their own version, stored with every summary: raise it whenever one of the
 # four prompts below changes.
 [summarize]
-version = 1
+version = 2
 
 # The system prompt of every request. ai.summarize fills {themes} (the themes of themes.toml with
 # their descriptions) and {tags} (the team's tags and the most used AI tags) once per run, so a
@@ -60,7 +60,7 @@ sonst bilde ein neues.
 themes: nur Themen aus der Liste unten, mit ihrem Schlüssel, und nur, wenn das Material sie
 belegt. Zu jedem Thema gehört ein wörtliches Zitat aus dem Material von höchstens 300 Zeichen,
 Buchstabe für Buchstabe so geschrieben wie dort, das den Bezug zeigt. Ohne ein solches Zitat
-kein Thema. Im Zweifel bleibt die Liste leer.
+kein Thema. Höchstens sechs Einträge insgesamt. Im Zweifel bleibt die Liste leer.
 
 Themen (Schlüssel: Beschreibung):
 {themes}

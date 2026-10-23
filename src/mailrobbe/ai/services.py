@@ -47,7 +47,6 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from mailrobbe.ai.model import (
-    SUMMARY_ANSWER_TOKENS,
     ForbiddenService,
     Protocol,
     Service,
@@ -111,6 +110,15 @@ class ChatAnswer:
     finish: str | None  # finish_reason or done_reason; "length" when cut at max_tokens
     tokens_in: int
     tokens_out: int
+    thought: bool = False  # the model reasoned before answering (a think block or its own field)
+
+
+def cut_at_length(found: ChatAnswer, max_tokens: int) -> str:
+    """Why an answer cut at max_tokens is none (D304), and whether thinking used them up."""
+    detail = f"cut at the length limit of {max_tokens} tokens"
+    if found.thought:
+        detail += " while the model was thinking; switch its thinking off"
+    return detail
 
 
 # HTTP
@@ -335,6 +343,7 @@ def _openai_answer(answer: Any) -> ChatAnswer:
         choice = answer["choices"][0]
         message = choice["message"]
         text = message.get("content") or ""
+        thought = bool(message.get("reasoning_content") or message.get("reasoning"))
         finish = choice.get("finish_reason")
         usage = answer.get("usage") or {}
         tokens_in = int(usage.get("prompt_tokens") or 0)
@@ -343,7 +352,8 @@ def _openai_answer(answer: Any) -> ChatAnswer:
         raise AnswerError(f"not a chat answer: {json.dumps(answer)[:_DETAIL]}") from None
     if not isinstance(text, str):
         raise AnswerError("the chat answer has no text")
-    return ChatAnswer(text, finish if isinstance(finish, str) else None, tokens_in, tokens_out)
+    finish = finish if isinstance(finish, str) else None
+    return ChatAnswer(text, finish, tokens_in, tokens_out, thought or "<think>" in text.lower())
 
 
 def _ollama_chat(
@@ -376,6 +386,7 @@ def _ollama_post(service: Service, payload: dict[str, Any], timeout: float) -> A
 def _ollama_answer(answer: Any) -> ChatAnswer:
     try:
         text = answer["message"].get("content") or ""
+        thought = bool(answer["message"].get("thinking"))
         finish = answer.get("done_reason")
         tokens_in = int(answer.get("prompt_eval_count") or 0)
         tokens_out = int(answer.get("eval_count") or 0)
@@ -383,7 +394,8 @@ def _ollama_answer(answer: Any) -> ChatAnswer:
         raise AnswerError(f"not a chat answer: {json.dumps(answer)[:_DETAIL]}") from None
     if not isinstance(text, str):
         raise AnswerError("the chat answer has no text")
-    return ChatAnswer(text, finish if isinstance(finish, str) else None, tokens_in, tokens_out)
+    finish = finish if isinstance(finish, str) else None
+    return ChatAnswer(text, finish, tokens_in, tokens_out, thought or "<think>" in text.lower())
 
 
 # One chat request with a text (D300)
@@ -544,25 +556,28 @@ def _test_text(service: Service, settings: Settings, check: ServiceCheck) -> Non
     schema, the configured context) and records whether the answer reads by the schema and names
     TEST_WORD in its summary or its tags."""
     from mailrobbe.ai.prompts import load_prompts
-    from mailrobbe.ai.summarize import answer, prompt  # they build on this module
+    from mailrobbe.ai.summarize import answer, parts, prompt  # they build on this module
     from mailrobbe.themes import load_themes
 
     assert check.protocol is not None
     themes = load_themes()
+    system = prompt.system_prompt(load_prompts().summarize, prompt.Vocabulary(themes, ()))
+    user = prompt.user_message("", prompt.material(TEST_HEAD, TEST_TEXT))
+    max_tokens = parts.answer_tokens(settings.ai_context_tokens, len(system) + len(user))
     started = time.monotonic()
     try:
         found = chat_text(
             service,
             check.protocol,
-            system=prompt.system_prompt(load_prompts().summarize, prompt.Vocabulary(themes, ())),
-            user=prompt.user_message("", prompt.material(TEST_HEAD, TEST_TEXT)),
+            system=system,
+            user=user,
             schema=answer.answer_schema([theme.key for theme in themes]),
-            max_tokens=SUMMARY_ANSWER_TOKENS,
+            max_tokens=max_tokens,
             timeout=settings.ai_timeout,
             context_tokens=settings.ai_context_tokens,
         )
         if found.finish == "length":
-            raise AnswerError(f"cut at the length limit of {SUMMARY_ANSWER_TOKENS} tokens")
+            raise AnswerError(cut_at_length(found, max_tokens))
         read = answer.read_answer(found.text)
     except ModelMissing as error:
         check.model_found = False
