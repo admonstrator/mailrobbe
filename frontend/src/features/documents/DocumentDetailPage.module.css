@@ -207,24 +207,6 @@
   color: var(--color-muted);
 }
 
-/* One quiet line of figures, as on the mail list. */
-.figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 20px;
-  margin: 0;
-  padding: 0;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  list-style: none;
-}
-
-.figures strong {
-  color: var(--color-text);
-  font-weight: 600;
-}
-
 /* The compact bar: the name takes the room left, cut on one line. */
 .compactName {
   flex: 1 1 auto;

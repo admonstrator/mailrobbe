@@ -8,6 +8,7 @@ import { Button, buttonClass } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { CompactBar, useScrolledPast } from "../../components/CompactBar";
 import { ErrorState } from "../../components/ErrorState";
+import { Figures, type Figure } from "../../components/PageHead";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import {
@@ -424,10 +425,10 @@ function HashValue({ hash }: { hash: string }) {
   );
 }
 
-/** The figures of D70 in one quiet line: mails without duplicates, every occurrence, first and
+/** The figures of D70 as a row (D334): mails without duplicates, every occurrence, first and
  *  last date. */
 function DocumentFigures({ document }: { document: DocumentDetail }) {
-  const figures: { value: string; label: string; title: string }[] = [
+  const items: Figure[] = [
     { value: formatNumber(document.mails), label: "Mails", title: "ohne Duplikate" },
     {
       value: formatNumber(document.attachments),
@@ -436,28 +437,12 @@ function DocumentFigures({ document }: { document: DocumentDetail }) {
     },
   ];
   for (const [label, iso] of [
-    ["erstmals", document.first_date],
-    ["zuletzt", document.last_date],
+    ["erster Versand", document.first_date],
+    ["letzter Versand", document.last_date],
   ] as const) {
-    if (iso) figures.push({ value: formatDate(iso), label, title: formatDateTime(iso) + " Uhr" });
+    if (iso) items.push({ value: formatDate(iso), label, title: `${formatDateTime(iso)} Uhr` });
   }
-  return (
-    <ul className={styles.figures} aria-label="Kennzahlen">
-      {figures.map((figure) => (
-        <li key={figure.label} title={figure.title}>
-          {figure.label === "erstmals" || figure.label === "zuletzt" ? (
-            <>
-              {figure.label} <strong>{figure.value}</strong>
-            </>
-          ) : (
-            <>
-              <strong>{figure.value}</strong> {figure.label}
-            </>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
+  return <Figures items={items} label="Kennzahlen" />;
 }
 
 function DocumentNotFound({ id }: { id?: number }) {

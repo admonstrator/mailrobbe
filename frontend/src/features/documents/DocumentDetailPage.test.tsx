@@ -62,9 +62,9 @@ describe("document page", () => {
 
     expect(figure("Mails")).toEqual(["6 Mails", "ohne Duplikate"]);
     expect(figure("Anhänge")).toEqual(["7 Anhänge", "Vorkommen, mit Duplikaten"]);
-    expect(figure("erstmals")[0]).toBe("erstmals 28.09.2026");
-    expect(figure("erstmals")[1]).toMatch(/^28\.09\.2026,? \d\d:\d\d Uhr$/);
-    expect(figure("zuletzt")[0]).toBe("zuletzt 18.10.2026");
+    expect(figure("erster Versand")[0]).toBe("28.09.2026 erster Versand");
+    expect(figure("erster Versand")[1]).toMatch(/^28\.09\.2026,? \d\d:\d\d Uhr$/);
+    expect(figure("letzter Versand")[0]).toBe("18.10.2026 letzter Versand");
 
     const names = card("Dateinamen (3)");
     expect(
