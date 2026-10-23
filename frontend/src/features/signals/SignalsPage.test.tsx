@@ -13,6 +13,9 @@ function withOverview(answer: SignalOverview | Response) {
   return (call: ApiCall) => (call.url.pathname === "/api/signals" ? answer : fixtureApi(call));
 }
 
+/** When the signals were computed, and the notices about it. */
+const status = () => screen.getByRole("region", { name: "Stand" });
+
 function card(name: string): HTMLElement {
   return screen.getByRole("heading", { name, level: 2 }).closest("section")!;
 }
@@ -28,7 +31,7 @@ const href = (element: HTMLElement, name: string) =>
 /** The page once its figures are there. */
 async function loaded(path = "/auffaelligkeiten", api = fixtureApi) {
   const rendered = renderApp(path, api);
-  await screen.findByRole("heading", { name: "Regeln und Stand", level: 2 });
+  await screen.findByRole("heading", { name: "Regeln", level: 2 });
   return rendered;
 }
 
@@ -49,15 +52,24 @@ describe("signal overview", () => {
       "Signale bewerten nichts und beweisen nichts.",
     );
     expect(card("So suchen Sie damit").textContent).toContain("Warum fällt diese Mail auf");
+    expect(
+      within(screen.getByRole("list", { name: "Kennzahlen" }))
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "409.880Mails ohne Duplikate",
+      expect.stringMatching(/Signale mit Treffern$/),
+      "3Verstummte Personen",
+    ]);
     expect(calls.filter((call) => call.url.pathname === "/api/signals")).toHaveLength(1);
   });
 
   it("shows the settings and when the signals were computed", async () => {
     await loaded();
-    const settings = card("Regeln und Stand");
-    expect(settings.textContent).toContain(
+    expect(status().textContent).toBe(
       "Berechnet beim Import am 20.10.2026 03:14, über 409.880 Mails ohne Duplikate.",
     );
+    const settings = card("Regeln");
     const values = Object.fromEntries(
       within(settings)
         .getAllByRole("term")
@@ -71,10 +83,13 @@ describe("signal overview", () => {
       "Viele Empfänger": "ab 25 Adressen",
       Weiterleitung: "Fwd: Fw: WG: TR: RV: ENC: Doorst: VS: VB:",
     });
-    expect(settings.textContent).toContain("themes.toml unter [signals]");
-    expect(settings.textContent).toContain("„Import starten“");
-    expect(within(settings).queryByRole("link", { name: "Zum Import" })).toBeNull();
-    expect(settings.textContent).not.toContain("anderen Regeln");
+    // where the rules are set, behind the "?"
+    const help = within(settings).getByRole("img").getAttribute("aria-label");
+    expect(help).toContain("themes.toml unter [signals]");
+    expect(help).toContain("„Import starten“");
+    expect(href(settings, "Einstellungen")).toBe("/einstellungen");
+    expect(within(status()).queryByRole("link", { name: "Zum Import" })).toBeNull();
+    expect(status().textContent).not.toContain("anderen Regeln");
   });
 
   it("lists the signals by group with rule, figures, links and senders", async () => {
@@ -85,12 +100,12 @@ describe("signal overview", () => {
     expect(titles).toEqual([
       "Was Signale sind",
       "So suchen Sie damit",
-      "Regeln und Stand",
       "Adressen",
       "Empfänger und Weiterleitungen",
       "Uhrzeit",
       "Wortfelder",
       "Personen",
+      "Regeln",
     ]);
     expect(
       within(card("Adressen"))
@@ -147,13 +162,14 @@ describe("signal overview", () => {
     const titles = screen
       .getAllByRole("heading", { level: 2 })
       .map((heading) => heading.textContent);
-    expect(titles.slice(3)).toEqual([
+    expect(titles.slice(2)).toEqual([
       "Adressen",
       "Empfänger und Weiterleitungen",
       "Uhrzeit",
       "Anhänge",
       "Wortfelder",
       "Personen",
+      "Regeln",
     ]);
     const attachments = card("Anhänge");
     expect(
@@ -196,9 +212,10 @@ describe("signal overview", () => {
 
   it("says what is missing before the first signals phase and without internal domains", async () => {
     await loaded("/auffaelligkeiten", withOverview(signalOverviewNever));
-    const settings = card("Regeln und Stand");
-    expect(settings.textContent).toContain("Noch nicht berechnet.");
-    expect(href(settings, "Zum Import")).toBe("/import");
+    expect(status().textContent).toContain("Noch nicht berechnet.");
+    expect(href(status(), "Zum Import")).toBe("/import");
+    expect(screen.queryByRole("list", { name: "Kennzahlen" })).toBeNull();
+    const settings = card("Regeln");
     expect(settings.textContent).toContain(
       "Nicht gesetzt: Von intern an privat, Von privat an intern und Private Zweitadresse sind aus, bis die Einstellungen die eigenen Domains der Organisation nennen",
     );
@@ -227,27 +244,26 @@ describe("signal overview", () => {
         },
       }),
     );
-    const settings = card("Regeln und Stand");
-    expect(settings.textContent).toContain("PostgreSQL kennt diese Zeitzone nicht.");
-    expect(settings.textContent).toContain(
+    expect(card("Regeln").textContent).toContain("PostgreSQL kennt diese Zeitzone nicht.");
+    expect(status().textContent).toContain(
       "Diese Zahlen entstanden unter anderen Regeln oder Wortfeldern als den jetzigen.",
     );
-    expect(href(settings, "Import")).toBe("/import");
+    expect(href(status(), "Import")).toBe("/import");
   });
 
-  it("folds the introduction and keeps it folded on the next visit", async () => {
+  it("keeps the introduction folded until opened, and open on the next visit", async () => {
     await loaded();
     const intro = () =>
       screen.getByText("Was Signale sind und wie Sie damit suchen").closest("details")!;
-    expect(intro().open).toBe(true);
-    fireEvent.click(screen.getByText("Was Signale sind und wie Sie damit suchen"));
-    await waitFor(() => expect(intro().open).toBe(false));
-    expect(localStorage.getItem("mailrobbe.signals-intro")).toBe("closed");
-    cleanup();
-    await loaded();
     expect(intro().open).toBe(false);
     // Folded, the explanation is still there to unfold.
     expect(within(intro()).getByRole("heading", { name: "Was Signale sind" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Was Signale sind und wie Sie damit suchen"));
+    await waitFor(() => expect(intro().open).toBe(true));
+    expect(localStorage.getItem("mailrobbe.signals-intro")).toBe("open");
+    cleanup();
+    await loaded();
+    expect(intro().open).toBe(true);
   });
 
   it("shows the error with a retry", async () => {
@@ -262,7 +278,7 @@ describe("signal overview", () => {
     expect(screen.getByRole("heading", { name: "Was Signale sind" })).toBeTruthy();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Erneut versuchen" }));
-    expect(await screen.findByRole("heading", { name: "Regeln und Stand" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Regeln" })).toBeTruthy();
   });
 
   it("scrolls to the signal a facet's link names", async () => {
