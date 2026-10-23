@@ -22,7 +22,7 @@ import { Avatar } from "../../components/Avatar";
 import { Button, buttonClass } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { OverflowMenu } from "../../components/OverflowMenu";
 import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
@@ -65,9 +65,9 @@ export function CollectionScreen() {
   const { id } = useParams();
   if (!id || !/^\d+$/.test(id)) {
     return (
-      <div className={styles.page}>
+      <main className={styles.page}>
         <CollectionNotFound />
-      </div>
+      </main>
     );
   }
   return <CollectionView key={id} id={Number(id)} />;
@@ -76,7 +76,7 @@ export function CollectionScreen() {
 function CollectionView({ id }: { id: number }) {
   const collection = useCollection(id);
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>{`${collection.data?.name ?? "Akte"} · Mailrobbe`}</title>
       <nav aria-label="Pfad" className={styles.breadcrumb}>
         <Link to="/akten">Akten</Link>
@@ -105,7 +105,7 @@ function CollectionView({ id }: { id: number }) {
       ) : (
         <Collection collection={collection.data} />
       )}
-    </div>
+    </main>
   );
 }
 
@@ -564,7 +564,7 @@ function Facts({
             <div>
               <dt>
                 Nicht im Archiv
-                <HelpMark text="Mails der Akte, deren Inhalt keine Mail des Archivs (mehr) hat, etwa nach einem neuen Import" />
+                <HelpTip text="Mails der Akte, deren Inhalt keine Mail des Archivs (mehr) hat, etwa nach einem neuen Import" />
               </dt>
               <dd>{formatNumber(collection.missing)}</dd>
             </div>
@@ -614,7 +614,7 @@ function Facts({
         <section className={styles.factSection}>
           <div className={styles.factHead}>
             <h2 className={styles.factTitle}>Schlagworte</h2>
-            <HelpMark
+            <HelpTip
               text={`Gezählt in den ${formatNumber(items?.length ?? 0)} neuesten Mails der Akte`}
             />
           </div>

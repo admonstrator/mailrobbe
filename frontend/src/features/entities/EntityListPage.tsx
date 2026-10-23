@@ -7,7 +7,7 @@ import type { EntityPage, EntitySort, EntitySummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { HelpMark } from "../../components/HelpMark";
+import { PageHead } from "../../components/PageHead";
 import { SearchIcon } from "../../components/icons";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
@@ -89,15 +89,13 @@ export function EntityListPage() {
   );
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>Entitäten · Mailrobbe</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Entitäten</h1>
-        <span className={styles.total}>
-          {total !== undefined && `${formatNumber(total)} erkannt in Mails und Anhängen`}
-          <HelpMark text="Was in Mails und Anhängen erwähnt wird: Beträge, Konten, Organisationen, Namen, Orte, Kontaktdaten, Daten und die Begriffe der Recherchethemen. Jede Zeile führt zu den Mails, die sie erwähnen." />
-        </span>
-      </div>
+      <PageHead
+        title="Entitäten"
+        help="Was in Mails und Anhängen erwähnt wird: Beträge, Konten, Organisationen, Namen, Orte, Kontaktdaten, Daten und die Begriffe der Recherchethemen. Jede Zeile führt zu den Mails, die sie erwähnen."
+        sub={total !== undefined && `${formatNumber(total)} erkannt in Mails und Anhängen`}
+      />
       {waiting && (
         <p className={styles.notice}>
           {waiting} <Link to="/import">Zum Import</Link>
@@ -212,7 +210,7 @@ export function EntityListPage() {
           />
         )}
       </div>
-    </div>
+    </main>
   );
 }
 

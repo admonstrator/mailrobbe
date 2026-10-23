@@ -5,6 +5,7 @@ import { useThemes, useTopicPeriods } from "../../api/queries";
 import { buttonClass } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
+import { PageHead } from "../../components/PageHead";
 import { formatNumber } from "../../lib/format";
 import { ClustersView } from "./ClustersView";
 import { stateText } from "./labels";
@@ -46,16 +47,13 @@ export function TopicsPage() {
   }));
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>Themen · Mailrobbe</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Themen</h1>
-        <p className={styles.intro}>
-          Wörter, die irgendwo häufiger vorkommen als im übrigen Archiv, und Wörter, die oft
-          zusammen stehen.
-        </p>
-      </div>
-      {line && <p className={styles.state}>{line}</p>}
+      <PageHead
+        title="Themen"
+        help="Wörter, die in einem Zeitraum, bei einer Person oder in einer Suche häufiger vorkommen als im übrigen Archiv, und Wörter, die oft zusammen in denselben Mails stehen. Jedes Wort führt zu den Mails, in denen es steht."
+        sub={line}
+      />
       <Explanation />
 
       <div className={styles.layout}>
@@ -96,7 +94,7 @@ export function TopicsPage() {
           )}
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

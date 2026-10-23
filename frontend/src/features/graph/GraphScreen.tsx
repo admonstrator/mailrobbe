@@ -137,7 +137,7 @@ export function GraphScreen() {
         exportParams={params}
         canvas={canvas}
       />
-      <div className={styles.main}>
+      <main className={styles.main}>
         <MapHeader
           graph={data}
           legend={state.color ? legend : null}
@@ -201,7 +201,7 @@ export function GraphScreen() {
             }}
           />
         </div>
-      </div>
+      </main>
     </div>
   );
 }

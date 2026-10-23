@@ -47,10 +47,10 @@ describe("entity page", () => {
       "listitem",
     );
     expect(figures.map((figure) => [figure.textContent, figure.title])).toEqual([
-      ["41Mails", "ohne Duplikate"],
-      ["2Dokumente", "Anhänge, die es erwähnen"],
-      ["14.03.2019Erste Erwähnung", expect.stringMatching(/^\d\d:\d\d Uhr$/)],
-      ["18.10.2026Letzte Erwähnung", expect.stringMatching(/^\d\d:\d\d Uhr$/)],
+      ["41 Mails", "ohne Duplikate"],
+      ["2 Dokumente", "Anhänge, die es erwähnen"],
+      ["14.03.2019 Erste Erwähnung", expect.stringMatching(/^\d\d:\d\d Uhr$/)],
+      ["18.10.2026 Letzte Erwähnung", expect.stringMatching(/^\d\d:\d\d Uhr$/)],
     ]);
 
     const years = card("Mails pro Jahr");

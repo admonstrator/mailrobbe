@@ -18,7 +18,19 @@ describe("entity list", () => {
     const labels = within(navigation)
       .getAllByRole("link")
       .map((link) => link.textContent);
-    expect(labels.slice(0, 4)).toEqual(["Mails", "Personen", "Anhänge", "Entitäten"]);
+    // without the counts some links carry
+    expect(labels.slice(0, 10).map((label) => label?.replace(/[\d.]+$/, ""))).toEqual([
+      "Mails",
+      "Personen",
+      "Anhänge",
+      "Akten",
+      "Zeitachse",
+      "Karte",
+      "Orte",
+      "Signale",
+      "Entitäten",
+      "Themen",
+    ]);
     expect(within(navigation).getByRole("link", { name: "Entitäten" }).getAttribute("href")).toBe(
       "/entitaeten",
     );

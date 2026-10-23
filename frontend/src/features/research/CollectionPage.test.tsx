@@ -45,7 +45,7 @@ describe("Akte page", () => {
     expect(figures).toEqual({
       Zeitraum: "02.09.2026 bis 18.10.2026",
       Mails: "24",
-      "Nicht im Archiv?": "1",
+      "Nicht im Archiv": "1",
       Angelegt: formatDate(collectionDetail.created_at),
     });
     expect(

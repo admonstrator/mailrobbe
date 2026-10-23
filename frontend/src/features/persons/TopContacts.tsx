@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import type { PersonProfile } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { personPath } from "../../components/PersonLink";
 import { formatNumber } from "../../lib/format";
 import { personLabel } from "./labels";
@@ -22,7 +22,7 @@ export function TopContacts({ profile, onMore }: { profile: PersonProfile; onMor
         <h2 id="top-contacts-title" className={styles.title}>
           Mit wem am meisten
         </h2>
-        <HelpMark text="Mails in beide Richtungen" />
+        <HelpTip text="Mails in beide Richtungen" />
         {total > 0 && (
           <Button variant="link" size="sm" className={styles.all} onClick={onMore}>
             {`Alle ${formatNumber(total)}`}

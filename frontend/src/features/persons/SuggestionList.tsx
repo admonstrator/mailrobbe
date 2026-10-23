@@ -20,7 +20,7 @@ import { Button } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { personPath } from "../../components/PersonLink";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { Segments } from "../../components/Segments";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -110,7 +110,7 @@ export function SuggestionList({
               onView(next);
             }}
           />
-          <HelpMark text={INTROS[view]} />
+          <HelpTip text={INTROS[view]} />
         </div>
         {view === "certain" && counts !== undefined && counts.certain > 0 && (
           <Button

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { usePersonSignals } from "../../api/queries";
 import type { PersonSignals } from "../../api/types";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { mailsText } from "../entities/labels";
@@ -69,7 +69,7 @@ export function PersonSignalsCard({ personId }: { personId: number }) {
         <h2 id="person-signals-title" className={styles.title}>
           Signale gesendeter Mails
         </h2>
-        <HelpMark text={SHARE_HELP} />
+        <HelpTip text={SHARE_HELP} />
         <span className={styles.base}>{`${mailsText(sent)} gesendet, ohne Duplikate`}</span>
       </div>
       <Silence personId={personId} data={signals.data} />

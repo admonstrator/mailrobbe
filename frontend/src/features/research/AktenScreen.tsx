@@ -5,6 +5,7 @@ import { Button } from "../../components/Button";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
+import { PageHead } from "../../components/PageHead";
 import { formatNumber } from "../../lib/format";
 import styles from "./AktenScreen.module.css";
 import { CollectionList } from "./CollectionList";
@@ -55,20 +56,17 @@ export function AktenScreen() {
   });
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>
         {tab === "akten" ? "Akten · Mailrobbe" : `${TAB_LABELS[tab]} · Akten · Mailrobbe`}
       </title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Akten</h1>
-        {data && (
-          <span className={styles.total}>
-            {formatNumber(data.review.relevant)} relevant · {formatNumber(data.flagged)} markiert ·{" "}
-            {formatNumber(data.review.seen + data.review.relevant + data.review.irrelevant)}{" "}
-            gesichtet
-          </span>
-        )}
-      </div>
+      <PageHead
+        title="Akten"
+        sub={
+          data &&
+          `${formatNumber(data.review.relevant)} relevant · ${formatNumber(data.flagged)} markiert · ${formatNumber(data.review.seen + data.review.relevant + data.review.irrelevant)} gesichtet`
+        }
+      />
       <div className={styles.tabs}>
         <Tabs<AktenTab>
           items={items}
@@ -109,6 +107,6 @@ export function AktenScreen() {
           <CollectionList collections={research.data.collections} />
         )}
       </div>
-    </div>
+    </main>
   );
 }

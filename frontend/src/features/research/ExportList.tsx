@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { queryKeys, useExports } from "../../api/queries";
 import type { ExportInfo } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
@@ -29,7 +29,7 @@ export function ExportList() {
       <div className={styles.toolbar}>
         <p className={styles.intro}>
           Exporte entstehen in der Mailliste und auf der Seite einer Akte.
-          <HelpMark text="Ein Export ist ein ZIP mit den Originalmails, PDF-Lesefassungen, Manifest und Prüfsummen." />
+          <HelpTip text="Ein Export ist ein ZIP mit den Originalmails, PDF-Lesefassungen, Manifest und Prüfsummen." />
         </p>
       </div>
       <div className={styles.listCard}>

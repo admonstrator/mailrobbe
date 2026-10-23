@@ -8,38 +8,6 @@
   padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
-.head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px 24px;
-}
-
-.heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
-}
-
-.headLinks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.title {
-  margin: 0;
-  font: var(--font-page-title);
-}
-
-.intro {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
 /* The bar and the chart card; the bar sticks only while this block is in view. */
 .chartArea {
   display: flex;

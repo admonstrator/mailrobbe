@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router";
 import { useCreateCollection } from "../../api/queries";
 import { DESCRIPTION_LIMIT, NAME_LIMIT, type CollectionInfo } from "../../api/types";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { EmptyState } from "../../components/EmptyState";
 import { formatDateTime } from "../../lib/format";
 import { Dialog } from "../persons/Dialog";
@@ -20,7 +20,7 @@ export function CollectionList({ collections }: { collections: CollectionInfo[] 
       <div className={styles.toolbar}>
         <p className={styles.intro}>
           Eine Akte sammelt die Mails zu einer Geschichte oder Frage.
-          <HelpMark text="Mit Beschreibung, gespeicherten Suchen, Notizen und Export." />
+          <HelpTip text="Mit Beschreibung, gespeicherten Suchen, Notizen und Export." />
         </p>
         <Button variant="primary" onClick={() => setCreating(true)}>
           Neue Akte

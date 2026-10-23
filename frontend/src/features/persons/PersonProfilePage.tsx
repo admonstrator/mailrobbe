@@ -60,9 +60,9 @@ export function PersonProfilePage() {
   const { id } = useParams();
   if (!id || !/^\d+$/.test(id)) {
     return (
-      <div className={styles.page}>
+      <main className={styles.page}>
         <PersonNotFound />
-      </div>
+      </main>
     );
   }
   return <ProfileView key={id} id={Number(id)} />;
@@ -82,7 +82,7 @@ function ProfileView({ id }: { id: number }) {
 
   const name = profile.data ? personLabel(profile.data) : null;
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>{`${name ?? "Person"} · Mailrobbe`}</title>
       <nav aria-label="Pfad" className={styles.breadcrumb}>
         <Link to="/personen">Personen</Link>
@@ -111,7 +111,7 @@ function ProfileView({ id }: { id: number }) {
       ) : (
         <Profile profile={profile.data} />
       )}
-    </div>
+    </main>
   );
 }
 

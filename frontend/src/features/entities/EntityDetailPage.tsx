@@ -5,8 +5,7 @@ import { useEntity, useThemes } from "../../api/queries";
 import type { EntityDetail, EntitySample, ThemeInfo } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
 import { ErrorState } from "../../components/ErrorState";
-import { FigureRow, type Figure } from "../../components/FigureRow";
-import { HelpMark } from "../../components/HelpMark";
+import { Figures, HelpTip, type Figure } from "../../components/PageHead";
 import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
@@ -39,9 +38,9 @@ export function EntityDetailPage() {
   const { id } = useParams();
   if (!id || !/^\d+$/.test(id)) {
     return (
-      <div className={styles.page}>
+      <main className={styles.page}>
         <EntityNotFound />
-      </div>
+      </main>
     );
   }
   return <EntityView key={id} id={Number(id)} />;
@@ -51,7 +50,7 @@ function EntityView({ id }: { id: number }) {
   const detail = useEntity(id);
   const label = detail.data?.label;
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>{`${label ?? "Entität"} · Entitäten · Mailrobbe`}</title>
       <nav aria-label="Pfad" className={styles.breadcrumb}>
         <Link to="/entitaeten">Entitäten</Link>
@@ -82,7 +81,7 @@ function EntityView({ id }: { id: number }) {
       ) : (
         <EntityContent entity={detail.data} />
       )}
-    </div>
+    </main>
   );
 }
 
@@ -239,7 +238,7 @@ function EntityFigures({ entity }: { entity: EntityDetail }) {
     dateTile("Letzte Erwähnung", entity.last_date),
   ];
   const figures: Figure[] = tiles.map(({ label, value, sub }) => ({ label, value, title: sub }));
-  return <FigureRow figures={figures} />;
+  return <Figures label="Kennzahlen" items={figures} />;
 }
 
 /** Mentioning mails per UTC year as bars; each year opens its mails in the mail list. */
@@ -252,7 +251,7 @@ function EntityYears({ entity }: { entity: EntityDetail }) {
         <h2 id="entity-years-title" className={styles.sectionTitle}>
           Mails pro Jahr
         </h2>
-        {years.length > 0 && <HelpMark text="Ein Klick auf ein Jahr öffnet dessen Mails." />}
+        {years.length > 0 && <HelpTip text="Ein Klick auf ein Jahr öffnet dessen Mails." />}
       </div>
       {years.length === 0 ? (
         <p className={styles.hint}>Keine datierten Mails.</p>

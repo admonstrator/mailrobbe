@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useMergeLog, useUndoMerge, useUndoMergeBatch } from "../../api/queries";
 import type { MergeBatchInfo, MergeLogEntry, MergeUndoResult } from "../../api/types";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { PersonLink } from "../../components/PersonLink";
@@ -65,7 +65,7 @@ export function MergeLog() {
     <>
       <p className={styles.intro}>
         Rückgängig machen geht hier für jede Zusammenführung seit dem Protokoll.
-        <HelpMark text="Auch nach späteren Zusammenführungen. Ältere Zusammenführungen löst man im Profil Adresse für Adresse." />
+        <HelpTip text="Auch nach späteren Zusammenführungen. Ältere Zusammenführungen löst man im Profil Adresse für Adresse." />
       </p>
       <p role="status" className={cx(styles.notice, !notice && "sr-only")}>
         {notice}

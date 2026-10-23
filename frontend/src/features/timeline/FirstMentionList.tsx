@@ -13,7 +13,7 @@ import { Button } from "../../components/Button";
 import { Checkbox } from "../../components/Checkbox";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -71,7 +71,7 @@ export function FirstMentionList({
         <h2 id={titleId} className={styles.title}>
           Wer taucht wann zuerst auf
         </h2>
-        <HelpMark text="Für jede Person die früheste Mail unter den Treffern, an der sie beteiligt ist: wann sie zum ersten Mal mit dieser Suche zu tun hatte, und mit wem." />
+        <HelpTip text="Für jede Person die früheste Mail unter den Treffern, an der sie beteiligt ist: wann sie zum ersten Mal mit dieser Suche zu tun hatte, und mit wem." />
         {data && (
           <span className={styles.total} aria-live="polite">
             {totalText(data)}

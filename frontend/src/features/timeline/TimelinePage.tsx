@@ -23,6 +23,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
+import { PageHead } from "../../components/PageHead";
 import { formatNumber } from "../../lib/format";
 import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
@@ -122,26 +123,26 @@ export function TimelinePage() {
     data ? mailListHref(bucketList(state, data.starts[index], data.bucket, series)) : "/mails";
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>Zeitachse · Mailrobbe</title>
-      <div className={styles.head}>
-        <div className={styles.heading}>
-          <h1 className={styles.title}>Zeitachse</h1>
-          <p className={styles.intro}>Mailaufkommen für die aktuelle Suche und Filter</p>
-        </div>
-        <div className={styles.headLinks}>
-          <Link
-            to={selectionHref(state.list)}
-            className={buttonClass()}
-            title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
-          >
-            Begriffe
-          </Link>
-          <Link to={mailListHref(state.list)} className={buttonClass()}>
-            In der Mailliste öffnen
-          </Link>
-        </div>
-      </div>
+      <PageHead
+        title="Zeitachse"
+        sub="Mailaufkommen für die aktuelle Suche und Filter"
+        actions={
+          <>
+            <Link
+              to={selectionHref(state.list)}
+              className={buttonClass()}
+              title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
+            >
+              Begriffe
+            </Link>
+            <Link to={mailListHref(state.list)} className={buttonClass()}>
+              In der Mailliste öffnen
+            </Link>
+          </>
+        }
+      />
 
       {/* The controls stick below the header while the chart is in view; the first mentions'
           table header takes their place further down. */}
@@ -247,7 +248,7 @@ export function TimelinePage() {
         limit={limit}
         onMore={() => setLimit(Math.min(limit + FIRST_MENTIONS, MAX_FIRST_MENTIONS))}
       />
-    </div>
+    </main>
   );
 }
 

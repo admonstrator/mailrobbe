@@ -37,7 +37,20 @@ describe("topics screen", () => {
     const labels = within(navigation)
       .getAllByRole("link")
       .map((link) => link.textContent);
-    expect(labels.indexOf("Themen")).toBe(labels.indexOf("Zeitachse") + 1);
+    // The analysis screens follow the daily ones; Themen ends them.
+    // without the counts some links carry
+    expect(labels.slice(0, 10).map((label) => label?.replace(/[\d.]+$/, ""))).toEqual([
+      "Mails",
+      "Personen",
+      "Anhänge",
+      "Akten",
+      "Zeitachse",
+      "Karte",
+      "Orte",
+      "Signale",
+      "Entitäten",
+      "Themen",
+    ]);
     expect(document.title).toBe("Themen · Mailrobbe");
     expect(screen.getByRole("heading", { name: "Themen", level: 1 })).toBeTruthy();
     expect(

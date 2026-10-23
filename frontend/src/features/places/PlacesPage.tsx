@@ -133,7 +133,7 @@ export function PlacesPage() {
         <MapDataCard view={place?.bounds ?? null} />
       </PlaceFilters>
 
-      <div className={styles.main}>
+      <main className={styles.main}>
         <div className={styles.toolbar}>
           <h1 className={styles.title}>Orte</h1>
           <span className={styles.toolbarNote}>
@@ -179,7 +179,7 @@ export function PlacesPage() {
             onPick={(next) => onPick(next)}
           />
         </div>
-      </div>
+      </main>
 
       <aside className={styles.side} aria-label="Details">
         {point?.kind === "photo" ? (

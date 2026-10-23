@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { useMailPage } from "../../api/queries";
 import type { MailListItem, PersonFigures, PersonProfile } from "../../api/types";
 import { Button } from "../../components/Button";
+import { Figures } from "../../components/PageHead";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { formatDate, formatNumber } from "../../lib/format";
@@ -19,7 +20,7 @@ import { DEFAULT_PROFILE_MAIL_STATE, personMailList, type ProfileTab } from "./u
 const RECENT_MAILS = 5;
 
 /** The figures of a person (D29) as a row of numbers (D334). */
-function Figures({ figures }: { figures: PersonFigures }) {
+function PersonFigureRow({ figures }: { figures: PersonFigures }) {
   const items: [string, number][] = [
     ["Mails", figures.mails],
     ["Gesendet", figures.sent],
@@ -28,14 +29,10 @@ function Figures({ figures }: { figures: PersonFigures }) {
     ["Kontakte", figures.contacts],
   ];
   return (
-    <ul className={styles.figures} aria-label="Kennzahlen">
-      {items.map(([label, value]) => (
-        <li key={label} className={styles.figure}>
-          <span className={styles.value}>{formatNumber(value)}</span>
-          <span className={styles.label}>{label}</span>
-        </li>
-      ))}
-    </ul>
+    <Figures
+      label="Kennzahlen"
+      items={items.map(([label, value]) => ({ label, value: formatNumber(value) }))}
+    />
   );
 }
 
@@ -51,7 +48,7 @@ export function ProfileOverview({
   return (
     <div className={styles.overview}>
       {profile.figures ? (
-        <Figures figures={profile.figures} />
+        <PersonFigureRow figures={profile.figures} />
       ) : (
         <p className={styles.pending}>
           Die Kennzahlen dieser Person werden beim nächsten Import berechnet.

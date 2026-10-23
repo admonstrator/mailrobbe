@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useDeleteSearch, useMailSummary, useUpdateSearch } from "../../api/queries";
 import { NAME_LIMIT, type CollectionInfo, type SavedSearch } from "../../api/types";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { parseListState, toFilters } from "../mails/listState";
@@ -33,7 +33,7 @@ export function SearchList({
       <div className={styles.toolbar}>
         <p className={styles.intro}>
           Suchtext, Filter und Sortierung der Mailliste, bei jedem Öffnen neu ausgeführt.
-          <HelpMark text="Eine gespeicherte Suche merkt sich Suchtext, Filter und Sortierung der Mailliste. Sie läuft bei jedem Öffnen neu, ihre Treffer folgen also dem Archiv." />
+          <HelpTip text="Eine gespeicherte Suche merkt sich Suchtext, Filter und Sortierung der Mailliste. Sie läuft bei jedem Öffnen neu, ihre Treffer folgen also dem Archiv." />
         </p>
       </div>
       <div className={styles.listCard}>

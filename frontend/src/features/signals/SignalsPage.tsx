@@ -6,8 +6,7 @@ import { useSignals } from "../../api/queries";
 import type { SignalGroup, SignalInfo, SignalOverview, SilentPerson } from "../../api/types";
 import { Button } from "../../components/Button";
 import { ErrorState } from "../../components/ErrorState";
-import { FigureRow } from "../../components/FigureRow";
-import { HelpMark } from "../../components/HelpMark";
+import { Figures, HelpTip, PageHead } from "../../components/PageHead";
 import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -50,12 +49,9 @@ export function SignalsPage() {
   }, [loaded, target]);
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>Signale · Mailrobbe</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Signale</h1>
-        <p className={styles.lead}>Einfache Regeln, die auf lesenswerte Mails zeigen.</p>
-      </div>
+      <PageHead title="Signale" sub="Einfache Regeln, die auf lesenswerte Mails zeigen." />
       <Intro />
       {overview.isPending ? (
         <div className={styles.loading}>
@@ -71,7 +67,7 @@ export function SignalsPage() {
       ) : (
         <Overview overview={overview.data} target={target} />
       )}
-    </div>
+    </main>
   );
 }
 
@@ -155,8 +151,9 @@ function Overview({ overview, target }: { overview: SignalOverview; target: stri
     <>
       <Status overview={overview} />
       {computed && (
-        <FigureRow
-          figures={[
+        <Figures
+          label="Kennzahlen"
+          items={[
             { label: "Mails ohne Duplikate", value: formatNumber(overview.mails) },
             {
               label: "Signale mit Treffern",
@@ -241,7 +238,7 @@ function Settings({ overview }: { overview: SignalOverview }) {
         <h2 id="signals-settings" className={styles.sectionTitle}>
           Regeln
         </h2>
-        <HelpMark text="Die Anbieter, Uhrzeiten, die Schwelle und die Präfixe stehen in themes.toml unter [signals], die Domains und die Zeitzone unter Einstellungen. Änderungen gelten ab dem nächsten „Import starten“. Mails automatischer Absender wie Newsletter tragen nur die Wortfelder." />
+        <HelpTip text="Die Anbieter, Uhrzeiten, die Schwelle und die Präfixe stehen in themes.toml unter [signals], die Domains und die Zeitzone unter Einstellungen. Änderungen gelten ab dem nächsten „Import starten“. Mails automatischer Absender wie Newsletter tragen nur die Wortfelder." />
       </div>
       <dl className={styles.rules}>
         <div className={cx(styles.setting, settings.internal_domains.length === 0 && styles.wide)}>

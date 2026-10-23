@@ -12,6 +12,7 @@ import { SearchIcon } from "../../components/icons";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
+import { PageHead } from "../../components/PageHead";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { edgePages, listPagination } from "../../lib/paging";
@@ -80,18 +81,20 @@ export function PersonsPage() {
   ];
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>{TITLES[state.tab]}</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Personen</h1>
-        {page.data && (
-          <span className={styles.total} aria-live="polite">
-            {state.q || state.labelled
-              ? `${formatNumber(page.data.total)} ${page.data.total === 1 ? "Person" : "Personen"} gefunden`
-              : `${formatNumber(page.data.total)} Personen`}
-          </span>
-        )}
-      </div>
+      <PageHead
+        title="Personen"
+        sub={
+          page.data && (
+            <span aria-live="polite">
+              {state.q || state.labelled
+                ? `${formatNumber(page.data.total)} ${page.data.total === 1 ? "Person" : "Personen"} gefunden`
+                : `${formatNumber(page.data.total)} Personen`}
+            </span>
+          )
+        }
+      />
       <div className={styles.tabs}>
         <Tabs<PersonsTab>
           items={tabs}
@@ -153,7 +156,7 @@ export function PersonsPage() {
           </>
         )}
       </div>
-    </div>
+    </main>
   );
 }
 

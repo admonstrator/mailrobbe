@@ -10,7 +10,7 @@ import {
   type TagUpdate,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { EmptyState } from "../../components/EmptyState";
 import { TAG_COLORS, TAG_COLOR_LABELS, TAG_PALETTE } from "../../lib/research";
 import { Dialog } from "../persons/Dialog";
@@ -32,7 +32,7 @@ export function TagList({ tags }: { tags: TagInfo[] }) {
       <div className={styles.toolbar}>
         <p className={styles.intro}>
           Schlagworte ordnen Mails nach Themen und Fragen.
-          <HelpMark text="Eine Mail kann beliebig viele Schlagworte tragen." />
+          <HelpTip text="Eine Mail kann beliebig viele Schlagworte tragen." />
         </p>
         <Button variant="primary" onClick={() => setEditing("new")}>
           Neues Schlagwort

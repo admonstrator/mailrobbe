@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { useThemes, useTopicTerms } from "../../api/queries";
 import type { ThemeInfo, TopicTerms } from "../../api/types";
 import { Button } from "../../components/Button";
-import { HelpMark } from "../../components/HelpMark";
+import { HelpTip } from "../../components/PageHead";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { DEFAULT_LIST_STATE, toFilters, withFilters, type ListState } from "../mails/listState";
@@ -30,7 +30,7 @@ export function PersonTermsCard({ personId }: { personId: number }) {
         <h2 id="person-terms-title" className={styles.title}>
           Auffällige Begriffe
         </h2>
-        <HelpMark text="In den gesendeten Mails, verglichen mit dem übrigen Archiv" />
+        <HelpTip text="In den gesendeten Mails, verglichen mit dem übrigen Archiv" />
         <Link to={selectionHref(list)} className={styles.all}>
           Alle Begriffe
         </Link>

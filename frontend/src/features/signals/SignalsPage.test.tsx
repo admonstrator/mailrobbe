@@ -44,7 +44,7 @@ describe("signal overview", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((link) => link.textContent);
-    expect(links.slice(3, 6)).toEqual(["Entitäten", "Signale", "Karte"]);
+    expect(links.slice(6, 9)).toEqual(["Orte", "Signale", "Entitäten"]);
     expect(within(nav).getByRole("link", { name: "Signale" }).getAttribute("aria-current")).toBe(
       "page",
     );
@@ -57,9 +57,9 @@ describe("signal overview", () => {
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual([
-      "409.880Mails ohne Duplikate",
+      "409.880 Mails ohne Duplikate",
       expect.stringMatching(/Signale mit Treffern$/),
-      "3Verstummte Personen",
+      "3 Verstummte Personen",
     ]);
     expect(calls.filter((call) => call.url.pathname === "/api/signals")).toHaveLength(1);
   });
