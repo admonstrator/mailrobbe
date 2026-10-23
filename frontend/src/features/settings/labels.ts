@@ -126,7 +126,10 @@ export const GROUPS: SettingGroup[] = [
     title: "Import",
     note: "Gilt ab dem nächsten Start. Das Import-Dashboard kann sie für einen einzelnen Start ändern.",
     settings: {
-      import_workers: { label: "Parallele Worker" },
+      import_workers: {
+        label: "Parallele Worker",
+        help: "So viele Seiten liest auch Tesseract bei der Texterkennung gleichzeitig.",
+      },
       import_attachment_hash_limit: {
         label: "Hash für Anhänge bis",
         unit: "MB",

@@ -346,7 +346,7 @@ class AiOptions(BaseModel):
             languages=settings.ai_ocr_languages,
             uncertain=settings.ai_ocr_uncertain,
             concurrency=settings.ai_concurrency,
-            tesseract_workers=max(1, min(4, settings.import_workers)),
+            tesseract_workers=max(1, settings.import_workers),  # D343
             vision_url=vision.display_url if vision else "",
             vision_remote=_remote(vision),
             max_minutes=settings.ai_transcribe_max_minutes,
