@@ -69,11 +69,14 @@ export function HeaderCard({
   mailHref,
   marks,
   ref,
+  children,
 }: {
   mail: MailDetail;
   mailHref: (id: number) => string;
   marks?: SearchMarks;
   ref?: Ref<HTMLElement>;
+  /** Below the rest: the line of the thread's summary (D331). */
+  children?: ReactNode;
 }) {
   const byRole = (role: ParticipationRole) => mail.participants.filter((p) => p.role === role);
   const from = byRole("from");
@@ -166,6 +169,7 @@ export function HeaderCard({
           )}
         </p>
       )}
+      {children}
     </Card>
   );
 }

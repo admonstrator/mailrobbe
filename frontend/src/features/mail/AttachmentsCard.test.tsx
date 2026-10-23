@@ -15,6 +15,11 @@ function item(card: HTMLElement, name: string): HTMLElement {
   return within(card).getByText(name).closest("li")!;
 }
 
+/** The name of an attachment, which opens it over the page (D331). */
+function opener(card: HTMLElement, name: string): HTMLElement {
+  return within(item(card, name)).getByRole("button", { name });
+}
+
 const withAttachments = (attachments: AttachmentInfo[]) => (call: ApiCall) =>
   call.url.pathname === "/api/mails/184221" ? { ...mailDetail, attachments } : fixtureApi(call);
 
@@ -130,16 +135,12 @@ describe("attachments of a mail", () => {
     );
     const card = await attachmentsCard();
     const contract = item(card, "Rahmenvereinbarung_2026_final.pdf");
-    // The links keep their order; the preview comes after the download.
+    // The name opens it; the links keep their order.
     expect(
       Array.from(contract.querySelectorAll("a, button"), (element) => element.textContent),
-    ).toEqual(["Herunterladen", "Vorschau", "auch in 5 weiteren Mails"]);
-    // The spreadsheet has none.
-    const spreadsheet = item(card, "Aenderungsprotokoll.xlsx");
-    expect(within(spreadsheet).getByText("nur Download")).toBeTruthy();
-    expect(within(spreadsheet).queryByRole("button")).toBeNull();
+    ).toEqual(["Rahmenvereinbarung_2026_final.pdf", "Herunterladen", "auch in 5 weiteren Mails"]);
 
-    const open = within(contract).getByRole("button", { name: "Vorschau" });
+    const open = opener(card, "Rahmenvereinbarung_2026_final.pdf");
     expect(open.getAttribute("aria-haspopup")).toBe("dialog");
     open.focus();
     fireEvent.click(open);
@@ -164,7 +165,7 @@ describe("attachments of a mail", () => {
     expect(screen.queryByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf")).toBeNull();
     expect(document.activeElement).toBe(open);
 
-    fireEvent.click(within(item(card, "Anruf.m4a")).getByRole("button", { name: "Vorschau" }));
+    fireEvent.click(opener(card, "Anruf.m4a"));
     const call = screen.getByRole("dialog", { name: "Anruf.m4a" });
     await waitFor(() =>
       expect(
@@ -179,7 +180,7 @@ describe("attachments of a mail", () => {
   it("open an image in the large view", async () => {
     renderApp("/mails/184221", withAttachments([pdf, photo]));
     const card = await attachmentsCard();
-    fireEvent.click(within(item(card, "IMG_0412.jpg")).getByRole("button", { name: "Vorschau" }));
+    fireEvent.click(opener(card, "IMG_0412.jpg"));
     const viewer = screen.getByRole("dialog", { name: "IMG_0412.jpg" });
     expect(within(viewer).getByRole("img", { name: "Großansicht von IMG_0412.jpg" })).toBeTruthy();
     expect(within(viewer).getByRole("group", { name: "Zoom" })).toBeTruthy();
@@ -261,18 +262,16 @@ describe("protected and packed attachments of a mail (D231, D233)", () => {
     );
     // The protection says it already; and nothing previews a locked file.
     expect(within(locked).queryByText("Verschlüsselt")).toBeNull();
-    expect(within(locked).queryByRole("button", { name: "Vorschau" })).toBeNull();
-    expect(within(locked).getByText("nur Download")).toBeTruthy();
+    fireEvent.click(opener(card, "Aenderungsprotokoll.xlsx"));
+    const overlay = screen.getByRole("dialog", { name: "Aenderungsprotokoll.xlsx" });
+    expect(within(overlay).getByText(/mit einem Kennwort geschützt/)).toBeTruthy();
+    expect(within(overlay).queryByTitle(/Vorschau von/)).toBeNull();
   });
 
   it("preview an opened PDF decrypted", async () => {
     const { calls } = renderApp("/mails/184221", withAttachments([{ ...pdf, protection: "open" }]));
     const card = await attachmentsCard();
-    fireEvent.click(
-      within(item(card, "Rahmenvereinbarung_2026_final.pdf")).getByRole("button", {
-        name: "Vorschau",
-      }),
-    );
+    fireEvent.click(opener(card, "Rahmenvereinbarung_2026_final.pdf"));
     const overlay = screen.getByRole("dialog", { name: "Rahmenvereinbarung_2026_final.pdf" });
     await within(overlay).findByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf");
     await waitFor(() =>
@@ -471,7 +470,7 @@ describe("transcription from a mail's attachments (D296)", () => {
     const row = item(card, "Sprachnachricht_Vorstand.ogg");
     // After the document link, as "Text erkennen" stands for a scan.
     expect(Array.from(row.querySelectorAll("a, button"), (element) => element.textContent)).toEqual(
-      ["Herunterladen", "Vorschau", "Zum Dokument", "Transkribieren"],
+      ["Sprachnachricht_Vorstand.ogg", "Herunterladen", "Zum Dokument", "Transkribieren"],
     );
     fireEvent.click(
       within(row).getByRole("button", { name: "Sprachnachricht_Vorstand.ogg transkribieren" }),
@@ -539,7 +538,7 @@ describe("transcription from a mail's attachments (D296)", () => {
     const found = screen.getByRole("region", { name: "Suchtreffer" });
     expect(within(found).getByText("maschinell transkribiert")).toBeTruthy();
 
-    fireEvent.click(within(row).getByRole("button", { name: "Vorschau" }));
+    fireEvent.click(opener(card, "Sprachnachricht_Vorstand.ogg"));
     const overlay = screen.getByRole("dialog", { name: "Sprachnachricht_Vorstand.ogg" });
     const lines = await within(overlay).findByRole("list", { name: "Zeilen des Transkripts" });
     expect([...lines.querySelectorAll("mark")].map((marked) => marked.textContent)).toEqual([
@@ -567,14 +566,12 @@ describe("transcription from a mail's attachments (D296)", () => {
       ])(call);
     });
     const card = await attachmentsCard();
-    fireEvent.click(within(item(card, "Rauschen.mp3")).getByRole("button", { name: "Vorschau" }));
+    fireEvent.click(opener(card, "Rauschen.mp3"));
     const silent = screen.getByRole("dialog", { name: "Rauschen.mp3" });
     expect(within(silent).queryByRole("button", { name: "Als Bild teilen" })).toBeNull();
     fireEvent.click(within(silent).getByRole("button", { name: "Schließen" }));
 
-    fireEvent.click(
-      within(item(card, "Sprachnachricht_Vorstand.ogg")).getByRole("button", { name: "Vorschau" }),
-    );
+    fireEvent.click(opener(card, "Sprachnachricht_Vorstand.ogg"));
     const overlay = screen.getByRole("dialog", { name: "Sprachnachricht_Vorstand.ogg" });
     fireEvent.click(within(overlay).getByRole("button", { name: "Als Bild teilen" }));
     const dialog = await screen.findByRole("dialog", {
@@ -588,9 +585,7 @@ describe("transcription from a mail's attachments (D296)", () => {
   it("show a recording without a transcript as before", async () => {
     const { calls } = renderApp("/mails/184221", withAttachments([pdf, voice]));
     const card = await attachmentsCard();
-    fireEvent.click(
-      within(item(card, "Sprachnachricht_Vorstand.ogg")).getByRole("button", { name: "Vorschau" }),
-    );
+    fireEvent.click(opener(card, "Sprachnachricht_Vorstand.ogg"));
     const overlay = screen.getByRole("dialog", { name: "Sprachnachricht_Vorstand.ogg" });
     await waitFor(() => expect(overlay.querySelector("audio")).toBeTruthy());
     expect(within(overlay).queryByRole("list")).toBeNull();

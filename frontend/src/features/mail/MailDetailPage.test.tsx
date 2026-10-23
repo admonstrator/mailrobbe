@@ -138,19 +138,24 @@ describe("mail detail", () => {
     const attachments = screen.getByRole("heading", { name: "Anhänge (2)" }).closest("section")!;
     expect(screen.getByRole("main").contains(attachments)).toBe(true);
 
-    fireEvent.click(within(attachments).getByRole("button", { name: "Vorschau" }));
+    fireEvent.click(
+      within(attachments).getByRole("button", { name: "Rahmenvereinbarung_2026_final.pdf" }),
+    );
     const dialog = await screen.findByRole("dialog", { name: "Rahmenvereinbarung_2026_final.pdf" });
     expect(
       await within(dialog).findByTitle("PDF-Vorschau von Rahmenvereinbarung_2026_final.pdf"),
     ).toBeTruthy();
-    // Neither the next mail nor a review status: the keys belong to the preview.
+    // Neither the next mail nor a review status: the keys belong to the preview, whose arrows
+    // go to the next attachment (D331).
     fireEvent.keyDown(dialog, { key: "ArrowRight" });
-    fireEvent.keyDown(dialog, { key: "g" });
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "g" });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(router.state.location.pathname).toBe("/mails/184221");
     expect(calls.filter((call) => call.method !== "GET")).toEqual([]);
+    const next = screen.getByRole("dialog", { name: "Aenderungsprotokoll.xlsx" });
+    expect(within(next).getByText("Anhang 2 von 2")).toBeTruthy();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Schließen" }));
+    fireEvent.click(within(next).getByRole("button", { name: "Schließen" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.keyDown(window, { key: "ArrowRight" });
     await waitFor(() => expect(router.state.location.pathname).toBe("/mails/184190"));

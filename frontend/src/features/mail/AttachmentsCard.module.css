@@ -49,7 +49,15 @@
   font-size: 13.5px;
 }
 
-/* Two lines at most; the whole name in the title. */
+/* Two lines at most; the whole name in the title. A button: it opens the attachment over the
+   page (D331). */
+.text > .open {
+  align-self: flex-start;
+  max-width: 100%;
+  color: var(--color-text);
+  text-align: left;
+}
+
 .name {
   display: -webkit-box;
   overflow: hidden;
@@ -99,13 +107,13 @@
   font-size: 13px;
 }
 
-/* "Vorschau": a link-like button, or a quiet note. */
+/* A link-like button: the name, "Aufnahmeort zeigen", "Text erkennen". */
 .open {
   border: 0;
   padding: 0;
   background: transparent;
   color: var(--color-accent);
-  font-size: inherit;
+  font: inherit;
   cursor: pointer;
 }
 
@@ -176,4 +184,160 @@
 .memberPath {
   font-size: 12.5px;
   overflow-wrap: anywhere;
+}
+
+/* The summary of an attachment's document (D331): the AI mark, its hints and its beginning in one
+   line, the whole below on request. */
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 3px;
+  font-size: 12.5px;
+}
+
+.ki {
+  flex-shrink: 0;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.hint {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.teaser {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unfolded {
+  margin-top: 6px;
+  border-radius: var(--radius-tile);
+  padding: 10px 12px;
+  background: var(--color-hover);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.filter {
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  padding: 3px 11px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.filter:hover {
+  background: var(--color-hover);
+}
+
+.filter[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+
+.filterCount {
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+
+.stripHeading {
+  margin: 12px 0 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Pictures as small images, each opening over the page. */
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.thumb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 96px;
+  height: 96px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-tile);
+  padding: 0;
+  background: var(--color-field);
+  cursor: pointer;
+  scroll-margin: 56px 0 16px;
+}
+
+.thumb:hover {
+  border-color: var(--color-border-strong);
+}
+
+.thumb.hit {
+  border: 2px solid var(--color-no-key);
+}
+
+.thumb img[hidden] {
+  display: none;
+}
+
+.thumb img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbKi {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+}
+
+.thumbHint {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.empty {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
 }

@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { useAdoptAiTag, useAiSummary, useDiscardAi, useEnqueueAi } from "../../api/queries";
 import type {
+  AiAttachmentSummary,
   AiJob,
   AiQueueRequest,
   AiSummaryParams,
   AiSummaryResult,
+  AiSummaryTheme,
   AiSummaryView,
   AiTagAdopted,
   AiTagCount,
@@ -15,7 +17,7 @@ import type {
 import { Button } from "../../components/Button";
 import { FoldCard } from "../../components/FoldCard";
 import { formatNumber } from "../../lib/format";
-import { setFoldOpen } from "../../lib/folds";
+import { setFoldOpen, useFold } from "../../lib/folds";
 import { documentName } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
 import { StepList } from "../import/StepList";
@@ -81,20 +83,61 @@ function shown(view: AiSummaryView, target: AiTarget): boolean {
   return target !== "document" && view.available && view.summarizable;
 }
 
+/** A theme hint with the attachment whose summary found it; null: the element's own. */
+export interface SourcedHint {
+  hint: AiSummaryTheme;
+  source: AiAttachmentSummary | null;
+}
+
+/** Tags shown before "+n weitere". */
+export const TAGS_SHOWN = 6;
+
+/** The tags of a mail's summary and of its attachments' summaries, each once, the mail's first
+ *  (D331). */
+export function mergedTags(view: AiSummaryView): AiTagCount[] {
+  const tags = new Map<number, AiTagCount>();
+  for (const tag of [
+    view.result?.tags ?? [],
+    ...view.attachments.map((a) => a.result.tags),
+  ].flat()) {
+    if (!tags.has(tag.id)) tags.set(tag.id, tag);
+  }
+  return [...tags.values()];
+}
+
+const ownHints = (result: AiSummaryResult): SourcedHint[] =>
+  result.themes.map((hint) => ({ hint, source: null }));
+
+/** The theme hints of a mail's attachments, each with its attachment (D331). */
+export function attachmentHints(view: AiSummaryView): SourcedHint[] {
+  return view.attachments.flatMap((source) =>
+    source.result.themes.map((hint) => ({ hint, source })),
+  );
+}
+
 /** The card "KI-Zusammenfassung" of a mail (above its text) or a document (above its text card),
  *  D307: the summary with model and date, as machine made (D311), its tags with the mails each
- *  describes, its theme hints with their quotes, a mail's attachments' summaries; "Zusammenfassen",
- *  "Neu zusammenfassen" and "Verwerfen"; an open task's progress, asked again every 3 s. Nothing
- *  while loading or failing to load, and nothing with neither a summary nor a text service. */
+ *  describes, its theme hints with their quotes; "Zusammenfassen", "Neu zusammenfassen" and
+ *  "Verwerfen"; an open task's progress, asked again every 3 s. A mail's card gathers the tags and
+ *  hints of its attachments' summaries too, a hint naming its attachment, which onAttachment opens;
+ *  the summaries themselves stand in the attachment list (D331). A thread's summary is a line in
+ *  the mail's head that opens to the whole (D331). Nothing while loading or failing to load, and
+ *  nothing with neither a summary nor a text service. */
 export function SummaryCard({
   target,
   id,
+  threadSize,
   onQuote,
+  onAttachment,
 }: {
   target: AiTarget;
   id: number;
+  /** The mails of the thread, for its line. */
+  threadSize?: number;
   /** A quote's link was followed: the page shows the text it marks. */
   onQuote?: () => void;
+  /** The attachment of a hint was chosen, by its document. */
+  onAttachment?: (documentId: number) => void;
 }) {
   const summary = useAiSummary(summaryParams(target, id));
   const enqueue = useEnqueueAi();
@@ -128,27 +171,43 @@ export function SummaryCard({
       },
     });
 
-  return (
-    <FoldCard
-      id={foldId}
-      variant="main"
-      title={target === "thread" ? "KI-Zusammenfassung des Threads" : "KI-Zusammenfassung"}
-      summary={foldedText(view)}
-      actions={
-        !result &&
-        offered && (
-          <Button size="sm" disabled={enqueue.isPending} onClick={queue}>
-            Zusammenfassen
-          </Button>
-        )
-      }
-    >
+  const tags = target === "mail" ? mergedTags(view) : (result?.tags ?? []);
+  const hints = [
+    ...(result ? ownHints(result) : []),
+    ...(target === "mail" ? attachmentHints(view) : []),
+  ];
+  const gathered = target === "mail" ? view.attachments.length : 0;
+  const content = (
+    <>
       <div className={styles.card}>
         {result ? (
-          <SummaryBlock result={result} mailId={mailId} quoteTo={quoteTo} onQuote={onQuote} />
+          <SummaryBlock
+            result={result}
+            tags={tags}
+            hints={hints}
+            mailId={mailId}
+            quoteTo={quoteTo}
+            onQuote={onQuote}
+            onSource={onAttachment}
+          />
         ) : (
           !task && <p className={styles.note}>{NONE_YET[target]}</p>
         )}
+        {!result && (tags.length > 0 || hints.length > 0) && (
+          <div className={styles.summary}>
+            {tags.length > 0 && <TagList tags={tags} mailId={mailId} />}
+            {hints.length > 0 && (
+              <HintList
+                hints={hints}
+                mailId={mailId}
+                quoteTo={quoteTo}
+                onQuote={onQuote}
+                onSource={onAttachment}
+              />
+            )}
+          </div>
+        )}
+        {gathered > 0 && <p className={styles.note}>{gatheredText(gathered)}</p>}
         {result && view.stale && !task && (
           <p className={styles.note}>
             Seit dieser Zusammenfassung hat sich der Thread geändert: Mails kamen hinzu oder fielen
@@ -192,19 +251,6 @@ export function SummaryCard({
             {notice}
           </p>
         )}
-        {view.attachments.length > 0 && (
-          <section className={styles.attachments} aria-label="Zusammenfassungen der Anhänge">
-            <h3 className={styles.heading}>Anhänge</h3>
-            {view.attachments.map((attachment) => (
-              <div key={attachment.document_id} className={styles.attachment}>
-                <Link to={documentPath(attachment.document_id)} className={styles.name}>
-                  {documentName(attachment.name)}
-                </Link>
-                <SummaryBlock result={attachment.result} mailId={mailId} />
-              </div>
-            ))}
-          </section>
-        )}
       </div>
       {dialog === "again" && (
         <AgainDialog
@@ -222,7 +268,90 @@ export function SummaryCard({
           onDone={setNotice}
         />
       )}
+    </>
+  );
+  const start =
+    !result && offered ? (
+      <Button size="sm" disabled={enqueue.isPending} onClick={queue}>
+        Zusammenfassen
+      </Button>
+    ) : null;
+
+  if (target === "thread") {
+    return (
+      <ThreadLine
+        foldId={foldId}
+        size={threadSize}
+        teaser={view.task || result ? foldedText(view) : NONE_YET.thread}
+        action={start}
+      >
+        {content}
+      </ThreadLine>
+    );
+  }
+  return (
+    <FoldCard
+      id={foldId}
+      variant="main"
+      title="KI-Zusammenfassung"
+      summary={foldedText(view)}
+      actions={start}
+    >
+      {content}
     </FoldCard>
+  );
+}
+
+/** "Schlagwörter und Hinweise auch aus 3 Anhängen; ihre Zusammenfassungen stehen in der Liste der
+ *  Anhänge." */
+function gatheredText(count: number): string {
+  const from = count === 1 ? "einem Anhang" : `${formatNumber(count)} Anhängen`;
+  const theirs = count === 1 ? "seine Zusammenfassung steht" : "ihre Zusammenfassungen stehen";
+  return `Schlagwörter und Hinweise auch aus ${from}; ${theirs} in der Liste der Anhänge.`;
+}
+
+/** A thread's summary as a line in the mail's head (D331): its size, the beginning of the summary
+ *  or what is under way, and "Mehr" for the whole card's content, remembered like a block. */
+function ThreadLine({
+  foldId,
+  size,
+  teaser,
+  action,
+  children,
+}: {
+  foldId: string;
+  size?: number;
+  teaser: string;
+  action: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useFold(foldId, false);
+  const bodyId = useId();
+  return (
+    <section className={styles.thread} aria-label="KI-Zusammenfassung des Threads">
+      <div className={styles.threadHead}>
+        <span className={styles.threadTitle}>
+          {size ? `Thread · ${formatNumber(size)} Mails` : "Thread"}
+        </span>
+        <span className={styles.ki} title="Maschinell erzeugte Zusammenfassung">
+          KI
+        </span>
+        {!open && <span className={styles.teaser}>{teaser}</span>}
+        <span className={styles.threadTools}>
+          {action}
+          <Button
+            size="xs"
+            variant="link"
+            aria-expanded={open}
+            aria-controls={open ? bodyId : undefined}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? "Weniger" : "Mehr"}
+          </Button>
+        </span>
+      </div>
+      {open && <div id={bodyId}>{children}</div>}
+    </section>
   );
 }
 
@@ -268,19 +397,26 @@ function RunProgress({ run }: { run: AiJob }) {
   );
 }
 
-/** One summary: the machine line, the text, how much of it was read, tags and theme hints. */
-function SummaryBlock({
+/** One summary: the machine line, the text, how much of it was read, tags and theme hints; a
+ *  mail's card passes the tags and hints it gathered from the attachments too. */
+export function SummaryBlock({
   result,
+  tags = result.tags,
+  hints = ownHints(result),
   mailId,
   quoteTo,
   onQuote,
+  onSource,
 }: {
   result: AiSummaryResult;
+  tags?: AiTagCount[];
+  hints?: SourcedHint[];
   /** The mail its tags can be adopted for (D310); none on a document's or thread's card. */
   mailId?: number;
   /** Where a quote is shown with its words marked: the mail's text, the thread's mails. */
   quoteTo?: (quote: string) => string;
   onQuote?: () => void;
+  onSource?: (documentId: number) => void;
 }) {
   const parts = partsText(result);
   return (
@@ -289,45 +425,89 @@ function SummaryBlock({
       {result.summary && <p className={styles.text}>{result.summary}</p>}
       {result.short && <p className={styles.note}>{SHORT_SUMMARY_TEXT}</p>}
       {parts && <p className={styles.note}>{parts}</p>}
-      {result.tags.length > 0 && <TagList tags={result.tags} mailId={mailId} />}
-      {result.themes.length > 0 && (
-        <ul className={styles.hints}>
-          {result.themes.map((hint, index) => (
-            <li key={`${hint.theme}-${index}`}>
-              <span className={styles.theme}>{`Hinweis: ${hint.label}`}</span>{" "}
-              {hint.quote &&
-                (quoteTo ? (
-                  <Link
-                    to={quoteTo(hint.quote)}
-                    title={
-                      mailId === undefined
-                        ? "Die Mails mit diesem Zitat"
-                        : "Im Text der Mail zeigen"
-                    }
-                    onClick={mailId === undefined ? undefined : onQuote}
-                  >
-                    {`„${hint.quote}“`}
-                  </Link>
-                ) : (
-                  <span>{`„${hint.quote}“`}</span>
-                ))}
-            </li>
-          ))}
-        </ul>
+      {tags.length > 0 && <TagList tags={tags} mailId={mailId} />}
+      {hints.length > 0 && (
+        <HintList
+          hints={hints}
+          mailId={mailId}
+          quoteTo={quoteTo}
+          onQuote={onQuote}
+          onSource={onSource}
+        />
       )}
     </div>
   );
 }
 
-/** The tags of a summary, each a link to the mails it describes; on a mail each can become a
- *  team tag of this mail (D310). */
+/** Theme hints with their quotes; one found in an attachment names it, a button when the page
+ *  can open it, else a link to its document. */
+function HintList({
+  hints,
+  mailId,
+  quoteTo,
+  onQuote,
+  onSource,
+}: {
+  hints: SourcedHint[];
+  mailId?: number;
+  quoteTo?: (quote: string) => string;
+  onQuote?: () => void;
+  onSource?: (documentId: number) => void;
+}) {
+  return (
+    <ul className={styles.hints}>
+      {hints.map(({ hint, source }, index) => (
+        <li key={`${source?.document_id ?? "own"}-${hint.theme}-${index}`}>
+          <span className={styles.theme}>{`Hinweis: ${hint.label}`}</span>{" "}
+          {hint.quote &&
+            (quoteTo ? (
+              <Link
+                to={quoteTo(hint.quote)}
+                title={
+                  mailId === undefined ? "Die Mails mit diesem Zitat" : "Im Text der Mail zeigen"
+                }
+                onClick={mailId === undefined ? undefined : onQuote}
+              >
+                {`„${hint.quote}“`}
+              </Link>
+            ) : (
+              <span>{`„${hint.quote}“`}</span>
+            ))}
+          {source && (
+            <>
+              {" · "}
+              {onSource ? (
+                <button
+                  type="button"
+                  className={styles.source}
+                  title="Den Anhang mit Vorschau und Angaben öffnen"
+                  onClick={() => onSource(source.document_id)}
+                >
+                  {documentName(source.name)}
+                </button>
+              ) : (
+                <Link to={documentPath(source.document_id)}>{documentName(source.name)}</Link>
+              )}
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The tags of a summary, each a link to the mails it describes, the first TAGS_SHOWN and the
+ *  rest on request; on a mail each can become a team tag of this mail (D310), its "+" showing on
+ *  hover and focus (D331). */
 function TagList({ tags, mailId }: { tags: AiTagCount[]; mailId?: number }) {
   const adopt = useAdoptAiTag();
   const [notice, setNotice] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const hidden = all ? 0 : Math.max(0, tags.length - TAGS_SHOWN);
   return (
     <div className={styles.tagField}>
       <ul className={styles.tags} aria-label="Schlagwörter">
-        {tags.map((tag) => (
+        {tags.slice(0, tags.length - hidden).map((tag) => (
           <li key={tag.id} className={styles.tag}>
             <Link to={aiTagHref(tag)} title={`${mailCount(tag.mails)} mit diesem Schlagwort`}>
               {tag.label}
@@ -355,6 +535,13 @@ function TagList({ tags, mailId }: { tags: AiTagCount[]; mailId?: number }) {
             )}
           </li>
         ))}
+        {(hidden > 0 || all) && tags.length > TAGS_SHOWN && (
+          <li>
+            <Button variant="link" size="xs" onClick={() => setAll(!all)}>
+              {all ? "weniger" : `+${formatNumber(hidden)} weitere`}
+            </Button>
+          </li>
+        )}
       </ul>
       {notice && (
         <p className={styles.note} role="status">

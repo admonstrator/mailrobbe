@@ -190,7 +190,7 @@ describe("preview over the mail", () => {
           }
         : fixtureApi(call),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Vorschau" }));
+    fireEvent.click(await screen.findByRole("button", { name: NAME }));
     const dialog = screen.getByRole("dialog", { name: NAME });
     // the frame fills the overlay, unlike the document page's, which takes the window's height
     await waitFor(() => expect(dialog.querySelector(tag)?.className).toMatch(/fill/));

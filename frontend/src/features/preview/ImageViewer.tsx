@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
   type PointerEvent,
 } from "react";
 
@@ -12,7 +13,7 @@ import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import styles from "./ImageViewer.module.css";
-import { Overlay } from "./Overlay";
+import { Overlay, type OverlayNav } from "./Overlay";
 
 export interface Size {
   width: number;
@@ -71,10 +72,14 @@ function roomOf(element: HTMLElement | null): Size | null {
 export function ImageViewer({
   attachmentId,
   name,
+  nav,
+  aside,
   onClose,
 }: {
   attachmentId: number;
   name: string;
+  nav?: OverlayNav;
+  aside?: ReactNode;
   onClose: () => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -161,6 +166,8 @@ export function ImageViewer({
     <Overlay
       attachmentId={attachmentId}
       name={name}
+      nav={nav}
+      aside={aside}
       onClose={onClose}
       onKeyDown={onKeyDown}
       bodyClassName={styles.body}
