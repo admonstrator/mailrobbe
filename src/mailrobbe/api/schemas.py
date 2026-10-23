@@ -1127,6 +1127,7 @@ class SuggestionListParams(BaseModel):
 class PersonMailCountParams(BaseModel):
     year: int | None = Field(default=None, ge=1, le=9999)  # mails dated in this UTC year
     contact: int | None = None  # mails between both persons, as the between filter counts them
+    q: str = ""  # the search syntax, as the mail list's q (D330)
 
 
 class MergeRequest(BaseModel):

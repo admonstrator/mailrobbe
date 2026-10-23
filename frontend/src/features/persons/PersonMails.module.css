@@ -8,6 +8,50 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.searchRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
+.search {
+  display: flex;
+  flex: 0 1 480px;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.search:focus-within {
+  border-color: var(--color-accent);
+}
+
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--color-muted);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  outline: none;
+}
+
+.listLink {
+  font-size: 13px;
+}
+
 .filters {
   display: flex;
   align-items: center;
@@ -120,6 +164,14 @@
 .subjectLink,
 .subjectLink:hover {
   color: var(--color-text);
+}
+
+.hits {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .date {

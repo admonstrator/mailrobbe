@@ -647,6 +647,7 @@ export interface SuggestionListParams {
 export interface PersonMailCountParams {
   year?: number; // UTC year
   contact?: number; // person id: mails between both
+  q?: string; // search syntax, as the mail list's q (D330)
 }
 
 export interface MergeRequest {

@@ -64,13 +64,14 @@ describe("person list state in the URL", () => {
 });
 
 describe("a profile's mail list", () => {
-  it("keeps role, year, contact and page in the URL", () => {
-    const query = "role=cc&year=2023&contact=12&cursor=abc&page=2";
+  it("keeps role, year, contact, search and page in the URL", () => {
+    const query = "role=cc&year=2023&contact=12&q=Kasse&cursor=abc&page=2";
     const state = parseProfileMailState(params(query));
     expect(state).toEqual({
       role: "cc",
       year: 2023,
       contact: 12,
+      q: "Kasse",
       cursor: "abc",
       page: 2,
       limit: 50,
@@ -104,8 +105,9 @@ describe("a profile's mail list", () => {
   });
 
   it("asks the mail list for the person's role, the UTC year and the mails between both", () => {
-    const state = parseProfileMailState(params("role=sent&year=2023&contact=12"));
+    const state = parseProfileMailState(params("role=sent&year=2023&contact=12&q=Kasse"));
     expect(toListParams(personMailList(11, state))).toEqual({
+      q: "Kasse",
       date_from: "2023-01-01",
       date_to: "2023-12-31",
       hide_duplicates: true,
