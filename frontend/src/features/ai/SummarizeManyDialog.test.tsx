@@ -187,6 +187,27 @@ describe("summarising many (D308)", () => {
 });
 
 describe("„Zusammenfassen“ where many are chosen", () => {
+  it("on the AI page, everything without a summary", async () => {
+    const { calls } = renderApp("/ki", summarizeApi());
+    const card = await screen.findByRole("region", { name: "Alles zusammenfassen" });
+    const button = within(card).getByRole("button", { name: "Alles zusammenfassen" });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    expect(await within(dialog()).findByText("1.207 Mails und Dokumente")).toBeTruthy();
+    expect(taskCalls(calls)[0].body).toEqual({
+      kind: "summarize",
+      everything: true,
+      preview: true,
+    });
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Zusammenfassen" }));
+    await within(dialog()).findByRole("status");
+    expect(taskCalls(calls).at(-1)!.body).toEqual({
+      kind: "summarize",
+      everything: true,
+      start: true,
+    });
+  });
+
   it("in the mail list's bulk bar: the selected mails, or every match by the filters", async () => {
     const { calls } = renderApp("/mails?has_attachment=true", summarizeApi());
     const box = await screen.findAllByRole("checkbox", { name: /^Auswählen: / });

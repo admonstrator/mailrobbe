@@ -12,8 +12,11 @@ Akte or reviewed relevant carries (PRIORITY_FILED). Images in more than LOGO_MAI
 almost always logos of signatures and are left out of OCR unless chosen one by one or asked for.
 
 Summaries (D300, D308) are queued for mails, by their raw SHA-256 (duplicates share one task),
-and for documents with a text, by their SHA-256, with the same priorities. All functions run in
-the caller's transaction.
+for documents with a text, by their SHA-256, and for threads of at least THREAD_MIN_MAILS mails,
+by the SHA-256 of their mails (THREAD_KEY, D316), with the same priorities. A mail summarised from
+its page takes its attachments along (D317): what OCR or the transcriber would read first gets
+that task, and every attachment with a text, or waiting for one, a summary unless it has one.
+All functions run in the caller's transaction.
 """
 
 from collections.abc import Sequence
@@ -29,6 +32,7 @@ from mailrobbe.ai.model import (
     PRIORITY_FILED,
     PRIORITY_SINGLE,
     SUMMARY_MIN_WORDS,
+    THREAD_MIN_MAILS,
     OcrEngineChoice,
 )
 from mailrobbe.enums import AiTaskKind, AiTaskStatus
@@ -221,6 +225,21 @@ async def task_counts(session: AsyncSession) -> dict[AiTaskKind, dict[AiTaskStat
 # text of any origin.
 SUMMARIZABLE_MAIL = "(COALESCE(m.subject, '') <> '' OR COALESCE(m.body_text, '') <> '')"
 SUMMARIZABLE_DOCUMENT = "(d.sha256 IS NOT NULL AND COALESCE(d.extracted_text, '') <> '')"
+# A thread's content (D316), an aggregate over its mails m that are no duplicates: their raw
+# SHA-256 sorted and joined by line ends, hashed; a thread that gained a mail is another content.
+THREAD_KEY = (
+    "encode(sha256(convert_to(string_agg(DISTINCT m.raw_sha256, E'\\n' ORDER BY m.raw_sha256), "
+    "'UTF8')), 'hex')"
+)
+# The threads among :thread_ids with their content, mails and characters (the estimate's input).
+_THREADS = f"""
+    SELECT m.thread_id, {THREAD_KEY} AS sha256, count(DISTINCT m.raw_sha256) AS mails,
+        sum(length(COALESCE(m.subject, '')) + length(COALESCE(m.body_text, ''))) AS characters
+    FROM mail m
+    WHERE m.thread_id = ANY(CAST(:thread_ids AS bigint[])) AND m.is_duplicate_of IS NULL
+    GROUP BY m.thread_id
+    HAVING count(DISTINCT m.raw_sha256) >= {THREAD_MIN_MAILS}
+"""
 # Words of a mail's whole text: an estimate of "short" before the run splits off quotes (D302).
 _WORDS = (
     "COALESCE(array_length(regexp_split_to_array(btrim(COALESCE(m.body_text, '')), "
@@ -232,14 +251,15 @@ _FILED_MAIL = """
                 WHERE k.mail_sha256 = m.raw_sha256 AND k.review = 'relevant'))
 """
 _SUMMARY_CHOSEN = f"""
-    WITH chosen AS (
+    WITH threads AS ({_THREADS}),
+    chosen AS (
         SELECT * FROM (
             SELECT DISTINCT ON (m.raw_sha256) 'mail' AS target, m.raw_sha256 AS sha256,
                 CASE WHEN :single THEN {PRIORITY_SINGLE} WHEN {_FILED_MAIL} THEN {PRIORITY_FILED}
                      ELSE 0 END AS priority,
                 length(COALESCE(m.subject, '')) + length(COALESCE(m.body_text, ''))
                     AS characters,
-                {_WORDS} < {SUMMARY_MIN_WORDS} AS short
+                {_WORDS} < {SUMMARY_MIN_WORDS} AS short, CAST(NULL AS bigint) AS thread_id
             FROM mail m
             WHERE m.id = ANY(CAST(:mail_ids AS bigint[])) AND {SUMMARIZABLE_MAIL}
             ORDER BY m.raw_sha256, priority DESC
@@ -248,9 +268,15 @@ _SUMMARY_CHOSEN = f"""
         SELECT 'document', d.sha256,
             CASE WHEN :single THEN {PRIORITY_SINGLE} WHEN {_FILED} THEN {PRIORITY_FILED}
                  ELSE 0 END,
-            length(d.extracted_text), false
+            length(COALESCE(d.extracted_text, '')), false, NULL
         FROM document d
-        WHERE d.id = ANY(CAST(:document_ids AS bigint[])) AND {SUMMARIZABLE_DOCUMENT}
+        WHERE d.id = ANY(CAST(:document_ids AS bigint[]))
+          AND ({SUMMARIZABLE_DOCUMENT}
+               OR (d.sha256 IS NOT NULL AND d.id = ANY(CAST(:pending AS bigint[]))))
+        UNION ALL
+        SELECT 'thread', sha256, CASE WHEN :single THEN {PRIORITY_SINGLE} ELSE 0 END,
+            characters, false, thread_id
+        FROM threads
     )
 """
 _SUMMARY_PREVIEW = text(f"""
@@ -259,17 +285,16 @@ _SUMMARY_PREVIEW = text(f"""
         COALESCE(sum(characters), 0) AS characters,
         (SELECT count(*) FROM mail m
          WHERE m.id = ANY(CAST(:mail_ids AS bigint[])) AND {SUMMARIZABLE_MAIL}) AS mails,
-        (SELECT count(*) FROM document d
-         WHERE d.id = ANY(CAST(:document_ids AS bigint[])) AND {SUMMARIZABLE_DOCUMENT})
-            AS documents
+        (SELECT count(*) FROM chosen WHERE target = 'document') AS documents,
+        (SELECT count(*) FROM threads) AS threads
     FROM chosen
 """)
 # One open task per kind, target and content (ux_ai_task_open): an open one keeps its place and
 # takes the higher priority; xmax = 0 tells a new row from an updated one.
 _SUMMARY_INSERT = text(f"""
     {_SUMMARY_CHOSEN}
-    INSERT INTO ai_task (kind, target, target_sha256, priority, queued_by)
-    SELECT 'summarize', target, sha256, priority, CAST(:editor AS text) FROM chosen
+    INSERT INTO ai_task (kind, target, target_sha256, thread_id, priority, queued_by)
+    SELECT 'summarize', target, sha256, thread_id, priority, CAST(:editor AS text) FROM chosen
     ON CONFLICT (kind, target, target_sha256) WHERE status IN ('waiting', 'running')
     DO UPDATE SET priority = GREATEST(ai_task.priority, EXCLUDED.priority)
     RETURNING (xmax = 0) AS inserted
@@ -292,17 +317,32 @@ async def enqueue_summaries(
     *,
     mail_ids: Sequence[int] = (),
     document_ids: Sequence[int] = (),
+    thread_ids: Sequence[int] = (),
+    pending: Sequence[int] = (),
     editor: str | None = None,
     single: bool = False,
     preview: bool = False,
 ) -> QueuedSummaries:
-    """Queue summaries of these mails and documents (D308); single is one element from its page,
-    first in the queue. With preview nothing is written."""
-    mails, documents = sorted(set(mail_ids)), sorted(set(document_ids))
-    parameters = {"mail_ids": mails, "document_ids": documents, "single": single, "editor": editor}
+    """Queue summaries of these mails, documents and threads (D308, D316); single is one element
+    from its page, first in the queue. Documents among pending are queued without a text yet:
+    their OCR or transcription is queued too and comes first in a run (D317). With preview
+    nothing is written."""
+    mails, documents, threads = (
+        sorted(set(mail_ids)),
+        sorted(set(document_ids)),
+        sorted(set(thread_ids)),
+    )
+    parameters = {
+        "mail_ids": mails,
+        "document_ids": documents,
+        "thread_ids": threads,
+        "pending": sorted(set(pending)),
+        "single": single,
+        "editor": editor,
+    }
     figures = (await session.execute(_SUMMARY_PREVIEW, parameters)).one()
-    given = len(mails) + len(documents)
-    unreadable = given - int(figures.mails) - int(figures.documents)
+    given = len(mails) + len(documents) + len(threads)
+    unreadable = given - int(figures.mails) - int(figures.documents) - int(figures.threads)
     queued, raised = int(figures.contents), 0
     if not preview:
         inserted = list((await session.execute(_SUMMARY_INSERT, parameters)).scalars())
@@ -315,3 +355,42 @@ async def enqueue_summaries(
         short=int(figures.short),
         characters=int(figures.characters),
     )
+
+
+# The documents of these mails' own attachments (not an archive's members, D231) for D317: what a
+# work list of OCR or transcription would take, whether there is a text to summarise, and whether
+# a valid summary exists.
+_ATTACHED = text(f"""
+    SELECT DISTINCT d.id,
+        ({WORK_LISTS["scanned"]}) OR ({WORK_LISTS["images"]}) OR ({WORK_LISTS["media"]})
+            AS unread,
+        {SUMMARIZABLE_DOCUMENT} AS readable,
+        EXISTS (SELECT 1 FROM ai_result r
+                WHERE r.kind = 'summarize' AND r.target = 'document'
+                  AND r.target_sha256 = d.sha256 AND r.state = 'valid') AS summarized
+    FROM attachment a JOIN document d ON d.id = a.document_id
+    WHERE a.mail_id = ANY(CAST(:mail_ids AS bigint[])) AND a.container_id IS NULL
+""")
+
+
+@dataclass(frozen=True, slots=True)
+class Attached:
+    """What enqueue_attachments did for the attachments of some mails."""
+
+    recognized: Queued  # the OCR and transcribe tasks
+    summarize: list[int]  # documents to summarise: with a text, or waiting for one, and no summary
+    pending: list[int]  # among them those waiting for their text
+
+
+async def enqueue_attachments(
+    session: AsyncSession, mail_ids: Sequence[int], *, editor: str | None = None
+) -> Attached:
+    """Queue the OCR or transcription of these mails' attachments that a work list would take,
+    first in the queue, and name the documents whose summaries go with the mails' (D317)."""
+    rows = (await session.execute(_ATTACHED, {"mail_ids": sorted(set(mail_ids))})).all()
+    unread = sorted(row.id for row in rows if row.unread)
+    recognized = await enqueue(session, unread, editor=editor, single=True)
+    summarize = sorted(
+        row.id for row in rows if not row.summarized and (row.readable or row.unread)
+    )
+    return Attached(recognized, summarize, unread)

@@ -77,13 +77,16 @@ function DocumentCell({ document }: { document: AiDocumentRef | null }) {
 type Element = { target: AiTarget; document: AiDocumentRef | null; mail: AiMailRef | null };
 
 function elementName(item: Element): string {
-  if (item.target === "mail") return item.mail?.subject || "(ohne Betreff)";
+  const subject = item.mail?.subject || "(ohne Betreff)";
+  if (item.target === "thread") return `Thread: ${subject}`;
+  if (item.target === "mail") return subject;
   return item.document?.name || "ohne Namen";
 }
 
-/** A task, result or send names a document or, for a summary, a mail by its subject (D301). */
+/** A task, result or send names a document or, for a summary, a mail by its subject (D301);
+ *  a thread by the subject of its earliest mail (D316). */
 function ElementCell({ item }: { item: Element }) {
-  if (item.target !== "mail") return <DocumentCell document={item.document} />;
+  if (item.target === "document") return <DocumentCell document={item.document} />;
   if (!item.mail) return <span className={styles.muted}>gelöscht</span>;
   return (
     <Link to={`/mails/${item.mail.id}`} className={styles.docLink}>

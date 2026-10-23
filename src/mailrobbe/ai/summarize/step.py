@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.ai.model import (
     AI_TASK_ATTEMPTS,
@@ -57,7 +58,7 @@ from mailrobbe.ai.summarize.answer import (
     limit_hints,
     read_answer,
 )
-from mailrobbe.ai.summarize.inputs import SummaryInput, document_input, mail_input
+from mailrobbe.ai.summarize.inputs import SummaryInput, document_input, mail_input, thread_input
 from mailrobbe.ai.summarize.parts import MIN_PART_CHARS, Part, answer_tokens, cut, part_chars
 from mailrobbe.ai.summarize.prompt import (
     fill,
@@ -87,7 +88,7 @@ _TAKE = """
         WHERE w.kind = 'summarize' AND w.status = 'waiting' AND {only}
         ORDER BY w.priority DESC, w.id
         LIMIT 1 FOR UPDATE OF w SKIP LOCKED)
-    RETURNING t.id, t.target, t.target_sha256, t.partial
+    RETURNING t.id, t.target, t.target_sha256, t.thread_id, t.partial
 """
 _PARTIAL = text("UPDATE ai_task SET partial = CAST(:partial AS jsonb) WHERE id = :id")
 _BACK = text("UPDATE ai_task SET status = 'waiting' WHERE id = :id")
@@ -107,6 +108,10 @@ _ATTEMPT = text("""
 """)
 _FAIL = text("""
     UPDATE ai_task SET status = 'failed', error = :error, finished_at = now() WHERE id = :id
+""")
+# A document still without a text, such as a photo OCR found no words in (D317): nothing to do.
+_NOTHING = text("""
+    UPDATE ai_task SET status = 'cancelled', error = :error, finished_at = now() WHERE id = :id
 """)
 # A running mean of the seconds per 1,000 tokens (D188, D308), weighted by the tokens: samples
 # counts them, not the tasks.
@@ -147,6 +152,7 @@ class SummaryTask:
     id: int
     source: SummaryInput
     partial: SummaryPartial
+    thread_id: int | None = None  # a thread's (D316)
 
     @property
     def name(self) -> str:
@@ -209,7 +215,7 @@ class SummarizeStep:
         log.warning("%d summaries wait: %s", self.waiting, problem)
 
     def _only(self) -> dict[str, Any]:
-        return {"documents": self.run.options.documents, "mails": self.run.options.mails}
+        return self.run.options.only
 
     # take ----------------------------------------------------------------------------------------
 
@@ -221,15 +227,19 @@ class SummarizeStep:
                 row = (await session.execute(self._take, parameters)).first()
                 if row is None:
                     return None
-                read = mail_input if row.target == AiTarget.MAIL else document_input
-                source = await read(session, row.target_sha256)
+                source = await _source(session, row)
                 problem = _unreadable(row.target, source)
                 if source is not None and problem is None:
                     partial = SummaryPartial.model_validate(row.partial or {})
-                    return SummaryTask(row.id, source, partial)
-                await session.execute(_FAIL, {"id": row.id, "error": problem})
+                    return SummaryTask(row.id, source, partial, row.thread_id)
+                empty = source is not None and row.target == AiTarget.DOCUMENT
+                ending = _NOTHING if empty else _FAIL
+                await session.execute(ending, {"id": row.id, "error": problem})
             log.warning("%s %s: %s", row.target, row.target_sha256[:12], problem)
-            self._failed(counter)
+            if empty:
+                counter.advance()
+            else:
+                self._failed(counter)
 
     # work ----------------------------------------------------------------------------------------
 
@@ -262,11 +272,12 @@ class SummarizeStep:
             reply = await self._ask(task, self._prompts.short, source.text)
             checked = self._check(reply.answer, source, source.text, 0)
             return self._whole(source, replace(checked, summary=""), reply), None
+        whole = self._prompts.thread if source.target == AiTarget.THREAD else ""
         instruction = fill(self._prompts.part, number=SUMMARY_MAX_PARTS, total=SUMMARY_MAX_PARTS)
-        overhead = len(user_message(instruction, material(source.head, ""))) + len("\n\n")
-        size = part_chars(self.run.options.context_tokens, len(self._system) + overhead)
+        overhead = len(user_message(max(instruction, whole, key=len), material(source.head, "")))
+        size = part_chars(self.run.options.context_tokens, len(self._system) + overhead + 2)
         if len(source.text) <= size:
-            reply = await self._ask(task, "", source.text)
+            reply = await self._ask(task, whole, source.text)
             checked = self._check(reply.answer, source, source.text, 0)
             return self._whole(source, checked, reply), None
         partial = task.partial
@@ -332,6 +343,8 @@ class SummarizeStep:
                     _PARTIAL, {"id": task.id, "partial": partial.model_dump_json()}
                 )
         instruction = fill(self._prompts.combine, total=len(partial.parts))
+        if task.source.target == AiTarget.THREAD:
+            instruction = f"{instruction}\n{self._prompts.thread}"
         reply = await self._ask(task, instruction, _combined(partial))
         tags, dropped_tags = check_tags(reply.answer.tags)
         themes, beyond = limit_hints(partial.themes)
@@ -458,6 +471,7 @@ class SummarizeStep:
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 job_id=run.job.job_id,
+                thread_id=task.thread_id,
             )
             await session.execute(_DONE, {"id": task.id, "result_id": result_id})
             tokens = math.ceil(read / CHARS_PER_TOKEN)
@@ -498,6 +512,14 @@ class SummarizeStep:
     def _failed(self, counter: Step) -> None:
         self.run.summary.summaries_failed += 1
         counter.advance()
+
+
+async def _source(session: AsyncSession, row: Any) -> SummaryInput | None:
+    """What the model reads of a taken task's content (summarize.inputs)."""
+    if row.target == AiTarget.THREAD:
+        return await thread_input(session, row.target_sha256, row.thread_id)
+    read = mail_input if row.target == AiTarget.MAIL else document_input
+    return await read(session, row.target_sha256)
 
 
 def _unreadable(target: str, source: SummaryInput | None) -> str | None:

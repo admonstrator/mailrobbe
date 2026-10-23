@@ -1,5 +1,5 @@
-"""The summary of one mail or document (milestone 17, D307): GET /api/ai/summary, what the card
-"KI-Zusammenfassung" shows. Models are in schemas.py (AiSummaryView).
+"""The summary of one mail, document or thread (milestone 17, D307, D316): GET /api/ai/summary,
+what the card "KI-Zusammenfassung" shows. Models are in schemas.py (AiSummaryView).
 
 A summary is the valid ai_result of kind summarize for the element's content: a mail by its
 raw_sha256, a document by its sha256 (D301). The card asks again every 3 s while a task is open,
@@ -9,6 +9,12 @@ only), a mail's attachments' summaries (ix_attachment_mail_id), then the tags wi
 describes (api/ai_tags.tag_counts) and the theme hints of all these summaries at once. Nothing is
 read from the MBOX file (D302); everything shown is machine made (D311), which the card says with
 model and date.
+
+A thread (D316) is found by its thread_id: its content now (ai.queue.THREAD_KEY over
+ix_mail_thread_id), its valid summary by ix_ai_result_thread_id, stale when that read other
+mails. A mail counts its attachments' open tasks of any kind (D317), and while the element or
+its attachments have one and an AI run lives, the view carries that run, whose steps are the
+card's progress (D318).
 """
 
 from collections import defaultdict
@@ -19,10 +25,13 @@ from fastapi import APIRouter, Query
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe.ai.queue import SUMMARIZABLE_DOCUMENT, SUMMARIZABLE_MAIL
+from mailrobbe import jobs
+from mailrobbe.ai.model import THREAD_MIN_MAILS
+from mailrobbe.ai.queue import SUMMARIZABLE_DOCUMENT, SUMMARIZABLE_MAIL, THREAD_KEY
 from mailrobbe.api.ai import text_usable
 from mailrobbe.api.ai_tags import tag_counts
 from mailrobbe.api.deps import AppSettings, Session, api_error
+from mailrobbe.api.imports import ai_job
 from mailrobbe.api.schemas import (
     AiAttachmentSummary,
     AiSummaryParams,
@@ -32,7 +41,7 @@ from mailrobbe.api.schemas import (
     AiSummaryView,
     AiTagCount,
 )
-from mailrobbe.enums import AiTarget, AiTaskStatus, TextOrigin
+from mailrobbe.enums import AiTarget, AiTaskStatus, JobKind, TextOrigin
 from mailrobbe.themes import load_themes
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -46,6 +55,12 @@ _MAIL = text(f"""
 _DOCUMENT = text(f"""
     SELECT d.sha256, {SUMMARIZABLE_DOCUMENT} AS summarizable FROM document d WHERE d.id = :id
 """)
+_THREAD = text(f"""
+    SELECT {THREAD_KEY} AS sha256,
+        count(DISTINCT m.raw_sha256) >= {THREAD_MIN_MAILS} AS summarizable
+    FROM mail m WHERE m.thread_id = :id AND m.is_duplicate_of IS NULL
+    HAVING count(*) > 0
+""")
 # A summary's parts are its pages (ai.model.SummaryPart); its options say whether the text was
 # short and which text of a document it read.
 _FIELDS = """
@@ -53,8 +68,14 @@ _FIELDS = """
     r.model, r.remote, r.prompt_version, r.created_at
 """
 _RESULT = text(f"""
-    SELECT {_FIELDS} FROM ai_result r
+    SELECT {_FIELDS}, r.target_sha256 FROM ai_result r
     WHERE r.kind = 'summarize' AND r.target = :target AND r.target_sha256 = :sha256
+      AND r.state = 'valid'
+""")
+# A thread keeps one valid summary (ai.store), whatever mails it read.
+_THREAD_RESULT = text(f"""
+    SELECT {_FIELDS}, r.target_sha256 FROM ai_result r
+    WHERE r.thread_id = :thread_id AND r.kind = 'summarize' AND r.target = 'thread'
       AND r.state = 'valid'
 """)
 _TASK = text("""
@@ -91,6 +112,13 @@ _ATTACHMENTS = text(f"""
     ) found
     ORDER BY attachment_id
 """)
+_PREPARING = text("""
+    SELECT count(DISTINCT t.id) FROM attachment a
+    JOIN document d ON d.id = a.document_id
+    JOIN ai_task t ON t.target = 'document' AND t.target_sha256 = d.sha256
+        AND t.status IN ('waiting', 'running')
+    WHERE a.mail_id = :mail_id AND a.container_id IS NULL
+""")
 _LINKS = text("""
     SELECT l.result_id, l.tag_id FROM ai_tag_link l
     WHERE l.result_id = ANY(CAST(:result_ids AS bigint[]))
@@ -106,29 +134,40 @@ _THEMES = text("""
 async def summary(
     params: Annotated[AiSummaryParams, Query()], session: Session, settings: AppSettings
 ) -> AiSummaryView:
-    if (params.mail is None) == (params.document is None):
-        raise api_error(400, "invalid_selection", "give exactly one of mail and document")
-    target = AiTarget.MAIL if params.mail is not None else AiTarget.DOCUMENT
-    element_id = params.mail if params.mail is not None else params.document
-    assert element_id is not None
+    given = {AiTarget.MAIL: params.mail, AiTarget.DOCUMENT: params.document}
+    given[AiTarget.THREAD] = params.thread
+    chosen = [(target, value) for target, value in given.items() if value is not None]
+    if len(chosen) != 1:
+        raise api_error(400, "invalid_selection", "give exactly one of mail, document and thread")
+    ((target, element_id),) = chosen
     element = None
     if element_id in BIGINT:
-        statement = _MAIL if target is AiTarget.MAIL else _DOCUMENT
-        element = (await session.execute(statement, {"id": element_id})).first()
+        statement = {AiTarget.MAIL: _MAIL, AiTarget.DOCUMENT: _DOCUMENT, AiTarget.THREAD: _THREAD}
+        element = (await session.execute(statement[target], {"id": element_id})).first()
     if element is None:
         raise api_error(404, "not_found", f"no {target} with id {element_id}")
 
     found = task = failed = None
     if element.sha256 is not None:  # a document above the hash limit has none (D18)
         keys = {"target": target.value, "sha256": element.sha256}
-        found = (await session.execute(_RESULT, keys)).first()
+        if target is AiTarget.THREAD:
+            found = (await session.execute(_THREAD_RESULT, {"thread_id": element_id})).first()
+        else:
+            found = (await session.execute(_RESULT, keys)).first()
         task = (await session.execute(_TASK, keys)).first()
         if task is None:
             failure = (await session.execute(_FAILED, keys)).first()
             failed = None if failure is None else failure.error or "failed"
     attached: list[Row[Any]] = []
+    preparing = 0
     if target is AiTarget.MAIL:
         attached = list(await session.execute(_ATTACHMENTS, {"mail_id": element_id}))
+        preparing = int(await session.scalar(_PREPARING, {"mail_id": element_id}) or 0)
+    run = None
+    if task is not None or preparing:
+        latest = await jobs.latest_job(session, JobKind.AI)
+        run = None if latest is None else await ai_job(session, settings, latest)
+        run = run if run is not None and run.alive else None
 
     result_ids = [row.id for row in [found, *attached] if row is not None]
     tags = await _tags(session, result_ids)
@@ -152,6 +191,9 @@ async def summary(
             )
             for row in attached
         ],
+        preparing=preparing,
+        stale=found is not None and found.target_sha256 != element.sha256,
+        run=run,
     )
 
 

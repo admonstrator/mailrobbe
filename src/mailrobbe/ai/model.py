@@ -53,6 +53,7 @@ SUMMARY_MIN_WORDS = 50  # own text below this: tags and theme hints only, no sum
 SUMMARY_MAX_PARTS = 20  # parts of a long text summarised; beyond, the first ones only (D303)
 SUMMARY_MAX_TAGS = 6  # AI tags kept per summary (D304)
 SUMMARY_MAX_HINTS = 6  # theme quotes one answer may give (D304)
+THREAD_MIN_MAILS = 2  # a thread summarised as a whole has at least this many mails (D316)
 TAG_MAX_CHARS = 40  # longer tags are dropped, not cut
 QUOTE_MAX_CHARS = 300  # longer quotes are dropped, not cut
 THEME_HINTS_PER_THEME = 3  # quotes kept per theme and summary
@@ -299,10 +300,16 @@ class AiOptions(BaseModel):
     # M17 (D300): with documents, a run for some elements only takes the tasks of these mails
     # too (one started from its page, D307); the text model overrides MAILROBBE_AI_TEXT_MODEL.
     mails: list[int] = []
+    threads: list[int] = []  # and the summaries of these threads (D316)
     text_model: str = ""
     text_url: str = ""  # display_url of the text service, "" without one
     text_remote: bool = False
     context_tokens: int = 4096
+
+    @property
+    def only(self) -> dict[str, list[int]]:
+        """The parameters of the run's restriction to some elements (ai.run._ONLY)."""
+        return {"documents": self.documents, "mails": self.mails, "threads": self.threads}
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AiOptions":

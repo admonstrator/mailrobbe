@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { useAdoptAiTag, useAiSummary, useDiscardAi, useEnqueueAi } from "../../api/queries";
 import type {
+  AiJob,
   AiQueueRequest,
   AiSummaryParams,
   AiSummaryResult,
@@ -17,6 +18,7 @@ import { formatNumber } from "../../lib/format";
 import { setFoldOpen } from "../../lib/folds";
 import { documentName } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
+import { StepList } from "../import/StepList";
 import { DEFAULT_LIST_STATE, listSearch } from "../mails/listState";
 import { Dialog } from "../persons/Dialog";
 import {
@@ -30,16 +32,21 @@ import {
 } from "./labels";
 import styles from "./SummaryCard.module.css";
 
-/** The summary of one mail or document as GET /api/ai/summary names it; the card and the button
- *  beside the download share it. */
+/** The summary of one mail, document or thread (by its thread_id) as GET /api/ai/summary names
+ *  it; the card and the button beside the download share it. */
 export function summaryParams(target: AiTarget, id: number): AiSummaryParams {
-  return target === "mail" ? { mail: id } : { document: id };
+  return { [target]: id };
 }
 
-/** Summarise one element now: first in the queue, a run of its own (D307). */
+/** Summarise one element now: first in the queue, a run of its own (D307); a mail takes its
+ *  attachments along, their text recognised first where none is (D317). */
 export function summaryRequest(target: AiTarget, id: number): AiQueueRequest {
-  const ids = target === "mail" ? { mail_ids: [id] } : { document_ids: [id] };
-  return { kind: "summarize", ...ids, single: true, start: true };
+  const ids = {
+    mail: { mail_ids: [id] },
+    document: { document_ids: [id] },
+    thread: { thread_ids: [id] },
+  };
+  return { kind: "summarize", ...ids[target], single: true, start: true };
 }
 
 /** The mail list of the mails an AI tag describes (D309). */
@@ -47,17 +54,31 @@ export function aiTagHref(tag: AiTagCount): string {
   return `/mails?ai_tag=${tag.id}`;
 }
 
+function phrase(quote: string): string {
+  return `"${quote.replaceAll('"', " ").trim()}"`;
+}
+
 /** The mail with the words of a quote marked in its text: the quote as a phrase search. */
 export function quoteHref(mailId: number, quote: string): string {
-  const phrase = `"${quote.replaceAll('"', " ").trim()}"`;
-  return `/mails/${mailId}?${listSearch({ ...DEFAULT_LIST_STATE, q: phrase })}`;
+  return `/mails/${mailId}?${listSearch({ ...DEFAULT_LIST_STATE, q: phrase(quote) })}`;
 }
+
+/** The mails of a thread holding a quote of its summary (D316). */
+export function threadQuoteHref(threadId: number, quote: string): string {
+  return `/mails?${listSearch({ ...DEFAULT_LIST_STATE, thread: threadId, q: phrase(quote) })}`;
+}
+
+const NONE_YET: Record<AiTarget, string> = {
+  mail: "Noch keine Zusammenfassung dieser Mail.",
+  document: "Noch keine Zusammenfassung dieses Dokuments.",
+  thread: "Noch keine Zusammenfassung dieses Threads.",
+};
 
 /** Whether the card shows: a summary, an open or failed task, a mail's attachments' summaries,
  *  or a mail that can be summarised now. A document offers it beside its download instead. */
 function shown(view: AiSummaryView, target: AiTarget): boolean {
   if (view.result || view.task || view.failed || view.attachments.length > 0) return true;
-  return target === "mail" && view.available && view.summarizable;
+  return target !== "document" && view.available && view.summarizable;
 }
 
 /** The card "KI-Zusammenfassung" of a mail (above its text) or a document (above its text card),
@@ -86,6 +107,13 @@ export function SummaryCard({
   const { result, task } = view;
   const offered = view.available && view.summarizable && !task;
   const mailId = target === "mail" ? id : undefined;
+  const quoteTo =
+    target === "mail"
+      ? (quote: string) => quoteHref(id, quote)
+      : target === "thread"
+        ? (quote: string) => threadQuoteHref(id, quote)
+        : undefined;
+  const preparing = view.preparing ?? 0;
   const queue = () =>
     enqueue.mutate(summaryRequest(target, id), {
       onSuccess: (queued) => {
@@ -104,7 +132,7 @@ export function SummaryCard({
     <FoldCard
       id={foldId}
       variant="main"
-      title="KI-Zusammenfassung"
+      title={target === "thread" ? "KI-Zusammenfassung des Threads" : "KI-Zusammenfassung"}
       summary={foldedText(view)}
       actions={
         !result &&
@@ -117,25 +145,25 @@ export function SummaryCard({
     >
       <div className={styles.card}>
         {result ? (
-          <SummaryBlock
-            result={result}
-            mailId={mailId}
-            quoteLink={mailId !== undefined}
-            onQuote={onQuote}
-          />
+          <SummaryBlock result={result} mailId={mailId} quoteTo={quoteTo} onQuote={onQuote} />
         ) : (
-          !task && (
-            <p className={styles.note}>
-              {`Noch keine Zusammenfassung ${target === "mail" ? "dieser Mail" : "dieses Dokuments"}.`}
-            </p>
-          )
+          !task && <p className={styles.note}>{NONE_YET[target]}</p>
         )}
-        {task && (
-          <p className={styles.task}>
-            {summaryTaskText(task)}
-            {" · "}
-            <Link to="/ki">zur Seite „KI“</Link>
+        {result && view.stale && !task && (
+          <p className={styles.note}>
+            Seit dieser Zusammenfassung hat sich der Thread geändert: Mails kamen hinzu oder fielen
+            weg.
           </p>
+        )}
+        {(task || preparing > 0) && (
+          <div className={styles.task}>
+            <p>
+              {preparingText(task ? summaryTaskText(task) : null, preparing)}
+              {" · "}
+              <Link to="/ki">zur Seite „KI“</Link>
+            </p>
+            {view.run && <RunProgress run={view.run} />}
+          </div>
         )}
         {view.failed && (
           <p
@@ -209,18 +237,49 @@ function foldedText(view: AiSummaryView): string {
   return "noch keine";
 }
 
+/** What is under way: the element's own task and its attachments' (D317). */
+function preparingText(task: string | null, preparing: number): string {
+  if (preparing === 0) return task ?? "";
+  const attachments = `${formatNumber(preparing)} ${preparing === 1 ? "Anhang wird" : "Anhänge werden"} erkannt oder zusammengefasst`;
+  return task ? `${task} · ${attachments}` : attachments;
+}
+
+/** The live AI run's steps with their bars (D318): what this card waits for, done or to come;
+ *  the steps it skips are left out. */
+function RunProgress({ run }: { run: AiJob }) {
+  const steps = run.progress.steps.filter(
+    (step) => step.status !== "skipped" && step.key !== "check",
+  );
+  return (
+    <div className={styles.progress}>
+      {run.progress.current && (
+        <p className={styles.current}>{`In Arbeit: ${run.progress.current}`}</p>
+      )}
+      {steps.length > 0 && (
+        <StepList
+          steps={steps}
+          alive={run.alive}
+          age={run.report_age_seconds}
+          database={run.progress.database}
+          kind="ai"
+        />
+      )}
+    </div>
+  );
+}
+
 /** One summary: the machine line, the text, how much of it was read, tags and theme hints. */
 function SummaryBlock({
   result,
   mailId,
-  quoteLink = false,
+  quoteTo,
   onQuote,
 }: {
   result: AiSummaryResult;
-  /** The mail its tags can be adopted for (D310); none on a document's page. */
+  /** The mail its tags can be adopted for (D310); none on a document's or thread's card. */
   mailId?: number;
-  /** Quotes link to the mail's text with their words marked. */
-  quoteLink?: boolean;
+  /** Where a quote is shown with its words marked: the mail's text, the thread's mails. */
+  quoteTo?: (quote: string) => string;
   onQuote?: () => void;
 }) {
   const parts = partsText(result);
@@ -237,11 +296,15 @@ function SummaryBlock({
             <li key={`${hint.theme}-${index}`}>
               <span className={styles.theme}>{`Hinweis: ${hint.label}`}</span>{" "}
               {hint.quote &&
-                (quoteLink && mailId !== undefined ? (
+                (quoteTo ? (
                   <Link
-                    to={quoteHref(mailId, hint.quote)}
-                    title="Im Text der Mail zeigen"
-                    onClick={onQuote}
+                    to={quoteTo(hint.quote)}
+                    title={
+                      mailId === undefined
+                        ? "Die Mails mit diesem Zitat"
+                        : "Im Text der Mail zeigen"
+                    }
+                    onClick={mailId === undefined ? undefined : onQuote}
                   >
                     {`„${hint.quote}“`}
                   </Link>

@@ -230,15 +230,19 @@ X-Mailrobbe-Editor (D54):
     POST /api/ai/run/stop                        AiJob, its stop requested
 
 Summaries and AI tags (milestone 17, D300 to D311): POST /api/ai/tasks takes kind summarize with
-mail_ids, mail_filters (an Akte is collection=<id>), document_ids or the document list's filters,
-and with preview only counts and estimates; tasks, results and the send log name a mail or a
-document (target). MailFilters has ai_tag and ai_theme, DocumentFilters ai_tag:
+mail_ids, mail_filters (an Akte is collection=<id>), document_ids, the document list's filters or
+thread_ids (D316) or everything without a summary (D319), and with preview only counts and
+estimates; tasks, results and the send log
+name a mail, a document or a thread (target). A single mail takes its attachments along: their
+OCR or transcription first, then their summaries (D317). MailFilters has ai_tag and ai_theme,
+DocumentFilters ai_tag:
 
-    GET  /api/ai/summary?AiSummaryParams         AiSummaryView: the summary of one mail or
-                                                 document, its open task, and for a mail the
-                                                 summaries of its attachments (D307); 400
-                                                 invalid_selection unless exactly one is given,
-                                                 404 not_found for an unknown one
+    GET  /api/ai/summary?AiSummaryParams         AiSummaryView: the summary of one mail,
+                                                 document or thread, its open task, for a mail
+                                                 the summaries of its attachments (D307), and
+                                                 the live AI run while it works on them (D318);
+                                                 400 invalid_selection unless exactly one is
+                                                 given, 404 not_found for an unknown one
     GET  /api/ai/facets?MailFilters              AiFacets: AI tags and themes of the matching
                                                  mails, counted as the entity facets (D309)
     GET  /api/ai/tags?AiTagParams                list[AiTagCount]: AI tags by id or by part of
@@ -3192,7 +3196,8 @@ class AiQueueRequest(BaseModel):
     """What to queue: for OCR and transcription exactly one of work_list, document_ids and
     filters (D186), each document getting what fits it, OCR for a scan or picture and a
     transcription for a recording (D295), unless kind names one; for summarize exactly one
-    of mail_ids, mail_filters, document_ids and filters (D308)."""
+    of mail_ids, mail_filters, document_ids, filters, thread_ids and everything (D308, D316,
+    D319)."""
 
     work_list: AiWorkList | None = None
     document_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)
@@ -3209,6 +3214,9 @@ class AiQueueRequest(BaseModel):
     kind: AiTaskKind | None = None
     mail_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)
     mail_filters: MailFilters | None = None  # the mail list's; an Akte is collection=[id]
+    thread_ids: list[int] | None = Field(default=None, max_length=AI_QUEUE_LIMIT)  # D316
+    # Summarize: every mail and document without a summary, a run for the whole queue (D319).
+    everything: bool = False
     # Nothing is queued: AiQueued says how many would be and, for summarize, how long (D308).
     preview: bool = False
 
@@ -3462,10 +3470,11 @@ AI_FACET_TAGS = 20  # AI tags in AiFacets
 
 
 class AiSummaryParams(BaseModel):
-    """Exactly one of mail and document."""
+    """Exactly one of mail, document and thread (mail.thread_id, D316)."""
 
     mail: int | None = None
     document: int | None = None
+    thread: int | None = None
 
 
 class AiTagCount(BaseModel):
@@ -3530,6 +3539,13 @@ class AiSummaryView(BaseModel):
     task: AiSummaryTask | None
     failed: str | None  # the latest task failed with this reason (English) and none is open
     attachments: list[AiAttachmentSummary]  # a mail's attachments with a summary; [] else
+    # A mail's attachments with an open OCR, transcribe or summarize task (D317): asked again too.
+    preparing: int = 0
+    # A thread's summary read other mails than the thread has now: one joined or left it (D316).
+    stale: bool = False
+    # The AI run while it lives and the element or its attachments have an open task: its steps
+    # are the card's progress (D318).
+    run: AiJob | None = None
 
 
 class AiFacetTheme(BaseModel):

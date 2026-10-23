@@ -19,9 +19,15 @@ import { aiErrorText } from "./labels";
 import styles from "./SummarizeManyDialog.module.css";
 
 /** What is summarised (D308): mails by id or by the mail list's filters (an Akte is
- *  `{ collection: [id] }`), or the documents of the document list's filters. */
+ *  `{ collection: [id] }`), the documents of the document list's filters, or every mail and
+ *  document without a summary (D319). */
 export type SummarizeSelection =
-  { mail_ids: number[] } | { mail_filters: MailFilters } | { filters: DocumentFilters };
+  | { mail_ids: number[] }
+  | { mail_filters: MailFilters }
+  | { filters: DocumentFilters }
+  | { everything: true };
+
+type Elements = "mails" | "documents" | "both";
 
 /** The title of a "Zusammenfassen" that cannot work yet (D300). */
 export const NO_TEXT_SERVICE = "Kein Textmodell eingerichtet (System › Einstellungen)";
@@ -31,9 +37,11 @@ export const NO_TEXT_SERVICE = "Kein Textmodell eingerichtet (System › Einstel
 export function SummarizeButton({
   selection,
   size = "sm",
+  label = "Zusammenfassen",
 }: {
   selection: SummarizeSelection;
   size?: "md" | "sm";
+  label?: string;
 }) {
   const status = useAiStatus();
   const [open, setOpen] = useState(false);
@@ -46,20 +54,26 @@ export function SummarizeButton({
         title={status.data && !usable ? NO_TEXT_SERVICE : undefined}
         onClick={() => setOpen(true)}
       >
-        Zusammenfassen
+        {label}
       </Button>
       {open && <SummarizeManyDialog selection={selection} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function ofMails(selection: SummarizeSelection): boolean {
-  return "mail_ids" in selection || "mail_filters" in selection;
+function of(selection: SummarizeSelection): Elements {
+  if ("everything" in selection) return "both";
+  return "mail_ids" in selection || "mail_filters" in selection ? "mails" : "documents";
 }
 
-function elements(count: number, mails: boolean): string {
-  const noun = mails ? (count === 1 ? "Mail" : "Mails") : count === 1 ? "Dokument" : "Dokumente";
-  return `${formatNumber(count)} ${noun}`;
+const NOUNS: Record<Elements, [string, string]> = {
+  mails: ["Mail", "Mails"],
+  documents: ["Dokument", "Dokumente"],
+  both: ["Mail oder Dokument", "Mails und Dokumente"],
+};
+
+function elements(count: number, kind: Elements): string {
+  return `${formatNumber(count)} ${NOUNS[kind][count === 1 ? 0 : 1]}`;
 }
 
 /** "etwa 2 Std. 10 Min.", "etwa 3 Tage 4 Std.", "weniger als 1 Min." */
@@ -96,7 +110,7 @@ export function summarizedText(queued: AiQueued): string {
 }
 
 /** Why the preview or the queuing was refused, as a sentence. */
-function refusalText(error: Error, mails: boolean): string {
+function refusalText(error: Error, kind: Elements): string {
   if (error instanceof ApiError) {
     switch (error.code) {
       case "too_many_mails":
@@ -105,7 +119,7 @@ function refusalText(error: Error, mails: boolean): string {
       case "invalid_option":
         return `${NO_TEXT_SERVICE}.`;
       case "empty_selection":
-        return mails ? "Diese Auswahl enthält keine Mails." : "Diese Auswahl ist leer.";
+        return kind === "mails" ? "Diese Auswahl enthält keine Mails." : "Diese Auswahl ist leer.";
     }
   }
   return aiErrorText(error);
@@ -120,7 +134,7 @@ export function SummarizeManyDialog({
   selection: SummarizeSelection;
   onClose: () => void;
 }) {
-  const mails = ofMails(selection);
+  const kind = of(selection);
   const request: AiQueueRequest = { kind: "summarize", ...selection };
   // A preview writes nothing; it is asked again each time the dialog opens.
   const preview = useQuery({
@@ -141,10 +155,10 @@ export function SummarizeManyDialog({
         </p>
       ) : error ? (
         <p className={styles.warning} role="alert">
-          {refusalText(error, mails)}
+          {refusalText(error, kind)}
         </p>
       ) : preview.data ? (
-        <Preview queued={preview.data} mails={mails} />
+        <Preview queued={preview.data} kind={kind} />
       ) : (
         <p className={styles.text}>
           <Spinner label="Die Auswahl wird gezählt" /> Die Auswahl wird gezählt …
@@ -181,21 +195,21 @@ export function SummarizeManyDialog({
   );
 }
 
-function Preview({ queued, mails }: { queued: AiQueued; mails: boolean }) {
+function Preview({ queued, kind }: { queued: AiQueued; kind: Elements }) {
   const tasks = queued.queued + queued.raised;
   const estimate = queued.estimate;
   if (tasks === 0) {
     return (
       <p className={styles.text}>
         {queued.unreadable > 0
-          ? `Nichts zusammenzufassen: ${mails ? "Diese Mails haben" : "Diese Dokumente haben"} keinen Text, der sich zusammenfassen ließe.`
+          ? `Nichts zusammenzufassen: ${kind === "documents" ? "Diese Dokumente haben" : "Diese Mails haben"} keinen Text, der sich zusammenfassen ließe.`
           : "Nichts zusammenzufassen."}
       </p>
     );
   }
   return (
     <>
-      <p className={styles.count}>{elements(tasks, mails)}</p>
+      <p className={styles.count}>{elements(tasks, kind)}</p>
       <ul className={styles.facts}>
         {queued.short > 0 && (
           <li>
@@ -205,7 +219,7 @@ function Preview({ queued, mails }: { queued: AiQueued; mails: boolean }) {
         {queued.raised > 0 && <li>{`davon ${formatNumber(queued.raised)} schon vorgemerkt`}</li>}
         {queued.unreadable > 0 && (
           <li>
-            {`${elements(queued.unreadable, mails)} ohne Text, der sich zusammenfassen ließe, bleiben außen vor`}
+            {`${elements(queued.unreadable, kind)} ohne Text, der sich zusammenfassen ließe, bleiben außen vor`}
           </li>
         )}
         {estimate && (

@@ -13,10 +13,12 @@ import { hasStoredText } from "./labels";
 
 /** The extracted text, up to 400,000 characters (D72): loaded and drawn only once opened, so the
  *  page stays light; spreadsheets keep their rows, so it is shown as stored, monospaced. A text
- *  an AI run recognised says so with its engine, date and pages (D189); a document OCR can read
- *  without a text gets the card for "Text erkennen" alone. */
+ *  an AI run recognised says so with its engine, date and pages (D189) and is open from the
+ *  start, also when the recognition ends while the page is shown, until it is closed (D320); a
+ *  document OCR can read without a text gets the card for "Text erkennen" alone. */
 export function DocumentTextCard({ document }: { document: DocumentDetail }) {
-  const [open, setOpen] = useState(false);
+  const [chosen, setOpen] = useState<boolean | null>(null);
+  const open = chosen ?? document.text_origin === "ocr";
   const stored = hasStoredText(document.text_status);
   const text = useDocumentText(document.id, open && stored);
   const truncated = text.data?.truncated ?? document.text_truncated;

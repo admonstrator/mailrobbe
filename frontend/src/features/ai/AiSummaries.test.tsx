@@ -33,6 +33,17 @@ const summaryTask: AiTaskItem = {
   mail,
 };
 
+// a thread is named by its earliest mail (D316)
+const threadTask: AiTaskItem = {
+  ...summaryTask,
+  id: 321,
+  status: "waiting",
+  pages_read: 0,
+  pages_total: null,
+  target: "thread",
+  mail: { id: 184001, subject: "Rahmenvereinbarung 2026", date: "2026-10-01T09:00:00Z" },
+};
+
 const summaryResult: AiResultItem = {
   ...aiResultPage.items[0],
   id: 501,
@@ -77,7 +88,7 @@ function api(status: AiStatus) {
     const path = call.url.pathname;
     if (path === "/api/ai/status") return status;
     if (path === "/api/ai/tasks" && call.method === "GET") {
-      return { items: [summaryTask, ...aiTaskPage.items], next_cursor: null };
+      return { items: [summaryTask, threadTask, ...aiTaskPage.items], next_cursor: null };
     }
     if (path === "/api/ai/results") {
       return { items: [summaryResult, ...aiResultPage.items], next_cursor: null };
@@ -123,6 +134,8 @@ describe("summaries on the AI page", () => {
     const taskRow = task.closest("tr")!;
     expect(within(taskRow).getByText("Zusammenfassung")).toBeTruthy();
     expect(within(taskRow).getByText("1 von 4")).toBeTruthy();
+    const thread = within(queue).getByRole("link", { name: "Thread: Rahmenvereinbarung 2026" });
+    expect(thread.getAttribute("href")).toBe("/mails/184001");
 
     const results = screen.getByRole("region", { name: "Ergebnisse" });
     const result = (await within(results).findByRole("link", { name: mail.subject! })).closest(
