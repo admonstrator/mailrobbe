@@ -21,7 +21,7 @@
 
 /* The viewer's own background, so its page does not flash white before it draws. */
 .pdf {
-  background: #eceef2;
+  background: var(--color-skeleton);
 }
 
 .html {

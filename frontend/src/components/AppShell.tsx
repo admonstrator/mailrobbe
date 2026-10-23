@@ -9,6 +9,7 @@ import { useEditor } from "../lib/editor";
 import styles from "./AppShell.module.css";
 import { EditorDialog } from "./EditorDialog";
 import { HistoryMenu } from "./HistoryMenu";
+import { ThemeButton } from "./ThemeButton";
 import { MenuIcon } from "./icons";
 import { setSidebarFolded, Sidebar, useSidebarFolded } from "./Sidebar";
 
@@ -37,6 +38,7 @@ export function AppShell() {
         </Link>
         <GlobalSearch />
         <div className={styles.end}>
+          <ThemeButton />
           <HistoryMenu />
           <ImportIndicator />
           <EditorName />

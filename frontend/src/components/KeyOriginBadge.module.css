@@ -14,7 +14,7 @@
    which wears the ring of its status dot. */
 .dns {
   background: var(--color-pass-soft);
-  color: #166534;
+  color: var(--color-pass-text);
 }
 
 .observed {

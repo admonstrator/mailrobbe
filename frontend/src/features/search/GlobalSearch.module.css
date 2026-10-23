@@ -31,7 +31,7 @@
 }
 
 .search:hover:not(:focus-within) {
-  background: #d9dfe8;
+  background: var(--color-ground-hover);
 }
 
 .search:focus-within {

@@ -31,6 +31,21 @@
   --color-no-key-soft: #fef3c7;
   --color-unsigned-soft: #f1f3f6;
 
+  /* Colours the pages used as literals before the dark theme (D338). */
+  --color-teal-text: #0f766e;
+  --color-purple-soft: #f1e8fd;
+  --color-purple-text: #6d28d9;
+  --color-row-selected: #f3f6fd;
+  --color-star: #e0a21b;
+  --color-note-bg: #fffbeb;
+  --color-chart-soft: #9db6ea;
+  --color-on-accent: #ffffff;
+  --activity-0: #eef1f5;
+  --activity-1: #c6d6f5;
+  --activity-2: #8eaeea;
+  --activity-3: #4f80dc;
+  --activity-4: #1d4fb8;
+
   --font-sans: "Inter Variable", Inter, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
 
@@ -70,6 +85,63 @@
   --content-height: calc(100dvh - var(--header-height));
 
   color-scheme: light;
+}
+
+/* The dark theme (D338): chosen by the button in the header, or by the system while the choice
+   is "System" (lib/theme.ts sets data-theme on <html>). Only the colours change. Mail HTML,
+   document previews, the relationship map and the places map stay on white, like paper. */
+:root[data-theme="dark"] {
+  --color-bg: #15181d;
+  --color-surface: #1b1f26;
+  --color-border: #2e343e;
+  --color-border-strong: #3c4350;
+  --color-border-subtle: #262b33;
+  --color-text: #e6e8ec;
+  --color-muted: #9aa3b1;
+  --color-nav: #c3c9d3;
+  --color-accent: #4f86f2;
+  --color-accent-hover: #8db0fa;
+  --color-accent-soft: #1f2b45;
+  --color-hover: #222834;
+  --color-field: #232831;
+  --color-code-bg: #0c0e11;
+  --color-code-text: #e6e8ec;
+  --color-skeleton: #272c35;
+
+  --color-pass: #22c55e;
+  --color-fail: #ef4444;
+  --color-no-key: #f59e0b;
+  --color-unsigned: #6b7280;
+  --color-pass-text: #4ade80;
+  --color-fail-text: #f87171;
+  --color-no-key-text: #fbbf24;
+  --color-pass-soft: #12301e;
+  --color-fail-soft: #3b1818;
+  --color-no-key-soft: #3a2a0d;
+  --color-unsigned-soft: #272c35;
+
+  --color-teal-text: #2dd4bf;
+  --color-purple-soft: #2b2145;
+  --color-purple-text: #c4a5ff;
+  --color-row-selected: #1f2838;
+  --color-star: #f5b93a;
+  --color-note-bg: #2c2614;
+  --color-chart-soft: #4a6aa8;
+  --activity-0: #232831;
+  --activity-1: #1e3566;
+  --activity-2: #2a4f99;
+  --activity-3: #3f72d6;
+  --activity-4: #8db0fa;
+
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 45%);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 30%);
+
+  --color-ground: #101318;
+  --color-ground-hover: #1d222b;
+  --color-nav-active: #1f3052;
+  --color-nav-active-text: #a9c4ff;
+
+  color-scheme: dark;
 }
 
 html {

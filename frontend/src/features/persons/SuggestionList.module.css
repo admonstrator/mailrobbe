@@ -9,7 +9,7 @@
   border-radius: var(--radius-control);
   padding: 10px 14px;
   background: var(--color-pass-soft);
-  color: #166534;
+  color: var(--color-pass-text);
   font-size: 13px;
 }
 

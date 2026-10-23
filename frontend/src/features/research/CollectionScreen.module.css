@@ -1,7 +1,7 @@
 /* One Akte on the shell's white sheet (D334): a head, a tab bar, the tab's content and a quiet
    column of facts; blocks are parted by space and thin lines, not boxes. */
 .page {
-  --akte-note: #fffbeb;
+  --akte-note: var(--color-note-bg);
 
   display: flex;
   flex-direction: column;

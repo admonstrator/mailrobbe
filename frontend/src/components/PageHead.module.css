@@ -51,7 +51,7 @@
 
 .warning {
   background: var(--color-no-key-soft);
-  color: #92400e;
+  color: var(--color-no-key-text);
 }
 
 .done {

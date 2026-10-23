@@ -37,7 +37,7 @@
 }
 
 .bar {
-  fill: #9db6ea;
+  fill: var(--color-chart-soft);
 }
 
 .outlier {
