@@ -98,7 +98,7 @@ export function GraphSidebar({
 
   return (
     <aside className={styles.column} aria-label="Ausschnitt">
-      <h2 className={styles.title}>Beziehungskarte</h2>
+      <h1 className={styles.title}>Beziehungskarte</h1>
 
       <fieldset className={styles.group}>
         <legend className={styles.legend}>Ausschnitt</legend>

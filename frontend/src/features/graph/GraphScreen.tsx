@@ -137,8 +137,7 @@ export function GraphScreen() {
         exportParams={params}
         canvas={canvas}
       />
-      <main className={styles.main}>
-        <h1 className="sr-only">Beziehungskarte</h1>
+      <div className={styles.main}>
         <MapHeader
           graph={data}
           legend={state.color ? legend : null}
@@ -202,7 +201,7 @@ export function GraphScreen() {
             }}
           />
         </div>
-      </main>
+      </div>
     </div>
   );
 }
