@@ -182,7 +182,7 @@ const isDraft = (item: Piece | Draft): item is Draft => "items" in item;
 /** The blocks the text view shows: each segment that starts folded on its own with the standard
  *  blocks cut out of it, a standard block of the open text on its own, the segments between them
  *  together as written. Blank lines at the ends of a block and beside a fold inside it are left
- *  out. Without segments the text is one block. */
+ *  out, three or more in a row are one. Without segments the text is one block. */
 function textBlocks(
   text: string,
   segments: TextSegment[],
@@ -190,7 +190,12 @@ function textBlocks(
   mark: (shown: string) => TextPart[],
 ): Block[] {
   if (!segments.length) {
-    const run = { quoted: false, parts: mark(text.trimEnd()), paragraph: null, sample: "" };
+    const run = {
+      quoted: false,
+      parts: mark(fewerBlankLines(text.trimEnd())),
+      paragraph: null,
+      sample: "",
+    };
     return [{ fold: null, lines: 0, hash: null, items: [run] }];
   }
   // The server counts characters as Python does, in code points; JavaScript counts UTF-16 units,
@@ -285,13 +290,22 @@ function textBlocks(
         if (inner) items.push(inner);
       } else {
         const { quoted, paragraph, sample } = item;
-        items.push({ quoted, parts: mark(item.text), paragraph, sample });
+        items.push({ quoted, parts: mark(fewerBlankLines(item.text)), paragraph, sample });
       }
     }
     return items.length ? { fold: draft.fold, lines: draft.lines, hash: draft.hash, items } : null;
   };
   return drafts.map(finish).filter((block) => block !== null);
 }
+
+// three or more blank lines in a row; a line of nothing but white space counts as blank
+const BLANK_LINES = /\r?\n(?:[^\S\r\n]*\r?\n){3,}/g;
+
+/** text with every run of three or more blank lines shown as one; only the view, the offsets,
+ *  the paragraphs and their samples keep the text as written. A run never crosses two pieces,
+ *  since a blank line belongs to the segment above it and a paragraph ends before its line
+ *  break. */
+const fewerBlankLines = (text: string) => text.replace(BLANK_LINES, "\n\n");
 
 /** items without blank pieces at the ends, and without the blank lines of a piece at the
  *  block's ends or beside a fold inside it. */
