@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useScrolledPast } from "./CompactBar";
+import { CompactBar, useScrolledPast } from "./CompactBar";
 
 function Probe() {
   const [ref, past] = useScrolledPast<HTMLDivElement>();
@@ -58,5 +58,39 @@ describe("useScrolledPast", () => {
     expect(screen.getByText("sichtbar")).toBeTruthy();
     observer.at(-10, false);
     expect(screen.getByText("vorbei")).toBeTruthy();
+  });
+});
+
+describe("CompactBar", () => {
+  it("spans the white sheet beside the sidebar, else the window", () => {
+    const width = vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1440);
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const sheet = this.dataset.sheet !== undefined || this.closest("[data-sheet]");
+        return (sheet ? { left: 256, width: 1168 } : { left: 0, width: 1440 }) as DOMRect;
+      });
+    const { unmount } = render(
+      <div>
+        <div data-sheet="">
+          <main>
+            <CompactBar label="Kopfzeile">Betreff</CompactBar>
+          </main>
+        </div>
+      </div>,
+    );
+    const bar = screen.getByRole("region", { name: "Kopfzeile" });
+    expect(bar.style.left).toBe("256px");
+    expect(bar.style.width).toBe("1168px");
+    unmount();
+
+    render(
+      <main>
+        <CompactBar label="Kopfzeile">Betreff</CompactBar>
+      </main>,
+    );
+    expect(screen.getByRole("region", { name: "Kopfzeile" }).style.left).toBe("");
+    rect.mockRestore();
+    width.mockRestore();
   });
 });

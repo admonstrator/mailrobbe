@@ -3,13 +3,13 @@ import { useState } from "react";
 import { useUndoMerge } from "../../api/queries";
 import type { MergeLogEntry } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { formatDateTime } from "../../lib/format";
 import { personErrorText } from "./labels";
 import styles from "./ProfileMerges.module.css";
 
 /** The logged merges that brought aliases into this person (D163), each with "Zusammenführung
- *  rückgängig"; an address can still be split off alone in the head (D28). Shown while there
+ *  rückgängig", quiet at the foot of the profile's column; an address can still be split off
+ *  alone among the addresses (D28). Shown while there
  *  are any, and after an undo for its confirmation. */
 export function ProfileMerges({ merges }: { merges: MergeLogEntry[] }) {
   const undo = useUndoMerge();
@@ -17,8 +17,10 @@ export function ProfileMerges({ merges }: { merges: MergeLogEntry[] }) {
 
   if (merges.length === 0 && !done) return null;
   return (
-    <Card className={styles.card}>
-      <CardTitle>Zusammengeführt</CardTitle>
+    <section className={styles.card} aria-labelledby="profile-merges-title">
+      <h2 id="profile-merges-title" className={styles.title}>
+        Zusammengeführt
+      </h2>
       <p role="status" className={done ? styles.notice : "sr-only"}>
         {done}
       </p>
@@ -45,7 +47,8 @@ export function ProfileMerges({ merges }: { merges: MergeLogEntry[] }) {
                   </p>
                 </div>
                 <Button
-                  size="sm"
+                  variant="link"
+                  size="xs"
                   disabled={undo.isPending}
                   onClick={() => undo.mutate(merge.id, { onSuccess })}
                 >
@@ -56,6 +59,6 @@ export function ProfileMerges({ merges }: { merges: MergeLogEntry[] }) {
           })}
         </ul>
       )}
-    </Card>
+    </section>
   );
 }

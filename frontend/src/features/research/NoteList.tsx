@@ -3,7 +3,6 @@ import { Link } from "react-router";
 
 import { useNotes } from "../../api/queries";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
@@ -49,7 +48,7 @@ export function NoteList() {
           </span>
         )}
       </div>
-      <Card className={styles.listCard}>
+      <div className={styles.listCard}>
         {notes.isPending ? (
           <div className={styles.loading}>
             <Spinner label="Notizen werden geladen" />
@@ -89,7 +88,7 @@ export function NoteList() {
             ))}
           </ul>
         )}
-      </Card>
+      </div>
       {notes.hasNextPage && (
         <div className={styles.more}>
           <Button onClick={() => void notes.fetchNextPage()} disabled={notes.isFetchingNextPage}>

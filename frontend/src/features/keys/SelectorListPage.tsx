@@ -4,7 +4,6 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useSelectorPage } from "../../api/queries";
 import type { SelectorItem, SelectorPage } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
@@ -16,6 +15,7 @@ import { selectorPath } from "../../lib/dkim";
 import { formatNumber } from "../../lib/format";
 import { pageCount, rangeText } from "../../lib/paging";
 import { DebouncedInput } from "../documents/DebouncedInput";
+import { PageHead } from "../../components/PageHead";
 import { KeysRun, useKeysRun } from "./KeysRun";
 import { dnsStatusLabel, periodText, SELECTOR_FILTER_LABELS, SELECTOR_FILTERS } from "./labels";
 import styles from "./SelectorListPage.module.css";
@@ -27,6 +27,9 @@ import {
   toSelectorListParams,
   type SelectorListState,
 } from "./urlState";
+
+const INTRO =
+  "Schlüsselnamen (Selektor und Domain), deren Signaturen keinen Schlüssel im DNS mehr finden oder nicht zum heutigen Schlüssel passen. Ein Selektor ist geklärt, sobald ein Schlüssel aus einer anderen Quelle seine Signaturen bestätigt.";
 
 const selectorCount = (count: number) =>
   `${formatNumber(count)} ${count === 1 ? "Selektor" : "Selektoren"}`;
@@ -58,21 +61,19 @@ export function SelectorListPage() {
         <span aria-hidden="true">›</span>
         <span>Gelöschte Selektoren</span>
       </nav>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Gelöschte Selektoren</h1>
-        {page.data && (
-          <span className={styles.total} aria-live="polite">
-            {state.q
-              ? `${selectorCount(page.data.total)} gefunden`
-              : selectorCount(page.data.total)}
+      <PageHead
+        title="Gelöschte Selektoren"
+        help={INTRO}
+        sub={
+          <span aria-live="polite">
+            {page.data
+              ? state.q
+                ? `${selectorCount(page.data.total)} gefunden`
+                : selectorCount(page.data.total)
+              : "\u00a0"}
           </span>
-        )}
-      </div>
-      <p className={styles.lead}>
-        Schlüsselnamen (Selektor und Domain), deren Signaturen keinen Schlüssel im DNS mehr finden
-        oder nicht zum heutigen Schlüssel passen. Ein Selektor ist geklärt, sobald ein Schlüssel aus
-        einer anderen Quelle seine Signaturen bestätigt.
-      </p>
+        }
+      />
       <KeysRun job={job} ended={false} onError={setNotice} />
       {notice && (
         <p className={styles.error} role="alert">
@@ -110,7 +111,7 @@ export function SelectorListPage() {
         </div>
       </div>
 
-      <Card className={styles.tableCard}>
+      <div className={styles.tableBox}>
         {page.isPending ? (
           <div className={styles.loading}>
             <Spinner label="Selektoren werden geladen" />
@@ -127,7 +128,7 @@ export function SelectorListPage() {
         ) : (
           <SelectorTable items={page.data.items} stale={page.isPlaceholderData} />
         )}
-      </Card>
+      </div>
 
       {page.data && page.data.items.length > 0 && (
         <Pagination {...selectorPagination(state, page.data)} />

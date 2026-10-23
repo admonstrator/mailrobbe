@@ -1,0 +1,90 @@
+.icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--color-nav);
+}
+
+.icon:hover {
+  background: var(--color-ground);
+  color: var(--color-nav);
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-7) 0;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-fail-text);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: 14px;
+}
+
+.body > * {
+  max-width: 100%;
+}
+
+.identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.titles {
+  min-width: 0;
+}
+
+.titles p {
+  margin: 2px 0 0;
+}
+
+.name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.marks:empty {
+  display: none;
+}
+
+.line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.person,
+.person:hover {
+  color: var(--color-text);
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+/* The preview takes the panel's width. */
+.body > :last-child {
+  align-self: stretch;
+}

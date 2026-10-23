@@ -75,6 +75,8 @@ describe("standard block list", () => {
     expect(rows).toHaveLength(4);
     expect(listCalls(calls)).toEqual([""]);
 
+    // what a standard block is stands behind the help of the page's head
+    expect(screen.getByRole("img", { name: /^Standardblöcke sind Absätze/ })).toBeTruthy();
     const figures = screen.getByRole("list", { name: "Zahlen des letzten Laufs" });
     expect(within(figures).getByText("2 erkannt · 1 von Hand")).toBeTruthy();
     expect(within(figures).getByText("ab 25 Mails")).toBeTruthy();

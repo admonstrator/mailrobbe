@@ -1,12 +1,15 @@
 import { useId, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 
 import { Button } from "../../components/Button";
+import { cx } from "../../lib/cx";
 import forms from "./forms.module.css";
 import styles from "./InlineEdit.module.css";
 import { researchErrorText } from "./labels";
 
 /** A text with a button that turns it into a field in place. Enter saves (Strg+Enter in a
- *  multi-line field), Escape cancels; an unchanged text is not sent. */
+ *  multi-line field), Escape cancels; an unchanged text is not sent. Quiet shows a pencil only
+ *  while the pointer or the focus is on the text; a change of editRequest opens the field from
+ *  elsewhere, e.g. a menu. */
 export function InlineEdit({
   value,
   label,
@@ -14,6 +17,8 @@ export function InlineEdit({
   maxLength,
   required = false,
   onSave,
+  quiet = false,
+  editRequest = 0,
   children,
 }: {
   value: string;
@@ -23,6 +28,8 @@ export function InlineEdit({
   maxLength: number;
   required?: boolean;
   onSave: (value: string) => Promise<unknown>;
+  quiet?: boolean;
+  editRequest?: number;
   children: ReactNode;
 }) {
   const id = useId();
@@ -30,21 +37,30 @@ export function InlineEdit({
   const [error, setError] = useState<Error | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // A new request opens the field, as a change of state during render (no effect).
+  const [request, setRequest] = useState(editRequest);
+  if (request !== editRequest) {
+    setRequest(editRequest);
+    setDraft(value);
+    setError(null);
+  }
+
   if (draft === null) {
     return (
-      <div className={styles.view}>
+      <div className={cx(styles.view, quiet && styles.quiet)}>
         <div className={styles.content}>{children}</div>
         <Button
           variant="link"
           size="xs"
           className={styles.edit}
           aria-label={`${label} bearbeiten`}
+          title={quiet ? `${label} bearbeiten` : undefined}
           onClick={() => {
             setDraft(value);
             setError(null);
           }}
         >
-          Bearbeiten
+          {quiet ? <PencilIcon /> : "Bearbeiten"}
         </Button>
       </div>
     );
@@ -110,5 +126,18 @@ export function InlineEdit({
         </p>
       )}
     </form>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 20h4L19 9l-4-4L4 16z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

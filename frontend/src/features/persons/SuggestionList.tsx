@@ -17,10 +17,10 @@ import type {
   SuggestionView,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { personPath } from "../../components/PersonLink";
+import { HelpTip } from "../../components/PageHead";
 import { Segments } from "../../components/Segments";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -103,17 +103,19 @@ export function SuggestionList({
 
   return (
     <>
-      <p className={styles.intro}>{INTROS[view]}</p>
       <div className={styles.toolbar}>
-        <Segments<SuggestionView>
-          label="Zeigen"
-          options={views(counts, check, view)}
-          value={view}
-          onChange={(next) => {
-            setNotice(null);
-            onView(next);
-          }}
-        />
+        <div className={styles.views}>
+          <Segments<SuggestionView>
+            label="Zeigen"
+            options={views(counts, check, view)}
+            value={view}
+            onChange={(next) => {
+              setNotice(null);
+              onView(next);
+            }}
+          />
+          <HelpTip text={INTROS[view]} />
+        </div>
         {view === "certain" && counts !== undefined && counts.certain > 0 && (
           <Button
             variant="primary"
@@ -144,21 +146,21 @@ export function SuggestionList({
         {notice}
       </p>
       {suggestions.isPending ? (
-        <Card className={styles.loading}>
+        <div className={styles.loading}>
           <Spinner label="Vorschläge werden geladen" />
-        </Card>
+        </div>
       ) : suggestions.isError ? (
-        <Card>
+        <div>
           <ErrorState
             title="Die Vorschläge konnten nicht geladen werden."
             actions={<Button onClick={() => void suggestions.refetch()}>Erneut versuchen</Button>}
           >
             Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
           </ErrorState>
-        </Card>
+        </div>
       ) : (
         <>
-          <Card className={styles.card}>
+          <div className={styles.card}>
             <Rows
               items={suggestions.data.pages.flatMap((page) => page.items)}
               computed={suggestions.data.pages[0].computed}
@@ -168,7 +170,7 @@ export function SuggestionList({
               check={check}
               onDone={setNotice}
             />
-          </Card>
+          </div>
           {suggestions.hasNextPage && (
             <div className={styles.more}>
               <Button
@@ -412,7 +414,7 @@ function SuggestionRow({
           />
           andersherum
         </label>
-        <Button variant="primary" size="sm" disabled={busy} onClick={() => void onMerge()}>
+        <Button variant="outline" size="sm" disabled={busy} onClick={() => void onMerge()}>
           Zusammenführen
         </Button>
         <Button size="sm" disabled={busy} onClick={() => void onDismiss()}>

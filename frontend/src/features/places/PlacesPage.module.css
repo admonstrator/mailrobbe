@@ -27,8 +27,7 @@
 
 .title {
   margin: 0;
-  font-size: 17px;
-  font-weight: 600;
+  font: var(--font-page-title);
 }
 
 .toolbarNote {

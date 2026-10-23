@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { useAiStatus, useCheckAiService, useEnqueueAi } from "../../api/queries";
 import type {
@@ -12,11 +12,12 @@ import type {
   ServiceCheck,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
+import { tabPanelProps, Tabs } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatNumber } from "../../lib/format";
+import { PageHead, StateBadge } from "../../components/PageHead";
 import { AiRunCard } from "./AiRunCard";
 import { QueueCard, ResultsCard, SentCard } from "./AiLists";
 import styles from "./AiPage.module.css";
@@ -27,6 +28,7 @@ import {
   estimateFor,
   estimateText,
   minutesText,
+  queueCounts,
   queuedText,
   transcriberName,
   WORK_LIST_HINTS,
@@ -43,31 +45,58 @@ function useRefreshWhenRunEnds(alive: boolean) {
   }, [alive, queryClient]);
 }
 
-/** The page "KI" (D180 to D189, D295): what the text recognition and the transcription do, the
- *  services and the transcriber, the work lists, the run, the queue, the results and what went
- *  out to the internet. */
+const INTRO = [
+  "Gescannte PDFs und Bilder haben keine Textebene, die Volltextsuche findet sie nur über den Dateinamen. Die Texterkennung liest ihre Schrift: Tesseract im Container für die Masse, ein Bildmodell auf diesem Rechner (etwa in LM Studio oder Ollama) für Handschrift, Fotos und schlechte Scans. Sprachnachrichten und Videos schreibt die Transkription mit, ebenfalls im Container, mit der Zeit jeder Zeile. Erkannter Text und Transkripte werden durchsuchbar wie jeder andere Text und überall als „maschinell erkannt“ oder „maschinell transkribiert“ gekennzeichnet; sie können Lese- und Hörfehler enthalten und lassen sich jederzeit verwerfen.",
+  "Ein Textmodell fasst auf Wunsch einzelne Mails und Dokumente oder eine Auswahl zusammen und vergibt Schlagwörter und Hinweise auf Themen. Zusammenfassungen sind überall als „maschinell erzeugt“ gekennzeichnet, mit Modell und Datum; sie werden nicht durchsuchbar, ihre Schlagwörter filtern nur die Mailliste. Jede lässt sich verwerfen.",
+  "Die KI bewertet nichts. Sie arbeitet lokal: Dienste im Internet sind gesperrt, solange die .env sie nicht erlaubt. Gelesen wird nur, was hier, in der Anhangsliste, in der Mailliste oder auf der Seite einer Mail oder eines Dokuments vorgemerkt ist, nie das ganze Archiv.",
+].join("\n\n");
+
+const EVERYTHING_HINT =
+  "Fasst jede Mail und jedes Dokument ohne Zusammenfassung kurz zusammen, damit über jeder Mail steht, wer wem worüber schreibt. Duplikate und ausgeblendete Mails bleiben außen vor. Vorher steht da, wie viele es sind und wie lange es etwa dauert; der Lauf lässt sich jederzeit anhalten und macht beim nächsten Start weiter.";
+
+type AiTab = "uebersicht" | "lauf" | "ergebnisse";
+
+const TABS: readonly AiTab[] = ["uebersicht", "lauf", "ergebnisse"];
+
+/** The page "KI" (D180 to D189, D295) as a page of D336: the head with the run's state and
+ *  "Alles zusammenfassen", then tabs for the services and work lists, the run with its queue,
+ *  and the results with what went out to the internet. */
 export function AiPage() {
   const status = useAiStatus();
   useRefreshWhenRunEnds(Boolean(status.data?.job?.alive));
+  const alive = Boolean(status.data?.job?.alive && status.data.job.status === "running");
 
   return (
     <main className={styles.page}>
       <title>KI · Mailrobbe</title>
-      <h1 className={styles.title}>KI</h1>
-      <Intro />
+      <PageHead
+        title="KI"
+        badge={alive && <StateBadge tone="accent">Lauf läuft</StateBadge>}
+        sub="Texterkennung, Transkription und Zusammenfassungen, lokal auf diesem Rechner."
+        help={INTRO}
+        actions={
+          status.data && (
+            <span title={EVERYTHING_HINT} className={styles.everything}>
+              <SummarizeButton
+                selection={{ everything: true }}
+                size="md"
+                label="Alles zusammenfassen"
+              />
+            </span>
+          )
+        }
+      />
       {status.isPending ? (
-        <Card className={styles.loading}>
+        <div className={styles.loading}>
           <Spinner label="KI-Status wird geladen" />
-        </Card>
+        </div>
       ) : status.isError ? (
-        <Card>
-          <ErrorState
-            title="Der KI-Status konnte nicht geladen werden."
-            actions={<Button onClick={() => void status.refetch()}>Erneut versuchen</Button>}
-          >
-            Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
-          </ErrorState>
-        </Card>
+        <ErrorState
+          title="Der KI-Status konnte nicht geladen werden."
+          actions={<Button onClick={() => void status.refetch()}>Erneut versuchen</Button>}
+        >
+          Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
+        </ErrorState>
       ) : (
         <Content status={status.data} />
       )}
@@ -75,45 +104,57 @@ export function AiPage() {
   );
 }
 
-function Intro() {
-  return (
-    <Card className={styles.intro} aria-label="Was die KI macht">
-      <p>
-        Gescannte PDFs und Bilder haben keine Textebene, die Volltextsuche findet sie nur über den
-        Dateinamen. Die Texterkennung liest ihre Schrift: Tesseract im Container für die Masse, ein
-        Bildmodell auf diesem Rechner (etwa in LM Studio oder Ollama) für Handschrift, Fotos und
-        schlechte Scans. Sprachnachrichten und Videos schreibt die Transkription mit, ebenfalls im
-        Container, mit der Zeit jeder Zeile. Erkannter Text und Transkripte werden durchsuchbar wie
-        jeder andere Text und überall als „maschinell erkannt“ oder „maschinell transkribiert“
-        gekennzeichnet; sie können Lese- und Hörfehler enthalten und lassen sich jederzeit
-        verwerfen.
-      </p>
-      <p>
-        Ein Textmodell fasst auf Wunsch einzelne Mails und Dokumente oder eine Auswahl zusammen und
-        vergibt Schlagwörter und Hinweise auf Themen. Zusammenfassungen sind überall als „maschinell
-        erzeugt“ gekennzeichnet, mit Modell und Datum; sie werden nicht durchsuchbar, ihre
-        Schlagwörter filtern nur die Mailliste. Jede lässt sich verwerfen.
-      </p>
-      <p>
-        Die KI bewertet nichts. Sie arbeitet lokal: Dienste im Internet sind gesperrt, solange die
-        .env sie nicht erlaubt. Gelesen wird nur, was hier, in der Anhangsliste, in der Mailliste
-        oder auf der Seite einer Mail oder eines Dokuments vorgemerkt ist, nie das ganze Archiv.
-      </p>
-    </Card>
-  );
-}
-
 function Content({ status }: { status: AiStatus }) {
   const alive = Boolean(status.job?.alive);
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("tab") as AiTab | null;
+  const tab: AiTab = requested && TABS.includes(requested) ? requested : "uebersicht";
+  const counts = queueCounts(status.queue);
+  const select = (next: AiTab) =>
+    setParams(
+      (before) => {
+        const search = new URLSearchParams(before);
+        if (next === "uebersicht") search.delete("tab");
+        else search.set("tab", next);
+        return search;
+      },
+      { replace: true, preventScrollReset: true },
+    );
   return (
     <>
-      <ServicesCard status={status} />
-      <WorkListsCard status={status} />
-      <EverythingCard />
-      <AiRunCard status={status} />
-      <QueueCard status={status} alive={alive} />
-      <ResultsCard alive={alive} />
-      {status.remote_used && <SentCard />}
+      <Tabs
+        idPrefix="ai"
+        label="Bereiche der KI"
+        active={tab}
+        onSelect={select}
+        items={[
+          { id: "uebersicht", label: "Dienste und Arbeitslisten" },
+          {
+            id: "lauf",
+            label: "Lauf und Warteschlange",
+            count: counts.waiting > 0 ? formatNumber(counts.waiting) : undefined,
+          },
+          { id: "ergebnisse", label: "Ergebnisse" },
+        ]}
+      />
+      <div {...tabPanelProps("ai", tab)} className={styles.panel}>
+        {tab === "uebersicht" ? (
+          <>
+            <ServicesCard status={status} />
+            <WorkListsCard status={status} />
+          </>
+        ) : tab === "lauf" ? (
+          <>
+            <AiRunCard status={status} />
+            <QueueCard status={status} alive={alive} />
+          </>
+        ) : (
+          <>
+            <ResultsCard alive={alive} />
+            {status.remote_used && <SentCard />}
+          </>
+        )}
+      </div>
     </>
   );
 }
@@ -138,8 +179,10 @@ const SENT_LABELS: Record<AiServiceInfo["capability"], string> = {
 
 function ServicesCard({ status }: { status: AiStatus }) {
   return (
-    <Card aria-labelledby="ai-services-title">
-      <CardTitle id="ai-services-title">Dienste</CardTitle>
+    <section className={styles.block} aria-labelledby="ai-services-title">
+      <h2 id="ai-services-title" className={styles.blockTitle}>
+        Dienste
+      </h2>
       <ul className={styles.services}>
         <li className={styles.service}>
           <div className={styles.serviceHead}>
@@ -171,7 +214,7 @@ function ServicesCard({ status }: { status: AiStatus }) {
           mit Adresse und Modell eingetragen, etwa http://host.docker.internal:1234/v1.
         </p>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -299,34 +342,17 @@ function CheckResult({ check }: { check: ServiceCheck }) {
   );
 }
 
-// Everything summarised (D319) ------------------------------------------------------------------
-
-function EverythingCard() {
-  return (
-    <Card aria-labelledby="ai-everything-title">
-      <CardTitle id="ai-everything-title">Alles zusammenfassen</CardTitle>
-      <p className={styles.muted}>
-        Fasst jede Mail und jedes Dokument ohne Zusammenfassung kurz zusammen, damit über jeder Mail
-        steht, wer wem worüber schreibt. Duplikate und ausgeblendete Mails bleiben außen vor. Vorher
-        steht da, wie viele es sind und wie lange es etwa dauert; der Lauf lässt sich jederzeit
-        anhalten und macht beim nächsten Start weiter.
-      </p>
-      <div>
-        <SummarizeButton selection={{ everything: true }} label="Alles zusammenfassen" />
-      </div>
-    </Card>
-  );
-}
-
 // Work lists ------------------------------------------------------------------------------------
 
 function WorkListsCard({ status }: { status: AiStatus }) {
   return (
-    <Card aria-labelledby="ai-lists-title">
-      <CardTitle id="ai-lists-title">Arbeitslisten</CardTitle>
+    <section className={styles.block} aria-labelledby="ai-lists-title">
+      <h2 id="ai-lists-title" className={styles.blockTitle}>
+        Arbeitslisten
+      </h2>
       <p className={styles.muted}>
         Was noch ohne erkannten Text oder Transkript ist. „Vormerken“ legt die Dokumente in die
-        Warteschlange; der Lauf unten liest sie, die von vielen Mails getragenen zuerst.
+        Warteschlange; der Lauf liest sie, die von vielen Mails getragenen zuerst.
       </p>
       <div className={styles.lists}>
         {status.work_lists.map((list) => (
@@ -338,7 +364,7 @@ function WorkListsCard({ status }: { status: AiStatus }) {
           />
         ))}
       </div>
-    </Card>
+    </section>
   );
 }
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { HideRuleFields, HideRuleInfo, HideRulePreview, MailDetail } from "../../api/types";
 import { mailDetail, mailItems, summaryAll } from "../../test/fixtures";
+import { menuItem, rows } from "../../test/mailList";
 import { fixtureApi, renderApp, renderElement, type ApiCall } from "../../test/render";
 import { subjectStart } from "./labels";
 import { mailDraft } from "./MailHiding";
@@ -220,22 +221,25 @@ describe("mailDraft", () => {
 describe("hidden mails in the list", () => {
   it("names how many are hidden and shows them on a click", async () => {
     const { router } = renderApp("/mails", api(mailDetail, 1234));
-    const show = await screen.findByRole("button", { name: "zeigen" });
-    expect(show.parentElement?.textContent).toBe("1.234 ausgeblendet · zeigen");
-    fireEvent.click(show);
+    expect(await screen.findByText(/ · 1\.234 ausgeblendet$/)).toBeTruthy();
+    menuItem("1.234 ausgeblendete Mails zeigen");
     await waitFor(() =>
       expect(new URLSearchParams(router.state.location.search).get("include_hidden")).toBe("true"),
     );
     expect(
       await screen.findByRole("button", { name: "Filter entfernen: Mit ausgeblendeten Mails" }),
     ).toBeTruthy();
-    await waitFor(() => expect(screen.queryByRole("button", { name: "zeigen" })).toBeNull());
+    expect(screen.queryByText(/ausgeblendet$/)).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Weitere Aktionen" })[0]);
+    expect(screen.queryByRole("menuitem", { name: /ausgeblendete Mails zeigen/ })).toBeNull();
   });
 
   it("says nothing while no mail is hidden", async () => {
     renderApp("/mails", api(mailDetail, 0));
-    await screen.findAllByRole("row");
-    expect(screen.queryByText(/ausgeblendet ·/)).toBeNull();
+    await rows();
+    expect(screen.queryByText(/ausgeblendet/)).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Weitere Aktionen" })[0]);
+    expect(screen.queryByRole("menuitem", { name: /ausgeblendete Mails zeigen/ })).toBeNull();
   });
 });
 

@@ -18,7 +18,19 @@ describe("entity list", () => {
     const labels = within(navigation)
       .getAllByRole("link")
       .map((link) => link.textContent);
-    expect(labels.slice(0, 4)).toEqual(["Mails", "Personen", "Anhänge", "Entitäten"]);
+    // without the counts some links carry
+    expect(labels.slice(0, 10).map((label) => label?.replace(/[\d.]+$/, ""))).toEqual([
+      "Mails",
+      "Personen",
+      "Anhänge",
+      "Akten",
+      "Zeitachse",
+      "Karte",
+      "Orte",
+      "Signale",
+      "Entitäten",
+      "Themen",
+    ]);
     expect(within(navigation).getByRole("link", { name: "Entitäten" }).getAttribute("href")).toBe(
       "/entitaeten",
     );
@@ -32,19 +44,19 @@ describe("entity list", () => {
     expect(screen.getByRole("heading", { name: "Entitäten", level: 1 })).toBeTruthy();
 
     const tabs = await screen.findAllByRole("tab");
-    await waitFor(() => expect(tabs[0].textContent).toBe("Alle (22.454)"));
+    await waitFor(() => expect(tabs[0].textContent).toBe("Alle 22.454"));
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "Alle (22.454)",
-      "Beträge (4.210)",
-      "Konten (137)",
-      "Organisationen (1.830)",
-      "Personen (2.650)",
-      "Orte (410)",
-      "Telefon (1.203)",
-      "E-Mail (2.290)",
-      "Web (3.760)",
-      "Daten (5.900)",
-      "Themenbegriffe (64)",
+      "Alle 22.454",
+      "Beträge 4.210",
+      "Konten 137",
+      "Organisationen 1.830",
+      "Personen 2.650",
+      "Orte 410",
+      "Telefon 1.203",
+      "E-Mail 2.290",
+      "Web 3.760",
+      "Daten 5.900",
+      "Themenbegriffe 64",
     ]);
     expect(
       screen.getByText(

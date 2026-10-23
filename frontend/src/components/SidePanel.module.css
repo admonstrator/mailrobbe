@@ -1,0 +1,110 @@
+.panel {
+  position: sticky;
+  top: var(--sticky-top);
+  flex: 0 0 var(--panel-width);
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: var(--panel-width);
+  display: flex;
+  max-height: var(--content-height);
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+}
+
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+}
+
+.title {
+  margin: 0;
+  font: var(--font-section);
+}
+
+.actions {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-nav);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--color-ground);
+}
+
+.body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--space-5) var(--space-6);
+}
+
+/* Along the bottom of the list (D337): fixed to the window, its left and width follow the list. */
+.panel.bottom {
+  position: fixed;
+  bottom: 0;
+  z-index: 20;
+  border-top: 1px solid var(--color-border-subtle);
+  border-left: 0;
+  box-shadow: var(--shadow-popover);
+}
+
+/* The inner edge that resizes a movable panel: the left edge at the right, the top edge below. */
+.handle {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.bottom .handle {
+  top: -3px;
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: auto;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.handle:hover,
+.handle:focus-visible {
+  background: var(--color-nav-active);
+  outline: none;
+}
+
+@media (width < 1024px) {
+  .panel {
+    position: fixed;
+    top: var(--header-height);
+    right: 0;
+    bottom: 0;
+    z-index: 25;
+    width: min(var(--panel-width), 100vw);
+    max-height: none;
+    box-shadow: var(--shadow-popover);
+  }
+}

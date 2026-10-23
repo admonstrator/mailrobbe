@@ -11,9 +11,23 @@
   font-weight: 600;
 }
 
+.sm {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
 .lg {
   width: 64px;
   height: 64px;
   font-size: 22px;
   font-weight: 700;
+}
+
+.xl {
+  width: 240px;
+  height: 240px;
+  font-size: 76px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }

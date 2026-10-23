@@ -1,50 +1,29 @@
+/* The facets in the panel "Einblicke" beside the mail list (D335): a heading with its link, the
+   scope of the counts below, then the chips. */
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
-}
-
-/* Wide screens: a part of the column right of the list (MailListPage's .facets, which draws its
-   edge and scrolls). */
-.column {
-  box-sizing: border-box;
-  padding: 16px 18px;
-}
-
-/* Narrower screens: a block above the table that can be folded away; folded, it is one short
-   line beside the other folded one. */
-.top {
-  flex: 1 1 100%;
-  gap: 10px;
-  padding: 10px 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-}
-
-.top.closed {
-  flex: 1 1 280px;
-  padding-block: 6px;
 }
 
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 10px;
+  gap: 2px var(--space-3);
 }
 
 .title {
   margin: 0;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .scope {
+  order: 1;
+  flex-basis: 100%;
   color: var(--color-muted);
   font-size: 12px;
 }
@@ -52,15 +31,9 @@
 .headLinks {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   margin-left: auto;
   font-size: 12px;
-}
-
-/* In the column the scope goes below the title and the link. */
-.column .scope {
-  order: 1;
-  flex-basis: 100%;
 }
 
 .all {
@@ -70,54 +43,8 @@
 .groups {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   transition: opacity 0.15s;
-}
-
-/* Above the table each group is one line, two side by side where they fit, and about four lines
-   show, the others scroll, so the table stays near the top; "mehr" opens a line. */
-.top .groups {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr));
-  gap: 6px 28px;
-  max-height: 132px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
-.top .group {
-  display: grid;
-  grid-template-columns: 118px minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px;
-}
-
-.top .groupTitle {
-  min-height: 24px;
-}
-
-.top .label {
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.top .more {
-  line-height: 24px;
-  white-space: nowrap;
-}
-
-/* One line of chips; keyboard focus inside opens it, so no focused chip stays hidden. Only the
-   keyboard's: a click would open the line under the pointer and shift the rows below it. */
-.clipped {
-  max-height: 24px;
-  overflow: hidden;
-}
-
-.clipped:has(:focus-visible) {
-  max-height: none;
 }
 
 .stale {

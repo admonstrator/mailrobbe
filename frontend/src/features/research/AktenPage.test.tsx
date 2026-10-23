@@ -45,27 +45,25 @@ describe("Akten screen", () => {
     expect(within(row).getByText(/angelegt von Lena Vogt/)).toBeTruthy();
     expect(screen.getByText("61 relevant · 9 markiert · 690 gesichtet")).toBeTruthy();
     for (const name of [
-      "Akten (1)",
+      "Akten 1",
       "Themen",
-      "Gespeicherte Suchen (2)",
-      "Schlagworte (2)",
-      "Notizen (23)",
+      "Gespeicherte Suchen 2",
+      "Schlagworte 2",
+      "Notizen 23",
       "Exporte",
     ]) {
       expect(screen.getByRole("tab", { name })).toBeTruthy();
     }
-    expect(screen.getByRole("tab", { name: "Akten (1)" }).getAttribute("aria-selected")).toBe(
-      "true",
-    );
+    expect(screen.getByRole("tab", { name: "Akten 1" }).getAttribute("aria-selected")).toBe("true");
   });
 
   it("keeps the tab in the URL", async () => {
     const { router } = renderApp("/akten");
-    fireEvent.click(await tab("Schlagworte (2)"));
+    fireEvent.click(await tab("Schlagworte 2"));
     expect(router.state.location.search).toBe("?tab=schlagworte");
     expect(await screen.findByText("Spendenaffären")).toBeTruthy();
     expect(document.title).toBe("Schlagworte · Akten · Mailrobbe");
-    fireEvent.click(screen.getByRole("tab", { name: "Akten (1)" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Akten 1" }));
     expect(router.state.location.search).toBe("");
   });
 

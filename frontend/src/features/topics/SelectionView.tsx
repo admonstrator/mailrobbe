@@ -22,7 +22,6 @@ import {
   type TopicTerms,
 } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { Chip } from "../../components/Chip";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
@@ -100,7 +99,7 @@ export function SelectionView({
     <div className={styles.view}>
       <Controls list={list} onChange={change} />
       <Chips state={state} onChange={onChange} />
-      <Card className={styles.card}>
+      <div className={styles.card}>
         {!selected ? (
           <EmptyState
             title="Wählen Sie eine Person, einen Zeitraum oder eine Suche"
@@ -137,7 +136,7 @@ export function SelectionView({
             }
           />
         )}
-      </Card>
+      </div>
     </div>
   );
 }

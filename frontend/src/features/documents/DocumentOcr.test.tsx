@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DocumentDetail } from "../../api/types";
 import { aiStatus, documentSummary, ocrDocument, scannedDocument } from "../../test/fixtures";
+import { openFilter } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 /** The fixture backend with the two scans and the AI endpoints a document page uses. */
@@ -72,7 +73,7 @@ describe("text recognition on a document", () => {
 
   it("starts the recognition of a scan without a text at once, beside the download", async () => {
     const { calls } = renderApp(`/anhaenge/${scannedDocument.id}`, api);
-    const header = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    const header = (await screen.findByRole("heading", { level: 1 })).closest("header")!;
     const download = within(header).getByRole("link", { name: "Herunterladen" });
     const button = within(header).getByRole("button", { name: "Text erkennen" });
     expect(download.parentElement).toBe(button.parentElement);
@@ -99,8 +100,8 @@ describe("text recognition on a document", () => {
 describe("text source in the document list", () => {
   it("filters by text source and queues the filtered documents", async () => {
     const { calls } = renderApp("/anhaenge", api);
-    const column = await screen.findByRole("complementary", { name: "Filter" });
-    fireEvent.click(await within(column).findByRole("checkbox", { name: /Texterkennung/ }));
+    const more = await openFilter("Weitere Filter");
+    fireEvent.click(await within(more).findByRole("checkbox", { name: /Texterkennung/ }));
     await waitFor(() =>
       expect(
         calls.some(
