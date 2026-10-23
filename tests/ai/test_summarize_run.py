@@ -22,6 +22,7 @@ from mailrobbe.ai.model import (
     PRIORITY_SINGLE,
     AiOptions,
     AiProgress,
+    OcrPage,
     locality,
 )
 from mailrobbe.ai.prompts import load_prompts
@@ -474,6 +475,148 @@ async def test_a_run_for_one_mail_takes_only_its_content(archive: Any, database:
         "Bericht.txt": "waiting",
     }
     assert original < duplicate
+
+
+# Asked for on a page: done now (D329) ---------------------------------------------------------
+
+
+async def ask(url: str, **targets: Any) -> None:
+    """Queue summaries as a page does: first in the queue."""
+    engine = create_engine(url)
+    try:
+        async with create_sessionmaker(engine).begin() as session:
+            await enqueue_summaries(session, single=True, **targets)
+    finally:
+        await engine.dispose()
+
+
+async def ask_ocr(url: str, priority: int = PRIORITY_SINGLE) -> None:
+    """Queue the OCR of Bericht.txt; AnyFake reads it as one page."""
+    await rows(
+        url,
+        "INSERT INTO ai_task (kind, target_sha256, engine, priority)"
+        " VALUES ('ocr', :sha256, 'tesseract', :priority)",
+        {"sha256": (await report(url)).sha256, "priority": priority},
+    )
+
+
+async def test_every_run_takes_what_was_asked_for_on_a_page_first(
+    archive: Any, database: str
+) -> None:
+    await queue(database, "Sommerfest", "Weiterleitung")
+    await ask(database, mail_ids=(await mail_ids(database, "Kurze Antwort"))[:1])
+    sommerfest, _ = await mail_ids(database, "Sommerfest")
+    model = Model()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings, mails=[sommerfest]))
+    assert result.exit_code == 0 and model.asked == ["short", "whole"]
+    assert {name: row.status for name, row in (await tasks(database)).items()} == {
+        "Kurze Antwort": "done",
+        "Sommerfest": "done",
+        "Weiterleitung": "waiting",
+    }
+
+
+async def test_a_step_turns_to_what_was_asked_for_in_another_step(
+    archive: Any, database: str
+) -> None:
+    await queue(database, report_too=True)
+    await queue(database, "Sommerfest")
+    model = Model(hold=1)
+
+    def read(name: str, number: int) -> OcrPage:
+        model.asked.append("ocr")
+        return OcrPage(number=number, engine="tesseract", text=f"{name} {number}", confidence=90)
+
+    engines = AnyFake(tesseract_reader=read).engines()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        options = options_for(settings, context_tokens=4096)
+        running = asyncio.create_task(run_ai(settings, options, engines=engines))
+        async with asyncio.timeout(10):
+            while not model.reading.is_set():
+                await asyncio.sleep(0.02)
+        await ask_ocr(database)  # while the report is read in parts
+        model.release.set()
+        result = await asyncio.wait_for(running, 10)
+
+    # The report's summary ends, the scan is read, then the summaries go on.
+    assert result.exit_code == 0
+    total = len([asked for asked in model.asked if asked.startswith("part ")])
+    assert model.asked[total:] == ["combine", "ocr", "whole"]
+    assert {name: row.status for name, row in (await tasks(database)).items()} == {
+        "Bericht.txt": "done",
+        "Sommerfest": "done",
+    }
+    figures = steps(await latest(database))
+    assert (figures["ocr"].status, figures["summarize"].status) == ("done", "done")
+
+
+async def test_a_summary_asked_for_waits_for_the_ocr_of_its_document(
+    archive: Any, database: str
+) -> None:
+    await queue(database, "Sommerfest")
+    await ask_ocr(database, priority=0)
+    await ask(database, document_ids=[(await report(database)).id])
+    sommerfest, _ = await mail_ids(database, "Sommerfest")
+    model, fake = Model(), AnyFake()
+    with text_service(model) as service:
+        settings = text_settings(database, archive, service)
+        # The OCR is not this run's: the summary waits, and the run ends.
+        result = await run_ai(
+            settings, options_for(settings, mails=[sommerfest]), engines=fake.engines()
+        )
+        assert result.exit_code == 0 and fake.reads == [] and model.asked == ["whole"]
+        assert (await tasks(database))["Bericht.txt"].status == "waiting"
+
+        result = await run_ai(settings, options_for(settings), engines=fake.engines())
+    assert result.exit_code == 0 and fake.reads == [("tesseract", "Bericht.txt", 1)]
+    assert (await tasks(database))["Bericht.txt"].status == "done"
+
+
+async def test_what_is_asked_for_after_the_last_step_makes_the_run_go_round_again(
+    archive: Any, database: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await queue(database, "Sommerfest")
+    rounds = ai_run._Run._steps
+    asked: list[int] = []
+
+    async def asking(run: Any) -> int:
+        code = await rounds(run)
+        if not asked:  # as the entities and signals phases might be running now
+            asked.extend(await mail_ids(database, "Weiterleitung"))
+            await ask(database, mail_ids=asked[:1])
+        return code
+
+    monkeypatch.setattr(ai_run._Run, "_steps", asking)
+    model = Model()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings))
+    assert result.exit_code == 0 and model.asked == ["whole", "short"]
+    assert (result.summary.summaries_queued, result.summary.summaries) == (2, 2)
+    assert {name: row.status for name, row in (await tasks(database)).items()} == {
+        "Sommerfest": "done",
+        "Weiterleitung": "done",
+    }
+
+
+async def test_an_alias_run_takes_what_was_asked_for_on_a_page_after_its_pairs(
+    archive: Any, database: str
+) -> None:
+    await queue(database, "Sommerfest")
+    await ask(database, mail_ids=(await mail_ids(database, "Kurze Antwort"))[:1])
+    model = Model()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings, aliases=True))
+    assert result.exit_code == 0 and model.asked == ["short"]
+    assert result.summary.message.startswith("0 of 0 pairs of persons checked")
+    assert {name: row.status for name, row in (await tasks(database)).items()} == {
+        "Kurze Antwort": "done",
+        "Sommerfest": "waiting",
+    }
 
 
 # Threads (D316) and attachments first (D317) --------------------------------------------------

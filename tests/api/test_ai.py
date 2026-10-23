@@ -816,8 +816,9 @@ async def summarized(
 
 
 async def original_mails(url: str, count: int) -> list[Any]:
-    """Mails with a content of their own (no duplicates) and a text of at least
-    SUMMARY_MIN_WORDS words, by id."""
+    """Mails with a content of their own (no duplicates), a text of at least SUMMARY_MIN_WORDS
+    words and no attachment, by id: summarising one from its page queues its attachments too
+    (D317), and which mail gets an id depends on the import's workers."""
     return await rows(
         url,
         f"""SELECT id, raw_sha256, subject, date_utc,
@@ -826,6 +827,7 @@ async def original_mails(url: str, count: int) -> list[Any]:
            WHERE NOT EXISTS (SELECT 1 FROM mail o WHERE o.raw_sha256 = m.raw_sha256
                              AND o.id <> m.id)
              AND {WORDS} >= {SUMMARY_MIN_WORDS}
+             AND NOT EXISTS (SELECT 1 FROM attachment a WHERE a.mail_id = m.id)
            ORDER BY id LIMIT :count""",
         count=count,
     )
