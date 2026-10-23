@@ -21,6 +21,7 @@ import { AiRunCard } from "./AiRunCard";
 import { QueueCard, ResultsCard, SentCard } from "./AiLists";
 import styles from "./AiPage.module.css";
 import { EngineSelect } from "./EngineSelect";
+import { SummarizeButton } from "./SummarizeManyDialog";
 import {
   aiErrorText,
   estimateFor,
@@ -108,6 +109,7 @@ function Content({ status }: { status: AiStatus }) {
     <>
       <ServicesCard status={status} />
       <WorkListsCard status={status} />
+      <EverythingCard />
       <AiRunCard status={status} />
       <QueueCard status={status} alive={alive} />
       <ResultsCard alive={alive} />
@@ -294,6 +296,25 @@ function CheckResult({ check }: { check: ServiceCheck }) {
       )}
       {check.error && <span className={styles.technical}>{check.error}</span>}
     </div>
+  );
+}
+
+// Everything summarised (D319) ------------------------------------------------------------------
+
+function EverythingCard() {
+  return (
+    <Card aria-labelledby="ai-everything-title">
+      <CardTitle id="ai-everything-title">Alles zusammenfassen</CardTitle>
+      <p className={styles.muted}>
+        Fasst jede Mail und jedes Dokument ohne Zusammenfassung kurz zusammen, damit über jeder Mail
+        steht, wer wem worüber schreibt. Duplikate und ausgeblendete Mails bleiben außen vor. Vorher
+        steht da, wie viele es sind und wie lange es etwa dauert; der Lauf lässt sich jederzeit
+        anhalten und macht beim nächsten Start weiter.
+      </p>
+      <div>
+        <SummarizeButton selection={{ everything: true }} label="Alles zusammenfassen" />
+      </div>
+    </Card>
   );
 }
 

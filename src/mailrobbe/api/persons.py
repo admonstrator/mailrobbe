@@ -63,8 +63,8 @@ from mailrobbe import jobs
 from mailrobbe.ai.model import alias_check_service
 from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
-from mailrobbe.api.filters import _contains, mail_conditions
-from mailrobbe.api.mails import _count_budget, _unless_canceled
+from mailrobbe.api.filters import _contains
+from mailrobbe.api.mails import _count_budget, _terms, _unless_canceled, _where
 from mailrobbe.api.schemas import (
     DISPLAY_NAME_LIMIT,
     SUGGESTION_LIMIT,
@@ -1060,11 +1060,13 @@ async def mail_counts(
     settings: AppSettings,
 ) -> PersonMailCounts:
     """The tabs of the person's mail list (D32) as the mail list filters them: person_role,
-    between the person and the contact, the year as a date range, without duplicates.
+    between the person and the contact, the year as a date range, q as the search syntax
+    (D330), without duplicates.
 
     One pass over the participations of the person's and the contact's addresses gives each mail
-    once with the roles both have in it; the mails themselves are read only for the year.
+    once with the roles both have in it; the mails themselves are read only for the year or q.
     """
+    terms = _terms(params.q)
     root = await _root(session, person_id)
     members = await member_ids(session, root)
     contact = [] if params.contact is None else await member_ids(session, params.contact)
@@ -1093,13 +1095,15 @@ async def mail_counts(
                 and_(flags.c.contact_sent, or_(to, cc, bcc)),
             )
         )
-    if params.year is not None:
-        year = MailFilters(
-            date_from=date(params.year, 1, 1),
-            date_to=date(params.year, 12, 31) if params.year < date.max.year else None,
+    if params.year is not None or terms:
+        year = params.year
+        mails = MailFilters(
+            q=params.q,
+            date_from=None if year is None else date(year, 1, 1),
+            date_to=None if year is None or year == date.max.year else date(year, 12, 31),
         )
-        dated = select(Mail.id).where(*mail_conditions(year, (), ()))
-        where.append(flags.c.mail_id.in_(dated))
+        chosen = select(Mail.id).where(*_where(mails, terms, settings))
+        where.append(flags.c.mail_id.in_(chosen))
     counts = select(
         func.count(),
         func.count().filter(sent),

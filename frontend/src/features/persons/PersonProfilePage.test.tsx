@@ -236,6 +236,30 @@ describe("person profile", () => {
     );
   });
 
+  it("searches only the person's mails, in every role (D330)", async () => {
+    const { router, calls } = renderApp("/personen/11?role=sent");
+    await screen.findByRole("link", { name: /finale Fassung/ });
+    const field = screen.getByRole("searchbox", { name: "In den Mails der Person suchen" });
+
+    fireEvent.change(field, { target: { value: "  Kasse " } });
+    fireEvent.submit(field.closest("form")!);
+    expect(router.state.location.search).toBe("?role=sent&q=Kasse");
+    await waitFor(() => expect(lastMailQuery(calls).get("q")).toBe("Kasse"));
+    expect(lastMailQuery(calls).getAll("person")).toEqual(["11"]);
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.url.pathname === "/api/persons/11/mail-counts").at(-1)!.url
+          .search,
+      ).toBe("?q=Kasse"),
+    );
+    expect(screen.getByRole("link", { name: "In der Mailliste öffnen" }).getAttribute("href")).toBe(
+      "/mails?q=Kasse&hide_duplicates=true&person=11&person_role=sent",
+    );
+
+    fireEvent.change(field, { target: { value: "" } });
+    expect(router.state.location.search).toBe("?role=sent");
+  });
+
   it("shows the person's mails per month, says when they stopped and opens a month", async () => {
     const { router, calls } = renderApp("/personen/11");
     await screen.findByRole("heading", { name: "Verlauf pro Monat" });

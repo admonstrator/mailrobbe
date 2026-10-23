@@ -4,15 +4,15 @@ of mails and documents from a text model (D300 to D308), and the alias check (D3
 
     run     work through the queue (ai.run): a run of kind ai with the steps check, ocr,
             transcribe, summarize, entities and signals; stoppable at any page, piece of a
-            recording or part, the next run continues there. --document and --mail take only
-            the tasks of these elements; --aliases takes no task and asks the text model about
-            the alias candidates instead (ai.aliases)
+            recording or part, the next run continues there. --document, --mail and --thread
+            take only the tasks of these elements; --aliases takes no task and asks the text
+            model about the alias candidates instead (ai.aliases)
     check   ask each configured service for real (a picture with a known word for vision, a
             short text whose summary must name that word for text) and print what it found as
             JSON
     queue   put a selection on the queue: the work lists "scanned", "images" and "media" of the
             AI page, or documents by id (D186, D295); with --summarize, summaries of mails, of
-            the mails of an Akte and of documents (D308)
+            the mails of an Akte, of documents and of threads (D308, D316)
     model   print the state of the transcriber's files as JSON; with --download fetch what is
             missing (D291), which a run that transcribes also does in its check step
     status  print the tasks per kind and status, the transcriber and the latest run as JSON
@@ -144,6 +144,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "the rest of the queue waiting; repeatable",
     )
     work.add_argument(
+        "--thread",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="summarise only this queued thread (mail.thread_id), as --mail; repeatable",
+    )
+    work.add_argument(
         "--text-model", help="the text model for this run (default: MAILROBBE_AI_TEXT_MODEL)"
     )
     work.add_argument(
@@ -174,7 +182,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     queue.add_argument(
         "--summarize",
         action="store_true",
-        help="summaries, AI tags and theme hints of --mail, --collection and --document",
+        help="summaries, AI tags and theme hints of --mail, --collection, --document and --thread",
+    )
+    queue.add_argument(
+        "--thread",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="a thread by mail.thread_id, summarised as a whole; repeatable",
     )
     queue.add_argument(
         "--mail", type=int, action="append", default=[], metavar="ID", help="a mail; repeatable"
@@ -276,6 +292,8 @@ def options(settings: Settings, args: argparse.Namespace) -> AiOptions:
         update["documents"] = sorted(set(args.document))
     if args.mail:
         update["mails"] = sorted(set(args.mail))
+    if args.thread:
+        update["threads"] = sorted(set(args.thread))
     if args.text_model:
         update["text_model"] = args.text_model.strip()
     if args.aliases:
@@ -310,8 +328,8 @@ def failed(found: ServiceCheck) -> bool:
 async def _queue(settings: Settings, args: argparse.Namespace) -> int:
     if args.summarize:
         return await _queue_summaries(settings, args)
-    if args.mail or args.collection:
-        log.error("--mail and --collection queue summaries: add --summarize")
+    if args.mail or args.collection or args.thread:
+        log.error("--mail, --collection and --thread queue summaries: add --summarize")
         return EXIT_USAGE
     if not (args.scanned or args.images or args.media or args.document):
         log.error("name what to queue: --scanned, --images, --media or --document ID")
@@ -338,10 +356,12 @@ async def _queue(settings: Settings, args: argparse.Namespace) -> int:
 async def _queue_summaries(settings: Settings, args: argparse.Namespace) -> int:
     """Summaries of the mails, the Akten's mails and the documents named (D308)."""
     if args.scanned or args.images or args.media:
-        log.error("--summarize takes --mail, --collection and --document, not a work list")
+        log.error(
+            "--summarize takes --mail, --collection, --document and --thread, not a work list"
+        )
         return EXIT_USAGE
-    if not (args.mail or args.collection or args.document):
-        log.error("name what to summarise: --mail ID, --collection ID or --document ID")
+    if not (args.mail or args.collection or args.document or args.thread):
+        log.error("name what to summarise: --mail, --collection, --document or --thread ID")
         return EXIT_USAGE
     engine = create_engine(settings.database_url)
     try:
@@ -350,7 +370,9 @@ async def _queue_summaries(settings: Settings, args: argparse.Namespace) -> int:
             if args.collection:
                 found = await session.execute(_AKTE_MAILS, {"ids": args.collection})
                 mails += found.scalars()
-            queued = await enqueue_summaries(session, mail_ids=mails, document_ids=args.document)
+            queued = await enqueue_summaries(
+                session, mail_ids=mails, document_ids=args.document, thread_ids=args.thread
+            )
     finally:
         await engine.dispose()
     print(json.dumps(asdict(queued), indent=2))

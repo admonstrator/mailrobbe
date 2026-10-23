@@ -295,7 +295,9 @@ export function mailCount(mails: number): string {
 
 /** What starting the summary of one mail or document did (D307), like startedText. */
 export function summaryStartedText(queued: AiQueued, target: AiTarget): string {
-  const element = target === "mail" ? "diese Mail" : "dieses Dokument";
+  const element = { mail: "diese Mail", document: "dieses Dokument", thread: "diesen Thread" }[
+    target
+  ];
   if (queued.queued + queued.raised === 0) return "Hier gibt es nichts zusammenzufassen.";
   switch (queued.run) {
     case "started":

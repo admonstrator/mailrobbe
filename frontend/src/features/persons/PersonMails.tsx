@@ -1,9 +1,10 @@
-import type { MouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import { Link, useNavigate } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useMailPage, usePersonMailCounts } from "../../api/queries";
 import {
+  type MailHitCounts,
   type MailListItem,
   type ParticipationRole,
   type PersonFigures,
@@ -17,6 +18,7 @@ import { Card } from "../../components/Card";
 import { DkimDot } from "../../components/DkimDot";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
+import { SearchIcon } from "../../components/icons";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
@@ -26,7 +28,9 @@ import { dkimKey } from "../../lib/dkim";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import { edgePages, listPagination } from "../../lib/paging";
 import { PERSON_ROLE_LABELS } from "../mails/chips";
+import { hitPlaces } from "../mails/hitPlaces";
 import { listSearch, toListParams } from "../mails/listState";
+import { invalidTerm } from "../mails/queryText";
 import { personLabel } from "./labels";
 import styles from "./PersonMails.module.css";
 import { personMailList, withSelection, type ProfileMailState } from "./urlState";
@@ -53,8 +57,9 @@ function figureCounts(figures: PersonFigures): PersonMailCounts {
   };
 }
 
-/** The person's mails (D32): tabs by role, a contact and a year to narrow them, one page of the
- *  mail list. Tab counts are the figures, or counted for a chosen year or contact. */
+/** The person's mails (D32): tabs by role, a contact, a year and a search to narrow them (D330),
+ *  one page of the mail list. Tab counts are the figures, or counted for a chosen year, contact
+ *  or search. */
 export function PersonMails({
   profile,
   state,
@@ -68,10 +73,11 @@ export function PersonMails({
 }) {
   const list = personMailList(profile.id, state);
   const page = useMailPage(toListParams(list));
-  const narrowed = state.year !== null || state.contact !== null;
+  const narrowed = state.year !== null || state.contact !== null || state.q !== "";
   const countParams: PersonMailCountParams = {};
   if (state.year !== null) countParams.year = state.year;
   if (state.contact !== null) countParams.contact = state.contact;
+  if (state.q) countParams.q = state.q;
   const counted = usePersonMailCounts(
     profile.id,
     countParams,
@@ -140,6 +146,15 @@ export function PersonMails({
   return (
     <Card className={styles.card} aria-label="Mails der Person">
       <div className={styles.bar}>
+        <div className={styles.searchRow}>
+          <MailSearch value={state.q} onSearch={(q) => onChange(withSelection(state, { q }))} />
+          <Link
+            to={`/mails?${listSearch({ ...list, cursor: null, page: 1 }).toString()}`}
+            className={styles.listLink}
+          >
+            In der Mailliste öffnen
+          </Link>
+        </div>
         <Tabs<MailTab>
           items={TABS.map((id) => ({ id, label: tabLabel(id) }))}
           active={tab}
@@ -159,12 +174,14 @@ export function PersonMails({
         ) : page.isError ? (
           <PageError
             error={page.error}
+            q={state.q}
             edges={edgePages(state, href)}
+            cleared={href(withSelection(state, { q: "" }))}
             onRetry={() => void page.refetch()}
           />
         ) : page.data.items.length === 0 ? (
           <EmptyState
-            title="Keine Mails"
+            title={state.q ? "Keine Mails gefunden" : "Keine Mails"}
             actions={
               (narrowed || state.role) && (
                 <Link
@@ -173,6 +190,7 @@ export function PersonMails({
                     role: null,
                     year: null,
                     contact: null,
+                    q: "",
                     cursor: null,
                     page: 1,
                   })}
@@ -183,7 +201,9 @@ export function PersonMails({
               )
             }
           >
-            Für diese Auswahl gibt es keine Mails.
+            {state.q
+              ? "Keine Mail dieser Person passt zu dieser Suche."
+              : "Für diese Auswahl gibt es keine Mails."}
           </EmptyState>
         ) : (
           <PersonMailTable
@@ -207,6 +227,46 @@ export function PersonMails({
         </div>
       )}
     </Card>
+  );
+}
+
+/** The search field: the list follows on Enter, and at once when the field is emptied. */
+function MailSearch({ value, onSearch }: { value: string; onSearch: (q: string) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+
+  // The URL changed elsewhere (back, a link): show its search.
+  useEffect(() => {
+    if (input.current && input.current.value.trim() !== value) input.current.value = value;
+  }, [value]);
+
+  return (
+    <form
+      role="search"
+      className={styles.search}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const q = input.current?.value.trim() ?? "";
+        if (q !== value) onSearch(q);
+      }}
+    >
+      <SearchIcon className={styles.searchIcon} />
+      <label htmlFor="person-mails-search" className="sr-only">
+        In den Mails der Person suchen
+      </label>
+      <input
+        ref={input}
+        id="person-mails-search"
+        type="search"
+        defaultValue={value}
+        placeholder="In den Mails dieser Person suchen …"
+        autoComplete="off"
+        spellCheck={false}
+        className={styles.searchInput}
+        onChange={(event) => {
+          if (!event.target.value.trim() && value) onSearch("");
+        }}
+      />
+    </form>
   );
 }
 
@@ -286,6 +346,7 @@ function PersonMailTable({
                 >
                   {mail.subject || "(kein Betreff)"}
                 </Link>
+                {mail.hits && <HitPlaces hits={mail.hits} />}
               </td>
               <td className={styles.date}>{mail.date ? formatDateTime(mail.date) : "–"}</td>
             </tr>
@@ -296,16 +357,46 @@ function PersonMailTable({
   );
 }
 
+function HitPlaces({ hits }: { hits: MailHitCounts }) {
+  const places = hitPlaces(hits);
+  if (!places) return null;
+  return (
+    <span className={styles.hits} title={places.title}>
+      {places.label}
+    </span>
+  );
+}
+
 function PageError({
   error,
+  q,
   edges,
+  cleared,
   onRetry,
 }: {
   error: Error;
+  q: string;
   edges: { first: string; last: string };
+  /** The list without the search. */
+  cleared: string;
   onRetry: () => void;
 }) {
   if (error instanceof ApiError && error.code === "page_too_far") return <PageTooFar {...edges} />;
+  if (error instanceof ApiError && error.code === "invalid_query") {
+    return (
+      <ErrorState
+        title={`Suche nicht verstanden: ${invalidTerm(error.message, q)}`}
+        actions={
+          <Link to={cleared} className={buttonClass()}>
+            Suche leeren
+          </Link>
+        }
+      >
+        Suchoperatoren brauchen einen gültigen Wert, zum Beispiel after:2024-01-31, dkim:fail oder
+        has:attachment.
+      </ErrorState>
+    );
+  }
   if (error instanceof ApiError && error.code === "invalid_cursor") {
     return (
       <ErrorState

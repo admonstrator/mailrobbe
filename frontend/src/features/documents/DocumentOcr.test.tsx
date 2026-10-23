@@ -36,8 +36,10 @@ describe("text recognition on a document", () => {
     ).toBeTruthy();
     expect(within(card).getByText("Unsicher gelesen: Seite 2.")).toBeTruthy();
     expect(within(card).getByText(/Nicht gelesen: Seite 3\./)).toBeTruthy();
-    fireEvent.click(within(card).getByRole("button", { name: "Text anzeigen" }));
+    // a recognised text shows at once (D320), and folds like any other
     expect(await within(card).findByText(/Vorstandssitzung/)).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Text ausblenden" }));
+    expect(within(card).queryByText(/Vorstandssitzung/)).toBeNull();
   });
 
   it("recognises again at once with the chosen engine", async () => {

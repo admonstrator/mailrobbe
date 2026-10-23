@@ -1,7 +1,7 @@
 """Alias checks: what the text model said about a pair of persons
 
 Revision ID: 0024
-Revises: 0022
+Revises: 0023
 Create Date: 2026-10-23
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0024"
-down_revision: str | None = "0022"
+down_revision: str | None = "0023"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

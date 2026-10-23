@@ -1,6 +1,6 @@
 // The persons screens keep their state in the URL: search, sort, page, tab and "Nur benannte"
 // of the person list (/personen) with the view of the suggestions, and the mail card
-// of a profile (/personen/:id: role, year, contact, page). Pages as every list's (D193).
+// of a profile (/personen/:id: role, year, contact, search, page). Pages as every list's (D193).
 
 import { buildQuery } from "../../api/client";
 import {
@@ -80,12 +80,15 @@ export interface ProfileMailState extends Paging {
   year: number | null;
   /** A contact's person id: only the mails between both. */
   contact: number | null;
+  /** A search in the person's mails, in the mail list's syntax (D330). */
+  q: string;
 }
 
 export const DEFAULT_PROFILE_MAIL_STATE: ProfileMailState = {
   role: null,
   year: null,
   contact: null,
+  q: "",
   cursor: null,
   page: 1,
   limit: PAGE_SIZE,
@@ -97,6 +100,7 @@ export function parseProfileMailState(search: URLSearchParams): ProfileMailState
     role: PERSON_ROLES.find((role) => role === search.get("role")) ?? null,
     year: positiveInt(search.get("year"), 9999),
     contact: positiveInt(search.get("contact")),
+    q: search.get("q")?.trim() ?? "",
   };
 }
 
@@ -105,24 +109,27 @@ export function profileMailSearch(state: ProfileMailState): URLSearchParams {
     role: state.role,
     year: state.year,
     contact: state.contact,
+    q: state.q,
     ...pagingQuery(state),
   });
 }
 
-/** state with the tab, year or contact changed, back on the first page. */
+/** state with the tab, year, contact or search changed, back on the first page. */
 export function withSelection(
   state: ProfileMailState,
-  patch: Partial<Pick<ProfileMailState, "role" | "year" | "contact">>,
+  patch: Partial<Pick<ProfileMailState, "role" | "year" | "contact" | "q">>,
 ): ProfileMailState {
   return { ...state, ...patch, cursor: null, page: 1 };
 }
 
 /** The mail list behind a profile's mail card (D32): the person in the tab's role, the year as
- *  UTC days, the mails between both for a contact, duplicates hidden as in the figures. */
+ *  UTC days, the mails between both for a contact, the search (D330), duplicates hidden as in
+ *  the figures. */
 export function personMailList(personId: number, state: ProfileMailState): ListState {
   const year = state.year === null ? null : String(state.year).padStart(4, "0");
   return {
     ...DEFAULT_LIST_STATE,
+    q: state.q,
     person: [personId],
     person_role: state.role,
     date_from: year && `${year}-01-01`,

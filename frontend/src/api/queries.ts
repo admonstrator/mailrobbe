@@ -1805,7 +1805,8 @@ export function useAiSummary(params: AiSummaryParams, enabled = true) {
     queryKey: aiKeys.summary(params),
     queryFn: ({ signal }) => apiGet<AiSummaryView>("/api/ai/summary", params, signal),
     enabled,
-    refetchInterval: (query) => (query.state.data?.task ? OCR_POLL : false),
+    refetchInterval: (query) =>
+      query.state.data?.task || query.state.data?.preparing ? OCR_POLL : false,
   });
 }
 

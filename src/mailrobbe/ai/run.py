@@ -344,11 +344,13 @@ _REQUEUE = text("UPDATE ai_task SET status = 'waiting' WHERE status = 'running'"
 # tasks waiting, of every kind: a run for one mail reads no document (ai.summarize.step too).
 _ONLY = (
     "((cardinality(CAST(:documents AS bigint[])) = 0"
-    " AND cardinality(CAST(:mails AS bigint[])) = 0)"
+    " AND cardinality(CAST(:mails AS bigint[])) = 0"
+    " AND cardinality(CAST(:threads AS bigint[])) = 0)"
     " OR ({task}.target = 'document' AND {task}.target_sha256 IN"
     " (SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
     " OR ({task}.target = 'mail' AND {task}.target_sha256 IN"
-    " (SELECT raw_sha256 FROM mail WHERE id = ANY(CAST(:mails AS bigint[])))))"
+    " (SELECT raw_sha256 FROM mail WHERE id = ANY(CAST(:mails AS bigint[]))))"
+    " OR ({task}.target = 'thread' AND {task}.thread_id = ANY(CAST(:threads AS bigint[]))))"
 )
 # The waiting tasks of one kind; pages, vision and auto concern OCR.
 _WAITING = text(f"""
@@ -574,8 +576,7 @@ class _Run:
         parameters = {
             "kind": kind.value,
             "max_pages": self.options.max_pages,
-            "documents": self.options.documents,
-            "mails": self.options.mails,
+            **self.options.only,
         }
         return (await session.execute(_WAITING, parameters)).one()
 
@@ -583,8 +584,7 @@ class _Run:
         """The bytes the check downloads first (its step counts them): what the transcriber's
         files lack when this run has transcribe tasks, else 0."""
         async with self.sessionmaker() as session:
-            only = {"documents": self.options.documents, "mails": self.options.mails}
-            recordings = await session.scalar(_RECORDINGS, only)
+            recordings = await session.scalar(_RECORDINGS, self.options.only)
         if not recordings:
             return 0
         state = await asyncio.to_thread(self.engines.model_state, self.settings.ai_model_dir)
@@ -753,8 +753,7 @@ class _Run:
                 parameters = {
                     "kind": AiTaskKind.OCR.value,
                     "job_id": self.job.job_id,
-                    "documents": self.options.documents,
-                    "mails": self.options.mails,
+                    **self.options.only,
                 }
                 row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:
@@ -1198,8 +1197,7 @@ class _Run:
                 parameters = {
                     "kind": AiTaskKind.TRANSCRIBE.value,
                     "job_id": self.job.job_id,
-                    "documents": self.options.documents,
-                    "mails": self.options.mails,
+                    **self.options.only,
                 }
                 row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:

@@ -10,6 +10,10 @@ file.
     document  by its SHA-256 (D185): kind, file name, date and sender of the first mail carrying
               it and where its text comes from; the text whatever its origin (extracted,
               recognised, transcribed)
+    thread    by its thread_id, while its mails are still the content queued (D316): its subject,
+              mails, time span and participants; the text its mails in order of date, each with
+              date, sender, recipients, subject and attachment names above its own words as for
+              a mail. Its quotes stand in no one stored text: theme hints keep no position
 
 A mail with fewer than SUMMARY_MIN_WORDS words of its own is short: tags and theme hints only, as
 any summary would be longer than it (D302); a document is always summarised, as the queue counts
@@ -18,6 +22,8 @@ the stored text (mail.body_text, document.extracted_text), where a theme hint's 
 (D304). The head lines are German, as are the prompts.
 """
 
+import hashlib
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -26,7 +32,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from mailrobbe.ai.model import SUMMARY_MIN_WORDS
+from mailrobbe.ai.model import SUMMARY_MIN_WORDS, THREAD_MIN_MAILS
 from mailrobbe.enums import AiTarget
 from mailrobbe.quotes import Segment, split_text
 
@@ -63,6 +69,25 @@ _ATTACHMENTS = text("""
     SELECT COALESCE(NULLIF(filename, ''), '(ohne Namen)') FROM attachment
     WHERE mail_id = :mail_id AND container_id IS NULL
     ORDER BY position, id
+""")
+# A thread's mails that are no duplicates, one per content (as ai.queue.THREAD_KEY counts them).
+_THREAD = text("""
+    SELECT DISTINCT ON (raw_sha256) id, raw_sha256, subject, date_utc,
+        COALESCE(body_text, '') AS body
+    FROM mail WHERE thread_id = :thread_id AND is_duplicate_of IS NULL
+    ORDER BY raw_sha256, id
+""")
+_THREAD_PEOPLE = text("""
+    SELECT p.mail_id, p.role::text AS role, COALESCE(p.display_name, n.display_name) AS name,
+        n.canonical_email AS email
+    FROM participation p JOIN person n ON n.id = p.person_id
+    WHERE p.mail_id = ANY(CAST(:mail_ids AS bigint[]))
+    ORDER BY p.mail_id, p.role, name, email
+""")
+_THREAD_ATTACHMENTS = text("""
+    SELECT mail_id, COALESCE(NULLIF(filename, ''), '(ohne Namen)') AS name FROM attachment
+    WHERE mail_id = ANY(CAST(:mail_ids AS bigint[])) AND container_id IS NULL
+    ORDER BY mail_id, position, id
 """)
 _DOCUMENT = text("""
     SELECT name, kind::text AS kind, COALESCE(extracted_text, '') AS body,
@@ -185,15 +210,76 @@ async def document_input(session: AsyncSession, sha256: str) -> SummaryInput | N
     )
 
 
+async def thread_input(session: AsyncSession, sha256: str, thread_id: int) -> SummaryInput | None:
+    """The thread (module docstring); None when its mails are no longer the content sha256 (a
+    mail joined or left it since it was queued) or fewer than THREAD_MIN_MAILS."""
+    rows = (await session.execute(_THREAD, {"thread_id": thread_id})).all()
+    joined = "\n".join(sorted(row.raw_sha256 for row in rows))
+    if len(rows) < THREAD_MIN_MAILS or hashlib.sha256(joined.encode()).hexdigest() != sha256:
+        return None
+    mails = sorted(rows, key=lambda row: (row.date_utc is None, row.date_utc or _EPOCH, row.id))
+    ids = [mail.id for mail in mails]
+    people: dict[int, dict[str, list[str]]] = defaultdict(dict)
+    for row in (await session.execute(_THREAD_PEOPLE, {"mail_ids": ids})).all():
+        people[row.mail_id].setdefault(row.role, []).append(_shown(row.name, row.email))
+    attachments: dict[int, list[str]] = defaultdict(list)
+    for row in (await session.execute(_THREAD_ATTACHMENTS, {"mail_ids": ids})).all():
+        attachments[row.mail_id].append(row.name)
+
+    subject = next((_line(mail.subject) for mail in mails if mail.subject), "")
+    head = ["Art: E-Mail-Verlauf"]
+    if subject:
+        head.append(f"Betreff: {subject}")
+    head.append(f"Mails: {len(mails)}")
+    dates = [mail.date_utc for mail in mails if mail.date_utc is not None]
+    if dates:
+        head.append(f"Zeitraum: {_date(dates[0])} bis {_date(dates[-1])}")
+    taking = dict.fromkeys(
+        shown for mail in mails for role in _ROLES for shown in people[mail.id].get(role, [])
+    )
+    head.append(f"Beteiligte: {_listed(list(taking))}")
+
+    pieces: list[str] = []
+    words = 0
+    for number, mail in enumerate(mails, 1):
+        lines = [f"Mail {number} von {len(mails)}"]
+        if mail.date_utc is not None:
+            lines.append(f"Datum: {_date(mail.date_utc)}")
+        for role, label in _ROLES.items():
+            if people[mail.id].get(role):
+                lines.append(f"{label}: {_listed(people[mail.id][role])}")
+        if mail.subject:
+            lines.append(f"Betreff: {_line(mail.subject)}")
+        if attachments[mail.id]:
+            lines.append(f"Anhänge: {_listed(attachments[mail.id])}")
+        own, _, counted = own_text(mail.body)
+        words += counted
+        pieces.append("\n".join(lines) + "\n\n" + (own or "(kein eigener Text)"))
+    return SummaryInput(
+        target=AiTarget.THREAD,
+        sha256=sha256,
+        name=subject,
+        head=tuple(head),
+        text="\n\n".join(pieces),
+        spans=(),
+        words=words,
+        short=False,
+    )
+
+
 async def _people(session: AsyncSession, mail_id: int, roles: list[str]) -> dict[str, list[str]]:
     """The mail's participants of these roles, as "Name <address>", by role."""
     found: dict[str, list[str]] = {}
     parameters: dict[str, Any] = {"mail_id": mail_id, "roles": roles}
     for row in (await session.execute(_PEOPLE, parameters)).all():
-        name = _line(row.name or "")
-        shown = f"{name} <{row.email}>" if name and name.casefold() != row.email else row.email
-        found.setdefault(row.role, []).append(shown)
+        found.setdefault(row.role, []).append(_shown(row.name, row.email))
     return found
+
+
+def _shown(name: str | None, email: str) -> str:
+    """A participant as "Name <address>", or the address alone."""
+    name = _line(name or "")
+    return f"{name} <{email}>" if name and name.casefold() != email else email
 
 
 def _trimmed(body: str, segment: Segment) -> tuple[int, int] | None:
@@ -214,6 +300,9 @@ def _listed(names: Sequence[str]) -> str:
 
 def _line(value: str) -> str:
     return " ".join(value.split())
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _date(moment: datetime) -> str:

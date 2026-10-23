@@ -205,6 +205,8 @@ class AiTarget(StrEnum):
 
     DOCUMENT = "document"  # document.sha256
     MAIL = "mail"  # mail.raw_sha256 (as the research file, D53)
+    # The SHA-256 of a thread's mails' raw_sha256, sorted and joined by line ends (D316)
+    THREAD = "thread"
 
 
 class AiTaskStatus(StrEnum):

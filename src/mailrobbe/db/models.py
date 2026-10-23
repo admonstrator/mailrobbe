@@ -1604,12 +1604,17 @@ class AiResult(Base):
             postgresql_where=text("state = 'valid'"),
         ),
         Index("ix_ai_result_job", "job_id"),
-        CheckConstraint("target IN ('document', 'mail')", name="target"),
+        Index(
+            "ix_ai_result_thread_id", "thread_id", postgresql_where=text("thread_id IS NOT NULL")
+        ),
+        CheckConstraint("target IN ('document', 'mail', 'thread')", name="target"),
+        CheckConstraint("(target = 'thread') = (thread_id IS NOT NULL)", name="thread"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     kind: Mapped[AiTaskKind] = mapped_column(ai_task_kind_enum)
-    target_sha256: Mapped[str] = mapped_column(Text)  # document.sha256 or mail.raw_sha256
+    # document.sha256, mail.raw_sha256, or a thread's mails' (migration 0023, D316)
+    target_sha256: Mapped[str] = mapped_column(Text)
     engine: Mapped[str] = mapped_column(Text)  # "tesseract", "vision", "mixed" or "text" (ai.model)
     model: Mapped[str | None] = mapped_column(Text)  # the model; None for Tesseract only
     service_url: Mapped[str | None] = mapped_column(Text)  # without credentials
@@ -1635,6 +1640,7 @@ class AiResult(Base):
     discarded_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
     # What target_sha256 names (migration 0021, D301): enums.AiTarget.
     target: Mapped[str] = mapped_column(Text, server_default="document")
+    thread_id: Mapped[int | None] = mapped_column(BigInteger)  # mail.thread_id of a thread's (D316)
 
 
 class AiTask(Base):
@@ -1643,7 +1649,8 @@ class AiTask(Base):
     __tablename__ = "ai_task"
     __table_args__ = (
         CheckConstraint("engine IN ('auto', 'tesseract', 'vision')", name="engine"),
-        CheckConstraint("target IN ('document', 'mail')", name="target"),
+        CheckConstraint("target IN ('document', 'mail', 'thread')", name="target"),
+        CheckConstraint("(target = 'thread') = (thread_id IS NOT NULL)", name="thread"),
         Index(
             "ux_ai_task_open",
             "kind",
@@ -1683,6 +1690,7 @@ class AiTask(Base):
         BigInteger, ForeignKey("ai_result.id", ondelete="SET NULL")
     )
     target: Mapped[str] = mapped_column(Text, server_default="document")  # enums.AiTarget (D301)
+    thread_id: Mapped[int | None] = mapped_column(BigInteger)  # the thread a summary reads (D316)
 
 
 class AiCalibration(Base):
@@ -1706,7 +1714,7 @@ class AiSendLog(Base):
     __tablename__ = "ai_send_log"
     __table_args__ = (
         Index("ix_ai_send_log_sent_at", "sent_at"),
-        CheckConstraint("target IN ('document', 'mail')", name="target"),
+        CheckConstraint("target IN ('document', 'mail', 'thread')", name="target"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

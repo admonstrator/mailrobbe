@@ -13,6 +13,7 @@ person_email.
 import asyncio
 import base64
 import json
+import re
 from collections.abc import AsyncIterator, Collection, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -867,19 +868,32 @@ async def test_mail_counts_match_the_mail_list(seeded: httpx.AsyncClient, seed: 
                 p=person,
             )
         )[0].year
-        for year_params, between in (
-            ([], []),
-            ([("year", str(year))], []),
-            ([], [("contact", str(contact))]),
-            ([("year", str(year))], [("contact", str(contact))]),
+        # A word of one of the person's subjects (D330), so a search keeps some of its mails.
+        subjects = await fetch(
+            seed.url,
+            "SELECT m.subject FROM participation pa JOIN person p ON p.id = pa.person_id"
+            " JOIN mail m ON m.id = pa.mail_id"
+            " WHERE (p.id = :p OR p.merged_into = :p) AND m.is_duplicate_of IS NULL"
+            " ORDER BY m.id",
+            p=person,
+        )
+        word = next(
+            found for row in subjects for found in re.findall(r"[^\W\d_]{5,}", row.subject or "")
+        )
+        for year_params, between, search in (
+            ([], [], []),
+            ([("year", str(year))], [], []),
+            ([], [("contact", str(contact))], []),
+            ([("year", str(year))], [("contact", str(contact))], []),
+            ([], [], [("q", word)]),
+            ([("year", str(year))], [("contact", str(contact))], [("q", word)]),
         ):
-            counts = await get(
-                seeded, f"/api/persons/{person}/mail-counts", [*year_params, *between]
-            )
+            params = [*year_params, *between, *search]
+            counts = await get(seeded, f"/api/persons/{person}/mail-counts", params)
             for alias in seed.aliases.get(person, []):
                 path = f"/api/persons/{alias}/mail-counts"
-                assert await get(seeded, path, [*year_params, *between]) == counts
-            filters = [("person", str(person)), ("hide_duplicates", "true")]
+                assert await get(seeded, path, params) == counts
+            filters = [("person", str(person)), ("hide_duplicates", "true"), *search]
             if year_params:
                 filters += [("date_from", f"{year}-01-01"), ("date_to", f"{year}-12-31")]
             if between:
@@ -893,8 +907,10 @@ async def test_mail_counts_match_the_mail_list(seeded: httpx.AsyncClient, seed: 
                 roles = [] if role is None else [("person_role", role)]
                 summary = await get(seeded, "/api/mails/summary", [*filters, *roles])
                 assert summary["exact"] is True
-                assert counts[tab] == summary["total"], (person, year_params, between, tab)
+                assert counts[tab] == summary["total"], (person, params, tab)
             assert counts["all"] == counts["sent"] + counts["received"]
+            if search and not year_params:
+                assert counts["all"], (person, word)
             counted.append(counts)
     assert all(counts["all"] for counts in counted[:2])
     assert any(counts["cc"] for counts in counted) and any(counts["sent"] for counts in counted)
@@ -909,6 +925,8 @@ async def test_mail_counts_of_unknown_contacts_and_far_years(
     assert await get(seeded, path, [("year", "9999")]) == none
     assert await get(seeded, path, [("year", "1")]) == none
     await get(seeded, path, [("year", "10000")], status=422)
+    error = await get(seeded, path, [("q", "Hallo has:pdf")], status=400)
+    assert error["detail"]["code"] == "invalid_query"
 
 
 async def test_mail_counts_run_out_of_time(

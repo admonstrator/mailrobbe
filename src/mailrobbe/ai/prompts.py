@@ -30,6 +30,7 @@ _SUMMARY_NEEDS = {
     "part": ("{number}", "{total}"),
     "combine": ("{total}",),
     "short": (),
+    "thread": (),
 }
 
 
@@ -44,6 +45,7 @@ class SummaryPrompts:
     part: str  # before one part of a long text, with {number} and {total}
     combine: str  # before the parts' summaries, with {total}
     short: str  # before a mail with little own text: tags and theme hints only
+    thread: str  # before a thread, and after the combining instruction of a long one (D316)
 
 
 @dataclass(frozen=True, slots=True)

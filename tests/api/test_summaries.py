@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from mailrobbe.ai.queue import THREAD_KEY
 from mailrobbe.enums import AiTarget
 from tests.api.test_ai import (
     SUMMARY_OPTIONS,
@@ -17,6 +18,7 @@ from tests.api.test_ai import (
     original_mails,
     queue,
     summarized,
+    summary_tasks,
 )
 from tests.api.test_imports import Dashboard, serve
 from tests.api.test_mails import get, rows
@@ -77,6 +79,9 @@ async def test_a_mail_without_a_summary_can_be_summarised(texts: Dashboard) -> N
         "task": None,
         "failed": None,
         "attachments": [],
+        "preparing": 0,
+        "stale": False,
+        "run": None,
     }
 
 
@@ -216,12 +221,84 @@ async def test_a_failure_shows_until_a_summary_follows(texts: Dashboard) -> None
     assert (found["failed"], found["result"]["target"]) == (None, AiTarget.MAIL)
 
 
+async def a_thread(url: str) -> Any:
+    """A thread of at least two mails with contents of their own, with its content and the
+    number of its mails, duplicates too."""
+    [found] = await rows(
+        url,
+        f"""SELECT m.thread_id AS id, {THREAD_KEY} AS sha256,
+               (SELECT count(*) FROM mail t WHERE t.thread_id = m.thread_id) AS mails,
+               (SELECT t.id FROM mail t WHERE t.thread_id = m.thread_id
+                  AND t.is_duplicate_of IS NULL ORDER BY t.date_utc NULLS LAST, t.id
+                LIMIT 1) AS earliest
+           FROM mail m WHERE m.thread_id IS NOT NULL AND m.is_duplicate_of IS NULL
+           GROUP BY m.thread_id HAVING count(DISTINCT m.raw_sha256) >= 3
+           ORDER BY m.thread_id LIMIT 1""",
+    )
+    return found
+
+
+async def test_a_thread_is_summarised_as_a_whole_and_says_when_it_changed(
+    texts: Dashboard,
+) -> None:
+    thread = await a_thread(texts.url)
+    found = await view(texts, thread=thread.id)
+    assert (found["summarizable"], found["result"], found["attachments"]) == (True, None, [])
+    body = {"kind": "summarize", "thread_ids": [thread.id], "single": True}
+    assert (await queue(texts, body))["queued"] == 1
+    # the task lists name a thread by its earliest mail
+    [task] = await summary_tasks(texts)
+    assert (task["target"], task["mail"]["id"], task["document"]) == (
+        "thread",
+        thread.earliest,
+        None,
+    )
+    assert (await view(texts, thread=thread.id))["task"]["status"] == "waiting"
+    await rows(texts.url, "UPDATE ai_task SET status = 'done', finished_at = now()")
+    await summarized(
+        texts.url, "thread", thread.sha256, "Ein Verlauf.", tags=["Verlauf"], thread_id=thread.id
+    )
+    found = await view(texts, thread=thread.id)
+    assert (found["result"]["target"], found["result"]["summary"], found["stale"]) == (
+        "thread",
+        "Ein Verlauf.",
+        False,
+    )
+    # its tags describe every mail of the thread (D309)
+    assert [(tag["label"], tag["mails"]) for tag in found["result"]["tags"]] == [
+        ("Verlauf", thread.mails)
+    ]
+    # read before a mail joined the thread: still shown, said to be older
+    await rows(texts.url, "UPDATE ai_result SET target_sha256 = repeat('0', 64)")
+    found = await view(texts, thread=thread.id)
+    assert (found["result"]["summary"], found["stale"]) == ("Ein Verlauf.", True)
+    # a thread of one mail is that mail's summary
+    [mail] = await original_mails(texts.url, 1)
+    await rows(texts.url, "UPDATE mail SET thread_id = 2^40 WHERE id = :id", id=mail.id)
+    assert (await view(texts, thread=2**40))["summarizable"] is False
+
+
+async def test_a_mail_counts_its_attachments_under_way(texts: Dashboard) -> None:
+    element = await carried(texts.url)
+    await rows(
+        texts.url,
+        """INSERT INTO ai_task (kind, target_sha256, engine, priority)
+           VALUES ('ocr', :sha, 'auto', 100)""",
+        sha=element.sha256,
+    )
+    found = await view(texts, mail=element.mail)
+    # no AI run lives, so there are no steps to show
+    assert (found["preparing"], found["task"], found["run"]) == (1, None, None)
+    await rows(texts.url, "UPDATE ai_task SET status = 'done'")
+    assert (await view(texts, mail=element.mail))["preparing"] == 0
+
+
 async def test_one_element_is_asked_for(texts: Dashboard) -> None:
-    for params in ({}, {"mail": 1, "document": 1}):
+    for params in ({}, {"mail": 1, "document": 1}, {"mail": 1, "thread": 1}):
         response = await texts.client.get("/api/ai/summary", params=params)
         assert response.status_code == 400
         assert response.json()["detail"]["code"] == "invalid_selection"
-    for params in ({"mail": 2**40}, {"document": 2**40}, {"mail": 2**70}):
+    for params in ({"mail": 2**40}, {"document": 2**40}, {"mail": 2**70}, {"thread": 2**40}):
         response = await texts.client.get("/api/ai/summary", params=params)
         assert response.status_code == 404
         assert response.json()["detail"]["code"] == "not_found"
