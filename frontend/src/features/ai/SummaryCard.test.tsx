@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AiQueued, AiSummaryView } from "../../api/types";
 import {
+  aiJobRunning,
   aiSummaryMail,
   aiSummaryNone,
   aiSummaryResult,
@@ -156,6 +157,56 @@ describe("the card KI-Zusammenfassung", () => {
     expect(within(card).getByText(/Zusammenfassung läuft · Teil 2 von 4/)).toBeTruthy();
     expect(within(card).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
     expect(within(card).queryByText("Noch keine Zusammenfassung dieser Mail.")).toBeNull();
+  });
+
+  it("shows the attachments recognised first and the run's steps with their bars", async () => {
+    const view: AiSummaryView = {
+      ...aiSummaryNone,
+      task: { id: 9, status: "waiting", parts_done: 0, parts_total: null },
+      preparing: 2,
+      run: aiJobRunning,
+    };
+    renderElement(<SummaryCard target="mail" id={MAIL} />, summaryApi(view));
+    const card = await findCard();
+    expect(within(card).getByText(/2 Anhänge werden erkannt oder zusammengefasst/)).toBeTruthy();
+    expect(within(card).getByText("In Arbeit: Scan_20180306_7499.pdf")).toBeTruthy();
+    const bar = within(card).getByRole("progressbar", { name: "Texterkennung" });
+    expect(bar.getAttribute("aria-valuenow")).toBe("30");
+    const steps = within(card).getByRole("list", { name: "Schritte des Laufs" });
+    expect(within(steps).getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it("summarises a whole thread by its id", async () => {
+    const thread = 184001;
+    const { calls } = renderElement(
+      <SummaryCard target="thread" id={thread} />,
+      summaryApi(aiSummaryNone),
+    );
+    const card = await screen.findByRole("region", { name: "KI-Zusammenfassung des Threads" });
+    expect(within(card).getByText("Noch keine Zusammenfassung dieses Threads.")).toBeTruthy();
+    fireEvent.click(within(card).getByRole("button", { name: "Zusammenfassen" }));
+    await waitFor(() => expect(posts(calls, "/api/ai/tasks")).toHaveLength(1));
+    expect(posts(calls, "/api/ai/tasks")[0].body).toEqual({
+      kind: "summarize",
+      thread_ids: [thread],
+      single: true,
+      start: true,
+    });
+    const asked = calls.find((call) => call.url.pathname === "/api/ai/summary");
+    expect(asked?.url.searchParams.get("thread")).toBe(String(thread));
+  });
+
+  it("says when a thread changed since its summary, whose quotes open the thread", async () => {
+    const view = { ...aiSummaryNone, result: aiSummaryMail.result, stale: true };
+    renderElement(<SummaryCard target="thread" id={184001} />, summaryApi(view));
+    const card = await screen.findByRole("region", { name: "KI-Zusammenfassung des Threads" });
+    expect(within(card).getByText(/Seit dieser Zusammenfassung hat sich der Thread/)).toBeTruthy();
+    const quote = within(card).getByRole("link", { name: "„Spenden ohne Quittungen verbuchen“" });
+    const href = new URL(quote.getAttribute("href")!, "http://localhost");
+    expect(href.pathname).toBe("/mails");
+    expect(href.searchParams.get("thread")).toBe("184001");
+    expect(href.searchParams.get("q")).toBe('"Spenden ohne Quittungen verbuchen"');
+    expect(within(card).queryByRole("button", { name: /als Team-Tag übernehmen/ })).toBeNull();
   });
 
   it("says why the last summary failed and offers it again", async () => {

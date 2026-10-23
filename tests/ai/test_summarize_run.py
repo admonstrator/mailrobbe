@@ -10,23 +10,29 @@ from collections.abc import Iterator, Sequence
 from typing import Any
 
 import pytest
-from sqlalchemy import make_url, pool
+from sqlalchemy import make_url, pool, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from mailrobbe import cli as main_cli
 from mailrobbe import jobrun, jobs, migrate
 from mailrobbe.ai import cli as ai_cli
 from mailrobbe.ai import run as ai_run
-from mailrobbe.ai.model import CHARS_PER_TOKEN, AiOptions, AiProgress, locality
+from mailrobbe.ai.model import (
+    CHARS_PER_TOKEN,
+    PRIORITY_SINGLE,
+    AiOptions,
+    AiProgress,
+    locality,
+)
 from mailrobbe.ai.prompts import load_prompts
-from mailrobbe.ai.queue import enqueue_summaries
+from mailrobbe.ai.queue import THREAD_KEY, enqueue_attachments, enqueue_summaries
 from mailrobbe.ai.run import run_ai
 from mailrobbe.ai.services import ChatAnswer
 from mailrobbe.ai.summarize import step as summarize_step
-from mailrobbe.ai.summarize.inputs import FORWARDED, document_input, mail_input
+from mailrobbe.ai.summarize.inputs import FORWARDED, document_input, mail_input, thread_input
 from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
-from mailrobbe.enums import JobKind
+from mailrobbe.enums import AiTarget, JobKind
 from mailrobbe.importer.cli import run_import
 from mailrobbe.themes import load_themes
 from tests.ai.fakes import FakeService, fake_service
@@ -469,6 +475,154 @@ async def test_a_run_for_one_mail_takes_only_its_content(archive: Any, database:
     assert original < duplicate
 
 
+# Threads (D316) and attachments first (D317) --------------------------------------------------
+
+
+async def thread_of(url: str, *subjects: str) -> Any:
+    """These mails made one thread, as the importer threads replies: its id and its content."""
+    ids = [mail for subject in subjects for mail in await mail_ids(url, subject)]
+    await rows(
+        url, "UPDATE mail SET thread_id = :t WHERE id = ANY(:ids)", {"t": ids[0], "ids": ids}
+    )
+    (found,) = await rows(
+        url,
+        f"""SELECT m.thread_id AS id, {THREAD_KEY} AS sha256 FROM mail m
+            WHERE m.thread_id = :t AND m.is_duplicate_of IS NULL GROUP BY m.thread_id""",
+        {"t": ids[0]},
+    )
+    return found
+
+
+async def read_thread(url: str, thread_id: int, sha256: str) -> Any:
+    engine = create_engine(url)
+    try:
+        async with create_sessionmaker(engine)() as session:
+            return await thread_input(session, sha256, thread_id)
+    finally:
+        await engine.dispose()
+
+
+async def test_a_thread_is_read_mail_by_mail_without_its_quotes(database: str) -> None:
+    thread = await thread_of(database, "Kurze Antwort", "Sommerfest", "Bericht")
+    source = await read_thread(database, thread.id, thread.sha256)
+    # the second Sommerfest is a duplicate: three mails
+    assert source.head == (
+        "Art: E-Mail-Verlauf",
+        "Betreff: Kurze Antwort",
+        "Mails: 3",
+        "Zeitraum: 01.01.2024 10:00 UTC bis 03.01.2024 10:00 UTC",
+        "Beteiligte: Anna <anna@a.example>, Bert <bert@b.example>",
+    )
+    assert (source.target, source.name, source.spans, source.short) == (
+        AiTarget.THREAD,
+        "Kurze Antwort",
+        (),
+        False,
+    )
+    pieces = source.text.split("\n\nMail ")
+    assert [piece.splitlines()[0] for piece in pieces] == [
+        "Mail 1 von 3",
+        "2 von 3",
+        "3 von 3",
+    ]
+    assert "Von: Anna <anna@a.example>\nAn: Bert <bert@b.example>\nBetreff: Sommerfest" in pieces[1]
+    assert "Anhänge: Bericht.txt\n\nAnbei der Bericht." in pieces[2]
+    assert "Wann ist das Sommerfest?" not in source.text  # a quote, not the mail's own words
+    # a mail joined the thread since: the content queued is gone
+    await thread_of(database, "Kurze Antwort", "Sommerfest", "Bericht", "Weiterleitung")
+    assert await read_thread(database, thread.id, thread.sha256) is None
+
+
+async def test_a_run_summarises_a_thread_and_keeps_one_summary_of_it(
+    archive: Any, database: str
+) -> None:
+    thread = await thread_of(database, "Kurze Antwort", "Sommerfest")
+    engine = create_engine(database)
+    try:
+        async with create_sessionmaker(engine).begin() as session:
+            preview = await enqueue_summaries(session, thread_ids=[thread.id, 2**40], preview=True)
+            queued = await enqueue_summaries(session, thread_ids=[thread.id])
+    finally:
+        await engine.dispose()
+    assert (preview.queued, preview.unreadable, queued.queued) == (1, 1, 1)
+    model = Model()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings, threads=[thread.id]))
+        user = user_of(fake.chats[-1].body)
+    assert result.exit_code == 0 and model.asked == ["whole"]
+    assert user.startswith("Es geht um einen E-Mail-Verlauf")
+    assert "Mail 2 von 2" in user
+    query = """SELECT * FROM ai_result WHERE target = 'thread' ORDER BY id"""
+    (summary,) = await rows(database, query)
+    assert (summary.target_sha256, summary.thread_id, summary.state) == (
+        thread.sha256,
+        thread.id,
+        "valid",
+    )
+    assert summary.body == "Anna lädt zum Sommerfest ein und sucht Helfer."
+
+    # the thread grew: its new summary replaces the one of the mails it had
+    grown = await thread_of(database, "Kurze Antwort", "Sommerfest", "Weiterleitung")
+    engine = create_engine(database)
+    try:
+        async with create_sessionmaker(engine).begin() as session:
+            assert (await enqueue_summaries(session, thread_ids=[grown.id])).queued == 1
+    finally:
+        await engine.dispose()
+    with text_service(Model()) as fake:
+        settings = text_settings(database, archive, fake)
+        assert (await run_ai(settings, options_for(settings, threads=[grown.id]))).exit_code == 0
+    assert [(row.target_sha256, row.state) for row in await rows(database, query)] == [
+        (thread.sha256, "replaced"),
+        (grown.sha256, "valid"),
+    ]
+
+
+async def test_a_mails_attachments_are_recognised_first(archive: Any, database: str) -> None:
+    document = await report(database)
+    engine = create_engine(database)
+    try:
+        async with create_sessionmaker(engine).begin() as session:
+            (mail,) = await mail_ids(database, "Bericht")
+            # a document with a text is summarised with the mail, no OCR
+            attached = await enqueue_attachments(session, [mail])
+            assert (attached.summarize, attached.pending) == ([document.id], [])
+            assert attached.recognized.queued == 0
+            # a scan without a text yet is recognised first, its summary waits for that
+            await session.execute(
+                text("""UPDATE document SET kind = 'pdf', text_status = 'scanned',
+                        extracted_text = NULL WHERE id = :id"""),
+                {"id": document.id},
+            )
+            attached = await enqueue_attachments(session, [mail], editor="Anna")
+            assert (attached.summarize, attached.pending) == ([document.id], [document.id])
+            assert attached.recognized.queued == 1
+            without = await enqueue_summaries(session, document_ids=[document.id], preview=True)
+            queued = await enqueue_summaries(
+                session, document_ids=attached.summarize, pending=attached.pending
+            )
+    finally:
+        await engine.dispose()
+    assert (without.queued, without.unreadable, queued.queued) == (0, 1, 1)
+    found = await rows(database, "SELECT kind, priority FROM ai_task ORDER BY kind")
+    assert [(row.kind, row.priority) for row in found] == [
+        ("ocr", PRIORITY_SINGLE),
+        ("summarize", 0),
+    ]
+
+    # OCR found no words: the summary has nothing to read and ends without failing
+    await rows(database, "UPDATE ai_task SET status = 'done' WHERE kind = 'ocr'")
+    model = Model()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings))
+    assert result.exit_code == 0 and model.asked == []
+    assert (result.summary.summaries, result.summary.summaries_failed) == (0, 0)
+    (task,) = await rows(database, "SELECT * FROM ai_task WHERE kind = 'summarize'")
+    assert (task.status, task.error) == ("cancelled", "the document has no text")
+
+
 async def test_an_answer_that_is_no_valid_one_is_an_attempt(archive: Any, database: str) -> None:
     await queue(database, "Sommerfest")
     with fake_service("ollama", models={MODEL: None}, answer="Kein JSON, nur Text.") as fake:
@@ -626,10 +780,16 @@ def test_the_command_line_takes_mails_and_a_text_model() -> None:
             "4",
             "--text-model= anderes ",
             "--document=2",
+            "--thread=7",
         ]
     )
     found = ai_cli.options(Settings(_env_file=None), args)  # type: ignore[call-arg]
     assert (found.mails, found.documents, found.text_model) == ([4, 9], [2], "anderes")
+    assert found.threads == [7] and found.only == {
+        "documents": [2],
+        "mails": [4, 9],
+        "threads": [7],
+    }
 
 
 def test_queue_and_run_from_the_command_line(

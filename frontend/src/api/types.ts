@@ -2767,7 +2767,7 @@ export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelle
 export type AiResultState = "valid" | "replaced" | "discarded";
 export type AiWorkList = "scanned" | "images" | "media";
 export type AiPhase = "check" | "ocr" | "transcribe" | "summarize" | "entities" | "signals";
-export type AiTarget = "document" | "mail"; // what an AI task, result or send is about (D301)
+export type AiTarget = "document" | "mail" | "thread"; // what an AI task, result or send is about (D301, D316)
 
 export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
 export const AI_PAGE_SIZE = 50;
@@ -2844,6 +2844,7 @@ export interface AiOptions {
   transcribe_threads?: number;
   transcribe_uncertain?: number; // lines below this mean token probability are uncertain
   mails: number[]; // with documents: only these mails' tasks (D307)
+  threads?: number[]; // and these threads' (D316)
   text_model: string;
   text_url: string; // "" without one
   text_remote: boolean;
@@ -2916,6 +2917,8 @@ export interface AiQueueRequest {
   kind?: AiTaskKind; // only this kind; none: OCR or transcription, what fits each document; summarize by name
   mail_ids?: number[];
   mail_filters?: MailFilters; // an Akte is { collection: [id] }
+  thread_ids?: number[]; // mail.thread_id: a thread as a whole (D316)
+  everything?: boolean; // every mail and document without a summary, a run of the queue (D319)
   preview?: boolean; // nothing queued: counts and the estimate only (D308)
 }
 
@@ -3144,6 +3147,7 @@ export const AI_FACET_TAGS = 20;
 export interface AiSummaryParams {
   mail?: number;
   document?: number;
+  thread?: number; // mail.thread_id (D316)
 }
 
 /** An AI tag with the mails it describes (their own summary or an attachment's, D309). */
@@ -3197,6 +3201,9 @@ export interface AiSummaryView {
   task: AiSummaryTask | null;
   failed: string | null; // English: why the latest task failed, none open
   attachments: AiAttachmentSummary[]; // a mail's attachments with a summary
+  preparing?: number; // a mail's attachments with an open OCR, transcribe or summarize task (D317)
+  stale?: boolean; // a thread's summary read other mails than it has now (D316)
+  run?: AiJob | null; // the live AI run while the element or its attachments have an open task (D318)
 }
 
 export interface AiFacetTheme {

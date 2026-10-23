@@ -276,16 +276,20 @@ async def reapply_results(session: AsyncSession) -> int:
 
 # Summaries (D300 to D305) -----------------------------------------------------------------------
 
+# A thread keeps one valid summary (D316): the one of its mails before replaced too.
 _REPLACE_SUMMARY = text("""
     UPDATE ai_result SET state = 'replaced'
-    WHERE kind = 'summarize' AND target = :target AND target_sha256 = :sha256 AND state = 'valid'
+    WHERE kind = 'summarize' AND state = 'valid'
+      AND ((target = :target AND target_sha256 = :sha256)
+           OR (target = 'thread' AND thread_id = CAST(:thread_id AS bigint)))
 """)
 _INSERT_SUMMARY = text("""
-    INSERT INTO ai_result (kind, target, target_sha256, engine, model, service_url, remote,
-        prompt_version, options, body, pages, pages_total, tokens_in, tokens_out, seconds, job_id)
-    VALUES ('summarize', :target, :sha256, 'text', :model, :service_url, :remote, :prompt_version,
-        CAST(:options AS jsonb), :body, CAST(:pages AS jsonb), :pages_total, :tokens_in,
-        :tokens_out, :seconds, :job_id)
+    INSERT INTO ai_result (kind, target, target_sha256, thread_id, engine, model, service_url,
+        remote, prompt_version, options, body, pages, pages_total, tokens_in, tokens_out, seconds,
+        job_id)
+    VALUES ('summarize', :target, :sha256, :thread_id, 'text', :model, :service_url, :remote,
+        :prompt_version, CAST(:options AS jsonb), :body, CAST(:pages AS jsonb), :pages_total,
+        :tokens_in, :tokens_out, :seconds, :job_id)
     RETURNING id
 """)
 # A new key keeps the spelling it is given now, a known one its first (D305).
@@ -320,11 +324,12 @@ async def store_summary_result(
     tokens_in: int,
     tokens_out: int,
     job_id: int | None,
+    thread_id: int | None = None,
 ) -> int:
     """Record a summary as the valid one of this target and content, replacing the one before,
     with its AI tags and theme hints (module docstring); its id. options gets the summary's
-    short, words, origin, dropped_tags and dropped_themes."""
-    parameters = {"target": target.value, "sha256": sha256}
+    short, words, origin, dropped_tags and dropped_themes. A thread's names its thread_id."""
+    parameters = {"target": target.value, "sha256": sha256, "thread_id": thread_id}
     await session.execute(_REPLACE_SUMMARY, parameters)
     figures = summary.model_dump(
         include={"short", "words", "origin", "dropped_tags", "dropped_themes"}

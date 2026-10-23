@@ -53,6 +53,7 @@ from sqlalchemy import (
     Text,
     any_,
     case,
+    exists,
     false,
     func,
     literal,
@@ -87,7 +88,7 @@ from mailrobbe.ai.queue import SUMMARIZABLE_DOCUMENT, WORK_LISTS
 from mailrobbe.api import processes
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.documents import READABLE, RESULT_FIGURES, document_conditions
-from mailrobbe.api.filters import FilterError, internal_domains
+from mailrobbe.api.filters import FilterError, internal_domains, valid_summary
 from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _start, _stop, ai_job
 from mailrobbe.api.schemas import (
     AI_QUEUE_LIMIT,
@@ -124,8 +125,9 @@ from mailrobbe.api.schemas import (
 )
 from mailrobbe.api.selection import resolve_selection
 from mailrobbe.config import Settings
-from mailrobbe.db.models import AiSendLog, AiTask, Document
+from mailrobbe.db.models import AiResult, AiSendLog, AiTask, Document, Mail
 from mailrobbe.enums import AiResultState, AiTarget, AiTaskKind, JobKind
+from mailrobbe.hiding.model import visible
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -412,10 +414,11 @@ async def _start_for(
     runs: Runs,
     document_ids: list[int],
     mail_ids: Sequence[int] = (),
+    thread_ids: Sequence[int] = (),
 ) -> AiQueuedRun:
-    """Start a run reading only these documents (D280) and mails (D307), or the whole queue
-    without either (D308), with the settings' options (D315); a live AI run takes them next
-    instead, and any other live run leaves them waiting."""
+    """Start a run reading only these documents (D280), mails (D307) and threads (D316), or the
+    whole queue without any (D308), with the settings' options (D315); a live AI run takes them
+    next instead, and any other live run leaves them waiting."""
     if await jobs.job_alive(session, JobKind.AI):
         return "running"
     _, defaults = await asyncio.to_thread(_settings_view, settings)
@@ -428,6 +431,7 @@ async def _start_for(
     )
     arguments += [f"--document={document_id}" for document_id in document_ids]
     arguments += [f"--mail={mail_id}" for mail_id in mail_ids]
+    arguments += [f"--thread={thread_id}" for thread_id in thread_ids]
     environment = processes.child_environment(settings)
     try:
         await _start(session, settings, runs, JobKind.AI, arguments, environment)
@@ -509,23 +513,42 @@ async def _enqueue_summaries(
     runs: Runs,
 ) -> AiQueued:
     """POST /api/ai/tasks with kind summarize (D308): exactly one of mail_ids, mail_filters (as a
-    bulk change, at most AI_QUEUE_LIMIT mails), document_ids and the document list's filters;
-    with preview nothing is written. start runs the run for these ids at once, or for the whole
-    queue after filters (D307)."""
+    bulk change, at most AI_QUEUE_LIMIT mails), document_ids, the document list's filters and
+    thread_ids (D316); with preview nothing is written. A single mail takes its attachments
+    along (D317). start runs the run for these ids at once, or for the whole queue after
+    filters (D307)."""
     if request.work_list is not None:
         raise api_error(400, "invalid_option", "a work list is queued for OCR only")
-    given = [request.mail_ids, request.mail_filters, request.document_ids, request.filters]
+    given = [
+        request.mail_ids,
+        request.mail_filters,
+        request.document_ids,
+        request.filters,
+        request.thread_ids,
+        request.everything or None,
+    ]
     if sum(value is not None for value in given) != 1:
         raise api_error(
             400,
             "invalid_selection",
-            "give exactly one of mail_ids, mail_filters, document_ids and filters",
+            "give exactly one of mail_ids, mail_filters, document_ids, filters, thread_ids and "
+            "everything",
         )
     services, defaults = await asyncio.to_thread(_settings_view, settings)
     if not _usable_text(services):
         raise api_error(400, "invalid_option", "no usable text service is configured")
     mail_ids = list(request.mail_ids or [])
     document_ids = list(request.document_ids or [])
+    thread_ids = list(request.thread_ids or [])
+    pending: list[int] = []
+    recognized = queue.Queued(0, 0, 0, 0)  # the attachments' OCR and transcriptions (D317)
+    if request.single and request.mail_ids is not None and not request.preview:
+        attached = await queue.enqueue_attachments(session, mail_ids, editor=editor)
+        document_ids, pending, recognized = (
+            attached.summarize,
+            attached.pending,
+            attached.recognized,
+        )
     if request.mail_filters is not None:
         selection = MailSelection(filters=request.mail_filters)
         mail_ids = [
@@ -534,10 +557,14 @@ async def _enqueue_summaries(
         ]
     elif request.filters is not None:
         document_ids = await summarizable_ids(session, settings, request.filters)
+    elif request.everything:
+        mail_ids, document_ids = await _unsummarized(session)
     queued = await queue.enqueue_summaries(
         session,
         mail_ids=mail_ids,
         document_ids=document_ids,
+        thread_ids=thread_ids,
+        pending=pending,
         editor=editor,
         single=request.single,
         preview=request.preview,
@@ -547,24 +574,48 @@ async def _enqueue_summaries(
     run = None
     if not request.preview:
         await session.commit()
-        if request.start and tasks:
-            by_ids = request.mail_ids is not None or request.document_ids is not None
+        if request.start and tasks + recognized.queued + recognized.raised:
+            by_ids = request.mail_filters is None and request.filters is None
+            by_ids = by_ids and not request.everything
             run = await _start_for(
                 session,
                 settings,
                 runs,
                 sorted(set(document_ids)) if by_ids else [],
                 sorted(set(mail_ids)) if by_ids else [],
+                sorted(set(thread_ids)),
             )
     return AiQueued(
-        queued=queued.queued,
-        raised=queued.raised,
+        queued=queued.queued + recognized.queued,
+        raised=queued.raised + recognized.raised,
         unreadable=queued.unreadable,
         logos=0,
         run=run,
         short=queued.short,
         estimate=estimate,
     )
+
+
+_UNSUMMARIZED_DOCUMENTS = text(f"""
+    SELECT d.id FROM document d
+    WHERE {SUMMARIZABLE_DOCUMENT}
+      AND NOT EXISTS (SELECT 1 FROM ai_result r
+                      WHERE r.kind = 'summarize' AND r.target = 'document'
+                        AND r.target_sha256 = d.sha256 AND r.state = 'valid')
+""")
+
+
+async def _unsummarized(session: AsyncSession) -> tuple[list[int], list[int]]:
+    """Everything without a summary (D319): the mails that are no duplicates and no hide rule
+    hides (D222), and the documents with a text; the queue leaves out what has nothing to read."""
+    summarized = exists().where(
+        *valid_summary(AiTarget.MAIL), AiResult.target_sha256 == Mail.raw_sha256
+    )
+    mails = await session.scalars(
+        select(Mail.id).where(Mail.is_duplicate_of.is_(None), visible(), ~summarized)
+    )
+    documents = await session.scalars(_UNSUMMARIZED_DOCUMENTS)
+    return list(mails), list(documents)
 
 
 async def summarizable_ids(
@@ -908,17 +959,34 @@ async def mail_refs(session: AsyncSession, contents: Sequence[str]) -> dict[str,
     }
 
 
+# A thread's content (D316) names the earliest mail of the thread a task or result read.
+_THREAD_REFS = text("""
+    SELECT DISTINCT ON (named.target_sha256) named.target_sha256, m.id, m.subject, m.date_utc
+    FROM (SELECT target_sha256, thread_id FROM ai_task
+          WHERE target = 'thread' AND target_sha256 = ANY(CAST(:contents AS text[]))
+          UNION
+          SELECT target_sha256, thread_id FROM ai_result
+          WHERE target = 'thread' AND target_sha256 = ANY(CAST(:contents AS text[]))) named
+    JOIN mail m ON m.thread_id = named.thread_id AND m.is_duplicate_of IS NULL
+    ORDER BY named.target_sha256, m.date_utc NULLS LAST, m.id
+""")
+
+
 @dataclass(frozen=True, slots=True)
 class TargetRefs:
-    """The documents and mails a page of tasks, results or sends names (D301)."""
+    """The documents and mails a page of tasks, results or sends names (D301); a thread is
+    named by its earliest mail (D316)."""
 
     documents: dict[str, AiDocumentRef]
     mails: dict[str, AiMailRef]
+    threads: dict[str, AiMailRef]
 
     def document(self, target: str, content: str) -> AiDocumentRef | None:
         return self.documents.get(content) if target == AiTarget.DOCUMENT else None
 
     def mail(self, target: str, content: str) -> AiMailRef | None:
+        if target == AiTarget.THREAD:
+            return self.threads.get(content)
         return self.mails.get(content) if target == AiTarget.MAIL else None
 
 
@@ -932,7 +1000,20 @@ async def target_refs(session: AsyncSession, rows: Iterable[tuple[str, str]]) ->
         mails=await mail_refs(
             session, [content for target, content in pairs if target == AiTarget.MAIL]
         ),
+        threads=await _thread_refs(
+            session, [content for target, content in pairs if target == AiTarget.THREAD]
+        ),
     )
+
+
+async def _thread_refs(session: AsyncSession, contents: Sequence[str]) -> dict[str, AiMailRef]:
+    if not contents:
+        return {}
+    found = await session.execute(_THREAD_REFS, {"contents": sorted(set(contents))})
+    return {
+        row.target_sha256: AiMailRef(id=row.id, subject=row.subject, date=row.date_utc)
+        for row in found
+    }
 
 
 def _encode_cursor(scope: str, row_id: int) -> str:

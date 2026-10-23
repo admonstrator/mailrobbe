@@ -751,9 +751,10 @@ def _mark_key(mark: _Mark) -> QueryableAttribute[Any]:
 def described_mails(mark: _Mark, name: str = "described") -> Subquery:
     """Columns key (ai_tag_link.tag_id or ai_theme_hint.theme) and mail_id: a row per mark of a
     valid summary and mail it describes (D309), the mails of the summary's content (raw_sha256,
-    so duplicates count like their original, D301) and the mails carrying the summarised
-    document (sha256), as entities.mentions counts a document for every mail carrying it (D80).
-    A mail can appear several times for one key; count DISTINCT mail_id.
+    so duplicates count like their original, D301), the mails carrying the summarised
+    document (sha256), as entities.mentions counts a document for every mail carrying it (D80),
+    and the mails of a summarised thread (thread_id, D316). A mail can appear several times for
+    one key; count DISTINCT mail_id.
 
     The one definition the filters and every count of AI tags and themes read (api/ai_tags.py).
     A condition on key or mail_id reaches both branches of the UNION ALL, so PostgreSQL reads
@@ -761,6 +762,7 @@ def described_mails(mark: _Mark, name: str = "described") -> Subquery:
     the summaries of some mails (ux_ai_result_valid) and then their marks, never all of them.
     """
     mail = aliased(Mail, name="summarized_mail")
+    member = aliased(Mail, name="thread_mail")
     key = _mark_key(mark).label("key")
     own = (
         select(key, mail.id.label("mail_id"))
@@ -777,12 +779,19 @@ def described_mails(mark: _Mark, name: str = "described") -> Subquery:
         .join(Attachment, Attachment.document_id == Document.id)
         .where(*valid_summary(AiTarget.DOCUMENT))
     )
-    return union_all(own, attached).subquery(name)
+    threaded = (
+        select(key, member.id)
+        .select_from(mark)
+        .join(AiResult, AiResult.id == mark.result_id)
+        .join(member, member.thread_id == AiResult.thread_id)
+        .where(*valid_summary(AiTarget.THREAD))
+    )
+    return union_all(own, attached, threaded).subquery(name)
 
 
 def _ai_tagged(tag_id: int) -> ColumnElement[bool]:
-    """A valid summary of the mail or of one of its attachments' documents has the AI tag; an id
-    beyond bigint names none and matches nothing."""
+    """A valid summary of the mail, of one of its attachments' documents or of its thread has
+    the AI tag; an id beyond bigint names none and matches nothing."""
     if tag_id not in _BIGINT:
         return false()
     return _summarized(AiTagLink, tag_id)

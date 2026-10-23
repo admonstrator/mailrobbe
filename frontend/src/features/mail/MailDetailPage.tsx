@@ -182,6 +182,9 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
                 body.current?.scrollIntoView({ block: "start", behavior: "smooth" });
               }}
             />
+            {detail.data.thread_id !== null && detail.data.thread_size > 1 && (
+              <SummaryCard target="thread" id={detail.data.thread_id} />
+            )}
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
             {detail.data.attachments.length > 0 && (
               <AttachmentsCard

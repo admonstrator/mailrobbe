@@ -766,15 +766,16 @@ async def summarized(
     parts_total: int | None = None,
     options: dict[str, Any] | None = None,
     state: str = "valid",
+    thread_id: int | None = None,
 ) -> int:
-    """A summary of a mail's or a document's content with its AI tags and theme hints, as a run
-    stores it (ai_result of kind summarize, D300)."""
+    """A summary of a mail's, a document's or a thread's content with its AI tags and theme
+    hints, as a run stores it (ai_result of kind summarize, D300, D316)."""
     async with session_on(url) as session:
         result_id = await session.scalar(
             text("""
-                INSERT INTO ai_result (kind, target, target_sha256, engine, model, remote,
-                    prompt_version, options, body, pages, pages_total, seconds, state)
-                VALUES ('summarize', :target, :content, 'text', 'text-test', false, 1,
+                INSERT INTO ai_result (kind, target, target_sha256, thread_id, engine, model,
+                    remote, prompt_version, options, body, pages, pages_total, seconds, state)
+                VALUES ('summarize', :target, :content, :thread, 'text', 'text-test', false, 1,
                     CAST(:options AS jsonb), :body, CAST(:pages AS jsonb), :total, 4.5,
                     CAST(:state AS ai_result_state))
                 RETURNING id
@@ -782,6 +783,7 @@ async def summarized(
             {
                 "target": target,
                 "content": content,
+                "thread": thread_id,
                 "options": json.dumps(SUMMARY_OPTIONS if options is None else options),
                 "body": body,
                 "pages": json.dumps(list(parts)),
@@ -1018,6 +1020,8 @@ async def test_a_summary_selection_is_one_thing(texts: Dashboard, dashboard: Das
         {"kind": "summarize", "mail_filters": {}, "filters": {}},
         {"mail_ids": [1]},  # mails are summarised only
         {"document_ids": [1], "mail_filters": {}},
+        {"kind": "summarize", "everything": True, "mail_ids": [1]},
+        {"kind": "summarize", "thread_ids": [1], "document_ids": [1]},
     ]
     for body in selections:
         assert await error_code(texts.client, "/api/ai/tasks", body, 400) == "invalid_selection"
@@ -1042,11 +1046,18 @@ async def test_an_element_starts_a_run_of_its_own(
     body = {"kind": "summarize", "mail_ids": [mail.id], "single": True, "start": True}
     assert (await queue(texts, body))["run"] == "started"
     job = (await status(texts))["job"]
+    # the mail takes its attachments along (D317)
+    attached = sorted(
+        task["document"]["id"] for task in await summary_tasks(texts) if task["document"]
+    )
     assert job["alive"] and (job["options"]["mails"], job["options"]["documents"]) == (
         [mail.id],
-        [],
+        attached,
     )
     assert job["options"]["text_model"] == "text-test"
+    # the card follows the live run's steps (D318)
+    found = await get(texts.client, "/api/ai/summary", [("mail", str(mail.id))])
+    assert found["task"] is not None and found["run"]["id"] == job["id"]
     # while it lives, the next element is queued first and taken next
     document = await text_document(texts.url)
     other = {"kind": "summarize", "document_ids": [document], "single": True, "start": True}
@@ -1071,6 +1082,71 @@ async def test_an_element_starts_a_run_of_its_own(
     assert (await queue(texts, nothing))["run"] is None
     assert (await queue(texts, {**body, "preview": True}))["run"] is None
     assert not (await status(texts))["job"]["alive"]
+
+
+async def test_a_mail_takes_its_attachments_along_their_text_recognised_first(
+    texts: Dashboard, work: Work
+) -> None:
+    [carrier] = await rows(
+        texts.url,
+        """SELECT a.mail_id AS id FROM attachment a JOIN mail m ON m.id = a.mail_id
+           WHERE a.document_id = :scan AND a.container_id IS NULL AND m.is_duplicate_of IS NULL
+           ORDER BY a.mail_id LIMIT 1""",
+        scan=work.scans[0],
+    )
+    body = {"kind": "summarize", "mail_ids": [carrier.id], "single": True}
+    # a preview counts the mail alone
+    assert (await queue(texts, {**body, "preview": True}))["queued"] == 1
+    assert await tasks(texts) == []
+    queued = await queue(texts, body)
+    found = await tasks(texts)
+    # the scan and whatever else of its attachments a work list takes, first in the queue
+    ocr = {task["document"]["id"]: task["priority"] for task in found if task["kind"] == "ocr"}
+    assert ocr[work.scans[0]] == PRIORITY_SINGLE and set(ocr.values()) == {PRIORITY_SINGLE}
+    summaries = {task["target"]: task for task in found if task["kind"] == "summarize"}
+    assert summaries["mail"]["mail"]["id"] == carrier.id
+    documents = [task["document"]["id"] for task in found if task["target"] == "document"]
+    assert work.scans[0] in documents
+    assert queued["queued"] == len(found)
+    view = await get(texts.client, "/api/ai/summary", [("mail", str(carrier.id))])
+    assert view["preparing"] >= 2  # the scan's OCR and its summary
+
+
+async def test_everything_without_a_summary_is_queued_for_the_whole_queue(
+    texts: Dashboard,
+) -> None:
+    body = {"kind": "summarize", "everything": True}
+    before = await queue(texts, {**body, "preview": True})
+    [mail] = await original_mails(texts.url, 1)
+    await summarized(texts.url, "mail", mail.raw_sha256)
+    document = await text_document(texts.url)
+    [sha] = await rows(texts.url, "SELECT sha256 FROM document WHERE id = :id", id=document)
+    await summarized(texts.url, "document", sha.sha256)
+    # what has a summary is left out, and so is a mail a hide rule hides (D222)
+    [hidden] = await rows(
+        texts.url,
+        """SELECT m.id, m.raw_sha256 FROM mail m WHERE m.is_duplicate_of IS NULL
+             AND m.raw_sha256 <> :sha AND COALESCE(m.body_text, '') <> ''
+             AND NOT EXISTS (SELECT 1 FROM mail o WHERE o.raw_sha256 = m.raw_sha256
+                             AND o.id <> m.id)
+           ORDER BY m.id LIMIT 1""",
+        sha=mail.raw_sha256,
+    )
+    await rows(
+        texts.url,
+        "INSERT INTO hide_rule (id, domain) OVERRIDING SYSTEM VALUE VALUES (1, 'x.example')",
+    )
+    await rows(
+        texts.url, "INSERT INTO mail_hidden (rule_id, mail_id) VALUES (1, :id)", id=hidden.id
+    )
+    after = await queue(texts, {**body, "preview": True})
+    assert before["queued"] > 3 and after["queued"] == before["queued"] - 3
+    assert await summary_tasks(texts) == []
+    queued = await queue(texts, body)
+    assert queued["queued"] == after["queued"]
+    listed = await summary_tasks(texts)
+    assert {task["target"] for task in listed} == {"mail", "document"}
+    assert hidden.id not in {task["mail"]["id"] for task in listed if task["mail"]}
 
 
 async def test_a_run_takes_the_text_model_for_itself(

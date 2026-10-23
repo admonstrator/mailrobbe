@@ -32,6 +32,21 @@
   color: var(--color-muted);
 }
 
+.task p {
+  margin: 0;
+}
+
+/* The live run's steps while the card waits for it (D318). */
+.progress {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.current {
+  overflow-wrap: anywhere;
+}
+
 .warning {
   color: var(--color-no-key-text);
 }
