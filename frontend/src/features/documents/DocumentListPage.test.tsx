@@ -243,7 +243,8 @@ describe("document list", () => {
 
   it("opens from a person profile with the person filtered for", async () => {
     const { router, calls } = renderApp("/personen/11");
-    fireEvent.click(await screen.findByRole("link", { name: "Anhänge dieser Person" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Anhänge dieser Person" }));
     expect(router.state.location.pathname).toBe("/anhaenge");
     expect(router.state.location.search).toBe("?person=11");
     expect(
