@@ -20,6 +20,7 @@ from mailrobbe.enums import (
     AiTaskKind,
     AiTaskStatus,
     AliasTier,
+    AliasVerdict,
     DkimStatus,
     DnsStatus,
     DocumentKind,
@@ -111,6 +112,7 @@ TABLES = {
     "ai_tag_link",
     "ai_theme_hint",
     "setting",
+    "alias_check",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -123,6 +125,7 @@ ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
     "dns_status": (DnsStatus, ["found", "not_found", "temp_error"]),
     "person_kind": (PersonKind, ["list", "automated"]),
     "alias_tier": (AliasTier, ["certain", "uncertain"]),
+    "alias_verdict": (AliasVerdict, ["same", "different", "unclear"]),
     "document_metadata_status": (
         DocumentMetadataStatus,
         ["pending", "found", "empty", "unsupported", "too_large", "failed"],
@@ -292,7 +295,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0022"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0024"
 
 
 @pytest.mark.db
@@ -495,6 +498,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0022' WHERE alembic_version.version_num = '0021'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0024' WHERE alembic_version.version_num = '0022'"
         in sql
     )
 

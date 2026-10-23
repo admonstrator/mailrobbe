@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { MergeRequest, SuggestionDismiss, SuggestionPage } from "../../api/types";
 import {
+  aiSuggestionPage,
   certainMergePlan,
   certainMergeResult,
   mergeLogPage,
@@ -276,7 +277,7 @@ describe("alias suggestions", () => {
     expect(screen.queryByRole("button", { name: "Weitere laden" })).toBeNull();
   });
 
-  it("shows the uncertain suggestions behind the switch", async () => {
+  it("shows the uncertain suggestions in their own view", async () => {
     const { router, calls } = renderApp("/personen?tab=vorschlaege", suggestionsBackend());
     await screen.findByRole("list", { name: "Alias-Vorschläge" });
     expect(screen.getByRole("button", { name: "Alle sicheren zusammenführen" })).toBeTruthy();
@@ -286,7 +287,7 @@ describe("alias suggestions", () => {
         .map((call) => call.url.searchParams.get("tier"));
     expect(new Set(tiers())).toEqual(new Set(["certain"]));
 
-    fireEvent.click(screen.getByRole("switch", { name: "Unsichere Vorschläge zeigen (2.180)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unsicher (2.180)" }));
     expect(router.state.location.search).toBe("?tab=vorschlaege&unsicher=1");
     expect(await screen.findByText("Unsicher: nur der gleiche Name")).toBeTruthy();
     expect(screen.getByText("Unsicher: nur der gleiche Adressteil")).toBeTruthy();
@@ -299,6 +300,48 @@ describe("alias suggestions", () => {
     expect(tiers()).toContain("uncertain");
     // The tab still counts the certain ones.
     expect(screen.getByRole("tab", { name: "Alias-Vorschläge (4 sicher)" })).toBeTruthy();
+  });
+
+  it("shows what the KI judged and starts the alias check", async () => {
+    const checked = { ...aiSuggestionPage.check, same: 2 };
+    const { router, calls } = renderApp("/personen?tab=vorschlaege", (call) => {
+      if (call.url.pathname === "/api/persons/suggestions") {
+        if (call.url.searchParams.get("ai") === "true") return aiSuggestionPage;
+        return { ...suggestionPage, next_cursor: null, check: checked };
+      }
+      if (call.url.pathname === "/api/ai/run/aliases") return { run: "started" };
+      return fixtureApi(call);
+    });
+    expect(
+      await screen.findByText("Die KI hat 12 Paare geprüft und hält 2 offene für dieselbe Person."),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "KI: dieselbe Person (2)" }));
+    expect(router.state.location.search).toBe("?tab=vorschlaege&ki=1");
+    expect(
+      await screen.findByText(
+        "Beide Schlusszeilen nennen dieselbe Telefonnummer und die Funktion Schriftführerin.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Von der KI gefunden: ähnlicher Name, keine Regel schlägt das Paar vor"),
+    ).toBeTruthy();
+    expect(screen.getAllByText("KI: dieselbe Person.")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Alle sicheren zusammenführen" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mit KI prüfen" }));
+    const progress = await screen.findByRole("link", { name: "Fortschritt unter KI" });
+    expect(progress.getAttribute("href")).toBe("/ki");
+    const posts = calls.filter((call) => call.method === "POST");
+    expect(posts.map((call) => call.url.pathname)).toEqual(["/api/ai/run/aliases"]);
+    expect(screen.queryByRole("button", { name: "Mit KI prüfen" })).toBeNull();
+  });
+
+  it("hides the alias check without a text service and with nothing checked", async () => {
+    renderApp("/personen?tab=vorschlaege", suggestionsBackend());
+    await screen.findByRole("list", { name: "Alias-Vorschläge" });
+    expect(screen.queryByRole("button", { name: "Mit KI prüfen" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^KI: dieselbe Person/ })).toBeNull();
   });
 
   it("merges every certain suggestion after a confirmation and undoes the run", async () => {
@@ -340,6 +383,7 @@ describe("alias suggestions", () => {
       total: 0,
       counts: { certain: 0, uncertain: 0 },
       computed: false,
+      check: { available: false, running: false, checked: 0, same: 0 },
     };
     renderApp("/personen?tab=vorschlaege", (call) =>
       call.url.pathname === "/api/persons/suggestions" ? empty : fixtureApi(call),

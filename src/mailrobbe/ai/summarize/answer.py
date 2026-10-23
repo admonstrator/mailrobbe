@@ -95,14 +95,14 @@ class Answer:
 
 def read_answer(answer: str) -> Answer:
     """The answer's JSON object (module docstring); raises AnswerError."""
-    found = _first_object(_FENCE.sub("", _THINK.sub("", answer)))
+    found = answer_object(answer)
     if found is None:
-        raise AnswerError(f"no JSON object in the answer: {_shown(answer)}")
+        raise AnswerError(f"no JSON object in the answer: {shown(answer)}")
     summary, tags, themes = found.get("summary"), found.get("tags"), found.get("themes")
     if not isinstance(summary, str):
-        raise AnswerError(f"the answer has no text under summary: {_shown(answer)}")
+        raise AnswerError(f"the answer has no text under summary: {shown(answer)}")
     if not isinstance(tags, list) or not isinstance(themes, list):
-        raise AnswerError(f"the answer has no list under tags or themes: {_shown(answer)}")
+        raise AnswerError(f"the answer has no list under tags or themes: {shown(answer)}")
     labels = [tag for tag in tags if isinstance(tag, str)]
     hints = [
         (item["theme"], item["quote"])
@@ -120,6 +120,12 @@ def read_answer(answer: str) -> Answer:
     )
 
 
+def answer_object(answer: str) -> dict[str, Any] | None:
+    """The first complete JSON object of an answer, without think blocks and code fences; the
+    alias check (ai.aliases.step) reads its answers so too."""
+    return _first_object(_FENCE.sub("", _THINK.sub("", answer)))
+
+
 def _first_object(text: str) -> dict[str, Any] | None:
     """The first complete JSON object in text, trying from each "{"."""
     decoder = json.JSONDecoder()
@@ -134,7 +140,8 @@ def _first_object(text: str) -> dict[str, Any] | None:
     return None
 
 
-def _shown(answer: str) -> str:
+def shown(answer: str) -> str:
+    """The start of an answer for an error message."""
     return " ".join(answer.split())[:_DETAIL] or "an empty answer"
 
 

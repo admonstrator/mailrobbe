@@ -34,6 +34,11 @@
     entities    the entities phase of the import (D84), which also computes the entity figures,
     signals     and the signals phase (D135), when a document's text changed in this run
 
+A run with --aliases (AiOptions.aliases, D321) takes no task: its check reads the candidate pairs
+of the alias check and makes the text service usable, which must be one on this machine (D322);
+its step aliases (ai.aliases.step) asks about one pair at a time and keeps each verdict, so a
+stop continues with the pairs not yet checked.
+
 A run started for some documents or mails (AiOptions.documents, AiOptions.mails, D280, D307)
 takes only their tasks, of every kind, and leaves the rest of the queue waiting.
 
@@ -77,6 +82,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from mailrobbe.ai import services
+from mailrobbe.ai.aliases.step import AliasStep
 from mailrobbe.ai.audio import decode, parakeet
 from mailrobbe.ai.audio.decode import SAMPLE_RATE, Decoded
 from mailrobbe.ai.audio.parakeet import ModelState, Piece
@@ -98,6 +104,9 @@ from mailrobbe.ai.model import (
     page_text,
     refusal,
     transcript_text,
+)
+from mailrobbe.ai.model import (
+    Protocol as ServiceProtocol,
 )
 from mailrobbe.ai.ocr import render, tesseract, vision
 from mailrobbe.ai.prompts import load_prompts
@@ -241,6 +250,10 @@ class AiSummary:
     summaries: int = 0  # summaries stored
     summaries_failed: int = 0
     text: str | None = None  # display URL of the text service the run used
+    aliases_queued: int = 0  # candidate pairs of a run with --aliases (D321)
+    aliases: int = 0  # pairs checked
+    aliases_same: int = 0  # of them judged one person
+    aliases_failed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,6 +466,7 @@ class _Run:
         self.recordings_waiting = 0  # transcribe tasks waiting after the check: the step's total
         self._prompts: Any = None
         self.summaries = SummarizeStep(self, _ONLY)
+        self.aliases = AliasStep(self)
 
     @property
     def engines(self) -> Engines:
@@ -461,6 +475,9 @@ class _Run:
         return self._engines
 
     async def run(self) -> AiRun:
+        if self.options.aliases:
+            return await self._alias_run()
+        self.job.steps.skip("aliases")
         try:
             try:
                 await self._check()
@@ -660,6 +677,16 @@ class _Run:
         OCR tasks wait too."""
         if not await self.summaries.count():
             return
+        # Waited for when only summaries wait; OCR tasks do not wait for it, the summaries do.
+        found = await self._text_service(needed=not self.progress.queued)
+        if isinstance(found, str):
+            self.summaries.leave(found)
+        else:
+            self.summaries.use(*found)
+
+    async def _text_service(self, needed: bool) -> tuple[Service, ServiceProtocol] | str:
+        """The usable text service with its protocol, or why there is none; raises _Ended when
+        its model is missing. needed: one that does not answer is waited for."""
         service = configured_services(self.settings).get("text")
         if service is not None and self.options.text_model:
             service = replace(service, model=self.options.text_model)
@@ -671,8 +698,7 @@ class _Run:
             problem = refusal(service, self.settings) or ""
         if not problem:
             assert service is not None
-            # Waited for when only summaries wait; OCR tasks do not wait for it, the summaries do.
-            check = await self._ask(service, needed=not self.progress.queued)
+            check = await self._ask(service, needed=needed)
             if check.model_found is False:
                 raise _Ended(
                     JobStatus.FAILED,
@@ -680,10 +706,9 @@ class _Run:
                     EXIT_FAILED,
                 )
             if not check.refused and check.protocol is not None:
-                self.summaries.use(service, check.protocol)
-                return
+                return service, check.protocol
             problem = check.refused or f"{service.display_url}: {check.error or 'no answer'}"
-        self.summaries.leave(problem)
+        return problem
 
     async def _ask(self, service: Service, needed: bool) -> ServiceCheck:
         """The service's check (without the test picture); one tasks need is waited for while
@@ -1367,6 +1392,71 @@ class _Run:
                 raise _Ended(JobStatus.FAILED, describe(error), EXIT_FAILED) from None
             self._answered()
             return found
+
+    # aliases -----------------------------------------------------------------------------------
+
+    async def _alias_run(self) -> AiRun:
+        """A run with --aliases (D321): the check, then the step aliases; no task is taken."""
+        self.job.steps.skip("ocr", "transcribe", "summarize")
+        try:
+            with self.job.steps.step("check"):
+                waiting = await self.aliases.read()
+                if waiting:
+                    self.aliases.use(*await self._local_text_service())
+            await self._aliases(waiting)
+            code = EXIT_OK
+            self.summary.status, self.summary.message = JobStatus.DONE, self._alias_line()
+        except _Ended as ended:
+            code = ended.exit_code
+            self.summary.status = ended.status
+            self.summary.message = f"{self._alias_line()}; {ended.message}"
+            if ended.exit_code != EXIT_INTERRUPTED:
+                log.error("%s", ended.message)
+            self.job.steps.skip("aliases")
+        self.job.steps.skip("entities", "signals")
+        if code == EXIT_INTERRUPTED:
+            log.info("stopped: run `mailrobbe ai run --aliases` again to continue")
+        self.summary.elapsed_seconds = round(time.monotonic() - self.started, 1)
+        return AiRun(self.summary, code)
+
+    async def _local_text_service(self) -> tuple[Service, ServiceProtocol]:
+        """The text service of the alias check, which must be on this machine (D322); asked
+        only once that is known."""
+        service = configured_services(self.settings).get("text")
+        if service is not None and locality(service.url) == "remote":
+            raise _Ended(
+                JobStatus.FAILED,
+                f"the alias check sends names and addresses to a text service on this machine "
+                f"only, not to {service.display_url}",
+                EXIT_FAILED,
+            )
+        found = await self._text_service(needed=True)
+        if isinstance(found, str):
+            raise _Ended(
+                JobStatus.FAILED, f"the alias check needs a text service: {found}", EXIT_FAILED
+            )
+        return found
+
+    async def _aliases(self, waiting: int) -> None:
+        if not waiting:
+            self.job.steps.skip("aliases")
+            return
+        self.job.set_phase("aliases")
+        with self.job.steps.step("aliases", unit="pairs", total=waiting) as counter:
+            await self.aliases.work(counter)
+        if self.job.stop.is_set():
+            raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+
+    def _alias_line(self) -> str:
+        """The figures of a run with --aliases in one line, for job.message."""
+        summary = self.summary
+        line = (
+            f"{summary.aliases} of {summary.aliases_queued} pairs of persons checked "
+            f"({summary.aliases_same} one person, {summary.aliases_failed} failed)"
+        )
+        if summary.tokens_in or summary.tokens_out:
+            line += f", {summary.tokens_in + summary.tokens_out} tokens"
+        return line
 
     # entities and signals ----------------------------------------------------------------------
 

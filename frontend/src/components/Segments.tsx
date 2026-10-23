@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-import { cx } from "../../lib/cx";
+import { cx } from "../lib/cx";
 import styles from "./Segments.module.css";
 
 /** One choice of several as a row of buttons, the pressed one highlighted, as the timeline's

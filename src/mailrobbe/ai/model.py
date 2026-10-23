@@ -1,8 +1,8 @@
-"""What the AI modules hand each other (D180 to D189, D290 to D297, D300 to D311): services, OCR
-pages, transcript segments, summaries, run options and figures.
+"""What the AI modules hand each other (D180 to D189, D290 to D297, D300 to D311, D321 to D323):
+services, OCR pages, transcript segments, summaries, run options and figures.
 
-The contract between ai.services, ai.ocr, ai.audio, ai.summarize, ai.run, ai.store and
-api/ai.py; nothing here does I/O except locality's name lookup.
+The contract between ai.services, ai.ocr, ai.audio, ai.summarize, ai.aliases, ai.run, ai.store
+and api/ai.py; nothing here does I/O except locality's name lookup.
 """
 
 import importlib.util
@@ -42,8 +42,11 @@ IMAGE_MIN_BYTES = 100 * 1024  # smaller images are not on the work list "Bilder"
 NO_TEXT_MARK = "[kein Text]"  # the vision prompt's answer for a page without writing
 PAGE_SEPARATOR = "\n\f\n"  # between the pages of a recognised text
 # The steps of an AI run (job.steps, D187), in order: summaries after OCR and transcription, so a
-# text recognised or transcribed in the same run is what they read.
-AI_STEPS = ("check", "ocr", "transcribe", "summarize", "entities", "signals")  # entities: figures
+# text recognised or transcribed in the same run is what they read. A run with --aliases has
+# the steps check and aliases only (D321).
+AI_STEPS = (
+    "check", "ocr", "transcribe", "summarize", "aliases", "entities", "signals"
+)  # fmt: skip
 # Transcription (D292, D293): pieces of speech the transcriber reads at once, lines of a transcript
 PIECE_SECONDS = 25.0  # longest piece, cut at a pause where there is one
 SEGMENT_SECONDS = 15.0  # longest line of a transcript; a line ends at a sentence's end or a pause
@@ -65,6 +68,10 @@ VOCABULARY_TAGS = 200  # the most used AI tags the prompt offers besides the tea
 # Seconds without a measurement (D188): per task, and per 1,000 tokens of input.
 SUMMARY_RULE_SECONDS_PER_TASK = 3.0
 SUMMARY_RULE_SECONDS_PER_KTOKEN = 5.0
+
+# The alias check (D321 to D323).
+ALIAS_ANSWER_TOKENS = 1000  # max_tokens of a verdict: a word and a few sentences
+ALIAS_REASON_MAX_CHARS = 600  # a longer reason is cut there; the prompt asks for 400
 
 
 class ForbiddenService(ValueError):
@@ -180,6 +187,15 @@ def refusal(service: Service, settings: Settings, resolve: Resolver = _resolve) 
             "set MAILROBBE_AI_ALLOW_REMOTE=true to use it"
         )
     return None
+
+
+def alias_check_service(settings: Settings, resolve: Resolver = _resolve) -> Service | None:
+    """The text service when it has a model and is on this machine, the one the alias check
+    may use (D322); None otherwise."""
+    service = configured_services(settings).get("text")
+    if service is None or not service.model or refusal(service, settings, resolve) is not None:
+        return None
+    return service if locality(service.url, resolve) == "local" else None
 
 
 class ServiceModel(BaseModel):
@@ -303,6 +319,8 @@ class AiOptions(BaseModel):
     text_url: str = ""  # display_url of the text service, "" without one
     text_remote: bool = False
     context_tokens: int = 4096
+    # D321: the run checks alias candidates with the text model and takes no task.
+    aliases: bool = False
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AiOptions":
@@ -360,6 +378,8 @@ class AiProgress(RunProgress):
     duration: float | None = None  # of the recording in work, once decoded
     unreachable_since: datetime | None = None  # a service did not answer since then (D184)
     summaries: int = 0  # summarize tasks done (D300); done, no_text and failed count OCR's
+    aliases: int = 0  # pairs of persons checked (D321)
+    aliases_same: int = 0  # of them judged one person
 
 
 TRANSCRIBER_MODULES = ("onnx_asr", "onnxruntime", "av")  # what the transcriber needs installed

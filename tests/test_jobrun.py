@@ -409,7 +409,7 @@ async def test_a_second_run_of_a_kind_is_refused(
 async def test_an_outdated_schema_is_refused(empty_database_url: str) -> None:
     engine = create_engine(empty_database_url)
     try:
-        with pytest.raises(RunRefused, match="schema is at revision none, not at 0022"):
+        with pytest.raises(RunRefused, match="schema is at revision none, not at 0024"):
             async with job_run(
                 engine, JobKind.DKIM, JobOrigin.CLI, OPTIONS, phase="x", figures=_Counter()
             ):

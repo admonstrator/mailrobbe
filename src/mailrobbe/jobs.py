@@ -76,8 +76,8 @@ LOST_MESSAGE = "the run ended without recording its end"
 
 StepStatus = Literal["waiting", "running", "done", "stopped", "skipped", "failed"]
 StepUnit = Literal[
-    "bytes", "mails", "documents", "names", "domains", "places", "pages", "texts"
-]  # done, total count; texts: mails and documents summarised (D300)
+    "bytes", "mails", "documents", "names", "domains", "places", "pages", "texts", "pairs"
+]  # done, total count; texts: mails and documents summarised (D300); pairs: of persons (D321)
 
 
 class StepProgress(BaseModel):

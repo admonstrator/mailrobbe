@@ -384,6 +384,7 @@ async def test_a_run_summarises_a_mail_and_a_short_one(archive: Any, database: s
         "ocr": "skipped",
         "transcribe": "skipped",
         "summarize": "done",
+        "aliases": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }

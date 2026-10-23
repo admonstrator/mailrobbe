@@ -3,7 +3,8 @@ queue, the results, the send log and the run. Endpoints and models are in schema
 
 Routes: GET /api/ai/status, /api/ai/tasks, /api/ai/results, /api/ai/send-log; POST
 /api/ai/services/{capability}/check, /api/ai/tasks, /api/ai/tasks/retry, /api/ai/tasks/cancel,
-/api/ai/results/{id}/discard, /api/ai/jobs/{id}/discard, /api/ai/run, /api/ai/run/stop.
+/api/ai/results/{id}/discard, /api/ai/jobs/{id}/discard, /api/ai/run, /api/ai/run/stop,
+/api/ai/run/aliases.
 
 The status is polled every 2 s while a run is alive (D48), so it shows the services as the
 settings name them without asking them; asking a service and running its real test (a picture
@@ -31,6 +32,10 @@ by the document list's filters; a preview counts and estimates without writing (
 element queued from its page starts `mailrobbe ai run --mail ID` or `--document ID` at once
 (D307). Tasks, results and sends name a document or a mail (target, D301); a mail is shown by
 the earliest mail of its content. The card of one element is summaries.py.
+
+The alias check (D321 to D323) is a run with --aliases, started from the alias suggestions
+(/api/ai/run/aliases) with the settings' text model; it needs a text service on this machine
+(alias_check_usable). Its verdicts are shown by persons.py.
 
 Every POST takes a JSON body declared as application/json (imports.JSON_BODY); writes take the
 editor from X-Mailrobbe-Editor (D54).
@@ -77,6 +82,7 @@ from mailrobbe.ai.model import (
     OcrEngineChoice,
     Service,
     ServiceCheck,
+    alias_check_service,
     configured_services,
     locality,
     refusal,
@@ -94,6 +100,7 @@ from mailrobbe.api.schemas import (
     AI_RULE_MINUTES,
     AI_RULE_SECONDS,
     AI_RULE_SECONDS_PER_MINUTE,
+    AiAliasRun,
     AiChanged,
     AiDocumentRef,
     AiEstimate,
@@ -200,6 +207,12 @@ def _usable_vision(services: Sequence[AiServiceInfo]) -> bool:
 def _usable_text(services: Sequence[AiServiceInfo]) -> bool:
     """A text service is configured and allowed (D300): "Zusammenfassen" shows."""
     return any(service.capability == "text" and service.refused is None for service in services)
+
+
+async def alias_check_usable(settings: Settings) -> bool:
+    """A text service on this machine with a model is configured (D322): "Mit KI prüfen" shows;
+    asks no service, may look up its host."""
+    return await asyncio.to_thread(lambda: alias_check_service(settings) is not None)
 
 
 async def text_usable(settings: Settings) -> bool:
@@ -412,10 +425,11 @@ async def _start_for(
     runs: Runs,
     document_ids: list[int],
     mail_ids: Sequence[int] = (),
+    aliases: bool = False,
 ) -> AiQueuedRun:
     """Start a run reading only these documents (D280) and mails (D307), or the whole queue
-    without either (D308), with the settings' options (D315); a live AI run takes them next
-    instead, and any other live run leaves them waiting."""
+    without either (D308), or with aliases the alias check (D321), with the settings' options
+    (D315); a live AI run takes them next instead, and any other live run leaves them waiting."""
     if await jobs.job_alive(session, JobKind.AI):
         return "running"
     _, defaults = await asyncio.to_thread(_settings_view, settings)
@@ -428,6 +442,8 @@ async def _start_for(
     )
     arguments += [f"--document={document_id}" for document_id in document_ids]
     arguments += [f"--mail={mail_id}" for mail_id in mail_ids]
+    if aliases:
+        arguments.append("--aliases")
     environment = processes.child_environment(settings)
     try:
         await _start(session, settings, runs, JobKind.AI, arguments, environment)
@@ -858,6 +874,17 @@ def _run_arguments(
     if text_model.strip():
         arguments.append(f"--text-model={text_model.strip()}")
     return arguments
+
+
+@router.post("/run/aliases", dependencies=JSON_BODY)
+async def start_alias_check(
+    _: NoOptions, session: Session, settings: AppSettings, runs: Runs
+) -> AiAliasRun:
+    """Start `mailrobbe ai run --aliases` (D321); 400 invalid_option without a text service on
+    this machine (D322)."""
+    if not await alias_check_usable(settings):
+        raise api_error(400, "invalid_option", "no text service with a model on this machine")
+    return AiAliasRun(run=await _start_for(session, settings, runs, [], aliases=True))
 
 
 @router.post("/run/stop", dependencies=JSON_BODY)

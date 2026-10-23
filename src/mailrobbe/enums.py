@@ -81,6 +81,14 @@ class AliasTier(StrEnum):
     UNCERTAIN = "uncertain"  # one sign only; hidden unless asked for
 
 
+class AliasVerdict(StrEnum):
+    """alias_check.verdict (D323): what the text model says about two persons."""
+
+    SAME = "same"  # one person
+    DIFFERENT = "different"  # two persons
+    UNCLEAR = "unclear"  # what it read does not tell
+
+
 class MboxStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"

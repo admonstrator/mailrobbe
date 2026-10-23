@@ -28,6 +28,7 @@ import {
 import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
+  AiAliasRun,
   AiChanged,
   AiFacets,
   AiJob,
@@ -47,7 +48,6 @@ import type {
   AiTaskAction,
   AiTaskPage,
   AiTaskParams,
-  AliasTier,
   AttachmentInfo,
   BlockDetail,
   BlockInfo,
@@ -168,6 +168,7 @@ import type {
   SocialCard,
   Stats,
   SuggestionPage,
+  SuggestionView,
   TagCreate,
   TagInfo,
   TagRef,
@@ -382,14 +383,32 @@ export function usePersonPage(params: PersonListParams, enabled = true) {
   });
 }
 
-/** The open alias suggestions of a tier (D160), a page at a time ("Weitere laden"). */
-export function useSuggestions(tier: AliasTier = "certain") {
+/** The open alias suggestions of a view, a page at a time ("Weitere laden"); asked again every
+ *  5 s while the alias check runs, so its verdicts show as they come. */
+export function useSuggestions(view: SuggestionView = "certain") {
   return useInfiniteQuery({
-    queryKey: [...queryKeys.suggestions, tier],
+    queryKey: [...queryKeys.suggestions, view],
     queryFn: ({ pageParam, signal }) =>
-      apiGet<SuggestionPage>("/api/persons/suggestions", { cursor: pageParam, tier }, signal),
+      apiGet<SuggestionPage>(
+        "/api/persons/suggestions",
+        view === "ai" ? { cursor: pageParam, ai: true } : { cursor: pageParam, tier: view },
+        signal,
+      ),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next_cursor,
+    refetchInterval: (query) => (query.state.data?.pages[0]?.check.running ? 5000 : false),
+  });
+}
+
+/** "Mit KI prüfen" (D321): starts `mailrobbe ai run --aliases`. */
+export function useStartAliasCheck() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<AiAliasRun>("/api/ai/run/aliases", {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.suggestions });
+      void queryClient.invalidateQueries({ queryKey: aiKeys.status });
+    },
   });
 }
 

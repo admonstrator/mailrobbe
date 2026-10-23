@@ -19,9 +19,14 @@ const STATUS_TEXTS: Record<AiJob["status"], string> = {
 };
 
 /** "3 Dokumente gelesen, davon 1 ohne Schrift oder Sprache", "· 12 Minuten transkribiert": what
- *  a run read, its recordings in minutes (D295). */
+ *  a run read, its recordings in minutes (D295); "40 Paare geprüft, davon 3 dieselbe Person" for
+ *  a run of the alias check (D321). */
 function readText(job: AiJob): string {
   const progress = job.progress;
+  if (job.options.aliases) {
+    const pairs = progress.aliases ?? 0;
+    return `${formatNumber(pairs)} ${pairs === 1 ? "Paar" : "Paare"} geprüft, davon ${formatNumber(progress.aliases_same ?? 0)} dieselbe Person`;
+  }
   const blank = job.options.kinds.includes("transcribe")
     ? "ohne Schrift oder Sprache"
     : "ohne Schrift";
@@ -95,7 +100,7 @@ function LiveRun({ job }: { job: AiJob }) {
         {readText(job)}
         {progress.failed > 0 && ` · ${formatNumber(progress.failed)} fehlgeschlagen`}
         {progress.summaries > 0 && ` · ${summariesText(progress.summaries)}`}
-        {` · ${formatNumber(progress.queued)} noch vorgemerkt`}
+        {!job.options.aliases && ` · ${formatNumber(progress.queued)} noch vorgemerkt`}
       </p>
       {progress.current && (
         <p className={styles.muted}>
@@ -106,7 +111,7 @@ function LiveRun({ job }: { job: AiJob }) {
       )}
       {progress.unreachable_since && (
         <p className={styles.warning} role="alert">
-          {`${job.phase === "summarize" ? "Das Textmodell" : "Das Bildmodell"} antwortet nicht seit ${formatDateTime(progress.unreachable_since)}. Der Lauf wartet und versucht es weiter; läuft LM Studio oder Ollama noch?`}
+          {`${job.phase === "summarize" || job.phase === "aliases" ? "Das Textmodell" : "Das Bildmodell"} antwortet nicht seit ${formatDateTime(progress.unreachable_since)}. Der Lauf wartet und versucht es weiter; läuft LM Studio oder Ollama noch?`}
         </p>
       )}
       {stop.error && (

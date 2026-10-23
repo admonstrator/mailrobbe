@@ -105,8 +105,8 @@ export function PersonsPage() {
       <div {...tabPanelProps(TABS_ID, state.tab)} className={styles.panel}>
         {state.tab === "vorschlaege" ? (
           <SuggestionList
-            uncertain={state.uncertain}
-            onUncertain={(uncertain) => setState({ ...state, uncertain })}
+            view={state.suggestions}
+            onView={(suggestions) => setState({ ...state, suggestions })}
             hasPersons={(page.data?.total ?? 0) > 0}
           />
         ) : state.tab === "zusammengefuehrt" ? (

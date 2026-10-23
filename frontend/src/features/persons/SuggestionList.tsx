@@ -5,18 +5,26 @@ import {
   useDismissSuggestion,
   useMergeCertain,
   useMergePersons,
+  useStartAliasCheck,
   useSuggestions,
   useUndoMergeBatch,
 } from "../../api/queries";
-import type { AliasSuggestion, CertainMergeResult } from "../../api/types";
+import type {
+  AliasCheckState,
+  AliasSuggestion,
+  CertainMergeResult,
+  SuggestionCounts,
+  SuggestionView,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { personPath } from "../../components/PersonLink";
+import { Segments } from "../../components/Segments";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
-import { formatNumber } from "../../lib/format";
+import { formatDateTime, formatNumber } from "../../lib/format";
 import { BulkMergeDialog } from "./BulkMergeDialog";
 import {
   mergeCount,
@@ -25,29 +33,59 @@ import {
   personLabel,
   REASON_TEXTS,
   suggestionReasons,
+  VERDICT_TEXTS,
 } from "./labels";
 import { PersonBadge } from "./PersonBadge";
 import styles from "./SuggestionList.module.css";
 
-/** The open alias suggestions (D30, D160): the certain ones, or the uncertain ones behind the
- *  switch. Each can be merged (keeping the first, or the second with "andersherum") or
- *  dismissed; "Alle sicheren zusammenführen" merges every certain one as one run (D162). The
- *  row goes and a confirmation stays above the list, for a run with its "Rückgängig". */
+const INTROS: Record<SuggestionView, string> = {
+  certain:
+    "Sichere Vorschläge: Name und Adressen passen zusammen, und beide schreiben mit denselben Leuten. Zusammengeführt wird nur per Klick, und jede Zusammenführung lässt sich rückgängig machen.",
+  uncertain:
+    "Unsichere Vorschläge: Nur ein Teil spricht dafür, etwa der gleiche Name ohne gemeinsame Kontakte. Gleichnamige sind häufig, bitte einzeln prüfen.",
+  ai: "Diese Paare hält die KI für dieselbe Person. Sie hat Namen, Adressen, Kontakte, Betreffzeilen und Schlusszeilen verglichen und kann sich irren: bitte einzeln prüfen, zusammengeführt wird nur per Klick.",
+};
+
+/** The views of the suggestions: certain, uncertain (D160) and, once the text model judged pairs,
+ *  those it holds for one person (D323). */
+function views(
+  counts: SuggestionCounts | undefined,
+  check: AliasCheckState | undefined,
+  view: SuggestionView,
+) {
+  const counted = (label: string, count: number | undefined) =>
+    count === undefined ? label : `${label} (${formatNumber(count)})`;
+  const options: [SuggestionView, string][] = [
+    ["certain", counted("Sicher", counts?.certain)],
+    ["uncertain", counted("Unsicher", counts?.uncertain)],
+  ];
+  if (view === "ai" || (check !== undefined && check.checked > 0)) {
+    options.push(["ai", counted("KI: dieselbe Person", check?.same)]);
+  }
+  return options;
+}
+
+/** The open alias suggestions (D30, D160): the certain ones, the uncertain ones, or the pairs the
+ *  text model judged one person (D323), each view one segment. Each can be merged (keeping the
+ *  first, or the second with "andersherum") or dismissed; "Alle sicheren zusammenführen" merges
+ *  every certain one as one run (D162). The row goes and a confirmation stays above the list,
+ *  for a run with its "Rückgängig". "Mit KI prüfen" starts the alias check (D321). */
 export function SuggestionList({
-  uncertain,
-  onUncertain,
+  view,
+  onView,
   hasPersons,
 }: {
-  uncertain: boolean;
-  onUncertain: (uncertain: boolean) => void;
+  view: SuggestionView;
+  onView: (view: SuggestionView) => void;
   hasPersons: boolean;
 }) {
   const certain = useSuggestions("certain");
-  const suggestions = useSuggestions(uncertain ? "uncertain" : "certain");
+  const suggestions = useSuggestions(view);
   const mergeCertain = useMergeCertain();
   const [notice, setNotice] = useState<ReactNode>(null);
   const [confirming, setConfirming] = useState(false);
   const counts = (certain.data ?? suggestions.data)?.pages[0]?.counts;
+  const check = (suggestions.data ?? certain.data)?.pages[0]?.check;
 
   async function onMergeAll() {
     try {
@@ -61,27 +99,18 @@ export function SuggestionList({
 
   return (
     <>
-      <p className={styles.intro}>
-        {uncertain
-          ? "Unsichere Vorschläge: Nur ein Teil spricht dafür, etwa der gleiche Name ohne gemeinsame Kontakte. Gleichnamige sind häufig, bitte einzeln prüfen."
-          : "Sichere Vorschläge: Name und Adressen passen zusammen, und beide schreiben mit denselben Leuten. Zusammengeführt wird nur per Klick, und jede Zusammenführung lässt sich rückgängig machen."}
-      </p>
+      <p className={styles.intro}>{INTROS[view]}</p>
       <div className={styles.toolbar}>
-        <label className={styles.switch}>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={uncertain}
-            onChange={(event) => {
-              setNotice(null);
-              onUncertain(event.target.checked);
-            }}
-          />
-          {counts
-            ? `Unsichere Vorschläge zeigen (${formatNumber(counts.uncertain)})`
-            : "Unsichere Vorschläge zeigen"}
-        </label>
-        {!uncertain && counts !== undefined && counts.certain > 0 && (
+        <Segments<SuggestionView>
+          label="Zeigen"
+          options={views(counts, check, view)}
+          value={view}
+          onChange={(next) => {
+            setNotice(null);
+            onView(next);
+          }}
+        />
+        {view === "certain" && counts !== undefined && counts.certain > 0 && (
           <Button
             variant="primary"
             disabled={mergeCertain.isPending}
@@ -94,6 +123,7 @@ export function SuggestionList({
           </Button>
         )}
       </div>
+      {check && <AliasCheck check={check} />}
       <p role="status" className={cx(styles.notice, !notice && "sr-only")}>
         {notice}
       </p>
@@ -116,7 +146,8 @@ export function SuggestionList({
             <Rows
               items={suggestions.data.pages.flatMap((page) => page.items)}
               computed={suggestions.data.pages[0].computed}
-              uncertainLeft={!uncertain && (counts?.uncertain ?? 0) > 0}
+              view={view}
+              uncertainLeft={view === "certain" && (counts?.uncertain ?? 0) > 0}
               hasPersons={hasPersons}
               onDone={setNotice}
             />
@@ -148,12 +179,14 @@ export function SuggestionList({
 function Rows({
   items,
   computed,
+  view,
   uncertainLeft,
   hasPersons,
   onDone,
 }: {
   items: AliasSuggestion[];
   computed: boolean;
+  view: SuggestionView;
   uncertainLeft: boolean;
   hasPersons: boolean;
   onDone: (notice: ReactNode) => void;
@@ -171,6 +204,13 @@ function Rows({
       </ul>
     );
   }
+  if (view === "ai") {
+    return (
+      <EmptyState title="Keine Paare offen, die die KI für dieselbe Person hält">
+        Mit „Mit KI prüfen“ prüft die KI die unsicheren Vorschläge und Personen mit ähnlichem Namen.
+      </EmptyState>
+    );
+  }
   if (!computed && hasPersons) {
     return (
       <EmptyState title="Die Vorschläge sind noch nicht berechnet">
@@ -182,7 +222,7 @@ function Rows({
   if (uncertainLeft) {
     return (
       <EmptyState title="Keine sicheren Vorschläge offen">
-        Die unsicheren lassen sich mit dem Schalter oben zeigen.
+        Die unsicheren lassen sich oben unter „Unsicher“ zeigen.
       </EmptyState>
     );
   }
@@ -190,6 +230,40 @@ function Rows({
     <EmptyState title="Keine offenen Vorschläge">
       Neue Vorschläge entstehen beim nächsten Import.
     </EmptyState>
+  );
+}
+
+/** The alias check (D321 to D323): how far the text model got, and "Mit KI prüfen" while a text
+ *  service on this machine is set; nothing while there is none and nothing was checked. */
+function AliasCheck({ check }: { check: AliasCheckState }) {
+  const start = useStartAliasCheck();
+  if (!check.available && check.checked === 0) return null;
+  const run = start.data?.run;
+  const running = check.running || run === "started";
+  return (
+    <div className={styles.check}>
+      <p className={styles.checkText}>
+        {check.checked > 0
+          ? `Die KI hat ${formatNumber(check.checked)} ${check.checked === 1 ? "Paar" : "Paare"} geprüft und hält ${formatNumber(check.same)} offene für dieselbe Person.`
+          : "Die KI kann die unsicheren Vorschläge und Personen mit ähnlichem Namen prüfen. Sie vergleicht Namen, Adressen, Kontakte und Schlusszeilen eigener Mails, nur mit dem Textmodell auf diesem Rechner, und führt nie selbst zusammen."}
+        {running && (
+          <>
+            {" Die Prüfung läuft, Paar für Paar. "}
+            <Link to="/ki">Fortschritt unter KI</Link>
+          </>
+        )}
+        {run === "running" &&
+          " Gerade läuft ein anderer KI-Lauf. Die Prüfung lässt sich danach starten."}
+        {run === "busy" &&
+          " Gerade läuft ein Import oder ein anderer Lauf. Bitte später noch einmal."}
+        {start.isError && " Das Starten hat nicht geklappt: Der Server hat einen Fehler gemeldet."}
+      </p>
+      {check.available && !running && (
+        <Button size="sm" disabled={start.isPending} onClick={() => start.mutate()}>
+          Mit KI prüfen
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -284,6 +358,14 @@ function SuggestionRow({
             <li key={reason}>{reason}</li>
           ))}
         </ul>
+        {suggestion.ai && (
+          <p
+            className={cx(styles.verdict, suggestion.ai.verdict === "same" && styles.same)}
+            title={`${suggestion.ai.model}, ${formatDateTime(suggestion.ai.checked_at)}`}
+          >
+            <strong>{VERDICT_TEXTS[suggestion.ai.verdict]}.</strong> {suggestion.ai.reason}
+          </p>
+        )}
       </div>
       <div className={styles.actions}>
         <label className={styles.switch}>
