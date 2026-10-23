@@ -1,4 +1,4 @@
-// Light or dark (D338): the choice of this browser, "system" following the operating system.
+// Light or dark (D339): the choice of this browser, "system" following the operating system.
 // The resolved theme stands as data-theme on <html>, which global.css reads.
 
 import { useSyncExternalStore } from "react";

@@ -31,7 +31,7 @@
   --color-no-key-soft: #fef3c7;
   --color-unsigned-soft: #f1f3f6;
 
-  /* Colours the pages used as literals before the dark theme (D338). */
+  /* Colours the pages used as literals before the dark theme (D339). */
   --color-teal-text: #0f766e;
   --color-purple-soft: #f1e8fd;
   --color-purple-text: #6d28d9;
@@ -87,7 +87,7 @@
   color-scheme: light;
 }
 
-/* The dark theme (D338): chosen by the button in the header, or by the system while the choice
+/* The dark theme (D339): chosen by the button in the header, or by the system while the choice
    is "System" (lib/theme.ts sets data-theme on <html>). Only the colours change. Mail HTML,
    document previews, the relationship map and the places map stay on white, like paper. */
 :root[data-theme="dark"] {

@@ -8,7 +8,7 @@ const LABELS: Record<ThemeChoice, string> = {
   dark: "Dunkle Darstellung",
 };
 
-/** The header's button of light and dark (D338): each click goes on to the next of System,
+/** The header's button of light and dark (D339): each click goes on to the next of System,
  *  Hell and Dunkel; the icon shows the current choice. */
 export function ThemeButton() {
   const theme = useTheme();
