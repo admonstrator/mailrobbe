@@ -3,7 +3,6 @@ import { Link } from "react-router";
 import { usePersonEvents } from "../../api/queries";
 import { EVENT_KEYS, type PersonEvent } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { PersonLink } from "../../components/PersonLink";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
@@ -21,7 +20,7 @@ export function personEventsHref(personId: number): string {
 
 const termine = (count: number) => (count === 1 ? "1 Termin" : `${formatNumber(count)} Termine`);
 
-/** "Termine" (D155): the events the person organised or was invited to, one per UID, newest
+/** "Termine" (D155), the profile's tab Termine: the events the person organised or was invited to, one per UID, newest
  *  first, each with its date, its summary linking to the mail, and who organised it or the
  *  person's answer. Hidden while loading and when the person has none. */
 export function PersonEventsCard({ personId }: { personId: number }) {
@@ -30,24 +29,28 @@ export function PersonEventsCard({ personId }: { personId: number }) {
   if (events.isPending) return null;
   if (events.isError) {
     return (
-      <Card aria-labelledby="person-events-title">
-        <CardTitle id="person-events-title">Termine</CardTitle>
+      <section className={styles.section} aria-labelledby="person-events-title">
+        <h2 id="person-events-title" className={styles.title}>
+          Termine
+        </h2>
         <div className={styles.error} role="alert">
           <span>Die Termine konnten nicht geladen werden.</span>
           <Button variant="link" size="xs" onClick={() => void events.refetch()}>
             Erneut versuchen
           </Button>
         </div>
-      </Card>
+      </section>
     );
   }
   const { items, total } = events.data;
   if (total === 0) return null;
 
   return (
-    <Card aria-labelledby="person-events-title">
+    <section className={styles.section} aria-labelledby="person-events-title">
       <div className={styles.head}>
-        <CardTitle id="person-events-title">Termine</CardTitle>
+        <h2 id="person-events-title" className={styles.title}>
+          Termine
+        </h2>
         <span className={styles.base}>
           {total > items.length
             ? `${termine(total)}, die ${formatNumber(items.length)} neuesten`
@@ -71,7 +74,43 @@ export function PersonEventsCard({ personId }: { personId: number }) {
       <Link to={personEventsHref(personId)} className={styles.all}>
         Alle Einladungen in der Mailliste
       </Link>
-    </Card>
+    </section>
+  );
+}
+
+// Events the overview shows.
+const RECENT_EVENTS = 3;
+
+/** "Neueste Termine" of the profile's overview: the latest three events with their date and the
+ *  person's part; "Alle n" opens the tab. Nothing while loading, after an error or without any. */
+export function PersonRecentEvents({ personId, onMore }: { personId: number; onMore: () => void }) {
+  const events = usePersonEvents(personId);
+  if (!events.data || events.data.total === 0) return null;
+  const { items, total } = events.data;
+  return (
+    <section className={styles.section} aria-labelledby="person-recent-events-title">
+      <div className={styles.head}>
+        <h2 id="person-recent-events-title" className={styles.title}>
+          Neueste Termine
+        </h2>
+        <Button variant="link" size="sm" className={styles.more} onClick={onMore}>
+          {`Alle ${formatNumber(total)}`}
+        </Button>
+      </div>
+      <ul className={styles.recent}>
+        {items.slice(0, RECENT_EVENTS).map((item) => (
+          <li key={item.event.id}>
+            <span className={styles.when}>{eventStart(item.event) ?? "–"}</span>
+            <Link to={`/mails/${item.mail.id}`} title={item.mail.subject ?? undefined}>
+              {item.event.summary || "(ohne Titel)"}
+            </Link>
+            <span className={styles.part}>
+              {item.organizer ? "organisiert" : (answerText(item.partstat) ?? "eingeladen")}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -32,7 +32,8 @@ function firstLetter(word: string): string {
   return word.match(/\p{L}/u)?.[0] ?? "";
 }
 
-/** The initials on the person's colour; "lg" is the profile's header. */
+/** The initials on the person's colour: "sm" in dense rows, "lg" in a short profile, "xl" the
+ *  profile page's large picture (D336). */
 export function Avatar({
   personId,
   name,
@@ -42,11 +43,11 @@ export function Avatar({
   personId: number;
   name: string | null;
   email: string;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
 }) {
   return (
     <span
-      className={cx(styles.avatar, size === "lg" && styles.lg)}
+      className={cx(styles.avatar, size !== "md" && styles[size])}
       style={{ background: PALETTE[personId % PALETTE.length] }}
       aria-hidden="true"
     >

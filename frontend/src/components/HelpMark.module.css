@@ -1,0 +1,20 @@
+.mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border: 1px solid #c3cad5;
+  border-radius: 50%;
+  color: var(--color-muted);
+  font: 600 10px/1 var(--font-sans);
+  vertical-align: 2px;
+  cursor: help;
+}
+
+.mark:hover,
+.mark:focus-visible {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

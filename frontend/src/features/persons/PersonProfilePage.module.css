@@ -1,54 +1,66 @@
+/* The profile sits on the shell's white sheet (D334): no boxes of its own, blocks parted by
+   space. Its tab bar sticks below the header, --profile-tabs-height high, and the mail table's
+   head sticks below the bar. */
 .page {
+  --profile-tabs-height: 48px;
+
   display: flex;
   flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .breadcrumb {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 16px 24px 0;
+  gap: var(--space-2);
   color: var(--color-muted);
   font-size: 13px;
 }
 
-.content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-  padding: 16px 24px 24px;
-}
-
-.charts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 16px;
-}
-
-/* Signals and events side by side on wide screens; either may be missing, then the other
-   takes the whole width. */
-.pair {
+.layout {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--space-6) 40px;
 }
 
-.pair > :first-child {
-  flex: 1 1 480px;
+.main {
+  flex: 999 1 520px;
+  min-width: 0;
 }
 
-.pair > :last-child {
-  flex: 2 1 600px;
+.tabs {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  min-height: var(--profile-tabs-height);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
 }
 
-.pair:empty {
-  display: none;
+.tabs > * {
+  flex: 1;
+  min-width: 0;
 }
 
-.pending {
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 0;
+}
+
+.panel {
+  min-width: 0;
+}
+
+.empty {
+  margin: 0;
   color: var(--color-muted);
 }
 
@@ -58,6 +70,12 @@
   padding: 64px;
 }
 
-.message {
-  margin: 16px 24px 24px;
+@media (max-width: 759px) {
+  .page {
+    padding: var(--space-4);
+  }
+
+  .tabs {
+    position: static;
+  }
 }

@@ -23,7 +23,7 @@ function row(card: HTMLElement, summary: string): string[] {
 
 describe("events of a person", () => {
   it("list each event with its date, its mail, and who organised it or the answer", async () => {
-    const { calls } = renderApp("/personen/11");
+    const { calls } = renderApp("/personen/11?tab=termine");
     const card = await eventsCard();
     expect(calls.filter((call) => call.url.pathname === EVENTS)).toHaveLength(1);
     expect(within(card).getByText("3 Termine")).toBeTruthy();
@@ -63,21 +63,40 @@ describe("events of a person", () => {
   });
 
   it("say how many are listed when there are more", async () => {
-    renderApp("/personen/11", withEvents({ ...personEvents, total: 73 }));
+    renderApp("/personen/11?tab=termine", withEvents({ ...personEvents, total: 73 }));
     const card = await eventsCard();
     expect(within(card).getByText("73 Termine, die 3 neuesten")).toBeTruthy();
   });
 
-  it("are hidden for a person without events", async () => {
+  it("are left out of the overview for a person without events, and the tab says so", async () => {
     renderApp("/personen/11", withEvents({ items: [], total: 0 }));
-    await screen.findByRole("heading", { name: "Signale gesendeter Mails" });
-    await screen.findByRole("heading", { name: "Anna Keller", level: 1 });
+    await screen.findByRole("heading", { name: "Signale" });
+    expect(screen.queryByRole("heading", { name: "Neueste Termine" })).toBeNull();
+    fireEvent.click(await screen.findByRole("tab", { name: "Termine 0" }));
+    expect(
+      await screen.findByText(/^Diese Person hat keine Einladung verschickt oder bekommen\./),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Termine" })).toBeNull();
+  });
+
+  it("show the latest three in the overview, with all of them in the tab", async () => {
+    const { router } = renderApp("/personen/11");
+    const block = (await screen.findByRole("heading", { name: "Neueste Termine" })).closest(
+      "section",
+    )!;
+    const items = within(block).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Di, 27.10.2026, 10:00Abstimmung Rahmenvereinbarung 2026organisiert",
+      "Di, 15.09.2026, 15:00Jahresgespräch Stadtwerkezugesagt",
+      "Do, 04.06.2026Verbandstag Nordeingeladen",
+    ]);
+    fireEvent.click(within(block).getByRole("button", { name: "Alle 3" }));
+    expect(router.state.location.search).toBe("?tab=termine");
   });
 
   it("offer to load them again after an error", async () => {
     let fail = true;
-    renderApp("/personen/11", (call) =>
+    renderApp("/personen/11?tab=termine", (call) =>
       call.url.pathname === EVENTS && fail
         ? Response.json({ detail: { code: "x", message: "down" } }, { status: 500 })
         : fixtureApi(call),
