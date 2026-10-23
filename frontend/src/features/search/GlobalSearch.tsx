@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } f
 import { useLocation, useNavigate } from "react-router";
 
 import { useStats } from "../../api/queries";
-import { SearchIcon, SlidersIcon } from "../../components/icons";
+import { HelpIcon, SearchIcon, SlidersIcon } from "../../components/icons";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { isPlainKey } from "../../lib/keys";
@@ -21,7 +21,7 @@ import {
 import { SaveSearchDialog } from "../mails/SaveSearchDialog";
 import { changedOptions, DEFAULT_SEARCH_OPTIONS } from "../mails/SearchOptions";
 import styles from "./GlobalSearch.module.css";
-import { SearchMenu } from "./SearchMenu";
+import { OPERATORS_HEADING, SearchMenu } from "./SearchMenu";
 
 /** The widest the menu gets, and its distance to the window's edges. */
 const MENU_WIDTH = 680;
@@ -46,9 +46,12 @@ export function GlobalSearch() {
   const input = useRef<HTMLInputElement>(null);
   const area = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
+  const help = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const [open, setOpen] = useState(false);
+  // The menu opened by its button, or by the help button at its operators (D340).
+  const [open, setOpen] = useState<false | "menu" | "operators">(false);
+  const opener = useRef<"menu" | "operators">("menu");
   const [saving, setSaving] = useState(false);
   const [creatingRule, setCreatingRule] = useState(false);
   const [draft, setDraft] = useState<Options>(DEFAULT_SEARCH_OPTIONS);
@@ -76,7 +79,12 @@ export function GlobalSearch() {
 
   function close(returnFocus: boolean) {
     setOpen(false);
-    if (returnFocus) toggle.current?.focus();
+    if (returnFocus) (opener.current === "operators" ? help : toggle).current?.focus();
+  }
+
+  function openAt(at: "menu" | "operators") {
+    opener.current = at;
+    setOpen(at);
   }
 
   // Escape, a click outside and focus leaving the search close the menu.
@@ -124,9 +132,11 @@ export function GlobalSearch() {
 
   useEffect(() => {
     if (!open) return;
-    panel.current
-      ?.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), a[href]")
-      ?.focus();
+    const target =
+      open === "operators"
+        ? `#${OPERATORS_HEADING}`
+        : "input:not(:disabled), button:not(:disabled), a[href]";
+    panel.current?.querySelector<HTMLElement>(target)?.focus();
   }, [open]);
 
   /** On the list the options and exclusions change its URL; a new filter starts at page 1. */
@@ -175,7 +185,7 @@ export function GlobalSearch() {
           placeholder={
             stats ? `In ${formatNumber(stats.mails)} Mails suchen` : "In den Mails suchen"
           }
-          title="Volltext, Betreff, Adresse, Domain, Message-ID … (from:anna@ to:@beispiel.de has:attachment)"
+          title="Wörter, Phrasen und Operatoren wie to:@beispiel.de, recipient:.ru oder between:anna,bert"
           autoComplete="off"
           spellCheck={false}
           className={styles.searchInput}
@@ -184,15 +194,28 @@ export function GlobalSearch() {
           /
         </kbd>
         <button
+          ref={help}
+          type="button"
+          className={cx(styles.menuButton, open === "operators" && styles.menuButtonOn)}
+          aria-label="Operatoren der Suche"
+          title="Operatoren der Suche: from:, to:, recipient:, between:, domain: …"
+          aria-haspopup="dialog"
+          aria-expanded={open === "operators"}
+          aria-controls={menuId}
+          onClick={() => (open === "operators" ? close(true) : openAt("operators"))}
+        >
+          <HelpIcon />
+        </button>
+        <button
           ref={toggle}
           type="button"
-          className={cx(styles.menuButton, (open || changed > 0) && styles.menuButtonOn)}
+          className={cx(styles.menuButton, (open === "menu" || changed > 0) && styles.menuButtonOn)}
           aria-label={changed > 0 ? `Suchmenü, ${changed} Optionen geändert` : "Suchmenü"}
-          title="Suchoptionen, Ausschließen, Syntax und gespeicherte Suchen"
+          title="Suchoptionen, Ausschließen, Operatoren und gespeicherte Suchen"
           aria-haspopup="dialog"
-          aria-expanded={open}
+          aria-expanded={open === "menu"}
           aria-controls={menuId}
-          onClick={() => (open ? close(true) : setOpen(true))}
+          onClick={() => (open === "menu" ? close(true) : openAt("menu"))}
         >
           <SlidersIcon />
           {changed > 0 && (

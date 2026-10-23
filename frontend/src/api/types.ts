@@ -67,6 +67,9 @@ export type QueryKey =
   | "from"
   | "to"
   | "cc"
+  | "bcc"
+  | "recipient" // To, Cc or Bcc (D340)
+  | "between" // two parties, one sent the mail and the other received it (D340)
   | "subject"
   | "domain"
   | "has"

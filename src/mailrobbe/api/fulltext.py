@@ -26,6 +26,9 @@ that the default search reads no tsvector the index does not for the others.
 
 A whole word (D173) is the word as written, in any case, not inside a longer word: letters and
 digits around it end it, anything else does not (spaces, punctuation, the _ . - of file names).
+A word or a phrase in quotes is always looked for as written (D341, FullText.exact), the other
+words of the same search by their stems unless whole_word is set; a proximity term keeps its
+stems, its quotes being the syntax of the pair.
 Its German stem is always in the tsvector of a text holding it, so the full text indexes find the
 candidates (prefilter) and a regular expression (word_regex) decides on their stored texts, a
 mail's text cut to its body_part (stored_texts). A proximity term of whole words asks the index
@@ -108,6 +111,16 @@ class FullText:
     min_hits: int | None
     body_part: BodyPart = "clean"  # the parts of the mail's own text looked at (D226)
     near: tuple[Words, ...] = ()  # the proximity terms (D229) in q's order, looked for in fields
+
+    def exact(self, words: Words) -> bool:
+        """Whether words are looked for as written (D173, D341): all of them with whole_word,
+        otherwise a quoted word or phrase."""
+        return self.whole_word or words.phrase
+
+    @property
+    def mixed(self) -> bool:
+        """Whether some free words are looked for as written and others by their stems (D341)."""
+        return not self.whole_word and any(w.phrase for group in self.groups for w in group)
 
     @property
     def counted(self) -> tuple[tuple[Words, frozenset[SearchField]], ...]:

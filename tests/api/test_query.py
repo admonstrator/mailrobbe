@@ -31,6 +31,38 @@ def test_every_operator() -> None:
     ]
 
 
+def test_parties_of_roles() -> None:
+    q = "bcc:@Partei.example recipient:.ru between:anna,.at domain:.at from:max.rudolf"
+    assert _terms(q) == [
+        ("bcc", "@Partei.example", "bcc:@Partei.example"),
+        ("recipient", ".ru", "recipient:.ru"),
+        ("between", "anna,.at", "between:anna,.at"),
+        ("domain", ".at", "domain:.at"),
+        ("from", "max.rudolf", "from:max.rudolf"),
+    ]
+    assert _terms('between:"Anna Keller",@partei.example') == [
+        ("between", "Anna Keller,@partei.example", 'between:"Anna Keller",@partei.example'),
+    ]
+
+
+@pytest.mark.parametrize(
+    "q",
+    [
+        "to:@",
+        "recipient:.",
+        "domain:@",
+        "between:anna",
+        "between:a,b,c",
+        "between:a,",
+        "between:a,@",
+    ],
+)
+def test_parties_that_cannot_be_used(q: str) -> None:
+    with pytest.raises(QueryError) as raised:
+        parse_query(q)
+    assert raised.value.term == q
+
+
 def test_operator_names_and_enumerated_values_ignore_case() -> None:
     assert _terms("FROM:Anna Has:Attachment DKIM:Pass") == [
         ("from", "Anna", "FROM:Anna"),

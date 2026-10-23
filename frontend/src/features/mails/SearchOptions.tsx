@@ -12,17 +12,50 @@ import { SEARCH_FIELD_LABELS } from "./chips";
 import { canonicalScope, positiveInt, type SearchOptions as Options } from "./listState";
 import styles from "./SearchOptions.module.css";
 
-/** The search syntax in short lines (D20, D172, D175). */
-const SYNTAX: readonly [string, string][] = [
-  ["betreff:Wort", "nur im Betreff"],
-  ["text:Wort", "nur im Mailtext"],
-  ["anhang:Wort", "nur im Text der Anhänge"],
-  ["datei:Wort", "nur in Dateinamen"],
-  ["-datei:Entwurf", "Minus schließt aus, auch vor from:, has: usw."],
-  ["Wort or Wort", "eines der beiden"],
-  ['"genaue Phrase"', "die Wörter in dieser Folge"],
-  ['"Spende bar"~5', "beide Wörter, höchstens 5 Wörter dazwischen"],
-  ["subject:Wort", "Teil des Betreffs, auch mitten im Wort"],
+/** The operators of the search in short lines, by group (D20, D172, D175, D229, D340, D341). */
+const SYNTAX: readonly (readonly [string, readonly (readonly [string, string])[]])[] = [
+  [
+    "Wörter",
+    [
+      ["Spende Partei", "beide Wörter, auch gebeugt"],
+      ["Spende or Zuwendung", "eines der beiden"],
+      ['"finale Fassung"', "genau so geschrieben, auch ein einzelnes Wort"],
+      ['"Spende bar"~5', "beide Wörter, höchstens 5 Wörter dazwischen"],
+      ["-Entwurf", "ohne dieses Wort"],
+      ["betreff:Wort", "nur im Betreff"],
+      ["text:Wort", "nur im Mailtext"],
+      ["anhang:Wort", "nur im Text der Anhänge"],
+      ["datei:Wort", "nur in Dateinamen"],
+    ],
+  ],
+  [
+    "Personen und Domains",
+    [
+      ["from:anna", "Absender: Teil von Adresse oder Name"],
+      ["to: cc: bcc:", "ebenso für An, Cc und Bcc"],
+      ["recipient:anna", "in An, Cc oder Bcc"],
+      ["to:@beispiel.de", "an diese Domain und ihre Subdomains"],
+      ["recipient:.ru", "an Adressen auf .ru"],
+      ["domain:beispiel.de", "Domain in jeder Rolle, auch domain:.at"],
+      ["between:anna,bert", "die eine Seite schrieb, die andere empfing"],
+      ["between:anna,.ru", "Anna mit jemandem auf .ru, auch @domain"],
+    ],
+  ],
+  [
+    "Weitere",
+    [
+      ["subject:Wort", "Teil des Betreffs, auch mitten im Wort"],
+      ["has:attachment", "mit Anhang"],
+      [
+        "dkim:fail",
+        "DKIM-Ergebnis: pass, consistent, fail, no_key, unsigned, temp_error, unchecked",
+      ],
+      ["after:2024-01-31", "ab diesem Tag, auch 31.01.2024"],
+      ["before:2025-01-01", "vor diesem Tag"],
+      ["<id@host>", "Message-ID"],
+      ["-from:@beispiel.de", "Minus vor einem Operator schließt aus"],
+    ],
+  ],
 ];
 
 export const DEFAULT_SEARCH_OPTIONS: Options = {
@@ -127,16 +160,23 @@ export function SearchOptions({
 /** The search syntax as a compact list of examples. */
 export function SearchSyntax() {
   return (
-    <dl className={styles.syntax}>
-      {SYNTAX.map(([example, meaning]) => (
-        <div key={example} className={styles.syntaxLine}>
-          <dt>
-            <code className={styles.code}>{example}</code>
-          </dt>
-          <dd>{meaning}</dd>
+    <div className={styles.syntaxGroups}>
+      {SYNTAX.map(([group, lines]) => (
+        <div key={group}>
+          <h4 className={styles.syntaxGroup}>{group}</h4>
+          <dl className={styles.syntax}>
+            {lines.map(([example, meaning]) => (
+              <div key={example} className={styles.syntaxLine}>
+                <dt>
+                  <code className={styles.code}>{example}</code>
+                </dt>
+                <dd>{meaning}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       ))}
-    </dl>
+    </div>
   );
 }
 

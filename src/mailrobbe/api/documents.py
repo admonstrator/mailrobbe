@@ -107,6 +107,7 @@ from mailrobbe.api.filters import (
     mail_conditions,
 )
 from mailrobbe.api.fulltext import (
+    FullText,
     Words,
     full_text_search,
     ts_query,
@@ -682,10 +683,11 @@ async def mail_hits(
     texts = [documents[attachment] for attachment, hit in attached.items() if hit.attachment]
     machine = await _machine_texts(session, texts)
     in_texts = [words for words, fields in counted if "attachment" in fields]
-    snippets = await _hit_snippets(session, search.whole_word, in_texts, stems, texts)
+    snippets = await _hit_snippets(session, search, in_texts, stems, texts)
+    loose = [words for words, _ in counted if not search.exact(words)]  # D341
     return MailHits(
         words=_typed([words for words, _ in counted]),
-        stems=[] if search.whole_word else list(dict.fromkeys(chain(*stems.values()))),
+        stems=list(dict.fromkeys(chain(*(stems[words] for words in loose)))),
         in_mail=counts.subject + counts.body > 0,
         attachments=[
             AttachmentHit(
@@ -723,21 +725,23 @@ def _typed(counted: Sequence[Words]) -> list[str]:
 
 async def _hit_snippets(
     session: AsyncSession,
-    whole_word: bool,
+    search: FullText,
     counted: Sequence[Words],
     stems: dict[Words, list[str]],
     ids: Sequence[int],
 ) -> dict[int, str]:
     """Per document, the text around the first place one of the counted words occurs (D79):
-    as written with whole words (D173), otherwise as typed or as a word one of their stems
-    begins, the place the browser marks either way."""
-    if whole_word:
-        pattern = "|".join(f"(?:{word_regex(words)})" for words in counted)
-        python = "|".join(f"(?:{word_regex_python(words).pattern})" for words in counted)
-        return await _snippets(session, f"(?i){pattern}", ids, re.compile(python, re.IGNORECASE))
-    beginning = list(dict.fromkeys(chain(*(stems[words] for words in counted))))
-    pattern = "|".join(filter(None, [literal_pattern(_typed(counted)), stem_pattern(beginning)]))
-    return await _snippets(session, pattern, ids)
+    as written with whole words (D173) and quoted ones (D341), otherwise as typed or as a word
+    one of their stems begins, the place the browser marks either way."""
+    exact = [words for words in counted if search.exact(words)]
+    loose = [words for words in counted if not search.exact(words)]
+    beginning = list(dict.fromkeys(chain(*(stems[words] for words in loose))))
+    shared = list(filter(None, [literal_pattern(_typed(loose)), stem_pattern(beginning)]))
+    if not exact:
+        return await _snippets(session, "|".join(shared), ids)
+    pattern = "|".join([*(f"(?:{word_regex(words)})" for words in exact), *shared])
+    python = "|".join([*(f"(?:{word_regex_python(words).pattern})" for words in exact), *shared])
+    return await _snippets(session, f"(?i){pattern}", ids, re.compile(python, re.IGNORECASE))
 
 
 # Summary -------------------------------------------------------------------------------------

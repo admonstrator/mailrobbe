@@ -251,6 +251,8 @@ async def test_participant_filters_select_what_sql_selects(
         return found[0]
 
     sender, receiver, copied = await top("from"), await top("to"), await top("cc")
+    hidden = await top("bcc")
+    ending = receiver.domain.rpartition(".")[2]
     part = sender.canonical_email.split("@")[0]
     pair = (
         await rows(
@@ -310,6 +312,37 @@ async def test_participant_filters_select_what_sql_selects(
             [("q", f"domain:@{sender.domain}")],
             takes_part(in_domain("d")),
             {"d": sender.domain},
+        ),
+        (
+            "to-domain",
+            [("q", f"to:@{receiver.domain.upper()}")],
+            takes_part(in_domain("d"), "pa.role = 'to'"),
+            {"d": receiver.domain},
+        ),
+        (
+            "bcc-domain",
+            [("q", f"bcc:@{hidden.domain}")],
+            takes_part(in_domain("d"), "pa.role = 'bcc'"),
+            {"d": hidden.domain},
+        ),
+        (
+            "recipient-ending",
+            [("q", f"recipient:.{ending}")],
+            takes_part(in_domain("t"), RECIPIENT),
+            {"t": ending},
+        ),
+        (
+            "domain-ending",
+            [("q", f"domain:.{ending}")],
+            takes_part(in_domain("t")),
+            {"t": ending},
+        ),
+        (
+            "between-parties",
+            [("q", f"between:{part},@{receiver.domain}")],
+            f"({takes_part(named, SENDER)} AND {takes_part(in_domain('d'), RECIPIENT)})"
+            f" OR ({takes_part(in_domain('d'), SENDER)} AND {takes_part(named, RECIPIENT)})",
+            {**pattern, "d": receiver.domain},
         ),
         (
             "sender_domain",

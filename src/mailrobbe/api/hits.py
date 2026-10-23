@@ -13,9 +13,10 @@ once while planning); a words with several lexemes, a phrase, a hyphenated word 
 term (D229), counts as its least frequent lexeme, and 0 when one is missing or it has none (a
 stop word). One unnest of a tsvector serves every words and place: its lexemes are joined to the
 words' (_occurrences). PostgreSQL keeps at most 256 positions per lexeme and puts every word
-beyond the 16,383rd at that one position, so very long texts count low (D174). Whole words count
-the matches of fulltext.word_regex, in any case, in the stored texts: mail.subject and body_text
-cut to body_part's parts, document.names and extracted_text (D173, fulltext.stored_texts).
+beyond the 16,383rd at that one position, so very long texts count low (D174). Whole words, and
+quoted words and phrases (D341, FullText.exact), count the matches of fulltext.word_regex, in any
+case, in the stored texts: mail.subject and body_text cut to body_part's parts, document.names
+and extracted_text (D173, fulltext.stored_texts).
 
 Only a mail or a document whose tsvector can hold a counted word in its places is looked at
 (_holding), so that a text unrelated to the words is never unnested or read, and of the
@@ -216,22 +217,23 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
         for index, (words, fields) in enumerate(search.counted)
         for place in sorted(fields & places.keys())
     ]
-    if search.whole_word:
-        texts = stored_texts(search.body_part)
-        return _union(
-            [
-                select(
-                    literal(place, Text).label("place"),
-                    func.coalesce(
-                        func.regexp_count(texts[place], word_regex(words), 1, "i"), 0
-                    ).label("count"),
-                ).correlate(Mail, Document)
-                for _, words, place in counted
-            ]
-        )
+    texts = stored_texts(search.body_part)
+    as_written = [
+        select(
+            literal(place, Text).label("place"),
+            func.coalesce(func.regexp_count(texts[place], word_regex(words), 1, "i"), 0).label(
+                "count"
+            ),
+        ).correlate(Mail, Document)
+        for _, words, place in counted
+        if search.exact(words)
+    ]
+    stemmed = [(index, words, place) for index, words, place in counted if not search.exact(words)]
+    if not stemmed:
+        return _union(as_written)
     arrays = {
         index: func.tsvector_to_array(func.to_tsvector(TEXT_SEARCH, words.text))
-        for index, words, _ in counted
+        for index, words, _ in stemmed
     }
     # one row per words, place, weight of the place and lexeme
     lexemes = _union(
@@ -242,7 +244,7 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
                 literal(weight, Text).label("weight"),
                 func.unnest(arrays[index]).label("lexeme"),
             )
-            for index, _, place in counted
+            for index, _, place in stemmed
             for weight in places[place]
         ]
     ).subquery("lexemes")
@@ -263,9 +265,10 @@ def _occurrences(search: FullText, places: dict[SearchField, str], vector: Any) 
         .group_by(lexemes.c.words, lexemes.c.place, lexemes.c.lexeme)
         .subquery("per_lexeme")
     )
-    return select(per_lexeme.c.place, func.min(per_lexeme.c.count).label("count")).group_by(
+    least = select(per_lexeme.c.place, func.min(per_lexeme.c.count).label("count")).group_by(
         per_lexeme.c.words, per_lexeme.c.place
     )
+    return _union([*as_written, least])
 
 
 def _union(parts: Sequence[_Select]) -> _Rows:

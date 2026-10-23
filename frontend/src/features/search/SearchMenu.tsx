@@ -14,8 +14,11 @@ import {
 import { searchHref } from "../research/labels";
 import styles from "./SearchMenu.module.css";
 
+/** The heading of the operators, which the help button of the search field focuses. */
+export const OPERATORS_HEADING = "search-menu-operators";
+
 /** The content of the search menu: the options of the search words (D171 to D174), words to
- *  exclude, the syntax, and the saved searches (D59). */
+ *  exclude, the operators of the search (D340) and the saved searches (D59). */
 export function SearchMenu({
   options,
   onList,
@@ -62,7 +65,13 @@ export function SearchMenu({
           <HiddenMails options={options} change={change} onLeave={onLeave} newRule={newRule} />
         </div>
         <div className={styles.column}>
-          <section aria-labelledby="search-menu-saved">
+          <section aria-labelledby={OPERATORS_HEADING}>
+            <h3 id={OPERATORS_HEADING} className={styles.heading} tabIndex={-1}>
+              Operatoren
+            </h3>
+            <SearchSyntax />
+          </section>
+          <section aria-labelledby="search-menu-saved" className={styles.exclude}>
             <h3 id="search-menu-saved" className={styles.heading}>
               Gespeicherte Suchen
             </h3>
@@ -77,12 +86,6 @@ export function SearchMenu({
             >
               Aktuelle Suche speichern
             </Button>
-          </section>
-          <section aria-labelledby="search-menu-syntax">
-            <h3 id="search-menu-syntax" className={styles.heading}>
-              Suchsyntax
-            </h3>
-            <SearchSyntax />
           </section>
         </div>
       </div>

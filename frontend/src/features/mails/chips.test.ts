@@ -205,6 +205,20 @@ describe("filterChips", () => {
     ).toEqual(["Nur in: Dateiname", "Mindestens 1.200 Treffer"]);
   });
 
+  it("names the parties of roles and between (D340)", () => {
+    const q = "recipient:.ru bcc:@partei.example -between:anna,.at";
+    const terms = [
+      { key: "recipient" as const, value: ".ru", raw: "recipient:.ru", negated: false },
+      { key: "bcc" as const, value: "@partei.example", raw: "bcc:@partei.example", negated: false },
+      { key: "between" as const, value: "anna,.at", raw: "-between:anna,.at", negated: true },
+    ];
+    expect(filterChips({ ...DEFAULT_LIST_STATE, q }, terms, names).map((c) => c.label)).toEqual([
+      "An, Cc oder Bcc: .ru",
+      "bcc: @partei.example",
+      "Nicht Zwischen anna und .at",
+    ]);
+  });
+
   it("reads a minus as an exclusion, and removing it drops it from q (D175)", () => {
     const q = 'Neger -datei:NEG -from:anna -has:attachment -negere -"in Ordnung" betreff:Neger';
     const terms = [
