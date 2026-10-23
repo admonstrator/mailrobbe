@@ -13,6 +13,7 @@ import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
 import { EVENT_LABELS } from "./chips";
 import type { ColumnChoice } from "./columns";
+import { hitPlaces } from "./hitPlaces";
 import styles from "./MailTable.module.css";
 import { ReviewMark } from "./ReviewMark";
 
@@ -60,23 +61,13 @@ function TagDots({ ids, tags }: { ids: number[]; tags: Map<number, TagRef> }) {
   );
 }
 
-/** The places of MailHitCounts as a row names them, and in its title. */
-const HIT_PLACES: readonly [keyof MailHitCounts, string, string][] = [
-  ["subject", "Betreff", "im Betreff"],
-  ["body", "Text", "im Mailtext"],
-  ["attachment", "Anhang", "im Text von Anhängen"],
-  ["filename", "Dateiname", "in Dateinamen"],
-];
-
-/** Why a mail matched (D176): how often the search words occur where, places without any left
- *  out, so a mail found only through a file name says so. Nothing when none is counted. */
+/** Why a mail matched (D176), below its subject. */
 function HitPlaces({ hits }: { hits: MailHitCounts }) {
-  const places = HIT_PLACES.filter(([key]) => hits[key] > 0);
-  if (places.length === 0) return null;
-  const title = places.map(([key, , long]) => `${formatNumber(hits[key])} ${long}`).join(", ");
+  const places = hitPlaces(hits);
+  if (!places) return null;
   return (
-    <span className={styles.hitPlaces} title={`Suchwörter: ${title}`}>
-      {places.map(([key, label]) => `${label} ${formatNumber(hits[key])}`).join(" · ")}
+    <span className={styles.hitPlaces} title={places.title}>
+      {places.label}
     </span>
   );
 }
