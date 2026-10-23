@@ -57,6 +57,11 @@ export const GROUPS: SettingGroup[] = [
     note: "Für „Zusammenfassen“: ein Sprachmodell auf diesem Rechner, etwa LM Studio unter http://host.docker.internal:1234/v1 oder Ollama unter http://host.docker.internal:11434. Ohne Adresse gibt es kein „Zusammenfassen“.",
     settings: {
       ...service("text"),
+      ai_text_reasoning: {
+        label: "Nachdenken",
+        choices: { off: "aus", low: "kurz", medium: "mittel", high: "gründlich" },
+        help: "Ob das Modell vor der Antwort nachdenkt. Aus ist am schnellsten; mit Nachdenken braucht es mehr Kontext und deutlich mehr Zeit. Wirkt nur bei Modellen, die nachdenken können.",
+      },
       ai_context_tokens: {
         label: "Kontext",
         unit: "Token",

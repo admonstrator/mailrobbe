@@ -8,8 +8,9 @@
     ask     one request: the prompt of ai.toml [aliases] as the system message, the material
             between the markers as the user's, the answer bound to answer_schema
     check   read_answer: the persons the model sees, each with its letters, sure and a reason
-            (spaces tidied, cut at ALIAS_REASON_MAX_CHARS). A letter in two entries or one not in
-            the group makes the answer invalid; a letter missing is a person of its own, not
+            (spaces tidied, cut at ALIAS_REASON_MAX_CHARS). A letter not in the group makes the
+            answer invalid; a letter named again in a later entry stays in its first one (an
+            entry left empty is dropped, D337); a letter missing is a person of its own, not
             sure. An answer cut at its length, an HTTP error or an answer that is no valid one
             is an attempt: the group is asked again, and after AI_TASK_ATTEMPTS attempts left
             for a later run and counted as failed
@@ -39,6 +40,7 @@ from mailrobbe.ai.model import (
     AI_TASK_ATTEMPTS,
     ALIAS_ANSWER_TOKENS,
     ALIAS_REASON_MAX_CHARS,
+    ALIAS_THINKING_TOKENS,
     Protocol,
     Service,
 )
@@ -101,15 +103,16 @@ def answer_schema(size: int) -> dict[str, Any]:
                 "type": "array",
                 "items": {
                     "type": "object",
+                    # the reason first: the model weighs, then decides by it (D337)
                     "properties": {
+                        "reason": {"type": "string"},
                         "members": {
                             "type": "array",
                             "items": {"type": "string", "enum": list(LETTERS[:size])},
                         },
                         "sure": {"type": "boolean"},
-                        "reason": {"type": "string"},
                     },
-                    "required": ["members", "sure", "reason"],
+                    "required": ["reason", "members", "sure"],
                     "additionalProperties": False,
                 },
             }
@@ -139,9 +142,10 @@ def read_answer(answer: str, size: int) -> list[Seen]:
         places: set[int] = set()
         for letter in members:
             place = LETTERS.find(letter) if isinstance(letter, str) and len(letter) == 1 else -1
-            if not 0 <= place < size or place in placed | places:
-                raise AnswerError(f"the letter {letter!r} is unknown or twice: {shown(answer)}")
-            places.add(place)
+            if not 0 <= place < size:
+                raise AnswerError(f"the letter {letter!r} is unknown: {shown(answer)}")
+            if place not in placed:  # a letter named again later stays where it came first
+                places.add(place)
         if not places:
             continue
         placed |= places
@@ -222,7 +226,12 @@ class AliasStep:
         """The characters the material may take: the context without prompt and answer."""
         context = self.run.options.context_tokens
         prompt = len(self._prompts.system) // CHARS_PER_TOKEN
-        return max(0, (context - prompt - ALIAS_ANSWER_TOKENS) * CHARS_PER_TOKEN)
+        return max(0, (context - prompt - self._answer_tokens()) * CHARS_PER_TOKEN)
+
+    def _answer_tokens(self) -> int:
+        """max_tokens of a request: the answer, and the thinking when the model thinks (D337)."""
+        thinks = self.service is not None and self.service.reasoning != "off"
+        return ALIAS_ANSWER_TOKENS + (ALIAS_THINKING_TOKENS if thinks else 0)
 
     async def _check(self, group: Group) -> None:
         run = self.run
@@ -283,7 +292,7 @@ class AliasStep:
                 system=prompts.system,
                 user=user,
                 schema=answer_schema(size),
-                max_tokens=ALIAS_ANSWER_TOKENS,
+                max_tokens=self._answer_tokens(),
                 timeout=run.settings.ai_timeout,
                 context_tokens=run.options.context_tokens,
             )
@@ -297,7 +306,7 @@ class AliasStep:
             figures.tokens_in += found.tokens_in
             figures.tokens_out += found.tokens_out
         if found.finish == "length":
-            raise _Attempt(f"the answer was {cut_at_length(found, ALIAS_ANSWER_TOKENS)}")
+            raise _Attempt(f"the answer was {cut_at_length(found, self._answer_tokens())}")
         try:
             seen = read_answer(found.text, size)
         except AnswerError as error:

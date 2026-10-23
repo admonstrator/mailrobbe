@@ -26,6 +26,7 @@ from mailrobbe.jobs import RunProgress
 
 Capability = Literal["vision", "text"]  # M16 adds "audio"
 Protocol = Literal["openai", "ollama"]
+Reasoning = Literal["off", "low", "medium", "high"]  # the text model's thinking (D337)
 Locality = Literal["local", "remote"]
 OcrEngine = Literal["tesseract", "vision"]
 OcrEngineChoice = Literal["auto", "tesseract", "vision"]  # ai_task.engine, MAILROBBE_AI_OCR_ENGINE
@@ -72,6 +73,7 @@ SUMMARY_RULE_SECONDS_PER_KTOKEN = 5.0
 
 # The alias check (D321 to D323).
 ALIAS_ANSWER_TOKENS = 1000  # max_tokens of an answer: the persons of a group with reasons
+ALIAS_THINKING_TOKENS = 3000  # and on top of it while the text model thinks (D337)
 ALIAS_REASON_MAX_CHARS = 600  # a longer reason is cut there; the prompt asks for 300
 
 
@@ -148,6 +150,7 @@ class Service:
     model: str  # "" when not configured: the run then refuses to use the service
     protocol: Protocol | Literal["auto"]
     key: str = field(default="", repr=False)  # sent as a bearer token; never logged or stored
+    reasoning: Reasoning = "off"  # the text model's thinking; the vision model never thinks
 
     @property
     def display_url(self) -> str:
@@ -172,6 +175,7 @@ def configured_services(settings: Settings) -> dict[Capability, Service]:
             model=settings.ai_text_model.strip(),
             protocol=settings.ai_text_protocol,
             key=settings.ai_text_key.get_secret_value(),
+            reasoning=settings.ai_text_reasoning,
         )
     return services
 
