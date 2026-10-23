@@ -27,6 +27,7 @@ from typing import Any
 
 from mailrobbe.ai.model import (
     QUOTE_MAX_CHARS,
+    SUMMARY_MAX_HINTS,
     SUMMARY_MAX_TAGS,
     TAG_MAX_CHARS,
     THEME_HINTS_PER_THEME,
@@ -55,7 +56,8 @@ _EDGES = _DOUBLE + _SINGLE + "…"
 
 def answer_schema(theme_keys: Sequence[str]) -> dict[str, Any]:
     """The JSON schema of an answer (D304): summary, tags, and themes with their quotes, the
-    theme by one of these keys. Strict: every key required, no others."""
+    theme by one of these keys. Strict: every key required, no others; at most SUMMARY_MAX_TAGS
+    tags and SUMMARY_MAX_HINTS themes, so a service bound to the schema cannot list on and on."""
     theme: dict[str, Any] = {"type": "string"}
     if theme_keys:
         theme["enum"] = list(theme_keys)
@@ -63,9 +65,10 @@ def answer_schema(theme_keys: Sequence[str]) -> dict[str, Any]:
         "type": "object",
         "properties": {
             "summary": {"type": "string"},
-            "tags": {"type": "array", "items": {"type": "string"}},
+            "tags": {"type": "array", "items": {"type": "string"}, "maxItems": SUMMARY_MAX_TAGS},
             "themes": {
                 "type": "array",
+                "maxItems": SUMMARY_MAX_HINTS,
                 "items": {
                     "type": "object",
                     "properties": {"theme": theme, "quote": {"type": "string"}},

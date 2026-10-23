@@ -4,17 +4,18 @@ and the answer is cut into parts that fit.
 A part may hold the context the model was loaded with, less what goes with every part (the system
 prompt, the instruction, the head lines and the markers), the answer (SUMMARY_ANSWER_TOKENS) and
 a margin for the chat template, counted at CHARS_PER_TOKEN characters per token: no tokenizer is
-at hand for every model. A text longer than that is cut at the last paragraph end (a blank line)
-in the second half of a part, else at the last line end, else at the last space, else where the
-part is full; each part keeps its offset in the text, so a quote found in it is found in the
-text. The run reads at most SUMMARY_MAX_PARTS of them.
+at hand for every model; the answer itself may use all the context leaves (answer_tokens). A text
+longer than that is cut at the last paragraph end (a blank line) in the second half of a part,
+else at the last line end, else at the last space, else where the part is full; each part keeps
+its offset in the text, so a quote found in it is found in the text. The run reads at most
+SUMMARY_MAX_PARTS of them.
 """
 
 import math
 import re
 from dataclasses import dataclass
 
-from mailrobbe.ai.model import CHARS_PER_TOKEN, SUMMARY_ANSWER_TOKENS
+from mailrobbe.ai.model import CHARS_PER_TOKEN, SUMMARY_ANSWER_MAX_TOKENS, SUMMARY_ANSWER_TOKENS
 
 MARGIN_TOKENS = 256  # the chat template around the messages, and a reserve for the estimate
 MIN_PART_CHARS = 2000  # a context leaving less for a part is too small to summarise in parts
@@ -38,6 +39,13 @@ def part_chars(context_tokens: int, fixed_chars: int) -> int:
         - math.ceil(fixed_chars / CHARS_PER_TOKEN)
     )
     return max(0, math.floor(tokens * CHARS_PER_TOKEN))
+
+
+def answer_tokens(context_tokens: int, prompt_chars: int) -> int:
+    """max_tokens of a request carrying prompt_chars of system and user message: what the context
+    leaves beside them, at least SUMMARY_ANSWER_TOKENS, at most SUMMARY_ANSWER_MAX_TOKENS."""
+    left = context_tokens - MARGIN_TOKENS - math.ceil(prompt_chars / CHARS_PER_TOKEN)
+    return min(max(left, SUMMARY_ANSWER_TOKENS), SUMMARY_ANSWER_MAX_TOKENS)
 
 
 def cut(text: str, size: int) -> list[Part]:

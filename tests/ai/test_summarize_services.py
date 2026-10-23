@@ -14,6 +14,7 @@ from mailrobbe.ai.services import (
     ModelMissing,
     chat_text,
     check_service,
+    cut_at_length,
 )
 from mailrobbe.ai.summarize.answer import answer_schema
 from mailrobbe.config import Settings
@@ -102,7 +103,21 @@ def test_an_answer_cut_at_its_length_says_so(flavour) -> None:
     with fake_service(
         flavour, models={"textmodell": None}, answer='{"summ', finish="length"
     ) as fake:
-        assert ask(fake).finish == "length"
+        found = ask(fake)
+    assert found.finish == "length" and not found.thought
+    assert cut_at_length(found, 900) == "cut at the length limit of 900 tokens"
+
+
+def test_an_answer_cut_while_thinking_says_so() -> None:
+    answer = "<think>Zuerst lese ich das Material"
+    with fake_service(
+        "ollama", models={"textmodell": None}, answer=answer, finish="length"
+    ) as fake:
+        found = ask(fake)
+    assert found.thought
+    assert cut_at_length(found, 900).endswith(
+        "while the model was thinking; switch its thinking off"
+    )
 
 
 # The real test of a text service (D300)
@@ -127,6 +142,8 @@ def test_the_text_test_passes_when_the_summary_names_the_word(flavour) -> None:
     assert "Art: E-Mail\nBetreff: Neues Archivprojekt\n\n" + TEST_TEXT in user
     if flavour == "ollama":
         assert chat.body["options"]["num_ctx"] == 4096
+        # the answer may use what the context leaves beside the short test text, not a fixed 1,200
+        assert 2000 < chat.body["options"]["num_predict"] < 4096
         assert chat.body["format"]["required"] == ["summary", "tags", "themes"]
     else:
         assert chat.body["response_format"]["json_schema"]["strict"] is True
@@ -144,7 +161,7 @@ def test_the_word_among_the_tags_passes_too() -> None:
     [
         (reply("Ein Projekt beginnt in Bremen."), "stop", f"{TEST_WORD} not named: Ein Projekt"),
         ("Das Projekt heißt ROBBE-7342.", "stop", "no JSON object in the answer: Das Projekt"),
-        (reply(f"Es heißt {TEST_WORD}"), "length", "cut at the length limit of 1200 tokens"),
+        (reply(f"Es heißt {TEST_WORD}"), "length", "cut at the length limit of "),
     ],
 )
 def test_the_text_test_fails_without_the_word_or_a_valid_answer(answer, finish, detail) -> None:

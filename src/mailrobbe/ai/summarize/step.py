@@ -37,7 +37,6 @@ from sqlalchemy import text
 from mailrobbe.ai.model import (
     AI_TASK_ATTEMPTS,
     CHARS_PER_TOKEN,
-    SUMMARY_ANSWER_TOKENS,
     SUMMARY_MAX_PARTS,
     Protocol,
     Service,
@@ -47,7 +46,7 @@ from mailrobbe.ai.model import (
     locality,
 )
 from mailrobbe.ai.prompts import SummaryPrompts, load_prompts
-from mailrobbe.ai.services import AnswerError, ChatAnswer, chat_text
+from mailrobbe.ai.services import AnswerError, ChatAnswer, chat_text, cut_at_length
 from mailrobbe.ai.store import store_summary_result
 from mailrobbe.ai.summarize.answer import (
     Answer,
@@ -59,7 +58,7 @@ from mailrobbe.ai.summarize.answer import (
     read_answer,
 )
 from mailrobbe.ai.summarize.inputs import SummaryInput, document_input, mail_input
-from mailrobbe.ai.summarize.parts import MIN_PART_CHARS, Part, cut, part_chars
+from mailrobbe.ai.summarize.parts import MIN_PART_CHARS, Part, answer_tokens, cut, part_chars
 from mailrobbe.ai.summarize.prompt import (
     fill,
     load_vocabulary,
@@ -364,6 +363,7 @@ class SummarizeStep:
         service, protocol, run = self.service, self.protocol, self.run
         assert service is not None and protocol is not None
         user = user_message(instruction, material(task.source.head, body))
+        max_tokens = answer_tokens(run.options.context_tokens, len(self._system) + len(user))
         if self.remote:
             await self._before_sending(task, user)
 
@@ -375,7 +375,7 @@ class SummarizeStep:
                 system=self._system,
                 user=user,
                 schema=self._schema,
-                max_tokens=SUMMARY_ANSWER_TOKENS,
+                max_tokens=max_tokens,
                 timeout=run.settings.ai_timeout,
                 context_tokens=run.options.context_tokens,
             )
@@ -391,7 +391,7 @@ class SummarizeStep:
         if self.remote:
             run.remote_tokens += found.tokens_in + found.tokens_out
         if found.finish == "length":
-            raise _Attempt(f"the answer was cut at its length limit of {SUMMARY_ANSWER_TOKENS}")
+            raise _Attempt(f"the answer was {cut_at_length(found, max_tokens)}")
         try:
             answer = read_answer(found.text)
         except AnswerError as error:

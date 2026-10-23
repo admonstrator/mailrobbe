@@ -2,8 +2,8 @@
 
 import math
 
-from mailrobbe.ai.model import CHARS_PER_TOKEN, SUMMARY_ANSWER_TOKENS
-from mailrobbe.ai.summarize.parts import MARGIN_TOKENS, cut, part_chars
+from mailrobbe.ai.model import CHARS_PER_TOKEN, SUMMARY_ANSWER_MAX_TOKENS, SUMMARY_ANSWER_TOKENS
+from mailrobbe.ai.summarize.parts import MARGIN_TOKENS, answer_tokens, cut, part_chars
 
 
 def test_a_part_holds_the_context_less_prompt_answer_and_margin() -> None:
@@ -13,6 +13,14 @@ def test_a_part_holds_the_context_less_prompt_answer_and_margin() -> None:
     assert part_chars(8192, fixed + 1) < part_chars(8192, fixed)
     assert part_chars(16384, fixed) > part_chars(8192, fixed)
     assert part_chars(2048, 20_000) == 0
+
+
+def test_an_answer_may_use_what_the_context_leaves() -> None:
+    assert answer_tokens(8192, 3500) == 8192 - MARGIN_TOKENS - 1000
+    # a part that fills its share still leaves the reserved room, a huge context the ceiling
+    assert answer_tokens(8192, part_chars(8192, 3500) + 3500) >= SUMMARY_ANSWER_TOKENS
+    assert answer_tokens(4096, 20_000) == SUMMARY_ANSWER_TOKENS
+    assert answer_tokens(131_072, 3500) == SUMMARY_ANSWER_MAX_TOKENS
 
 
 def test_a_text_that_fits_is_one_part_and_one_without_words_none() -> None:
