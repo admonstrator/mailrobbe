@@ -323,6 +323,7 @@ class AiOptions(BaseModel):
     context_tokens: int = 4096
     # D321: the run checks alias candidates with the text model and takes no task.
     aliases: bool = False
+    persons: list[int] = []  # with aliases: only these persons, as one group, checked again (D328)
 
     @property
     def only(self) -> dict[str, list[int]]:

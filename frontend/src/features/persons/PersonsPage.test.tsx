@@ -340,6 +340,32 @@ describe("alias suggestions", () => {
     expect(screen.queryByRole("button", { name: "Mit KI prüfen" })).toBeNull();
   });
 
+  it("asks the KI about one pair on its own", async () => {
+    let started = false;
+    const { calls } = renderApp("/personen?tab=vorschlaege&ki=1", (call) => {
+      if (call.url.pathname === "/api/persons/suggestions") {
+        return { ...aiSuggestionPage, check: { ...aiSuggestionPage.check, running: started } };
+      }
+      if (call.url.pathname === "/api/ai/run/aliases") {
+        started = true;
+        return { run: "started" };
+      }
+      return fixtureApi(call);
+    });
+    const row = (await screen.findByText("lvb@privat.example")).closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "KI fragen" }));
+    expect(await within(row).findByText(/Die KI prüft dieses Paar/)).toBeTruthy();
+    const ask = calls.find((call) => call.url.pathname === "/api/ai/run/aliases")!;
+    const { first, second } = aiSuggestionPage.items[1]!;
+    expect(ask.body).toEqual({ persons: [first.id, second.id] });
+    // while the run lives, no other pair is asked about
+    await waitFor(() => {
+      for (const button of screen.getAllByRole("button", { name: "KI fragen" })) {
+        expect(button).toHaveProperty("disabled", true);
+      }
+    });
+  });
+
   it("merges every pair the KI is sure of after a confirmation", async () => {
     const { calls } = renderApp("/personen?tab=vorschlaege&ki=1", (call) => {
       if (call.url.pathname === "/api/persons/suggestions") return aiSuggestionPage;

@@ -28,6 +28,7 @@ import {
 import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
+  AiAliasCheck,
   AiAliasRun,
   AiChanged,
   AiFacets,
@@ -400,11 +401,13 @@ export function useSuggestions(view: SuggestionView = "certain") {
   });
 }
 
-/** "Mit KI prüfen" (D321): starts `mailrobbe ai run --aliases`. */
+/** "Mit KI prüfen" (D321): starts `mailrobbe ai run --aliases`; with persons, "KI fragen" on
+ *  one pair, only them (D328). */
 export function useStartAliasCheck() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<AiAliasRun>("/api/ai/run/aliases", {}),
+    mutationFn: (persons: number[] = []) =>
+      apiPost<AiAliasRun>("/api/ai/run/aliases", { persons } satisfies AiAliasCheck),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.suggestions });
       void queryClient.invalidateQueries({ queryKey: aiKeys.status });

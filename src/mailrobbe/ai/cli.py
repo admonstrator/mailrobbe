@@ -19,9 +19,10 @@ of mails and documents from a text model (D300 to D308), and the alias check (D3
 
 The dashboard starts `mailrobbe ai --origin ui run [options]` as a child process (D46) and stops
 it with a stop request; "Zusammenfassen" on a mail or a document starts it with --mail=ID or
---document=ID (D307), "Mit KI prüfen" on the alias suggestions with --aliases (D321). Exit
-status of run as in ai.run: 0 done, 130 stopped by request, 1 when it could not start or ended
-early for a reason it names, 2 for arguments it cannot use; check exits with 1 when a configured
+--document=ID (D307), "Mit KI prüfen" on the alias suggestions with --aliases (D321), "KI
+fragen" on one suggestion with --aliases --person=A --person=B (D328). Exit status of run as in
+ai.run: 0 done, 130 stopped by request, 1 when it could not start or ended early for a reason it
+names, 2 for arguments it cannot use; check exits with 1 when a configured
 service fails. `model --download` holds the lock of the AI runs while it
 downloads, so it refuses (1) while a run is alive and a run refuses meanwhile; Ctrl-C stops it
 (130), keeping what came for the next download.
@@ -40,6 +41,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from mailrobbe import jobs
+from mailrobbe.ai.aliases.candidates import GROUP_MAX
 from mailrobbe.ai.audio import parakeet
 from mailrobbe.ai.model import (
     TRANSCRIBE_MODEL,
@@ -161,6 +163,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "each uncertain alias suggestion and of similar names are one person, and keep its "
         "verdict beside the suggestions; it never merges",
     )
+    work.add_argument(
+        "--person",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="with --aliases: ask only about these persons, 2 to 6, as one group, even when "
+        "they were checked before; repeatable",
+    )
     work.add_argument("--quiet", action="store_true", help="no progress output")
     tasks.add_parser(
         "check",
@@ -263,6 +274,10 @@ def run(args: argparse.Namespace) -> int:
         if args.task == "status":
             print(json.dumps(asyncio.run(status(settings)), indent=2))
             return 0
+        persons = set(getattr(args, "person", []))
+        if persons and not (args.aliases and 2 <= len(persons) <= GROUP_MAX):
+            log.error("--person takes 2 to %d persons, with --aliases", GROUP_MAX)
+            return EXIT_FAILED
         result = asyncio.run(run_ai(settings, options(settings, args), origin=args.origin))
     except RunRefused as refused:
         log.error("%s", refused)
@@ -298,6 +313,8 @@ def options(settings: Settings, args: argparse.Namespace) -> AiOptions:
         update["text_model"] = args.text_model.strip()
     if args.aliases:
         update["aliases"] = True
+    if args.person:
+        update["persons"] = sorted(set(args.person))
     return found.model_copy(update=update)
 
 

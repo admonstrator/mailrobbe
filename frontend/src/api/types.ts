@@ -2968,6 +2968,12 @@ export interface AiQueueRequest {
  *  run (an import) keeps it from starting, so they wait in the queue. */
 export type AiQueuedRun = "started" | "running" | "busy";
 
+/** The body of POST /api/ai/run/aliases: no persons for the whole check (D321), or 2 to 6 asked
+ *  about as one group, whatever was checked before (D328). */
+export interface AiAliasCheck {
+  persons: number[];
+}
+
 /** POST /api/ai/run/aliases (D321): started, an AI run lives already, or another run holds it. */
 export interface AiAliasRun {
   run: AiQueuedRun;
