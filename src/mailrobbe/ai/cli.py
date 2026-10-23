@@ -1,11 +1,12 @@
 """`mailrobbe ai`: text of scanned PDFs and images from Tesseract or a vision model (D180 to D189),
-transcripts of audio and video from Parakeet (D290 to D297), and summaries, AI tags and theme
-hints of mails and documents from a text model (D300 to D308).
+transcripts of audio and video from Parakeet (D290 to D297), summaries, AI tags and theme hints
+of mails and documents from a text model (D300 to D308), and the alias check (D321 to D323).
 
     run     work through the queue (ai.run): a run of kind ai with the steps check, ocr,
             transcribe, summarize, entities and signals; stoppable at any page, piece of a
             recording or part, the next run continues there. --document, --mail and --thread
-            take only the tasks of these elements
+            take only the tasks of these elements; --aliases takes no task and asks the text
+            model about the alias candidates instead (ai.aliases)
     check   ask each configured service for real (a picture with a known word for vision, a
             short text whose summary must name that word for text) and print what it found as
             JSON
@@ -18,9 +19,10 @@ hints of mails and documents from a text model (D300 to D308).
 
 The dashboard starts `mailrobbe ai --origin ui run [options]` as a child process (D46) and stops
 it with a stop request; "Zusammenfassen" on a mail or a document starts it with --mail=ID or
---document=ID (D307). Exit status of run as in ai.run: 0 done, 130 stopped by request, 1 when it
-could not start or ended early for a reason it names, 2 for arguments it cannot use; check exits
-with 1 when a configured service fails. `model --download` holds the lock of the AI runs while it
+--document=ID (D307), "Mit KI prüfen" on the alias suggestions with --aliases (D321). Exit
+status of run as in ai.run: 0 done, 130 stopped by request, 1 when it could not start or ended
+early for a reason it names, 2 for arguments it cannot use; check exits with 1 when a configured
+service fails. `model --download` holds the lock of the AI runs while it
 downloads, so it refuses (1) while a run is alive and a run refuses meanwhile; Ctrl-C stops it
 (130), keeping what came for the next download.
 """
@@ -151,6 +153,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
     work.add_argument(
         "--text-model", help="the text model for this run (default: MAILROBBE_AI_TEXT_MODEL)"
+    )
+    work.add_argument(
+        "--aliases",
+        action="store_true",
+        help="take no task: ask the text model, on this machine only, whether the persons of "
+        "each uncertain alias suggestion and of similar names are one person, and keep its "
+        "verdict beside the suggestions; it never merges",
     )
     work.add_argument("--quiet", action="store_true", help="no progress output")
     tasks.add_parser(
@@ -287,6 +296,8 @@ def options(settings: Settings, args: argparse.Namespace) -> AiOptions:
         update["threads"] = sorted(set(args.thread))
     if args.text_model:
         update["text_model"] = args.text_model.strip()
+    if args.aliases:
+        update["aliases"] = True
     return found.model_copy(update=update)
 
 

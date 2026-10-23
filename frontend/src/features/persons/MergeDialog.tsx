@@ -8,7 +8,7 @@ import { cx } from "../../lib/cx";
 import { useDebounced } from "../../lib/useDebounced";
 import { Dialog } from "./Dialog";
 import { formatNumber } from "../../lib/format";
-import { personErrorText, personLabel, suggestionReasons } from "./labels";
+import { candidateReasons, personErrorText, personLabel } from "./labels";
 import styles from "./MergeDialog.module.css";
 import { PersonBadge } from "./PersonBadge";
 
@@ -60,7 +60,7 @@ export function MergeDialog({ profile, onClose }: { profile: PersonProfile; onCl
   const uncertain = profile.suggestions.filter((candidate) => candidate.tier === "uncertain");
   const uncertainTotal = Math.max(uncertain.length, profile.suggestion_counts.uncertain);
   const suggestion = (candidate: AliasCandidate) =>
-    option(candidate.person, suggestionReasons(candidate));
+    option(candidate.person, candidateReasons(candidate));
 
   return (
     <Dialog title="Adresse zusammenführen" onClose={onClose}>

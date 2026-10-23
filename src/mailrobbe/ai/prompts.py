@@ -13,6 +13,16 @@ AI_FILE = Path(__file__).parent.parent / "ai.toml"
 # system prompt must name them.
 MATERIAL_START = "<<<MATERIAL"
 MATERIAL_END = "MATERIAL>>>"
+# What the prompt of the alias check must hold (D322): the answer's keys and verdicts, the markers.
+_ALIAS_NEEDS = (
+    MATERIAL_START,
+    MATERIAL_END,
+    '"verdict"',
+    '"reason"',
+    '"same"',
+    '"different"',
+    '"unclear"',
+)
 # What each summary prompt must hold; ai.summarize fills the placeholders with str.replace, never
 # with str.format, so the JSON braces of the system prompt stay as written.
 _SUMMARY_NEEDS = {
@@ -39,17 +49,24 @@ class SummaryPrompts:
 
 
 @dataclass(frozen=True, slots=True)
+class AliasPrompts:
+    version: int  # alias_check.prompt_version (D323)
+    system: str  # the material, what the model reads about two persons, follows as the user's
+
+
+@dataclass(frozen=True, slots=True)
 class Prompts:
     version: int  # ai_result.prompt_version of an OCR result
     ocr: str  # for the vision model, one page picture at a time
     summarize: SummaryPrompts
+    aliases: AliasPrompts
 
 
 @cache
 def load_prompts() -> Prompts:
     """The prompts of ai.toml; raises PromptsError when it lacks one, the OCR prompt does not
-    name the answer for a page without writing (NO_TEXT_MARK), or a summary prompt lacks what
-    _SUMMARY_NEEDS names."""
+    name the answer for a page without writing (NO_TEXT_MARK), a summary prompt lacks what
+    _SUMMARY_NEEDS names or the prompt of the alias check what _ALIAS_NEEDS names."""
     with AI_FILE.open("rb") as file:
         data = tomllib.load(file)
     version, ocr = data.get("version"), data.get("ocr")
@@ -60,7 +77,12 @@ def load_prompts() -> Prompts:
         raise PromptsError("ai.toml: the ocr prompt is missing")
     if NO_TEXT_MARK not in ocr:
         raise PromptsError(f"ai.toml: the ocr prompt must name the answer {NO_TEXT_MARK}")
-    return Prompts(version=version, ocr=ocr.strip(), summarize=_summarize(data.get("summarize")))
+    return Prompts(
+        version=version,
+        ocr=ocr.strip(),
+        summarize=_summarize(data.get("summarize")),
+        aliases=_aliases(data.get("aliases")),
+    )
 
 
 def _version(value: Any) -> bool:
@@ -82,3 +104,17 @@ def _summarize(table: Any) -> SummaryPrompts:
             raise PromptsError(f"ai.toml: summarize.{name} must hold {', '.join(missing)}")
         texts[name] = prompt.strip()
     return SummaryPrompts(version=table["version"], **texts)
+
+
+def _aliases(table: Any) -> AliasPrompts:
+    if not isinstance(table, dict):
+        raise PromptsError("ai.toml: the table [aliases] is missing")
+    if not _version(table.get("version")):
+        raise PromptsError("ai.toml: aliases.version must be a whole number from 1")
+    prompt = table.get("system")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise PromptsError("ai.toml: the prompt aliases.system is missing")
+    missing = [need for need in _ALIAS_NEEDS if need not in prompt]
+    if missing:
+        raise PromptsError(f"ai.toml: aliases.system must hold {', '.join(missing)}")
+    return AliasPrompts(version=table["version"], system=prompt.strip())

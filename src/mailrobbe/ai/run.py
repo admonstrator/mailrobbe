@@ -34,6 +34,12 @@
     entities    the entities phase of the import (D84), which also computes the entity figures,
     signals     and the signals phase (D135), when a document's text changed in this run
 
+A run with --aliases (AiOptions.aliases, D321) takes no task but what is asked for on a page
+meanwhile (below): its check reads the candidate pairs of the alias check and makes the text
+service usable, which must be one on this machine (D322); its step aliases (ai.aliases.step) asks
+about one pair at a time and keeps each verdict, so a stop continues with the pairs not yet
+checked.
+
 A run started for some documents or mails (AiOptions.documents, AiOptions.mails, D280, D307)
 takes only their tasks, of every kind, and leaves the rest of the queue waiting.
 
@@ -43,7 +49,8 @@ one in work (a summary asked for while OCR reads a work list, a scan's OCR while
 of everything are written), that step ends after its task in work and the run makes a round of
 the steps for those tasks only, then goes on with the rest. A round that could do none of them
 (no usable text service, say) ends the turning for this run. What is asked for after the last
-step or during the entities and signals phases makes the run go round again before it ends.
+step or during the entities and signals phases makes the run go round again before it ends. An
+alias run takes them after its step aliases, and nothing else.
 
 The engine of a task (D182) is its own, or for "auto" the run's choice; "auto" reads a PDF with
 Tesseract and an image with the vision model when one is usable, and reads a Tesseract page that
@@ -85,6 +92,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker
 
 from mailrobbe.ai import services
+from mailrobbe.ai.aliases.step import AliasStep
 from mailrobbe.ai.audio import decode, parakeet
 from mailrobbe.ai.audio.decode import SAMPLE_RATE, Decoded
 from mailrobbe.ai.audio.parakeet import ModelState, Piece
@@ -107,6 +115,9 @@ from mailrobbe.ai.model import (
     page_text,
     refusal,
     transcript_text,
+)
+from mailrobbe.ai.model import (
+    Protocol as ServiceProtocol,
 )
 from mailrobbe.ai.ocr import render, tesseract, vision
 from mailrobbe.ai.prompts import load_prompts
@@ -250,6 +261,10 @@ class AiSummary:
     summaries: int = 0  # summaries stored
     summaries_failed: int = 0
     text: str | None = None  # display URL of the text service the run used
+    aliases_queued: int = 0  # candidate pairs of a run with --aliases (D321)
+    aliases: int = 0  # pairs checked
+    aliases_same: int = 0  # of them judged one person
+    aliases_failed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,12 +503,13 @@ class _Run:
         self.turning = True  # until a round for those could do none of them
         self.taken = 0  # tasks this run took
         self.ran: set[str] = set()  # the steps that ran: a later round does not skip them
+        self.aliases = AliasStep(self)
 
     @property
     def only(self) -> dict[str, Any]:
         """The parameters of _ONLY: the run's restriction and whether this round is for what
-        was asked for only."""
-        return {**self.options.only, "asked": self.asked_only}
+        was asked for only, as every round of an alias run is."""
+        return {**self.options.only, "asked": self.asked_only or self.options.aliases}
 
     @property
     def engines(self) -> Engines:
@@ -502,6 +518,24 @@ class _Run:
         return self._engines
 
     async def run(self) -> AiRun:
+        if not self.options.aliases:
+            self.job.steps.skip("aliases")
+            code = await self._turns()
+        elif (code := await self._alias_run()) == EXIT_OK and await self._waiting_asked(_ASKED_ANY):
+            # asked for on a page during the alias check, which takes nothing else (D329)
+            log.info("tasks were asked for on a page: the run takes them now")
+            aliases = self.summary.message
+            code = await self._turns()
+            self.summary.message = f"{aliases}; {self.summary.message}"
+        if code == EXIT_INTERRUPTED:
+            again = " --aliases" if self.options.aliases else ""
+            log.info("stopped: run `mailrobbe ai run%s` again to continue", again)
+        self.summary.elapsed_seconds = round(time.monotonic() - self.started, 1)
+        return AiRun(self.summary, code)
+
+    async def _turns(self) -> int:
+        """The steps and the entities and signals phases, again while tasks were asked for on a
+        page meanwhile (D329); the exit code."""
         phased = 0  # the documents with a new text the phases have seen
         while True:
             code = await self._steps()
@@ -514,14 +548,10 @@ class _Run:
                     self.summary.message = f"{self.summary.message}; {failure}"
             elif not phased:
                 self.job.steps.skip("entities", "signals")
-            # asked for on a page while the last step or the phases ran (D329)
+            # asked for on a page while the last step or the phases ran
             if code != EXIT_OK or not (self.turning and await self._waiting_asked(_ASKED_ANY)):
-                break
+                return code
             log.info("tasks were asked for meanwhile: the run goes round again")
-        if code == EXIT_INTERRUPTED:
-            log.info("stopped: run `mailrobbe ai run` again to continue")
-        self.summary.elapsed_seconds = round(time.monotonic() - self.started, 1)
-        return AiRun(self.summary, code)
 
     async def _steps(self) -> int:
         """The rounds of the steps until the queue this run takes is done, with a round for what
@@ -736,6 +766,16 @@ class _Run:
         OCR tasks wait too."""
         if not await self.summaries.count():
             return
+        # Waited for when only summaries wait; OCR tasks do not wait for it, the summaries do.
+        found = await self._text_service(needed=not self.progress.queued)
+        if isinstance(found, str):
+            self.summaries.leave(found)
+        else:
+            self.summaries.use(*found)
+
+    async def _text_service(self, needed: bool) -> tuple[Service, ServiceProtocol] | str:
+        """The usable text service with its protocol, or why there is none; raises _Ended when
+        its model is missing. needed: one that does not answer is waited for."""
         service = configured_services(self.settings).get("text")
         if service is not None and self.options.text_model:
             service = replace(service, model=self.options.text_model)
@@ -747,8 +787,7 @@ class _Run:
             problem = refusal(service, self.settings) or ""
         if not problem:
             assert service is not None
-            # Waited for when only summaries wait; OCR tasks do not wait for it, the summaries do.
-            check = await self._ask(service, needed=not self.progress.queued)
+            check = await self._ask(service, needed=needed)
             if check.model_found is False:
                 raise _Ended(
                     JobStatus.FAILED,
@@ -756,10 +795,9 @@ class _Run:
                     EXIT_FAILED,
                 )
             if not check.refused and check.protocol is not None:
-                self.summaries.use(service, check.protocol)
-                return
+                return service, check.protocol
             problem = check.refused or f"{service.display_url}: {check.error or 'no answer'}"
-        self.summaries.leave(problem)
+        return problem
 
     async def _ask(self, service: Service, needed: bool) -> ServiceCheck:
         """The service's check (without the test picture); one tasks need is waited for while
@@ -1458,6 +1496,69 @@ class _Run:
                 raise _Ended(JobStatus.FAILED, describe(error), EXIT_FAILED) from None
             self._answered()
             return found
+
+    # aliases -----------------------------------------------------------------------------------
+
+    async def _alias_run(self) -> int:
+        """A run with --aliases (D321): the check, then the step aliases; the exit code. It
+        takes no task but what is asked for on a page meanwhile (run, D329)."""
+        self.job.steps.skip("ocr", "transcribe", "summarize")
+        try:
+            with self.job.steps.step("check"):
+                waiting = await self.aliases.read()
+                if waiting:
+                    self.aliases.use(*await self._local_text_service())
+            await self._aliases(waiting)
+            code = EXIT_OK
+            self.summary.status, self.summary.message = JobStatus.DONE, self._alias_line()
+        except _Ended as ended:
+            code = ended.exit_code
+            self.summary.status = ended.status
+            self.summary.message = f"{self._alias_line()}; {ended.message}"
+            if ended.exit_code != EXIT_INTERRUPTED:
+                log.error("%s", ended.message)
+            self.job.steps.skip("aliases")
+        self.job.steps.skip("entities", "signals")
+        return code
+
+    async def _local_text_service(self) -> tuple[Service, ServiceProtocol]:
+        """The text service of the alias check, which must be on this machine (D322); asked
+        only once that is known."""
+        service = configured_services(self.settings).get("text")
+        if service is not None and locality(service.url) == "remote":
+            raise _Ended(
+                JobStatus.FAILED,
+                f"the alias check sends names and addresses to a text service on this machine "
+                f"only, not to {service.display_url}",
+                EXIT_FAILED,
+            )
+        found = await self._text_service(needed=True)
+        if isinstance(found, str):
+            raise _Ended(
+                JobStatus.FAILED, f"the alias check needs a text service: {found}", EXIT_FAILED
+            )
+        return found
+
+    async def _aliases(self, waiting: int) -> None:
+        if not waiting:
+            self.job.steps.skip("aliases")
+            return
+        self.job.set_phase("aliases")
+        with self.job.steps.step("aliases", unit="pairs", total=waiting) as counter:
+            await self.aliases.work(counter)
+        if self.job.stop.is_set():
+            raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+
+    def _alias_line(self) -> str:
+        """The figures of a run with --aliases in one line, for job.message."""
+        summary = self.summary
+        line = (
+            f"{summary.aliases} of {summary.aliases_queued} pairs of persons checked "
+            f"({summary.aliases_same} one person, {summary.aliases_failed} failed)"
+        )
+        if summary.tokens_in or summary.tokens_out:
+            line += f", {summary.tokens_in + summary.tokens_out} tokens"
+        return line
 
     # entities and signals ----------------------------------------------------------------------
 

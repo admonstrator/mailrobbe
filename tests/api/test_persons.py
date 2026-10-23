@@ -197,6 +197,7 @@ class Seed:
                 "same_local_part": local,
                 "tier": tier,
                 "reason": reason(name, local, tier),
+                "ai": None,
             }
             for _, first, second, name, local in sorted(items, reverse=True)
         ]
@@ -222,6 +223,7 @@ class Seed:
                 "same_local_part": local,
                 "tier": tier,
                 "reason": reason(name, local, tier),
+                "ai": None,
             }
             for other, name, local, tier in found[:SUGGESTION_LIMIT]
         ]
@@ -744,6 +746,89 @@ async def test_the_suggestion_list_shows_certain_ones_by_default(
     await get(seeded, "/api/persons/suggestions", [("tier", "maybe")], status=422)
 
 
+async def test_the_verdicts_of_the_alias_check(
+    writable: httpx.AsyncClient, writable_url: str, seed: Seed
+) -> None:
+    """D323: the newest check of each pair of roots, read through aliases, beside the suggestions
+    and as the view ai; a dismissal takes a pair out of it."""
+    uncertain = [(a, b) for a, b, *_, tier in seed.suggestions if tier == "uncertain"]
+    (same_a, same_b), (other_a, other_b) = uncertain[:2]
+    suggested = {frozenset(row[:2]) for row in seed.suggestions}
+    loose = next(
+        p
+        for p in seed.listed
+        if p not in (seed.busy, same_a, same_b) and frozenset((seed.busy, p)) not in suggested
+    )
+    alias = seed.aliases[seed.busy][0]
+    check = """
+        INSERT INTO alias_check (person_a, person_b, verdict, reason, model, service_url,
+            prompt_version, seconds, tokens_in, tokens_out, created_at)
+        VALUES (:a, :b, CAST(:verdict AS alias_verdict), :reason, 'textmodell',
+            'http://127.0.0.1:1234/v1', 1, 1.5, 900, 40, :at)
+    """
+
+    def row(a: int, b: int, verdict: str, reason: str, minutes: int) -> Json:
+        a, b = min(a, b), max(a, b)
+        at = BASE + timedelta(minutes=minutes)
+        return {"a": a, "b": b, "verdict": verdict, "reason": reason, "at": at}
+
+    await execute(
+        writable_url,
+        (
+            check,
+            [
+                row(same_a, same_b, "same", "Dieselbe Telefonnummer.", 2),
+                row(other_a, other_b, "different", "Zwei Kreise von Kontakten.", 3),
+                # Through an alias of busy, older one first: the newest counts.
+                row(alias, loose, "unclear", "Zu wenig Material.", 4),
+                row(seed.busy, loose, "same", "Private Adresse folgt der dienstlichen.", 5),
+            ],
+        ),
+    )
+
+    def verdict(verdict: str, reason: str, minutes: int) -> Json:
+        at = stamp(BASE + timedelta(minutes=minutes))
+        return {"verdict": verdict, "reason": reason, "model": "textmodell", "checked_at": at}
+
+    page = await get(writable, "/api/persons/suggestions", [("ai", "true")])
+    assert page["check"] == {"available": False, "running": False, "checked": 4, "same": 2}
+    assert page["total"] == 2
+    found = {frozenset((i["first"]["id"], i["second"]["id"])): i for i in page["items"]}
+    assert set(found) == {frozenset((same_a, same_b)), frozenset((seed.busy, loose))}
+    found_loose = found[frozenset((seed.busy, loose))]
+    assert found_loose["first"] == seed.summary(max((seed.busy, loose), key=seed.mails))
+    assert (found_loose["same_name"], found_loose["same_local_part"]) == (None, None)
+    assert (found_loose["tier"], found_loose["reason"]) == ("uncertain", "ai")
+    assert found_loose["ai"] == verdict("same", "Private Adresse folgt der dienstlichen.", 5)
+    assert found[frozenset((same_a, same_b))]["ai"] == verdict("same", "Dieselbe Telefonnummer.", 2)
+    mails = [
+        max(seed.mails(i["first"]["id"]), seed.mails(i["second"]["id"])) for i in page["items"]
+    ]
+    assert mails == sorted(mails, reverse=True)
+
+    listed = await get(writable, "/api/persons/suggestions", [("tier", "uncertain")])
+    verdicts = {frozenset((i["first"]["id"], i["second"]["id"])): i["ai"] for i in listed["items"]}
+    assert verdicts[frozenset((other_a, other_b))] == verdict(
+        "different", "Zwei Kreise von Kontakten.", 3
+    )
+    assert sum(v is not None for v in verdicts.values()) == 2
+    assert listed["check"]["same"] == 2
+
+    first = await get(writable, "/api/persons/suggestions", [("ai", "true"), ("limit", "1")])
+    error = await get(
+        writable,
+        "/api/persons/suggestions",
+        [("tier", "uncertain"), ("cursor", first["next_cursor"])],
+        status=400,
+    )
+    assert error["detail"]["code"] == "invalid_cursor"
+
+    await post(writable, "/api/persons/suggestions/dismiss", {"persons": [alias, loose]}, 204)
+    page = await get(writable, "/api/persons/suggestions", [("ai", "true")])
+    assert page["check"]["same"] == page["total"] == 1
+    assert [i["ai"]["reason"] for i in page["items"]] == ["Dieselbe Telefonnummer."]
+
+
 async def test_suggestions_that_were_never_computed(
     writable: httpx.AsyncClient, writable_url: str
 ) -> None:
@@ -753,6 +838,7 @@ async def test_suggestions_that_were_never_computed(
         "total": 0,
         "counts": {"certain": 0, "uncertain": 0},
         "computed": False,
+        "check": {"available": False, "running": False, "checked": 0, "same": 0},
     }
     # Suggestions of older rules, then none at all.
     for change in (

@@ -391,6 +391,7 @@ async def test_a_run_summarises_a_mail_and_a_short_one(archive: Any, database: s
         "ocr": "skipped",
         "transcribe": "skipped",
         "summarize": "done",
+        "aliases": "skipped",
         "entities": "skipped",
         "signals": "skipped",
     }
@@ -598,6 +599,23 @@ async def test_what_is_asked_for_after_the_last_step_makes_the_run_go_round_agai
     assert {name: row.status for name, row in (await tasks(database)).items()} == {
         "Sommerfest": "done",
         "Weiterleitung": "done",
+    }
+
+
+async def test_an_alias_run_takes_what_was_asked_for_on_a_page_after_its_pairs(
+    archive: Any, database: str
+) -> None:
+    await queue(database, "Sommerfest")
+    await ask(database, mail_ids=(await mail_ids(database, "Kurze Antwort"))[:1])
+    model = Model()
+    with text_service(model) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings, aliases=True))
+    assert result.exit_code == 0 and model.asked == ["short"]
+    assert result.summary.message.startswith("0 of 0 pairs of persons checked")
+    assert {name: row.status for name, row in (await tasks(database)).items()} == {
+        "Kurze Antwort": "done",
+        "Sommerfest": "waiting",
     }
 
 

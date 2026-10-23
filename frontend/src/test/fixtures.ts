@@ -96,6 +96,7 @@ import type {
   Stats,
   StepProgress,
   SuggestionPage,
+  AliasCheckState,
   TopicCluster,
   TopicClusters,
   TopicPeriod,
@@ -788,6 +789,13 @@ export const personPage: PersonPage = {
 
 /** The certain suggestions (D160); the uncertain ones are uncertainSuggestionPage. */
 const suggestionCounts = { certain: 4, uncertain: 2_180 };
+/** No text service and nothing checked: the alias check (D321) shows nothing. */
+export const aliasCheck: AliasCheckState = {
+  available: false,
+  running: false,
+  checked: 0,
+  same: 0,
+};
 
 export const suggestionPage: SuggestionPage = {
   items: [
@@ -820,6 +828,7 @@ export const suggestionPage: SuggestionPage = {
   total: 4,
   counts: suggestionCounts,
   computed: true,
+  check: aliasCheck,
 };
 
 export const suggestionPage2: SuggestionPage = {
@@ -837,6 +846,7 @@ export const suggestionPage2: SuggestionPage = {
   total: 4,
   counts: suggestionCounts,
   computed: true,
+  check: aliasCheck,
 };
 
 function contact(
@@ -3553,6 +3563,43 @@ export const uncertainSuggestionPage: SuggestionPage = {
   total: 2_180,
   counts: { certain: 4, uncertain: 2_180 },
   computed: true,
+  check: aliasCheck,
+};
+
+/** The pairs the text model judged one person (D323): an uncertain suggestion, and a pair only
+ *  the alias check found. */
+export const aiSuggestionPage: SuggestionPage = {
+  items: [
+    {
+      ...uncertainSuggestionPage.items[1],
+      ai: {
+        verdict: "same",
+        reason:
+          "Beide Schlusszeilen nennen dieselbe Telefonnummer und die Funktion Schriftführerin.",
+        model: "textmodell",
+        checked_at: "2026-10-23T09:00:00Z",
+      },
+    },
+    {
+      first: ps.lukas,
+      second: summary(person(35, "Lukas Vogt-Brandt", "lvb@privat.example"), figures(2, 1)),
+      same_name: null,
+      same_local_part: null,
+      tier: "uncertain",
+      reason: "ai",
+      ai: {
+        verdict: "same",
+        reason: "Die private Adresse beginnt, als die dienstliche endet; dieselben Kontakte.",
+        model: "textmodell",
+        checked_at: "2026-10-23T09:01:00Z",
+      },
+    },
+  ],
+  next_cursor: null,
+  total: 2,
+  counts: suggestionCounts,
+  computed: true,
+  check: { available: true, running: false, checked: 12, same: 2 },
 };
 
 export const certainMergePlan: CertainMergePlan = {

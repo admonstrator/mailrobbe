@@ -816,8 +816,9 @@ async def summarized(
 
 
 async def original_mails(url: str, count: int) -> list[Any]:
-    """Mails with a content of their own (no duplicates) and a text of at least
-    SUMMARY_MIN_WORDS words, by id."""
+    """Mails with a content of their own (no duplicates), a text of at least SUMMARY_MIN_WORDS
+    words and no attachment, by id: summarising one from its page queues its attachments too
+    (D317), and which mail gets an id depends on the import's workers."""
     return await rows(
         url,
         f"""SELECT id, raw_sha256, subject, date_utc,
@@ -826,6 +827,7 @@ async def original_mails(url: str, count: int) -> list[Any]:
            WHERE NOT EXISTS (SELECT 1 FROM mail o WHERE o.raw_sha256 = m.raw_sha256
                              AND o.id <> m.id)
              AND {WORDS} >= {SUMMARY_MIN_WORDS}
+             AND NOT EXISTS (SELECT 1 FROM attachment a WHERE a.mail_id = m.id)
            ORDER BY id LIMIT :count""",
         count=count,
     )
@@ -1208,6 +1210,22 @@ async def test_results_tasks_and_sends_name_a_mail(texts: Dashboard) -> None:
     )
     [task] = await summary_tasks(texts)
     assert (task["pages_read"], task["pages_total"], task["mail"]["id"]) == (1, 3, mail.id)
+
+
+async def test_the_alias_check_starts_with_a_text_service_on_this_machine(
+    texts: Dashboard, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "wait")
+    # a vision service alone checks no pair
+    assert await error_code(dashboard.client, "/api/ai/run/aliases", {}, 400) == "invalid_option"
+    assert await post(texts.client, "/api/ai/run/aliases", {}) == {"run": "started"}
+    job = (await status(texts))["job"]
+    assert job["alive"] and job["options"]["aliases"] is True
+    assert await post(texts.client, "/api/ai/run/aliases", {}) == {"run": "running"}
+    page = await get(texts.client, "/api/persons/suggestions", [("ai", "true")])
+    assert page["check"] == {"available": True, "running": True, "checked": 0, "same": 0}
+    await post(texts.client, "/api/ai/run/stop", {})
+    await reaped(texts)
 
 
 # Transcripts (D290 to D296) ---------------------------------------------------------------------
