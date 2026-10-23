@@ -9,11 +9,14 @@ core dumps, files only up to _FILE_LIMIT) and works in a temporary directory:
 
     pdf     pdfinfo counts the pages and gives their sizes; pdftoppm renders each asked page,
             at 300 dpi for Tesseract (less for a page that would get longer than _TESSERACT_SIDE
-            pixels) in grey, or scaled so its longest side is 1,600 px for a vision model
+            pixels) in grey, or scaled so its longest side is 1,600 px for a vision model, as a
+            PGM or PPM file that Pillow saves as PNG (pdftoppm's own PNG writer takes about five
+            times as long and writes RGB even with -gray, D342)
     image   Pillow opens JPEG, PNG, WebP, TIFF, GIF or BMP (the first frame), turns it by its
-            EXIF orientation, puts transparency on white, makes it RGB or grey, scales it down
-            to the side of its purpose and saves it as a new PNG; a picture above Pillow's pixel
-            limit (a decompression bomb) is refused
+            EXIF orientation, puts transparency on white, makes it grey for Tesseract (which
+            reads grey anyway) and RGB or grey for a vision model, scales it down to the side of
+            its purpose and saves it as a new PNG; a picture above Pillow's pixel limit (a
+            decompression bomb) is refused
 
 pdftoppm and pdfinfo are the child's children and inherit its limits. It writes a status line
 and its payload to stdout: "ok", a JSON line with pages_total and the length of each PNG, then
@@ -21,8 +24,8 @@ the PNGs; or "failed" and the reason. The parent kills the child's whole session
 `timeout` seconds (so no pdftoppm outlives it) and always waits for it. RenderError says why a
 document has no pictures. Only these PNGs ever go to Tesseract or a service.
 
-The child starts once per document and pass, so it imports nothing of mailrobbe but this module
-(the database models alone take most of a second to import) and Pillow only for an image.
+The child starts once per batch of pages, so it imports nothing of mailrobbe but this module
+(the database models alone take most of a second to import) and of Pillow only what it needs.
 """
 
 import contextlib
@@ -225,18 +228,29 @@ def _pdf_pages(
         pages = []
         for number in range(first, last + 1):
             out = Path(folder) / f"page-{number}"
-            command = ["pdftoppm", "-f", str(number), "-l", str(number), "-png", "-singlefile"]
+            command = ["pdftoppm", "-f", str(number), "-l", str(number), "-singlefile"]
             if purpose == "vision":
                 command += ["-scale-to", str(VISION_SIDE)]
+                picture = out.with_suffix(".ppm")
             else:
                 points = sizes.get(number, 842.0)
                 dpi = min(TESSERACT_DPI, _TESSERACT_SIDE * 72 / max(points, 1.0))
                 command += ["-gray", "-r", f"{dpi:.2f}"]
+                picture = out.with_suffix(".pgm")
             _tool([*command, str(source), str(out)], deadline)
-            png = out.with_suffix(".png")
-            pages.append((number, png.read_bytes()))
-            png.unlink()
+            pages.append((number, _png_of(picture)))
+            picture.unlink()
         return total, pages
+
+
+def _png_of(picture: Path) -> bytes:
+    """pdftoppm's PGM or PPM picture as PNG."""
+    from PIL import Image
+
+    with Image.open(picture, formats=("PPM",)) as opened:
+        out = io.BytesIO()
+        opened.save(out, "PNG")
+    return out.getvalue()
 
 
 def _tool(command: list[str], deadline: float) -> str:
@@ -287,7 +301,8 @@ def _image_page(data: bytes, purpose: str) -> bytes:
         rgba = image.convert("RGBA")
         image = Image.new("RGB", rgba.size, (255, 255, 255))
         image.paste(rgba, mask=rgba.getchannel("A"))
-    image = image.convert("L" if image.mode in ("1", "L", "I", "I;16", "F") else "RGB")
+    grey = purpose != "vision" or image.mode in ("1", "L", "I", "I;16", "F")
+    image = image.convert("L" if grey else "RGB")
     if max(image.size) > side:
         image.thumbnail((side, side), Image.Resampling.LANCZOS)
     out = io.BytesIO()

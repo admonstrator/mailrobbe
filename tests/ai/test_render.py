@@ -36,6 +36,7 @@ def test_pdf_pages_are_rendered_at_300_dpi_for_tesseract() -> None:
     assert [page.number for page in rendering.pages] == [2, 3]
     width, height = size(rendering.pages[0].png)  # A4 at 300 dpi
     assert abs(width - 2480) <= 1 and abs(height - 3508) <= 1
+    assert Image.open(io.BytesIO(rendering.pages[0].png)).mode == "L"  # grey, as Tesseract reads
 
 
 def test_pdf_pages_are_scaled_to_1600_pixels_for_a_vision_model() -> None:
@@ -43,6 +44,7 @@ def test_pdf_pages_are_scaled_to_1600_pixels_for_a_vision_model() -> None:
                        memory=MEMORY)  # fmt: skip
     assert [page.number for page in rendering.pages] == [1, 2]
     assert max(size(rendering.pages[1].png)) == VISION_SIDE
+    assert Image.open(io.BytesIO(rendering.pages[1].png)).mode == "RGB"
 
 
 def test_a_generated_scan_renders_beyond_its_last_page_as_nothing() -> None:
@@ -72,7 +74,8 @@ def test_an_image_is_turned_by_its_exif_and_written_anew() -> None:
     assert rendering.pages_total == 1
     (page,) = rendering.pages
     assert page.number == 1 and size(page.png) == (100, 400)
-    assert "exif" not in Image.open(io.BytesIO(page.png)).info
+    written = Image.open(io.BytesIO(page.png))
+    assert "exif" not in written.info and written.mode == "L"
 
 
 def test_an_image_is_scaled_down_for_a_vision_model_and_put_on_white() -> None:
