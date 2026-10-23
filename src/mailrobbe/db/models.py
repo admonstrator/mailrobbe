@@ -85,7 +85,7 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
 - setting holds the settings changed on the page "Einstellungen", one row per setting, over the
   environment (D313).
 - alias_check holds what the text model said about a pair of persons (migration 0024, D323), read
-  through the roots of its persons like alias_dismissal.
+  through the roots of its persons like alias_dismissal, and whether it was sure (0025, D324).
 """
 
 from datetime import date, datetime
@@ -723,6 +723,7 @@ class AliasCheck(Base):
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
     )
     verdict: Mapped[AliasVerdict] = mapped_column(alias_verdict_enum)
+    certain: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))  # 0025, D324
     reason: Mapped[str] = mapped_column(Text)  # the model's words, German
     model: Mapped[str] = mapped_column(Text)
     service_url: Mapped[str] = mapped_column(Text)  # display_url

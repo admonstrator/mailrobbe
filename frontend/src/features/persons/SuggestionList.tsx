@@ -33,7 +33,7 @@ import {
   personLabel,
   REASON_TEXTS,
   suggestionReasons,
-  VERDICT_TEXTS,
+  verdictText,
 } from "./labels";
 import { PersonBadge } from "./PersonBadge";
 import styles from "./SuggestionList.module.css";
@@ -43,7 +43,7 @@ const INTROS: Record<SuggestionView, string> = {
     "Sichere Vorschläge: Name und Adressen passen zusammen, und beide schreiben mit denselben Leuten. Zusammengeführt wird nur per Klick, und jede Zusammenführung lässt sich rückgängig machen.",
   uncertain:
     "Unsichere Vorschläge: Nur ein Teil spricht dafür, etwa der gleiche Name ohne gemeinsame Kontakte. Gleichnamige sind häufig, bitte einzeln prüfen.",
-  ai: "Diese Paare hält die KI für dieselbe Person. Sie hat Namen, Adressen, Kontakte, Betreffzeilen und Schlusszeilen verglichen und kann sich irren: bitte einzeln prüfen, zusammengeführt wird nur per Klick.",
+  ai: "Diese Paare hält die KI für dieselbe Person, die sicheren zuerst. Sie hat Namen, Adressen, Kontakte, Betreffzeilen und Schlusszeilen verglichen und kann sich irren. Die sicheren lassen sich auf einmal zusammenführen, die anderen bitte einzeln prüfen; jede Zusammenführung lässt sich rückgängig machen.",
 };
 
 /** The views of the suggestions: certain, uncertain (D160) and, once the text model judged pairs,
@@ -68,7 +68,8 @@ function views(
 /** The open alias suggestions (D30, D160): the certain ones, the uncertain ones, or the pairs the
  *  text model judged one person (D323), each view one segment. Each can be merged (keeping the
  *  first, or the second with "andersherum") or dismissed; "Alle sicheren zusammenführen" merges
- *  every certain one as one run (D162). The row goes and a confirmation stays above the list,
+ *  every certain one as one run (D162), "Alle sicheren KI-Treffer zusammenführen" every pair the
+ *  model was sure of (D326). The row goes and a confirmation stays above the list,
  *  for a run with its "Rückgängig". "Mit KI prüfen" starts the alias check (D321). */
 export function SuggestionList({
   view,
@@ -82,15 +83,18 @@ export function SuggestionList({
   const certain = useSuggestions("certain");
   const suggestions = useSuggestions(view);
   const mergeCertain = useMergeCertain();
+  const mergeAi = useMergeCertain(true);
   const [notice, setNotice] = useState<ReactNode>(null);
-  const [confirming, setConfirming] = useState(false);
+  // the dialog of "Alle sicheren zusammenführen" (rules) or of the sure KI-Treffer (ai)
+  const [confirming, setConfirming] = useState<"rules" | "ai" | null>(null);
   const counts = (certain.data ?? suggestions.data)?.pages[0]?.counts;
   const check = (suggestions.data ?? certain.data)?.pages[0]?.check;
+  const bulk = confirming === "ai" ? mergeAi : mergeCertain;
 
   async function onMergeAll() {
     try {
-      const result = await mergeCertain.mutateAsync();
-      setConfirming(false);
+      const result = await bulk.mutateAsync();
+      setConfirming(null);
       setNotice(<RunNotice result={result} />);
     } catch {
       // shown in the dialog
@@ -116,10 +120,22 @@ export function SuggestionList({
             disabled={mergeCertain.isPending}
             onClick={() => {
               mergeCertain.reset();
-              setConfirming(true);
+              setConfirming("rules");
             }}
           >
             Alle sicheren zusammenführen
+          </Button>
+        )}
+        {view === "ai" && check !== undefined && check.sure > 0 && (
+          <Button
+            variant="primary"
+            disabled={mergeAi.isPending}
+            onClick={() => {
+              mergeAi.reset();
+              setConfirming("ai");
+            }}
+          >
+            Alle sicheren KI-Treffer zusammenführen ({formatNumber(check.sure)})
           </Button>
         )}
       </div>
@@ -166,10 +182,11 @@ export function SuggestionList({
       )}
       {confirming && (
         <BulkMergeDialog
-          running={mergeCertain.isPending}
-          error={mergeCertain.error}
+          ai={confirming === "ai"}
+          running={bulk.isPending}
+          error={bulk.error}
           onConfirm={() => void onMergeAll()}
-          onClose={() => setConfirming(false)}
+          onClose={() => setConfirming(null)}
         />
       )}
     </>
@@ -244,11 +261,11 @@ function AliasCheck({ check }: { check: AliasCheckState }) {
     <div className={styles.check}>
       <p className={styles.checkText}>
         {check.checked > 0
-          ? `Die KI hat ${formatNumber(check.checked)} ${check.checked === 1 ? "Paar" : "Paare"} geprüft und hält ${formatNumber(check.same)} offene für dieselbe Person.`
-          : "Die KI kann die unsicheren Vorschläge und Personen mit ähnlichem Namen prüfen. Sie vergleicht Namen, Adressen, Kontakte und Schlusszeilen eigener Mails, nur mit dem Textmodell auf diesem Rechner, und führt nie selbst zusammen."}
+          ? `Die KI hat ${formatNumber(check.checked)} ${check.checked === 1 ? "Paar" : "Paare"} geprüft und hält ${formatNumber(check.same)} offene für dieselbe Person, ${formatNumber(check.sure)} davon sicher.`
+          : "Die KI kann die unsicheren Vorschläge und Personen mit ähnlichem Namen prüfen, mehrere auf einmal. Sie vergleicht Namen, Adressen, Kontakte und Schlusszeilen eigener Mails, nur mit dem Textmodell auf diesem Rechner, und führt nie selbst zusammen."}
         {running && (
           <>
-            {" Die Prüfung läuft, Paar für Paar. "}
+            {" Die Prüfung läuft, Gruppe für Gruppe. "}
             <Link to="/ki">Fortschritt unter KI</Link>
           </>
         )}
@@ -363,7 +380,7 @@ function SuggestionRow({
             className={cx(styles.verdict, suggestion.ai.verdict === "same" && styles.same)}
             title={`${suggestion.ai.model}, ${formatDateTime(suggestion.ai.checked_at)}`}
           >
-            <strong>{VERDICT_TEXTS[suggestion.ai.verdict]}.</strong> {suggestion.ai.reason}
+            <strong>{verdictText(suggestion.ai)}.</strong> {suggestion.ai.reason}
           </p>
         )}
       </div>

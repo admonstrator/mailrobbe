@@ -17,11 +17,10 @@ MATERIAL_END = "MATERIAL>>>"
 _ALIAS_NEEDS = (
     MATERIAL_START,
     MATERIAL_END,
-    '"verdict"',
+    '"persons"',
+    '"members"',
+    '"sure"',
     '"reason"',
-    '"same"',
-    '"different"',
-    '"unclear"',
 )
 # What each summary prompt must hold; ai.summarize fills the placeholders with str.replace, never
 # with str.format, so the JSON braces of the system prompt stay as written.

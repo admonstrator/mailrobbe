@@ -1,19 +1,23 @@
-"""What the text model reads about a pair of persons (D322), from the database only.
+"""What the text model reads about a group of persons (D322, D324), from the database only.
 
-Per person (a root with its aliases): the name, its addresses and the names the mails give them,
-the period of its mails, mails sent and received and contacts, its most frequent contacts, the
-subjects of its newest own mails and the closing lines of up to CLOSINGS of them. Per pair: how
-many contacts both have (humans only, without each other) with the busiest of them, and the
-mails between the two. Nothing else of a mail's text: a closing is the signature (quotes.py) of
-the own text before the first quote or forward, else its last CLOSING_LINES lines.
+Per person (a root with its aliases, named by a letter): the name, its addresses and the names
+the mails give them, the period of its mails, mails sent and received and contacts, its most
+frequent contacts, the subjects of its newest own mails and the closing lines of up to CLOSINGS
+of them. Per pair of the group with anything to say: how many contacts both have (humans only,
+without the group) with the busiest of them, and the mails between the two. Nothing else of a
+mail's text: a closing is the signature (quotes.py) of the own text before the first quote or
+forward, else its last CLOSING_LINES lines.
 
-The material is German, labelled line by line, and kept short (at most a few thousand
-characters), so that system prompt, material and answer fit a context of 4,096 tokens.
+The material is German and labelled line by line. material() keeps it within a number of
+characters: the full detail while it fits, then fewer closings, subjects and contacts per person
+(Detail), so that system prompt, material and answer fit the context.
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import combinations
 
 from sqlalchemy import text
 
@@ -23,9 +27,10 @@ from mailrobbe.quotes import split_text
 ADDRESSES = 5  # addresses shown per person, most named mails first
 NAMES = 5  # display names shown per person
 CONTACTS = 6  # frequent contacts per person
-SHARED = 5  # shared contacts named
+SHARED = 3  # shared contacts named per pair
 SUBJECTS = 5  # subjects of the newest own mails
 CLOSINGS = 2  # distinct closings
+LETTERS = "ABCDEFGH"  # the persons of a group as the model names them
 CLOSING_LINES = 6  # lines of a closing without a signature delimiter
 LINE_CHARS = 120  # longer lines are cut
 CLOSING_CHARS = 600  # of a closing
@@ -48,14 +53,14 @@ _EDGES = """
 _CONTACTS = text(f"""
     SELECT coalesce(p.display_name, p.canonical_email) AS name
     FROM ({_EDGES.format(root=":root")}) e JOIN person p ON p.id = e.other
-    WHERE e.other <> :other
+    WHERE e.other <> ALL(CAST(:others AS bigint[]))
     ORDER BY e.mails DESC, p.id LIMIT :limit
 """)
 _SHARED = text(f"""
     SELECT count(*) OVER () AS shared, coalesce(p.display_name, p.canonical_email) AS name
     FROM ({_EDGES.format(root=":a")}) x JOIN ({_EDGES.format(root=":b")}) y ON y.other = x.other
     JOIN person p ON p.id = x.other
-    WHERE x.other NOT IN (:a, :b) AND p.kind IS NULL
+    WHERE x.other <> ALL(CAST(:others AS bigint[])) AND p.kind IS NULL
     ORDER BY x.mails + y.mails DESC, p.id LIMIT :limit
 """)
 _BETWEEN = text("""
@@ -89,13 +94,34 @@ class PersonFacts:
 
 @dataclass(frozen=True, slots=True)
 class PairFacts:
-    a: PersonFacts
-    b: PersonFacts
+    """What two persons of a group share, by their places in GroupFacts.persons."""
+
+    a: int
+    b: int
     shared: int  # contacts both have
     shared_names: list[str]
     a_to_b: int
     b_to_a: int
     cc: int
+
+
+@dataclass(frozen=True, slots=True)
+class GroupFacts:
+    roots: list[int]  # ascending, the persons that still are human roots
+    persons: list[PersonFacts]  # in the order of roots, named by LETTERS
+    pairs: list[PairFacts]  # the pairs with shared contacts or mails between them
+
+
+@dataclass(frozen=True, slots=True)
+class Detail:
+    """How much of a person the material shows."""
+
+    closings: int = CLOSINGS
+    subjects: int = SUBJECTS
+    contacts: int = CONTACTS
+
+
+DETAILS = (Detail(), Detail(1, 3, 4), Detail(1, 2, 3), Detail(0, 2, 2), Detail(0, 0, 0))
 
 
 def closing(body: str) -> str:
@@ -114,25 +140,37 @@ def closing(body: str) -> str:
     return "\n".join(kept if signature is not None else kept[-CLOSING_LINES:])[:CLOSING_CHARS]
 
 
-async def read_pair(db: Executor, a: int, b: int) -> PairFacts | None:
-    """The facts of roots a < b; None when either is no human root any more."""
-    first, second = await _person(db, a, b), await _person(db, b, a)
-    if first is None or second is None:
+async def read_group(db: Executor, members: Sequence[int]) -> GroupFacts | None:
+    """The facts of these roots; those no longer human roots are passed over, and None when
+    fewer than two are left."""
+    roots: list[int] = []
+    persons: list[PersonFacts] = []
+    for root in sorted(members):
+        found = await _person(db, root, members)
+        if found is not None:
+            roots.append(root)
+            persons.append(found)
+    if len(roots) < 2:
         return None
-    shared = list(await db.execute(_SHARED, {"a": a, "b": b, "limit": SHARED}))
-    between = (await db.execute(_BETWEEN, {"a": a, "b": b})).first()
-    return PairFacts(
-        a=first,
-        b=second,
-        shared=shared[0].shared if shared else 0,
-        shared_names=[row.name for row in shared],
-        a_to_b=between.mails_a_to_b if between else 0,
-        b_to_a=between.mails_b_to_a if between else 0,
-        cc=between.mails_cc if between else 0,
-    )
+    pairs = []
+    for (i, a), (j, b) in combinations(enumerate(roots), 2):
+        shared = list(await db.execute(_SHARED, {"a": a, "b": b, "others": roots, "limit": SHARED}))
+        between = (await db.execute(_BETWEEN, {"a": a, "b": b})).first()
+        facts = PairFacts(
+            a=i,
+            b=j,
+            shared=shared[0].shared if shared else 0,
+            shared_names=[row.name for row in shared],
+            a_to_b=between.mails_a_to_b if between else 0,
+            b_to_a=between.mails_b_to_a if between else 0,
+            cc=between.mails_cc if between else 0,
+        )
+        if facts.shared or facts.a_to_b or facts.b_to_a or facts.cc:
+            pairs.append(facts)
+    return GroupFacts(roots, persons, pairs)
 
 
-async def _person(db: Executor, root: int, other: int) -> PersonFacts | None:
+async def _person(db: Executor, root: int, group: Sequence[int]) -> PersonFacts | None:
     row = (await db.execute(_ROOT, {"root": root})).first()
     if row is None:
         return None
@@ -142,7 +180,7 @@ async def _person(db: Executor, root: int, other: int) -> PersonFacts | None:
         addresses.append((email, sum(used.values())))
         names.update(used)
     addresses.sort(key=lambda item: (-item[1], item[0]))
-    frequent = await db.scalars(_CONTACTS, {"root": root, "other": other, "limit": CONTACTS})
+    frequent = await db.scalars(_CONTACTS, {"root": root, "others": list(group), "limit": CONTACTS})
     subjects: list[str] = []
     closings: list[str] = []
     for subject, body in await db.execute(_SENT, {"root": root, "limit": SENT_READ}):
@@ -168,21 +206,39 @@ async def _person(db: Executor, root: int, other: int) -> PersonFacts | None:
     )
 
 
-def material(facts: PairFacts) -> str:
-    """The facts as the model reads them, German, one labelled line each."""
-    blocks = [_person_text("Person A", facts.a), _person_text("Person B", facts.b)]
-    shared = f"Gemeinsame Kontakte: {facts.shared}"
-    if facts.shared_names:
-        shared += f" (darunter {', '.join(facts.shared_names)})"
-    between = (
-        f"Mails zwischen beiden: {facts.a_to_b} von A an B, {facts.b_to_a} von B an A, "
-        f"{facts.cc} mit einem von beiden in Kopie"
-    )
-    blocks.append("\n".join(["Beide", shared, between]))
+def material(facts: GroupFacts, limit: int) -> str:
+    """The facts as the model reads them, German, one labelled line each, in at most limit
+    characters if the least Detail allows it."""
+    for detail in DETAILS:
+        found = _text(facts, detail)
+        if len(found) <= limit:
+            break
+    return found
+
+
+def _text(facts: GroupFacts, detail: Detail) -> str:
+    blocks = [
+        _person_text(f"Person {LETTERS[i]}", person, detail)
+        for i, person in enumerate(facts.persons)
+    ]
+    lines = ["Zwischen den Personen"]
+    for pair in facts.pairs:
+        a, b = LETTERS[pair.a], LETTERS[pair.b]
+        line = f"{a} und {b}: {pair.shared} gemeinsame Kontakte"
+        if pair.shared_names:
+            line += f" (darunter {', '.join(pair.shared_names)})"
+        line += (
+            f"; Mails: {pair.a_to_b} von {a} an {b}, {pair.b_to_a} von {b} an {a}, "
+            f"{pair.cc} mit einem von beiden in Kopie"
+        )
+        lines.append(line)
+    if not facts.pairs:
+        lines.append("keine gemeinsamen Kontakte, keine Mails untereinander")
+    blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
 
-def _person_text(title: str, person: PersonFacts) -> str:
+def _person_text(title: str, person: PersonFacts, detail: Detail) -> str:
     lines = [title, f"Name: {person.name or '(keiner)'}"]
     lines.append("Adressen: " + ", ".join(_counted(email, n) for email, n in person.addresses))
     if person.names:
@@ -191,11 +247,12 @@ def _person_text(title: str, person: PersonFacts) -> str:
     lines.append(
         f"Mails: {person.sent} gesendet, {person.received} empfangen, {person.contacts} Kontakte"
     )
-    if person.frequent:
-        lines.append(f"Häufige Kontakte: {', '.join(person.frequent)}")
-    if person.subjects:
-        lines.append("Betreffzeilen eigener Mails: " + "; ".join(f"„{s}“" for s in person.subjects))
-    for number, found in enumerate(person.closings, 1):
+    if person.frequent[: detail.contacts]:
+        lines.append(f"Häufige Kontakte: {', '.join(person.frequent[: detail.contacts])}")
+    if person.subjects[: detail.subjects]:
+        subjects = "; ".join(f"„{s}“" for s in person.subjects[: detail.subjects])
+        lines.append(f"Betreffzeilen eigener Mails: {subjects}")
+    for number, found in enumerate(person.closings[: detail.closings], 1):
         lines.append(f"Schlusszeilen einer eigenen Mail ({number}):")
         lines += [f"| {line}" for line in found.split("\n")]
     return "\n".join(lines)

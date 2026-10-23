@@ -34,15 +34,22 @@ export const REASON_TEXTS: Record<SuggestionReason, string> = {
 
 /** What the text model said about two persons (D323), as a short label. */
 export const VERDICT_TEXTS: Record<AliasVerdict, string> = {
-  same: "KI: dieselbe Person",
+  same: "KI: wahrscheinlich dieselbe Person",
   different: "KI: verschiedene Personen",
   unclear: "KI: unklar",
 };
 
+/** The label of a verdict, "sicher" when the model was sure of the same person (D324). */
+export function verdictText(info: AliasCheckInfo): string {
+  return info.verdict === "same" && info.certain
+    ? "KI: sicher dieselbe Person"
+    : VERDICT_TEXTS[info.verdict];
+}
+
 /** The labels of a suggestion's signs and the text model's verdict, for the merge dialog. */
 export function candidateReasons(candidate: Reasons & { ai?: AliasCheckInfo | null }): string[] {
   const reasons = suggestionReasons(candidate);
-  if (candidate.ai) reasons.push(VERDICT_TEXTS[candidate.ai.verdict]);
+  if (candidate.ai) reasons.push(verdictText(candidate.ai));
   return reasons;
 }
 

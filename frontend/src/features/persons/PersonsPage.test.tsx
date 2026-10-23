@@ -313,7 +313,9 @@ describe("alias suggestions", () => {
       return fixtureApi(call);
     });
     expect(
-      await screen.findByText("Die KI hat 12 Paare geprüft und hält 2 offene für dieselbe Person."),
+      await screen.findByText(
+        "Die KI hat 12 Paare geprüft und hält 2 offene für dieselbe Person, 1 davon sicher.",
+      ),
     ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "KI: dieselbe Person (2)" }));
@@ -326,7 +328,8 @@ describe("alias suggestions", () => {
     expect(
       screen.getByText("Von der KI gefunden: ähnlicher Name, keine Regel schlägt das Paar vor"),
     ).toBeTruthy();
-    expect(screen.getAllByText("KI: dieselbe Person.")).toHaveLength(2);
+    expect(screen.getByText("KI: sicher dieselbe Person.")).toBeTruthy();
+    expect(screen.getByText("KI: wahrscheinlich dieselbe Person.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Alle sicheren zusammenführen" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Mit KI prüfen" }));
@@ -335,6 +338,28 @@ describe("alias suggestions", () => {
     const posts = calls.filter((call) => call.method === "POST");
     expect(posts.map((call) => call.url.pathname)).toEqual(["/api/ai/run/aliases"]);
     expect(screen.queryByRole("button", { name: "Mit KI prüfen" })).toBeNull();
+  });
+
+  it("merges every pair the KI is sure of after a confirmation", async () => {
+    const { calls } = renderApp("/personen?tab=vorschlaege&ki=1", (call) => {
+      if (call.url.pathname === "/api/persons/suggestions") return aiSuggestionPage;
+      if (call.url.pathname === "/api/persons/merge-ai") {
+        return call.method === "POST"
+          ? { ...certainMergeResult, merges: 1, persons: 1 }
+          : { merges: 1, persons: 1, left_out_groups: 1, left_out_persons: 3 };
+      }
+      return fixtureApi(call);
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Alle sicheren KI-Treffer zusammenführen (1)" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Alle sicheren KI-Treffer zusammenführen" });
+    expect(await within(dialog).findByText("1 Person in 1 Zusammenführung")).toBeTruthy();
+    expect(within(dialog).getByText(/für verschieden oder unklar hält/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "1 Person zusammenführen" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const posts = calls.filter((call) => call.method === "POST");
+    expect(posts.map((call) => call.url.pathname)).toEqual(["/api/persons/merge-ai"]);
   });
 
   it("hides the alias check without a text service and with nothing checked", async () => {
@@ -383,7 +408,7 @@ describe("alias suggestions", () => {
       total: 0,
       counts: { certain: 0, uncertain: 0 },
       computed: false,
-      check: { available: false, running: false, checked: 0, same: 0 },
+      check: { available: false, running: false, checked: 0, same: 0, sure: 0 },
     };
     renderApp("/personen?tab=vorschlaege", (call) =>
       call.url.pathname === "/api/persons/suggestions" ? empty : fixtureApi(call),

@@ -1223,7 +1223,8 @@ async def test_the_alias_check_starts_with_a_text_service_on_this_machine(
     assert job["alive"] and job["options"]["aliases"] is True
     assert await post(texts.client, "/api/ai/run/aliases", {}) == {"run": "running"}
     page = await get(texts.client, "/api/persons/suggestions", [("ai", "true")])
-    assert page["check"] == {"available": True, "running": True, "checked": 0, "same": 0}
+    check = {"available": True, "running": True, "checked": 0, "same": 0, "sure": 0}
+    assert page["check"] == check
     await post(texts.client, "/api/ai/run/stop", {})
     await reaped(texts)
 

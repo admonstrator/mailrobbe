@@ -45,7 +45,6 @@ from sqlalchemy import (
     case,
     cast,
     distinct,
-    false,
     func,
     literal,
     literal_column,
@@ -468,7 +467,9 @@ def _checks() -> Subquery:
     persons, like alias_dismissal; a pair within one root is left out."""
     joined, low, high = _root_pair(AliasCheck)
     return (
-        joined.with_only_columns(low.label("person_a"), high.label("person_b"), AliasCheck.verdict)
+        joined.with_only_columns(
+            low.label("person_a"), high.label("person_b"), AliasCheck.verdict, AliasCheck.certain
+        )
         .distinct(low, high)
         .order_by(low, high, AliasCheck.created_at.desc())
         .subquery("checks")
@@ -478,7 +479,8 @@ def _checks() -> Subquery:
 def _ai_suggestions() -> Subquery:
     """The open pairs the text model judged one person (D323), with the columns of
     _ordered_suggestions: the signs and tier of their suggestion, or none and uncertain for a
-    pair only the alias check found. A dismissed pair is left out."""
+    pair only the alias check found, and under both whether the model was sure, so the sure ones
+    come first. A dismissed pair is left out."""
     checks = _checks()
     joined, low, high = _root_pair(AliasDismissal)
     dismissed = (
@@ -497,13 +499,8 @@ def _ai_suggestions() -> Subquery:
             func.coalesce(
                 SuggestionRow.tier, literal(AliasTier.UNCERTAIN, type_=alias_tier_enum)
             ).label("tier"),
-            func.coalesce(
-                and_(
-                    SuggestionRow.same_name.is_not(None),
-                    SuggestionRow.same_local_part.is_not(None),
-                ),
-                false(),
-            ).label("both"),
+            # the view's first key: the pairs the model was sure of first (D326)
+            checks.c.certain.label("both"),
             func.greatest(stats_a.mails, stats_b.mails).label("mails"),
         )
         .select_from(checks)
@@ -618,6 +615,7 @@ async def _verdicts(
         if key in wanted:  # the newest one stays
             found[key] = AliasCheckInfo(
                 verdict=check.verdict,
+                certain=check.certain,
                 reason=check.reason,
                 model=check.model,
                 checked_at=check.created_at,
@@ -631,11 +629,15 @@ async def _check_state(session: AsyncSession, settings: Settings) -> AliasCheckS
     if await jobs.job_alive(session, JobKind.AI):
         job = await jobs.latest_job(session, JobKind.AI)
         running = job is not None and bool((job.options or {}).get("aliases"))
+    ai = _ai_suggestions()
+    counted = await session.execute(select(ai.c.both, func.count()).group_by(ai.c.both))
+    same = {bool(sure): count for sure, count in counted}
     return AliasCheckState(
         available=await asyncio.to_thread(lambda: alias_check_service(settings) is not None),
         running=running,
         checked=await session.scalar(select(func.count()).select_from(AliasCheck)) or 0,
-        same=await session.scalar(select(func.count()).select_from(_ai_suggestions())) or 0,
+        same=same.get(False, 0) + same.get(True, 0),
+        sure=same.get(True, 0),
     )
 
 
@@ -697,7 +699,22 @@ async def certain_merge_plan(session: Session) -> CertainMergePlan:
 
 @router.post("/persons/merge-certain")
 async def merge_every_certain(session: Session, editor: Editor) -> CertainMergeResult:
-    done = await merge_certain(session, editor)
+    return await _merge_all(session, editor, ai=False)
+
+
+@router.get("/persons/merge-ai")
+async def ai_merge_plan(session: Session) -> CertainMergePlan:
+    """What "Alle sicheren KI-Treffer zusammenführen" would merge (D326)."""
+    return _plan(await certain_groups(session, ai=True))
+
+
+@router.post("/persons/merge-ai")
+async def merge_every_ai(session: Session, editor: Editor) -> CertainMergeResult:
+    return await _merge_all(session, editor, ai=True)
+
+
+async def _merge_all(session: AsyncSession, editor: str | None, ai: bool) -> CertainMergeResult:
+    done = await merge_certain(session, editor, ai)
     await session.commit()
     return CertainMergeResult(
         batch_id=done.batch_id,

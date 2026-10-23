@@ -8,7 +8,8 @@ they run one at a time and after a refresh that is under way: two merges at once
 otherwise re-point a person at a root that the other one merges away.
 
 Every merge is logged (D163): person_merge names the root merged into, the editor (D54) and the
-batch of "Alle sicheren zusammenführen" (merge_certain, D162) it belongs to;
+batch of "Alle sicheren zusammenführen" (merge_certain, D162, or with ai the pairs the text model
+was sure of, D326) it belongs to;
 person_merge_member every person it moved with its merged_into before. Undoing a merge puts
 back the members that still belong to its target's current root, each to where it pointed
 before (the current root of that person, unless it is the one undone from), and marks the merge
@@ -32,9 +33,11 @@ from mailrobbe.db.models import (
     Person,
     PersonMerge,
 )
+from mailrobbe.enums import AliasVerdict
 from mailrobbe.persons.roots import Executor, lock_persons, resolve_root
 
 MERGE_GROUP = 5  # persons joined by certain suggestions that are merged in one go (D162)
+AI_MERGE_GROUP = 6  # persons joined by sure verdicts of the alias check (D326): its groups
 
 # Certain suggestions between persons with figures, the ones the suggestion list shows, with the
 # mails of both; suggestions are refreshed after every merge, so both are roots.
@@ -44,6 +47,25 @@ _CERTAIN = text("""
     JOIN person_stats a ON a.person_id = s.person_a
     JOIN person_stats b ON b.person_id = s.person_b
     WHERE s.tier = 'certain'
+""")
+# The newest verdict of every pair of roots the alias check judged (D323), with the mails of
+# both: a sure verdict same joins two persons, different or unclear keeps them apart (D326).
+_VERDICTS = text("""
+    WITH latest AS (
+        SELECT DISTINCT ON (least(ra, rb), greatest(ra, rb))
+            least(ra, rb) AS a, greatest(ra, rb) AS b, c.verdict::text AS verdict, c.certain
+        FROM alias_check c
+        JOIN LATERAL (SELECT coalesce(merged_into, id) AS ra FROM person WHERE id = c.person_a) x
+            ON true
+        JOIN LATERAL (SELECT coalesce(merged_into, id) AS rb FROM person WHERE id = c.person_b) y
+            ON true
+        WHERE ra <> rb
+        ORDER BY least(ra, rb), greatest(ra, rb), c.created_at DESC
+    )
+    SELECT l.a, l.b, sa.mails, sb.mails, l.verdict, l.certain
+    FROM latest l
+    JOIN person_stats sa ON sa.person_id = l.a
+    JOIN person_stats sb ON sb.person_id = l.b
 """)
 _DISMISSED = text("""
     SELECT coalesce(a.merged_into, a.id), coalesce(b.merged_into, b.id)
@@ -144,10 +166,25 @@ async def merge_persons(
     return root
 
 
-async def certain_groups(db: Executor) -> MergePlan:
-    """The persons joined by certain suggestions, in groups (D162): merged into the one with
-    the most mails, the lower id on a tie."""
+async def certain_groups(db: Executor, ai: bool = False) -> MergePlan:
+    """The persons joined by certain suggestions, in groups (D162), or with ai by the verdicts the
+    text model was sure of (D326): merged into the one with the most mails, the lower id on a tie.
+    A group holding a dismissed pair, or with ai a pair judged different or unclear, is left out,
+    as is one larger than its limit."""
     mails: dict[int, int] = {}
+    joined: list[tuple[int, int]] = []
+    apart = {(min(a, b), max(a, b)) for a, b in await db.execute(_DISMISSED)}
+    if ai:
+        for a, b, mails_a, mails_b, verdict, certain in await db.execute(_VERDICTS):
+            if verdict != AliasVerdict.SAME:
+                apart.add((a, b))
+            elif certain:
+                mails[a], mails[b] = mails_a, mails_b
+                joined.append((a, b))
+    else:
+        for a, b, mails_a, mails_b in await db.execute(_CERTAIN):
+            mails[a], mails[b] = mails_a, mails_b
+            joined.append((a, b))
     parent: dict[int, int] = {}
 
     def find(person: int) -> int:
@@ -156,19 +193,18 @@ async def certain_groups(db: Executor) -> MergePlan:
             person = parent[person]
         return person
 
-    for a, b, mails_a, mails_b in await db.execute(_CERTAIN):
-        mails[a], mails[b] = mails_a, mails_b
+    for a, b in joined:
         parent.setdefault(a, a)
         parent.setdefault(b, b)
         parent[find(a)] = find(b)
     found: defaultdict[int, list[int]] = defaultdict(list)
     for person in sorted(parent):
         found[find(person)].append(person)
-    dismissed = {(min(a, b), max(a, b)) for a, b in await db.execute(_DISMISSED)}
+    limit = AI_MERGE_GROUP if ai else MERGE_GROUP
     groups, left_out = [], []
     for members in found.values():
-        apart = any((a, b) in dismissed for a in members for b in members if a < b)
-        if len(members) > MERGE_GROUP or apart:
+        split = any((a, b) in apart for a in members for b in members if a < b)
+        if len(members) > limit or split:
             left_out.append(members)
             continue
         target = min(members, key=lambda person: (-mails[person], person))
@@ -176,10 +212,10 @@ async def certain_groups(db: Executor) -> MergePlan:
     return MergePlan(sorted(groups), left_out)
 
 
-async def merge_certain(db: Executor, editor: str | None = None) -> CertainMerge:
+async def merge_certain(db: Executor, editor: str | None = None, ai: bool = False) -> CertainMerge:
     """Merge every group of certain_groups as one batch, then refresh the aggregates once."""
     await lock_persons(db)
-    plan = await certain_groups(db)
+    plan = await certain_groups(db, ai)
     batch_id = None
     if plan.groups:
         batch_id = await db.scalar(
