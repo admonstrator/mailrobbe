@@ -81,11 +81,16 @@ _COUNT = """
     SELECT count(*) FROM ai_task t
     WHERE t.kind = 'summarize' AND t.status = 'waiting' AND {only}
 """
+# A document whose OCR or transcription is still open waits for its text (D317, D329).
 _TAKE = """
     UPDATE ai_task t SET status = 'running', job_id = :job_id, started_at = now()
     WHERE t.id = (
         SELECT w.id FROM ai_task w
         WHERE w.kind = 'summarize' AND w.status = 'waiting' AND {only}
+          AND NOT (w.target = 'document' AND EXISTS (
+              SELECT 1 FROM ai_task r
+              WHERE r.kind IN ('ocr', 'transcribe') AND r.target = 'document'
+                AND r.target_sha256 = w.target_sha256 AND r.status IN ('waiting', 'running')))
         ORDER BY w.priority DESC, w.id
         LIMIT 1 FOR UPDATE OF w SKIP LOCKED)
     RETURNING t.id, t.target, t.target_sha256, t.thread_id, t.partial
@@ -188,7 +193,6 @@ class SummarizeStep:
         self.protocol: Protocol | None = None
         self.remote = False
         self.problem: str | None = None  # why the tasks are left waiting
-        self.begun = False  # the step ran, and its status is its own
         self._prompts: SummaryPrompts | None = None
         self._system = ""
         self._schema: dict[str, Any] = {}
@@ -198,7 +202,12 @@ class SummarizeStep:
         """The summarize tasks waiting that this run may take."""
         async with self.run.sessionmaker() as session:
             found = await session.scalar(self._count, self._only())
-        self.waiting = self.run.summary.summaries_queued = int(found or 0)
+        self.waiting = int(found or 0)
+        # over the rounds of a run (D329): what it summarised or failed and what waits now
+        summary = self.run.summary
+        summary.summaries_queued = max(
+            summary.summaries_queued, summary.summaries + summary.summaries_failed + self.waiting
+        )
         return self.waiting
 
     def use(self, service: Service, protocol: Protocol) -> None:
@@ -215,7 +224,7 @@ class SummarizeStep:
         log.warning("%d summaries wait: %s", self.waiting, problem)
 
     def _only(self) -> dict[str, Any]:
-        return self.run.options.only
+        return self.run.only
 
     # take ----------------------------------------------------------------------------------------
 

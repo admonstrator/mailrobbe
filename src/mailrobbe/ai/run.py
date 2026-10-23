@@ -37,6 +37,14 @@
 A run started for some documents or mails (AiOptions.documents, AiOptions.mails, D280, D307)
 takes only their tasks, of every kind, and leaves the rest of the queue waiting.
 
+What is asked for on a page (priority PRIORITY_SINGLE, D186) is done now (D329): every run takes
+it, whatever it was started for, before anything else. When it waits for another step than the
+one in work (a summary asked for while OCR reads a work list, a scan's OCR while the summaries
+of everything are written), that step ends after its task in work and the run makes a round of
+the steps for those tasks only, then goes on with the rest. A round that could do none of them
+(no usable text service, say) ends the turning for this run. What is asked for after the last
+step or during the entities and signals phases makes the run go round again before it ends.
+
 The engine of a task (D182) is its own, or for "auto" the run's choice; "auto" reads a PDF with
 Tesseract and an image with the vision model when one is usable, and reads a Tesseract page that
 is uncertain again with the vision model, keeping that page unless it failed or came back empty.
@@ -83,6 +91,7 @@ from mailrobbe.ai.audio.parakeet import ModelState, Piece
 from mailrobbe.ai.model import (
     AI_STEPS,
     AI_TASK_ATTEMPTS,
+    PRIORITY_SINGLE,
     TRANSCRIBE_MODEL,
     AiOptions,
     AiProgress,
@@ -237,7 +246,7 @@ class AiSummary:
     tokens_out: int = 0
     vision: str | None = None  # display URL of the vision service the run used
     elapsed_seconds: float = 0.0
-    summaries_queued: int = 0  # summarize tasks waiting at the start (D300)
+    summaries_queued: int = 0  # summarize tasks waiting at the start, or later (D300, D329)
     summaries: int = 0  # summaries stored
     summaries_failed: int = 0
     text: str | None = None  # display URL of the text service the run used
@@ -329,16 +338,36 @@ class _Recording:
 _REQUEUE = text("UPDATE ai_task SET status = 'waiting' WHERE status = 'running'")
 # A run for some documents or mails only (AiOptions.documents, AiOptions.mails) leaves the other
 # tasks waiting, of every kind: a run for one mail reads no document (ai.summarize.step too).
+# What was asked for on a page is taken by every run (D329); a round for those (:asked) takes
+# nothing else.
 _ONLY = (
-    "((cardinality(CAST(:documents AS bigint[])) = 0"
+    f"({{task}}.priority >= {PRIORITY_SINGLE} OR (NOT CAST(:asked AS boolean) AND ("
+    "(cardinality(CAST(:documents AS bigint[])) = 0"
     " AND cardinality(CAST(:mails AS bigint[])) = 0"
     " AND cardinality(CAST(:threads AS bigint[])) = 0)"
     " OR ({task}.target = 'document' AND {task}.target_sha256 IN"
     " (SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
     " OR ({task}.target = 'mail' AND {task}.target_sha256 IN"
     " (SELECT raw_sha256 FROM mail WHERE id = ANY(CAST(:mails AS bigint[]))))"
-    " OR ({task}.target = 'thread' AND {task}.thread_id = ANY(CAST(:threads AS bigint[]))))"
+    " OR ({task}.target = 'thread' AND {task}.thread_id = ANY(CAST(:threads AS bigint[]))))))"
 )
+
+
+def _asked(*kinds: AiTaskKind) -> Any:
+    """Whether tasks of these kinds asked for on a page wait (ix_ai_task_waiting)."""
+    listed = ", ".join(f"'{kind.value}'" for kind in kinds)
+    return text(f"""
+        SELECT EXISTS (SELECT 1 FROM ai_task
+                       WHERE kind IN ({listed}) AND status = 'waiting'
+                         AND priority >= {PRIORITY_SINGLE})
+    """)
+
+
+# The tasks asked for that another step than the one in work takes (D329), and any of them.
+_ASKED_ELSEWHERE = {
+    step: _asked(*(kind for kind in AiTaskKind if kind != step)) for step in AiTaskKind
+}
+_ASKED_ANY = _asked(*AiTaskKind)
 # The waiting tasks of one kind; pages, vision and auto concern OCR.
 _WAITING = text(f"""
     SELECT count(*) AS tasks,
@@ -455,6 +484,16 @@ class _Run:
         self.recordings_waiting = 0  # transcribe tasks waiting after the check: the step's total
         self._prompts: Any = None
         self.summaries = SummarizeStep(self, _ONLY)
+        self.asked_only = False  # a round for what was asked for on a page (D329)
+        self.turning = True  # until a round for those could do none of them
+        self.taken = 0  # tasks this run took
+        self.ran: set[str] = set()  # the steps that ran: a later round does not skip them
+
+    @property
+    def only(self) -> dict[str, Any]:
+        """The parameters of _ONLY: the run's restriction and whether this round is for what
+        was asked for only."""
+        return {**self.options.only, "asked": self.asked_only}
 
     @property
     def engines(self) -> Engines:
@@ -463,37 +502,78 @@ class _Run:
         return self._engines
 
     async def run(self) -> AiRun:
-        try:
-            try:
-                await self._check()
-                await self._ocr()
-            except _Ended:
-                self.job.steps.skip("transcribe")
-                raise
-            await self._transcribe()
-            await self._summarize()
-            code = EXIT_OK
-            self.summary.status, self.summary.message = JobStatus.DONE, self._line()
-        except _Ended as ended:
-            if not self.summaries.begun:
-                self.job.steps.skip("summarize")
-            code = ended.exit_code
-            self.summary.status = ended.status
-            self.summary.message = f"{self._line()}; {ended.message}"
-            if ended.exit_code != EXIT_INTERRUPTED:
-                log.error("%s", ended.message)
-        if self.summary.documents and not self.job.stop.is_set():
-            failure = await self._phases()
-            if failure is not None and code == EXIT_OK:
-                code = EXIT_FAILED
-                self.summary.status = JobStatus.FAILED
-                self.summary.message = f"{self.summary.message}; {failure}"
-        else:
-            self.job.steps.skip("entities", "signals")
+        phased = 0  # the documents with a new text the phases have seen
+        while True:
+            code = await self._steps()
+            if self.summary.documents > phased and not self.job.stop.is_set():
+                phased = self.summary.documents
+                failure = await self._phases()
+                if failure is not None and code == EXIT_OK:
+                    code = EXIT_FAILED
+                    self.summary.status = JobStatus.FAILED
+                    self.summary.message = f"{self.summary.message}; {failure}"
+            elif not phased:
+                self.job.steps.skip("entities", "signals")
+            # asked for on a page while the last step or the phases ran (D329)
+            if code != EXIT_OK or not (self.turning and await self._waiting_asked(_ASKED_ANY)):
+                break
+            log.info("tasks were asked for meanwhile: the run goes round again")
         if code == EXIT_INTERRUPTED:
             log.info("stopped: run `mailrobbe ai run` again to continue")
         self.summary.elapsed_seconds = round(time.monotonic() - self.started, 1)
         return AiRun(self.summary, code)
+
+    async def _steps(self) -> int:
+        """The rounds of the steps until the queue this run takes is done, with a round for what
+        was asked for on a page whenever a step turned to it (D329); the exit code."""
+        try:
+            while True:
+                finished = await self._round()
+                if self.turning and await self._waiting_asked(_ASKED_ANY):
+                    log.info("tasks were asked for on a page: a round for them first")
+                    self.asked_only, before = True, self.taken
+                    try:
+                        await self._round()
+                    finally:
+                        self.asked_only = False
+                    self.turning = self.taken > before
+                elif finished:
+                    break
+            self.summary.status, self.summary.message = JobStatus.DONE, self._line()
+            return EXIT_OK
+        except _Ended as ended:
+            self._skip("summarize")
+            self.summary.status = ended.status
+            self.summary.message = f"{self._line()}; {ended.message}"
+            if ended.exit_code != EXIT_INTERRUPTED:
+                log.error("%s", ended.message)
+            return ended.exit_code
+
+    async def _round(self) -> bool:
+        """check, ocr, transcribe and summarize once; False when a step turned to what was
+        asked for on a page."""
+        try:
+            await self._check()
+            if not await self._ocr():
+                return False
+        except _Ended:
+            self._skip("transcribe")
+            raise
+        return await self._transcribe() and await self._summarize()
+
+    def _skip(self, *keys: str) -> None:
+        """Skip the steps with nothing to do, keeping a step an earlier round ran."""
+        self.job.steps.skip(*(key for key in keys if key not in self.ran))
+
+    async def _turn(self, step: AiTaskKind) -> bool:
+        """Whether the step in work ends after its task for tasks asked for elsewhere (D329)."""
+        if self.asked_only or not self.turning:
+            return False
+        return await self._waiting_asked(_ASKED_ELSEWHERE[step])
+
+    async def _waiting_asked(self, query: Any) -> bool:
+        async with self.sessionmaker() as session:
+            return bool(await session.scalar(query))
 
     def _line(self) -> str:
         """The run's figures in one line, for job.message; the summary takes its minutes from
@@ -556,18 +636,14 @@ class _Run:
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
 
     async def _waiting(self, session: AsyncSession, kind: AiTaskKind) -> Any:
-        parameters = {
-            "kind": kind.value,
-            "max_pages": self.options.max_pages,
-            **self.options.only,
-        }
+        parameters = {"kind": kind.value, "max_pages": self.options.max_pages, **self.only}
         return (await session.execute(_WAITING, parameters)).one()
 
     async def _model_download(self) -> int:
         """The bytes the check downloads first (its step counts them): what the transcriber's
         files lack when this run has transcribe tasks, else 0."""
         async with self.sessionmaker() as session:
-            recordings = await session.scalar(_RECORDINGS, self.options.only)
+            recordings = await session.scalar(_RECORDINGS, self.only)
         if not recordings:
             return 0
         state = await asyncio.to_thread(self.engines.model_state, self.settings.ai_model_dir)
@@ -701,25 +777,31 @@ class _Run:
 
     # ocr ---------------------------------------------------------------------------------------
 
-    async def _ocr(self) -> None:
+    async def _ocr(self) -> bool:
+        """The OCR tasks; False when it turned to tasks asked for elsewhere (D329)."""
         if not self.ocr_waiting:
-            self.job.steps.skip("ocr")
-            return
+            self._skip("ocr")
+            return True
         self.job.set_phase("ocr")
-        ended = None
+        self.ran.add("ocr")
+        ended, turned = None, False
         with self.job.steps.step("ocr", unit="pages", total=self.pages_waiting) as counter:
             try:
                 while not self.job.stop.is_set():
                     task = await self._take()
                     if task is None:
                         break
+                    self.taken += 1
                     await self._work(task, counter)
+                    if turned := await self._turn(AiTaskKind.OCR):
+                        break
             except _Ended as error:  # the step ends stopped or done, not failed
                 ended = error
         if ended is not None:
             raise ended
         if self.job.stop.is_set():
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+        return not turned
 
     async def _take(self) -> _Task | None:
         """The next waiting task, now running in this run; a task without its document fails."""
@@ -728,7 +810,7 @@ class _Run:
                 parameters = {
                     "kind": AiTaskKind.OCR.value,
                     "job_id": self.job.job_id,
-                    **self.options.only,
+                    **self.only,
                 }
                 row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:
@@ -1126,12 +1208,14 @@ class _Run:
 
     # transcribe --------------------------------------------------------------------------------
 
-    async def _transcribe(self) -> None:
+    async def _transcribe(self) -> bool:
+        """The transcribe tasks; False when it turned to tasks asked for elsewhere (D329)."""
         if not self.recordings_waiting:
-            self.job.steps.skip("transcribe")
-            return
+            self._skip("transcribe")
+            return True
         self.job.set_phase("transcribe")
-        ended = None
+        self.ran.add("transcribe")
+        ended, turned = None, False
         with self.job.steps.step(
             "transcribe", unit="documents", total=self.recordings_waiting
         ) as counter:
@@ -1141,14 +1225,18 @@ class _Run:
                     task = await self._take_recording()
                     if task is None:
                         break
+                    self.taken += 1
                     if await self._hear(task, transcriber):
                         counter.advance()
+                    if turned := await self._turn(AiTaskKind.TRANSCRIBE):
+                        break
             except _Ended as error:  # the step ends stopped or done, not failed
                 ended = error
         if ended is not None:
             raise ended
         if self.job.stop.is_set():
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+        return not turned
 
     async def _transcriber(self) -> Transcribing:
         """Parakeet and Silero VAD, loaded once for the run (about 1.3 GB with four threads)."""
@@ -1172,7 +1260,7 @@ class _Run:
                 parameters = {
                     "kind": AiTaskKind.TRANSCRIBE.value,
                     "job_id": self.job.job_id,
-                    **self.options.only,
+                    **self.only,
                 }
                 row = (await session.execute(_TAKE, parameters)).first()
                 if row is None:
@@ -1325,28 +1413,33 @@ class _Run:
 
     # summarize ---------------------------------------------------------------------------------
 
-    async def _summarize(self) -> None:
-        """The waiting summarize tasks one at a time (ai.summarize.step, D300 to D306)."""
+    async def _summarize(self) -> bool:
+        """The waiting summarize tasks one at a time (ai.summarize.step, D300 to D306); False
+        when it turned to tasks asked for elsewhere (D329)."""
         step = self.summaries
         if step.service is None:  # none waits, or no usable text service (_check_text)
-            self.job.steps.skip("summarize")
-            return
+            self._skip("summarize")
+            return True
         self.job.set_phase("summarize")
-        ended = None
+        self.ran.add("summarize")
+        ended, turned = None, False
         with self.job.steps.step("summarize", unit="texts", total=step.waiting) as counter:
-            step.begun = True
             try:
                 while not self.job.stop.is_set():
                     task = await step.take(counter)
                     if task is None:
                         break
+                    self.taken += 1
                     await step.work(task, counter)
+                    if turned := await self._turn(AiTaskKind.SUMMARIZE):
+                        break
             except _Ended as error:  # the step ends stopped or done, not failed
                 ended = error
         if ended is not None:
             raise ended
         if self.job.stop.is_set():
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+        return not turned
 
     async def _answer[T](self, service: Service, call: Callable[[], T]) -> T:
         """What call() gives in a thread once service answers (D184): one that does not answer
