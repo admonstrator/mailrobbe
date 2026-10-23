@@ -1,4 +1,3 @@
-import { useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router";
 
 import { useMailSummary, useSignalFacets, useSignals, useThemes } from "../../api/queries";
@@ -11,73 +10,29 @@ import { TAG_PALETTE } from "../../lib/research";
 import { mailsText } from "../entities/labels";
 import { signalAnchor, signalName, signalThemeInfo } from "../signals/labels";
 import type { ChipNames } from "./chips";
-import { columnWide, facetScope, subscribeWidth, useClipped } from "./EntityFacets";
+import { facetScope } from "./EntityFacets";
 import facets from "./EntityFacets.module.css";
 import { toFilters, withFilters, type ListState } from "./listState";
 import styles from "./SignalFacets.module.css";
 
-const STORAGE_KEY = "mailrobbe.signal-facets";
-
-function loadOpen(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) !== "closed";
-  } catch {
-    return true; // storage blocked: open
-  }
-}
-
-function saveOpen(open: boolean): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, open ? "open" : "closed");
-  } catch {
-    // storage blocked: the choice lasts until reload
-  }
-}
-
-/** How many of the list's mails carry each signal (D136), beside the table or above it like the
- *  entity facets, and counted as they are. Mounted at both places; each renders only at its
- *  widths. A click adds the signal to the filter, a second one takes it out again. */
+/** How many of the list's mails carry each signal (D136), in the panel "Einblicke" beside the
+ *  list (D335), counted as they are. A click adds the signal to the filter, a second one takes
+ *  it out again. */
 export function SignalFacets({
   state,
   onChange,
-  placement,
 }: {
   state: ListState;
   onChange: (next: ListState) => void;
-  placement: "column" | "top";
 }) {
-  const wide = useSyncExternalStore(subscribeWidth, columnWide, () => false);
-  if (wide !== (placement === "column")) return null;
-  return <SignalPanel state={state} onChange={onChange} placement={placement} />;
-}
-
-function SignalPanel({
-  state,
-  onChange,
-  placement,
-}: {
-  state: ListState;
-  onChange: (next: ListState) => void;
-  placement: "column" | "top";
-}) {
-  const [open, setOpen] = useState(loadOpen);
-  const [expanded, setExpanded] = useState(false);
-  const shown = placement === "column" || open;
   const filters = toFilters(state);
-  const counts = useSignalFacets(filters, shown);
+  const counts = useSignalFacets(filters);
   const summary = useMailSummary(filters);
   const themes = useThemes();
-  const chips = useRef<HTMLUListElement>(null);
   // The response's order is the display order of the signals.
   const entries = Object.entries(counts.data?.signals ?? {}) as [SignalKey, number][];
-  const clip = placement === "top" && !expanded;
-  const clipped = useClipped(
-    chips,
-    shown && clip,
-    entries.map(([key, mails]) => `${key}:${mails}`).join(),
-  );
   const total = summary.data?.exact ? summary.data.total : null;
-  const titleId = `signal-facets-title-${placement}`;
+  const titleId = "signal-facets-title";
   const toggle = (key: SignalKey) =>
     onChange(
       withFilters(state, {
@@ -90,84 +45,51 @@ function SignalPanel({
   if (counts.data?.mails === 0 && !counts.isPlaceholderData) return null;
 
   return (
-    <section
-      className={cx(facets.panel, facets[placement], !shown && facets.closed)}
-      aria-labelledby={titleId}
-    >
+    <section className={facets.panel} aria-labelledby={titleId}>
       <div className={facets.head}>
-        <h2 id={titleId} className={facets.title}>
+        <h3 id={titleId} className={facets.title}>
           Signale
-        </h2>
-        {shown && counts.data && (
-          <span className={facets.scope}>{facetScope(counts.data, total)}</span>
-        )}
+        </h3>
         <span className={facets.headLinks}>
           <Link to="/auffaelligkeiten" className={facets.all}>
             Was Signale sind
           </Link>
-          {placement === "top" && (
-            <Button
-              variant="link"
-              size="xs"
-              aria-expanded={open}
-              onClick={() => {
-                setOpen(!open);
-                saveOpen(!open);
-              }}
-            >
-              {open ? "Ausblenden" : "Einblenden"}
-            </Button>
-          )}
         </span>
+        {counts.data && <span className={facets.scope}>{facetScope(counts.data, total)}</span>}
       </div>
-      {shown &&
-        (counts.isPending ? (
-          <div className={facets.state}>
-            <Spinner label="Signale werden geladen" />
-          </div>
-        ) : counts.isError ? (
-          <div className={facets.state} role="alert">
-            <span>Die Signale konnten nicht geladen werden.</span>
-            <Button size="xs" onClick={() => void counts.refetch()}>
-              Erneut versuchen
-            </Button>
-          </div>
-        ) : entries.length === 0 ? (
-          <NoSignals filtered={counts.data.mails !== null} />
-        ) : (
-          <div
-            className={cx(
-              styles.row,
-              placement === "top" && styles.line,
-              counts.isPlaceholderData && facets.stale,
-            )}
-            role="group"
-            aria-labelledby={titleId}
-          >
-            <ul ref={chips} className={cx(facets.chips, clip && facets.clipped)}>
-              {entries.map(([key, mails]) => (
-                <SignalChip
-                  key={key}
-                  signal={key}
-                  mails={mails}
-                  theme={signalThemeInfo(key, themes.data)}
-                  selected={state.signal.includes(key)}
-                  onToggle={toggle}
-                />
-              ))}
-            </ul>
-            {placement === "top" && (clipped || expanded) && (
-              <button
-                type="button"
-                className={facets.more}
-                aria-expanded={expanded}
-                onClick={() => setExpanded(!expanded)}
-              >
-                {expanded ? "weniger" : "mehr"}
-              </button>
-            )}
-          </div>
-        ))}
+      {counts.isPending ? (
+        <div className={facets.state}>
+          <Spinner label="Signale werden geladen" />
+        </div>
+      ) : counts.isError ? (
+        <div className={facets.state} role="alert">
+          <span>Die Signale konnten nicht geladen werden.</span>
+          <Button size="xs" onClick={() => void counts.refetch()}>
+            Erneut versuchen
+          </Button>
+        </div>
+      ) : entries.length === 0 ? (
+        <NoSignals filtered={counts.data.mails !== null} />
+      ) : (
+        <div
+          className={cx(styles.row, counts.isPlaceholderData && facets.stale)}
+          role="group"
+          aria-labelledby={titleId}
+        >
+          <ul className={facets.chips}>
+            {entries.map(([key, mails]) => (
+              <SignalChip
+                key={key}
+                signal={key}
+                mails={mails}
+                theme={signalThemeInfo(key, themes.data)}
+                selected={state.signal.includes(key)}
+                onToggle={toggle}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

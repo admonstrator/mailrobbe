@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { aiFacets, documentPage } from "../../test/fixtures";
+import { openFilter } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const listCalls = (calls: ApiCall[]) =>
@@ -10,10 +11,10 @@ const summaryCalls = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname === "/api/documents/summary");
 
 function row(name: string): HTMLElement {
-  return screen.getByRole("link", { name }).closest("tr")!;
+  return screen.getByRole("link", { name }).closest("li")!;
 }
 
-const column = () => screen.getByRole("complementary", { name: "Filter" });
+const bar = () => screen.getByRole("group", { name: "Filter" });
 
 describe("document list", () => {
   it("is in the navigation after Personen", async () => {
@@ -38,18 +39,19 @@ describe("document list", () => {
     expect(document.title).toBe("Anhänge · Mailrobbe");
     expect(await screen.findByText("79.110 Dokumente")).toBeTruthy();
 
-    const cells = within(row("Rahmenvereinbarung_2026_final.pdf")).getAllByRole("cell");
-    expect(cells.slice(1).map((cell) => cell.textContent)).toEqual([
-      "Rahmenvereinbarung_2026_final.pdf+2 Namen" +
+    const first = row("Rahmenvereinbarung_2026_final.pdf");
+    expect(first.hasAttribute("data-document-row")).toBe(true);
+    expect(within(first).getByText("+2 Namen")).toBeTruthy();
+    // The snippet of a search stands in the second line, else kind, pages and size.
+    expect(
+      within(first).getByText(
         "§ 7 Zahlungen: Die Spende über 12.500,00 EUR geht auf das Konto DE89 3704 0044 0532 0130 00; weitere Spenden nach Absprache.",
-      "PDF14 Seiten",
-      "168 KB",
-      "in 6 Mails",
-      "28.09.2026",
-      "18.10.2026",
-      "Lukas Vogt",
-    ]);
-    expect(within(cells[7]).getByRole("link", { name: "Lukas Vogt" }).getAttribute("href")).toBe(
+      ),
+    ).toBeTruthy();
+    expect(within(row("Aenderungsprotokoll.xlsx")).getByText(/^Tabelle · .* KB$/)).toBeTruthy();
+    expect(within(first).getByText("in 6 Mails")).toBeTruthy();
+    expect(within(first).getByTitle("Erstmals 28.09.2026, zuletzt 18.10.2026")).toBeTruthy();
+    expect(within(first).getByRole("link", { name: "Lukas Vogt" }).getAttribute("href")).toBe(
       "/personen/14",
     );
     // Without search words nothing is marked.
@@ -70,7 +72,9 @@ describe("document list", () => {
     expect(within(row("IMG_2041.jpg")).getByText("in 3 Mails")).toBeTruthy();
     expect(within(row("Unterlagen.zip")).getByText("in 1 Mail")).toBeTruthy();
 
-    expect(screen.getByText("1–9 von 79.110")).toBeTruthy();
+    expect(
+      within(screen.getByRole("navigation", { name: "Seite" })).getByText("1–9 von 79.110"),
+    ).toBeTruthy();
     expect(screen.getByRole("link", { name: "Weiter ›" }).getAttribute("href")).toBe(
       "/anhaenge?cursor=documents-page-2&page=2",
     );
@@ -78,10 +82,11 @@ describe("document list", () => {
     // One summary for the list and both groups of checkboxes while nothing is checked.
     expect(summaryCalls(calls).map((call) => call.url.search)).toEqual([""]);
 
-    const filters = column();
-    expect(
-      within(filters).getByRole("checkbox", { name: /PDF/ }).closest("label")!.textContent,
-    ).toBe("PDF21.904");
+    const kinds = await openFilter("Art");
+    expect(within(kinds).getByRole("checkbox", { name: /PDF/ }).closest("label")!.textContent).toBe(
+      "PDF21.904",
+    );
+    const filters = await openFilter("Textstatus");
     expect(
       within(filters)
         .getByRole("checkbox", { name: /Gescannt \(ohne Text\)/ })
@@ -118,15 +123,18 @@ describe("document list", () => {
 
   it("filters by kind and status and counts each group without its own selection", async () => {
     const { router, calls } = renderApp("/anhaenge");
-    const pdf = await within(column()).findByRole("checkbox", { name: /PDF/ });
+    const kinds = await openFilter("Art");
+    const pdf = await within(kinds).findByRole("checkbox", { name: /PDF/ });
     fireEvent.click(pdf);
     expect(router.state.location.search).toBe("?kind=pdf");
-    fireEvent.click(within(column()).getByRole("checkbox", { name: /Tabelle/ }));
+    fireEvent.click(within(kinds).getByRole("checkbox", { name: /Tabelle/ }));
     expect(new URLSearchParams(router.state.location.search).getAll("kind")).toEqual([
       "pdf",
       "spreadsheet",
     ]);
-    fireEvent.click(within(column()).getByRole("checkbox", { name: /Gescannt/ }));
+    fireEvent.click(
+      within(await openFilter("Textstatus")).getByRole("checkbox", { name: /Gescannt/ }),
+    );
     const search = new URLSearchParams(router.state.location.search);
     expect(search.getAll("text_status")).toEqual(["scanned"]);
 
@@ -173,33 +181,38 @@ describe("document list", () => {
     await screen.findByRole("link", { name: "Rahmenvereinbarung_2026_final.pdf" });
     expect(listCalls(calls)[0].url.search).toBe(`?${link}`);
 
-    const filters = column();
-    expect(within(filters).getByRole("searchbox", { name: "Dateiname enthält" })).toHaveProperty(
+    // Every chip with a filter says so.
+    for (const chip of ["Art", "Textstatus", "Zeitraum", "Person", "Dateiname", "Weitere Filter"]) {
+      expect(within(bar()).getByRole("button", { name: `${chip} (aktiv)` })).toBeTruthy();
+    }
+    expect(
+      within(await openFilter("Dateiname")).getByRole("searchbox", { name: "Dateiname enthält" }),
+    ).toHaveProperty("value", "liste");
+    expect(
+      within(await openFilter("Art")).getByRole("checkbox", { name: /Tabelle/ }),
+    ).toHaveProperty("checked", true);
+    expect(
+      within(await openFilter("Textstatus")).getByRole("checkbox", { name: /Verschlüsselt/ }),
+    ).toHaveProperty("checked", true);
+    expect(within(await openFilter("Zeitraum")).getByLabelText("von")).toHaveProperty(
       "value",
-      "liste",
+      "2019-01-01",
     );
-    expect(within(filters).getByRole("checkbox", { name: /Tabelle/ })).toHaveProperty(
+    const more = await openFilter("Weitere Filter");
+    expect(within(more).getByRole("checkbox", { name: "In mehreren Mails" })).toHaveProperty(
       "checked",
       true,
     );
-    expect(within(filters).getByRole("checkbox", { name: /Verschlüsselt/ })).toHaveProperty(
-      "checked",
-      true,
-    );
-    expect(within(filters).getByLabelText("von")).toHaveProperty("value", "2019-01-01");
-    expect(within(filters).getByRole("checkbox", { name: "In mehreren Mails" })).toHaveProperty(
-      "checked",
-      true,
-    );
-    expect(within(filters).getByRole("checkbox", { name: "Nur extern ↔ intern" })).toHaveProperty(
+    expect(within(more).getByRole("checkbox", { name: "Nur extern ↔ intern" })).toHaveProperty(
       "checked",
       true,
     );
     // The person comes with its name from the profile.
+    const person = await openFilter("Person");
     expect(
-      await within(filters).findByRole("button", { name: "Person entfernen: Anna Keller" }),
+      await within(person).findByRole("button", { name: "Person entfernen: Anna Keller" }),
     ).toBeTruthy();
-    expect(within(filters).getByRole("combobox", { name: "Rolle der Person" })).toHaveProperty(
+    expect(within(person).getByRole("combobox", { name: "Rolle der Person" })).toHaveProperty(
       "value",
       "sent",
     );
@@ -210,10 +223,8 @@ describe("document list", () => {
   it("types the file name filter into the URL", async () => {
     const { router } = renderApp("/anhaenge?kind=pdf");
     fireEvent.change(
-      await within(column()).findByRole("searchbox", { name: "Dateiname enthält" }),
-      {
-        target: { value: "protokoll" },
-      },
+      within(await openFilter("Dateiname")).getByRole("searchbox", { name: "Dateiname enthält" }),
+      { target: { value: "protokoll" } },
     );
     await waitFor(() => expect(router.state.location.search).toBe("?name=protokoll&kind=pdf"));
     expect(router.state.historyAction).toBe("REPLACE");
@@ -221,14 +232,15 @@ describe("document list", () => {
 
   it("picks a person with its role, and removes it", async () => {
     const { router } = renderApp("/anhaenge");
-    const field = await within(column()).findByRole("combobox", { name: "Person suchen" });
+    const popover = await openFilter("Person");
+    const field = within(popover).getByRole("combobox", { name: "Person suchen" });
     fireEvent.focus(field);
     fireEvent.change(field, { target: { value: "Jonas" } });
     const option = await screen.findByRole("option", { name: /Jonas Brandt/ });
     fireEvent.click(option);
     expect(router.state.location.search).toBe("?person=12");
 
-    const role = await within(column()).findByRole("combobox", { name: "Rolle der Person" });
+    const role = await within(popover).findByRole("combobox", { name: "Rolle der Person" });
     expect([...role.querySelectorAll("option")].map((item) => item.textContent)).toEqual([
       "gesendet oder empfangen",
       "gesendet",
@@ -237,7 +249,7 @@ describe("document list", () => {
     fireEvent.change(role, { target: { value: "received" } });
     expect(router.state.location.search).toBe("?person=12&person_role=received");
 
-    fireEvent.click(within(column()).getByRole("button", { name: /Person entfernen/ }));
+    fireEvent.click(within(popover).getByRole("button", { name: /Person entfernen/ }));
     expect(router.state.location.search).toBe("");
   });
 
@@ -247,15 +259,17 @@ describe("document list", () => {
     expect(router.state.location.pathname).toBe("/anhaenge");
     expect(router.state.location.search).toBe("?person=11");
     expect(
-      await within(column()).findByRole("button", { name: "Person entfernen: Anna Keller" }),
+      await within(await openFilter("Person")).findByRole("button", {
+        name: "Person entfernen: Anna Keller",
+      }),
     ).toBeTruthy();
     await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?person=11"));
   });
 
-  it("resets the filter column but keeps search and sort", async () => {
+  it("resets the filters but keeps search and sort", async () => {
     const { router } = renderApp("/anhaenge?q=Spende&kind=pdf&shared=true&sort=mails");
     await screen.findByRole("link", { name: "Rahmenvereinbarung_2026_final.pdf" });
-    fireEvent.click(within(column()).getByRole("button", { name: "Zurücksetzen" }));
+    fireEvent.click(within(bar()).getByRole("button", { name: "Zurücksetzen" }));
     expect(router.state.location.search).toBe("?q=Spende&sort=mails");
   });
 
@@ -266,9 +280,9 @@ describe("document list", () => {
         : fixtureApi(call),
     );
     expect(await screen.findByText("mehr als 10.000 Dokumente gefunden")).toBeTruthy();
-    expect(screen.getByText("1–9 von mehr als 10.000")).toBeTruthy();
+    expect(screen.getAllByText("1–9 von mehr als 10.000")).toHaveLength(2);
     // Out of time for the groups: no counters, the boxes stay.
-    const pdf = within(column()).getByRole("checkbox", { name: /PDF/ });
+    const pdf = within(await openFilter("Art")).getByRole("checkbox", { name: /PDF/ });
     expect(pdf.closest("label")!.textContent).toBe("PDF");
   });
 
@@ -278,7 +292,7 @@ describe("document list", () => {
         ? { ...documentPage, prev_cursor: "documents-page-1" }
         : fixtureApi(call),
     );
-    expect(await screen.findByText("51–59 von 79.110")).toBeTruthy();
+    expect(await screen.findAllByText("51–59 von 79.110")).toHaveLength(2);
     expect(screen.getByRole("link", { name: "‹ Zurück" }).getAttribute("href")).toBe(
       "/anhaenge?sort=size",
     );
@@ -369,9 +383,10 @@ describe("document list paging (D193)", () => {
 describe("protected and packed documents in the list (D231, D233)", () => {
   it("filters by protection with counts, kept in the URL", async () => {
     const { router, calls } = renderApp("/anhaenge");
-    const locked = await within(column()).findByRole("checkbox", { name: /^Kennwort unbekannt/ });
+    const more = await openFilter("Weitere Filter");
+    const locked = await within(more).findByRole("checkbox", { name: /^Kennwort unbekannt/ });
     await waitFor(() => expect(locked.closest("label")!.textContent).toBe("Kennwort unbekannt87"));
-    const open = within(column()).getByRole("checkbox", { name: /^geöffnet/ });
+    const open = within(more).getByRole("checkbox", { name: /^geöffnet/ });
     expect(open.closest("label")!.textContent).toBe("geöffnet12");
     expect(locked.closest("fieldset")!.querySelector("legend")!.textContent).toContain(
       "Verschlüsselt",
@@ -379,7 +394,7 @@ describe("protected and packed documents in the list (D231, D233)", () => {
 
     fireEvent.click(locked);
     expect(router.state.location.search).toBe("?protection=locked");
-    fireEvent.click(within(column()).getByRole("checkbox", { name: /^geöffnet/ }));
+    fireEvent.click(within(more).getByRole("checkbox", { name: /^geöffnet/ }));
     expect(new URLSearchParams(router.state.location.search).getAll("protection")).toEqual([
       "locked",
       "open",
@@ -397,11 +412,15 @@ describe("protected and packed documents in the list (D231, D233)", () => {
 
   it("reads the filter from a link, as the signal overview gives it", async () => {
     renderApp("/anhaenge?protection=open");
-    expect(await within(column()).findByRole("checkbox", { name: /^geöffnet/ })).toHaveProperty(
+    expect(
+      await within(bar()).findByRole("button", { name: "Weitere Filter (aktiv)" }),
+    ).toBeTruthy();
+    const more = await openFilter("Weitere Filter");
+    expect(within(more).getByRole("checkbox", { name: /^geöffnet/ })).toHaveProperty(
       "checked",
       true,
     );
-    expect(within(column()).getByRole("checkbox", { name: /^Kennwort unbekannt/ })).toHaveProperty(
+    expect(within(more).getByRole("checkbox", { name: /^Kennwort unbekannt/ })).toHaveProperty(
       "checked",
       false,
     );
@@ -457,22 +476,21 @@ describe("AI tags in the document list (D309)", () => {
 
   it("offers the most used AI tags and finds others by name, kept in the URL", async () => {
     const { router, calls } = renderApp("/anhaenge", aiTagApi);
-    const spende = await within(column()).findByRole("checkbox", { name: "Spende" });
-    const group = spende.closest("fieldset")!;
-    expect(group.querySelector("legend")!.textContent).toContain("KI-Schlagwort");
+    const group = await openFilter("KI-Schlagwort");
+    const spende = await within(group).findByRole("checkbox", { name: "Spende" });
     expect(within(group).getByText("Maschinell erzeugt, aus den Zusammenfassungen.")).toBeTruthy();
 
     fireEvent.click(spende);
     expect(router.state.location.search).toBe("?ai_tag=12");
     expect(
-      await within(column()).findByRole("button", { name: "KI-Schlagwort entfernen: Spende" }),
+      await within(group).findByRole("button", { name: "KI-Schlagwort entfernen: Spende" }),
     ).toBeTruthy();
     await waitFor(() => expect(listCalls(calls).at(-1)!.url.search).toBe("?ai_tag=12"));
 
-    fireEvent.change(within(column()).getByRole("searchbox", { name: "KI-Schlagwort suchen" }), {
+    fireEvent.change(within(group).getByRole("searchbox", { name: "KI-Schlagwort suchen" }), {
       target: { value: "vorstand" },
     });
-    fireEvent.click(await within(column()).findByRole("checkbox", { name: "Vorstandssitzung" }));
+    fireEvent.click(await within(group).findByRole("checkbox", { name: "Vorstandssitzung" }));
     expect(new URLSearchParams(router.state.location.search).getAll("ai_tag")).toEqual([
       "12",
       "31",
@@ -480,7 +498,7 @@ describe("AI tags in the document list (D309)", () => {
     expect(calls.some((call) => call.url.search === "?q=vorstand&limit=8")).toBe(true);
 
     fireEvent.click(
-      await within(column()).findByRole("button", { name: "KI-Schlagwort entfernen: Spende" }),
+      await within(group).findByRole("button", { name: "KI-Schlagwort entfernen: Spende" }),
     );
     expect(router.state.location.search).toBe("?ai_tag=31");
   });
@@ -493,6 +511,6 @@ describe("AI tags in the document list (D309)", () => {
     await waitFor(() =>
       expect(calls.some((call) => call.url.pathname === "/api/ai/tags")).toBe(true),
     );
-    expect(within(column()).queryByText("KI-Schlagwort")).toBeNull();
+    expect(within(bar()).queryByRole("button", { name: /^KI-Schlagwort/ })).toBeNull();
   });
 });

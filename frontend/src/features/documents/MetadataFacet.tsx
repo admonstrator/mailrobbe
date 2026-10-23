@@ -11,7 +11,7 @@ import { Checkbox } from "../../components/Checkbox";
 import { Spinner } from "../../components/Spinner";
 import { useDebounced } from "../../lib/useDebounced";
 import { FilterGroup } from "../mails/FilterGroup";
-import styles from "./DocumentFilterColumn.module.css";
+import styles from "./DocumentFilterBar.module.css";
 
 /** Values shown before "mehr". */
 const SHOWN = 6;

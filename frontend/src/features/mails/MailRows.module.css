@@ -1,0 +1,288 @@
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+/* One mail: a line of a mail program, about 52 px high (40 px compact). */
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  cursor: pointer;
+  /* a row brought into view (keyboard, find in page) stops below the sticky bar */
+  scroll-margin-top: calc(var(--list-bar, 0px) + 8px);
+}
+
+.compact .row {
+  min-height: 40px;
+}
+
+.row:hover {
+  z-index: 1;
+  box-shadow:
+    inset 1px 0 0 #dadfe7,
+    inset -1px 0 0 #dadfe7,
+    0 1px 3px rgb(22 24 29 / 14%);
+}
+
+.selected {
+  background: #f3f6fd;
+}
+
+.open {
+  background: var(--color-accent-soft);
+}
+
+.check {
+  display: grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: inherit;
+}
+
+.star {
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  margin-left: -6px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: #9aa3b1;
+  cursor: pointer;
+}
+
+.star:hover {
+  background: var(--color-ground);
+  color: var(--color-nav);
+}
+
+.starred,
+.starred:hover {
+  color: #e0a21b;
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+
+.avatar > span {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+
+.compact .avatar,
+.compact .avatar > span {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
+.sender {
+  flex: none;
+  width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.narrow .sender {
+  width: 140px;
+}
+
+/* Unreviewed mails stand out like unread ones. */
+.unreviewed .sender,
+.unreviewed .subject,
+.unreviewed .date {
+  font-weight: 600;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subject {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.subject:hover {
+  text-decoration: underline;
+}
+
+.subject:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.second {
+  color: var(--color-muted);
+}
+
+.narrow .second {
+  display: none;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+.marks {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+}
+
+.quiet {
+  flex: none;
+  color: var(--color-muted);
+}
+
+.cancel {
+  color: var(--color-fail-text);
+}
+
+.near {
+  border-radius: 999px;
+  padding: 0 6px;
+  background: var(--color-field);
+  font-size: 12px;
+}
+
+.notes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.tagDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.more {
+  font-size: 11px;
+}
+
+.inAttachment {
+  border-radius: 999px;
+  padding: 1px var(--space-2);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.extra {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.mbox {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.end {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  width: 92px;
+}
+
+.date {
+  color: var(--color-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.quick {
+  display: none;
+  gap: 2px;
+}
+
+.row:hover .date,
+.row:focus-within .date {
+  display: none;
+}
+
+.row:hover .quick,
+.row:focus-within .quick {
+  display: flex;
+}
+
+.action {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: var(--color-nav);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--color-ground);
+}
+
+.action[aria-pressed="true"] {
+  color: var(--color-pass-text);
+}
+
+@media (width < 1100px) {
+  .sender {
+    width: 150px;
+  }
+
+  .narrow .sender {
+    width: 110px;
+  }
+}

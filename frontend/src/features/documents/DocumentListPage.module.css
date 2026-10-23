@@ -1,66 +1,52 @@
-.layout {
+/* The document list on the shell's white sheet (D335), as the mail list: a sticky head, then
+   the rows and beside them the panel of an opened document. The window scrolls (D190). */
+.page {
   display: flex;
-  flex: 1;
-  align-items: flex-start;
-}
-
-.main {
-  display: flex;
-  flex: 999 1 560px;
   flex-direction: column;
-  gap: 12px;
   min-width: 0;
-  padding: 12px 20px 24px;
 }
 
-/* Stays below the shell header while the table scrolls, the page's background behind it, edge to
-   edge of the column; its height is --list-bar (useBarHeight). */
-.listBar {
+/* Stays below the shell header while the rows scroll; its height is --list-bar (useBarHeight),
+   below which the panel sticks. */
+.head {
   position: sticky;
   top: var(--sticky-top);
   z-index: 10;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 20px;
-  margin: -12px -20px 0;
-  padding: 12px 20px 8px;
-  background: var(--color-bg);
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-3) var(--space-4) 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--color-surface);
 }
 
-.head {
+.toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-height: 36px;
 }
 
 .title {
   margin: 0;
+  font: var(--font-page-title);
   font-size: 20px;
-  font-weight: 600;
 }
 
 .total {
   min-height: 1lh;
   color: var(--color-muted);
-  font-size: 13px;
-}
-
-.toolbar {
-  display: flex;
-  flex: 1 1 520px;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .search {
   display: flex;
-  flex: 0 1 480px;
+  flex: 1 1 260px;
   align-items: center;
   gap: 8px;
-  min-width: 220px;
+  max-width: 420px;
   height: 34px;
   box-sizing: border-box;
   padding: 0 12px;
@@ -87,52 +73,57 @@
   outline: none;
 }
 
-.sortLabel {
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
-  color: var(--color-muted);
-  font-size: 13px;
 }
 
 .sort {
+  height: 32px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  padding: 6px 8px;
+  border-radius: 8px;
+  padding: 0 var(--space-2);
   background: var(--color-surface);
   font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
-/* clip, not hidden: no scroll container, so the table's head can stick to the window. */
-.tableCard {
-  gap: 0;
-  padding: 0;
-  overflow: clip;
+.body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.list {
+  flex: 1;
+  min-width: 0;
+  container-type: inline-size;
+}
+
+/* The panel sticks below the head, not only below the shell header. */
+.body > aside {
+  top: calc(var(--sticky-top) + var(--list-bar, 0px));
+  max-height: calc(var(--content-height) - var(--list-bar, 0px));
 }
 
 .loading {
   display: flex;
   justify-content: center;
-  padding: 48px;
+  padding: var(--space-7);
+}
+
+.foot {
+  padding: var(--space-3) var(--space-4) var(--space-4);
 }
 
 @media (max-width: 759px) {
-  .layout {
-    flex-wrap: wrap;
-  }
-
-  .main {
-    padding: 16px;
-  }
-
-  .listBar {
-    margin: -16px -16px 0;
-    padding: 16px 16px 8px;
-  }
-
   .search {
     flex: 1 1 100%;
-  }
-
-  .sortLabel {
-    margin-left: 0;
+    max-width: none;
   }
 }

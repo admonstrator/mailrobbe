@@ -3,14 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import { METADATA_VALUES_LIMIT } from "../../api/types";
 import { documentSummary } from "../../test/fixtures";
+import { openFilter } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
-const column = () => screen.getByRole("complementary", { name: "Filter" });
-
+/** The popover of the facet's chip, which this opens. */
 async function facet(name: string): Promise<HTMLElement> {
   await screen.findByRole("link", { name: "Rahmenvereinbarung_2026_final.pdf" });
-  // By its legend: a role query over the whole column is slow on a busy machine.
-  return within(column()).getByText(name, { selector: "legend button" }).closest("fieldset")!;
+  return openFilter(name);
 }
 
 const calls = (all: ApiCall[], path: string) => all.filter((call) => call.url.pathname === path);

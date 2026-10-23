@@ -240,7 +240,7 @@ describe("transcripts in the document list", () => {
         : fixtureApi(call),
     );
     const row = (await screen.findByRole("link", { name: "Sprachnachricht_Vorstand.ogg" })).closest(
-      "tr",
+      "li",
     )!;
     expect(within(row).getByText("transkribiert").title).toBe(TRANSCRIPT_TITLE);
   });

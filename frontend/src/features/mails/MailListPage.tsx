@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { ApiError, buildQuery } from "../../api/client";
 import {
@@ -19,30 +19,34 @@ import {
   type MailSummary,
 } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
-import { Chip } from "../../components/Chip";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
+import { InsightsIcon } from "../../components/icons";
+import { OverflowMenu, type OverflowItem } from "../../components/OverflowMenu";
 import { PageTooFar, Pagination } from "../../components/Pagination";
+import { SidePanel } from "../../components/SidePanel";
 import { Spinner } from "../../components/Spinner";
+import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
+import { highlightTerms } from "../../lib/highlight";
+import { isPlainKey } from "../../lib/keys";
 import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { personName as shownName } from "../../lib/person";
-import { TAG_PALETTE } from "../../lib/research";
 import { placesHrefOf } from "../places/urlState";
 import { ExportDialog, type ExportDialogProps } from "../research/ExportDialog";
-import { MiniTimeline } from "../timeline/MiniTimeline";
+import { timelinePath } from "../timeline/buckets";
 import { hasSelection, selectionHref } from "../topics/urlState";
 import { AiFacets, useAiChipNames } from "./AiFacets";
 import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
-import { ColumnMenu } from "./ColumnMenu";
 import { useColumns } from "./columns";
 import { EntityFacets, useEntityChipNames } from "./EntityFacets";
-import { FilterColumn } from "./FilterColumn";
+import { CompactPager } from "./CompactPager";
+import { FilterBar } from "./FilterBar";
 import {
   hasFilters,
   listSearch,
+  positiveInt,
   toFilters,
   toListParams,
   toOrderParams,
@@ -50,24 +54,55 @@ import {
   type ListState,
 } from "./listState";
 import styles from "./MailListPage.module.css";
-import { MailTable, type TableSelection } from "./MailTable";
+import { MailPreview } from "./MailPreview";
+import { MailRows, type Density } from "./MailRows";
 import { invalidTerm } from "./queryText";
 import { SaveSearchDialog } from "./SaveSearchDialog";
 import { SignalFacets, useSignalChipNames } from "./SignalFacets";
-import { formatTotal, SummaryTiles } from "./SummaryTiles";
+import { SummaryLine } from "./SummaryLine";
+import { formatTotal } from "./SummaryTiles";
 import { useBarHeight } from "./useBarHeight";
 import { useListState } from "./useListState";
+
+/** The query parameter of the mail shown in the preview beside the list (D335). */
+export const PREVIEW_PARAM = "vorschau";
+
+const DENSITY_KEY = "mailrobbe.row-density";
+const INSIGHTS_KEY = "mailrobbe.insights";
 
 const listHref = (state: ListState) => {
   const search = listSearch(state).toString();
   return search ? `/mails?${search}` : "/mails";
 };
 
-function hitText(summary: MailSummary | undefined, state: ListState): string {
-  const sorted = `sortiert nach Datum ${state.sort === "date_asc" ? "↑" : "↓"}`;
-  if (!summary) return sorted;
-  if (summary.total === null) return `Trefferzahl unbekannt · ${sorted}`;
-  return `${formatTotal(summary)} Treffer · ${sorted}`;
+/** The CSV of the list's mails, in the list's order. */
+export function csvHref(state: ListState): string {
+  const query = buildQuery(toOrderParams(state)).toString();
+  return `/api/mails/export.csv${query ? `?${query}` : ""}`;
+}
+
+function load(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null; // storage blocked: the default
+  }
+}
+
+function store(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // storage blocked: the choice lasts until reload
+  }
+}
+
+/** "686 Treffer", "Treffer (mehr als 10.000)", "Trefferzahl unbekannt". */
+function hitText(summary: MailSummary | undefined): string {
+  if (!summary) return "";
+  if (summary.total === null) return "Trefferzahl unbekannt";
+  return `${formatTotal(summary)} Treffer`;
 }
 
 /** The person names a page knows, for the chips of the person and between filters. */
@@ -95,10 +130,22 @@ function changedText({ mails, changed }: BulkResult): string {
     : `${formatNumber(changed)} von ${formatNumber(mails)} ${noun} geändert`;
 }
 
-/** The mail list (SPEC 5.1): filters, figures, active filters, one page of mails, and the
- *  research file's work on them: selection and bulk changes, saved searches, export. */
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest("input, textarea, select, [contenteditable], dialog, [role=dialog]") !== null
+  );
+}
+
+/** The mail list (SPEC 5.1, D335) like a mail program: a toolbar with the count, the panel
+ *  "Einblicke", sort, pages and the menu "…"; the filters as chips, or the bulk actions of a
+ *  selection; one quiet line of figures; the rows; and the preview of a mail in a panel beside
+ *  them, kept in the URL (?vorschau=). */
 export function MailListPage() {
   const [state, setState] = useListState();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const previewId = positiveInt(searchParams.get(PREVIEW_PARAM));
   const stats = useStats();
   const mboxFiles = useMboxFiles();
   const research = useResearch();
@@ -119,6 +166,11 @@ export function MailListPage() {
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState<Omit<ExportDialogProps, "onClose"> | null>(null);
+  const [density, setDensity] = useState<Density>(() =>
+    load(DENSITY_KEY) === "compact" ? "compact" : "comfortable",
+  );
+  const [insightsWanted, setInsights] = useState(() => load(INSIGHTS_KEY) === "open");
+  const insights = insightsWanted && previewId === null;
   const bar = useBarHeight<HTMLDivElement>();
 
   useEffect(() => {
@@ -144,9 +196,12 @@ export function MailListPage() {
     event: (uid) => eventMail.data?.events.find((event) => event.uid === uid)?.summary ?? undefined,
     ...aiNames,
   });
-  const exportQuery = buildQuery(toOrderParams(state)).toString();
   const label = (state.q || "Mailliste").slice(0, LABEL_LIMIT);
   const exactTotal = summary.data?.exact ? summary.data.total : null;
+  const marks = useMemo(() => {
+    const words = highlightTerms(state.q);
+    return words.length > 0 ? { words, stems: [], whole_word: state.whole_word } : undefined;
+  }, [state.q, state.whole_word]);
 
   // The selection belongs to this view: other filters, search, sort or page start empty.
   const view = listSearch(state).toString();
@@ -154,163 +209,227 @@ export function MailListPage() {
   const current = picked.view === view ? picked : { view, ids: [], all: false };
   const selectedIds = current.all ? items.map((mail) => mail.id) : current.ids;
   const pick = (ids: number[], all = false) => setPicked({ view, ids, all });
-  const tableSelection: TableSelection = {
-    ids: new Set(selectedIds),
-    onToggle: (id, on) =>
-      pick(on ? [...selectedIds, id] : selectedIds.filter((other) => other !== id)),
-    onTogglePage: (on) => pick(on ? items.map((mail) => mail.id) : []),
-  };
+  const selectedOnPage = items.filter((mail) => selectedIds.includes(mail.id)).length;
   // A page has at most 200 mails, below SELECTION_IDS_LIMIT; every match goes as the filters.
   const selection: MailSelection = current.all
     ? { filters: toFilters(state) }
     : { ids: selectedIds };
+  const detailHref = (id: number) => `/mails/${id}${view ? `?${view}` : ""}`;
+  const paging =
+    page.data && items.length > 0
+      ? listPagination(state, page.data, items.length, mailTotal(summary.data), listHref)
+      : null;
+
+  /** Shows a mail in the preview; a new entry of the history unless it replaces the shown one. */
+  function preview(id: number | null, replace = false) {
+    setSearchParams(
+      (now) => {
+        const next = new URLSearchParams(now);
+        if (id === null) next.delete(PREVIEW_PARAM);
+        else next.set(PREVIEW_PARAM, String(id));
+        return next;
+      },
+      { replace, preventScrollReset: true },
+    );
+  }
+
+  function toggleInsights() {
+    const open = !insights;
+    setInsights(open);
+    store(INSIGHTS_KEY, open ? "open" : null);
+    if (open && previewId !== null) preview(null);
+  }
+
+  // j and k step through the rows: the preview's mail while it is open, else the focus.
+  const onKey = useEffectEvent((event: KeyboardEvent) => {
+    if (!isPlainKey(event) || event.shiftKey || isTyping(event.target)) return;
+    if (event.key !== "j" && event.key !== "k") return;
+    const by = event.key === "j" ? 1 : -1;
+    const links = [
+      ...document.querySelectorAll<HTMLAnchorElement>("[data-mail-row] a[data-subject]"),
+    ];
+    if (previewId !== null) {
+      const index = items.findIndex((mail) => mail.id === previewId);
+      const target = items[index + by];
+      if (index < 0 || !target) return;
+      event.preventDefault();
+      preview(target.id, true);
+      links[index + by]?.scrollIntoView?.({ block: "nearest" });
+      return;
+    }
+    const index = links.findIndex((link) => link === document.activeElement);
+    const target = links[index < 0 ? 0 : index + by];
+    if (!target) return;
+    event.preventDefault();
+    target.focus();
+  });
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => onKey(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+
+  const menu: OverflowItem[] = [
+    ...(hasFilters(state) ? [{ label: "Suche speichern …", onSelect: () => setSaving(true) }] : []),
+    {
+      label: "Exportieren (ZIP mit PDF und Prüfsummen) …",
+      onSelect: () =>
+        setExporting({ selection: { filters: toFilters(state) }, count: exactTotal, label }),
+    },
+    {
+      label: "Als CSV herunterladen",
+      onSelect: () => {
+        const link = document.createElement("a");
+        link.href = csvHref(state);
+        link.download = "";
+        link.click();
+      },
+    },
+    ...(hasSelection(state)
+      ? [
+          {
+            label: "Begriffe dieser Treffer",
+            onSelect: () => void navigate(selectionHref(state)),
+            separated: true,
+          },
+        ]
+      : []),
+    {
+      label: "Treffer auf der Karte",
+      onSelect: () => void navigate(placesHrefOf(state)),
+      separated: !hasSelection(state),
+    },
+    {
+      label: "Treffer in der Zeitachse",
+      onSelect: () => void navigate(timelinePath(toFilters(state))),
+    },
+    ...(!state.include_hidden && summary.data?.hidden
+      ? [
+          {
+            label: `${formatNumber(summary.data.hidden)} ausgeblendete Mails zeigen`,
+            onSelect: () => setState(withFilters(state, { include_hidden: true })),
+            separated: true,
+          },
+        ]
+      : []),
+    {
+      label: density === "compact" ? "Zeilen: bequem" : "Zeilen: kompakt",
+      onSelect: () => {
+        const next = density === "compact" ? "comfortable" : "compact";
+        setDensity(next);
+        store(DENSITY_KEY, next === "compact" ? "compact" : null);
+      },
+      separated: state.include_hidden || !summary.data?.hidden,
+    },
+    {
+      label: columns.size ? "Größe ausblenden" : "Größe zeigen",
+      onSelect: () => setColumn("size", !columns.size),
+    },
+    {
+      label: columns.mbox ? "MBOX-Datei ausblenden" : "MBOX-Datei zeigen",
+      onSelect: () => setColumn("mbox", !columns.mbox),
+    },
+  ];
 
   return (
-    <div className={styles.layout}>
+    <div className={styles.page}>
       <title>Mails · Mailrobbe</title>
-      <FilterColumn
-        state={state}
-        onChange={setState}
-        stats={stats.data}
-        mboxFiles={mboxFiles.data}
-        research={research.data}
-      />
-      <main className={styles.main}>
-        <h1 className="sr-only">Mails</h1>
-        <div className={styles.overview}>
-          <div className={styles.figures}>
-            <SummaryTiles summary={summary} />
-          </div>
-          <MiniTimeline
-            filters={toFilters(state)}
-            onPick={(range) => setState(withFilters(state, range))}
-            collapsible
+      {/* Toolbar, filters or bulk actions, and figures stay below the header while the rows
+          scroll. */}
+      <div ref={bar} className={styles.head}>
+        <div className={styles.toolbar}>
+          <input
+            type="checkbox"
+            className={styles.selectAll}
+            aria-label="Alle Mails dieser Seite auswählen"
+            checked={selectedOnPage > 0 && selectedOnPage === items.length}
+            ref={(box) => {
+              if (box) box.indeterminate = selectedOnPage > 0 && selectedOnPage < items.length;
+            }}
+            disabled={items.length === 0}
+            onChange={(event) => pick(event.target.checked ? items.map((mail) => mail.id) : [])}
           />
-        </div>
-        <div className={styles.topFacets}>
-          <SignalFacets state={state} onChange={setState} placement="top" />
-          <EntityFacets state={state} onChange={setState} placement="top" />
-          <AiFacets state={state} onChange={setState} onNotice={showNotice} placement="top" />
-        </div>
-
-        {/* Chips, figures, sort and exports, and the bulk bar of a selection, stay above the
-            table while it scrolls. */}
-        <div ref={bar} className={styles.listBar}>
-          <div className={styles.toolbar}>
-            {chips.map((chip) => (
-              <Chip
-                key={chip.id}
-                label={chip.label}
-                color={chip.color && TAG_PALETTE[chip.color].text}
-                onRemove={() => setState(chip.next)}
-              />
-            ))}
-            {hasFilters(state) && (
-              <Button variant="link" size="sm" onClick={() => setSaving(true)}>
-                Suche speichern
-              </Button>
-            )}
-            {hasSelection(state) && (
-              <Link
-                to={selectionHref(state)}
-                className={buttonClass("link", "sm")}
-                title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
-              >
-                Begriffe
-              </Link>
-            )}
-            <Link
-              to={placesHrefOf(state)}
-              className={buttonClass("link", "sm")}
-              title="Die Fotos, Orte und Termine dieser Mails auf der Karte"
+          <h1 className={styles.title}>Mails</h1>
+          <span className={styles.hits} aria-live="polite">
+            {hitText(summary.data)}
+            {state.q && summary.data && ` für „${state.q}“`}
+            {!state.include_hidden &&
+              !!summary.data?.hidden &&
+              ` · ${formatNumber(summary.data.hidden)} ausgeblendet`}
+          </span>
+          <div className={styles.tools}>
+            <button
+              type="button"
+              className={cx(buttonClass("default", "sm"), insights && styles.pressed)}
+              aria-pressed={insights}
+              onClick={toggleInsights}
             >
-              Auf der Karte
-            </Link>
-            <span className={styles.hits} aria-live="polite">
-              {hitText(summary.data, state)}
-            </span>
-            {!!summary.data?.hidden && (
-              <span className={styles.hits}>
-                {formatNumber(summary.data.hidden)} ausgeblendet ·{" "}
-                <Button
-                  variant="link"
-                  size="sm"
-                  className={styles.showHidden}
-                  title="Mails, die eine Ausblendregel ausblendet, mit in die Liste nehmen"
-                  onClick={() => setState(withFilters(state, { include_hidden: true }))}
-                >
-                  zeigen
-                </Button>
-              </span>
-            )}
-            <div className={styles.actions}>
-              <label htmlFor="mail-sort" className="sr-only">
-                Sortierung
-              </label>
-              <select
-                id="mail-sort"
-                className={styles.sort}
-                value={state.sort}
-                onChange={(event) =>
-                  setState(withFilters(state, { sort: event.target.value as ListState["sort"] }))
-                }
-              >
-                <option value="date_desc">Datum (neueste zuerst)</option>
-                <option value="date_asc">Datum (älteste zuerst)</option>
-              </select>
-              <ColumnMenu columns={columns} onChange={setColumn} />
-              <a
-                href={`/api/mails/export.csv${exportQuery ? `?${exportQuery}` : ""}`}
-                className={buttonClass("default", "sm")}
-                download
-              >
-                Export CSV
-              </a>
-              <Button
-                size="sm"
-                onClick={() =>
-                  setExporting({
-                    selection: { filters: toFilters(state) },
-                    count: exactTotal,
-                    label,
-                  })
-                }
-              >
-                Exportieren
-              </Button>
-            </div>
-          </div>
-
-          {selectedIds.length > 0 ? (
-            <BulkBar
-              selected={selectedIds.length}
-              all={current.all}
-              summary={summary.data}
-              selection={selection}
-              onSelectAll={() => pick([], true)}
-              onClear={() => pick([])}
-              onDone={(result) => {
-                pick([]);
-                setNotice({ text: changedText(result) });
-              }}
-              onExport={() =>
-                setExporting({
-                  selection,
-                  count: current.all ? exactTotal : selectedIds.length,
-                  label,
-                })
+              <InsightsIcon size={16} />
+              Einblicke
+            </button>
+            <label htmlFor="mail-sort" className="sr-only">
+              Sortierung
+            </label>
+            <select
+              id="mail-sort"
+              className={styles.sort}
+              value={state.sort}
+              onChange={(event) =>
+                setState(withFilters(state, { sort: event.target.value as ListState["sort"] }))
               }
-            />
-          ) : (
-            notice && (
-              <p className={styles.notice} role="status">
-                {notice.text}
-              </p>
-            )
-          )}
+            >
+              <option value="date_desc">Neueste zuerst</option>
+              <option value="date_asc">Älteste zuerst</option>
+            </select>
+            {paging && <CompactPager paging={paging} />}
+            <OverflowMenu items={menu} />
+          </div>
         </div>
 
-        <Card className={styles.tableCard}>
+        {selectedIds.length > 0 ? (
+          <BulkBar
+            selected={selectedIds.length}
+            all={current.all}
+            summary={summary.data}
+            selection={selection}
+            onSelectAll={() => pick([], true)}
+            onClear={() => pick([])}
+            onDone={(result) => {
+              pick([]);
+              setNotice({ text: changedText(result) });
+            }}
+            onExport={() =>
+              setExporting({
+                selection,
+                count: current.all ? exactTotal : selectedIds.length,
+                label,
+              })
+            }
+          />
+        ) : (
+          <FilterBar
+            state={state}
+            onChange={setState}
+            chips={chips}
+            stats={stats.data}
+            mboxFiles={mboxFiles.data}
+            research={research.data}
+          />
+        )}
+        {notice && (
+          <p className={styles.notice} role="status">
+            {notice.text}
+          </p>
+        )}
+        <SummaryLine
+          summary={summary}
+          filters={toFilters(state)}
+          onPick={(range) => setState(withFilters(state, range))}
+        />
+      </div>
+
+      <div className={styles.body}>
+        <div className={styles.list}>
           {page.isPending ? (
             <div className={styles.loading}>
               <Spinner label="Mails werden geladen" />
@@ -333,33 +452,58 @@ export function MailListPage() {
                 : "Das Archiv ist leer."}
             </EmptyState>
           ) : (
-            <MailTable
+            <MailRows
               items={page.data.items}
+              detailHref={detailHref}
+              marks={marks}
+              openId={previewId}
+              onOpen={(id) => {
+                if (insights) setInsights(false);
+                preview(id, previewId !== null);
+              }}
+              narrow={previewId !== null || insights}
+              density={density}
               columns={columns}
-              detailSearch={view}
               mboxPath={mboxPath}
               stale={page.isPlaceholderData}
-              selection={tableSelection}
+              selection={{
+                ids: new Set(selectedIds),
+                onToggle: (id, on) =>
+                  pick(on ? [...selectedIds, id] : selectedIds.filter((other) => other !== id)),
+              }}
             />
           )}
-        </Card>
+          {paging && (
+            <div className={styles.foot}>
+              <Pagination {...paging} />
+            </div>
+          )}
+        </div>
 
-        {page.data && page.data.items.length > 0 && (
-          <Pagination
-            {...listPagination(
-              state,
-              page.data,
-              page.data.items.length,
-              mailTotal(summary.data),
-              listHref,
-            )}
+        {previewId !== null && (
+          <MailPreview
+            id={previewId}
+            detailHref={detailHref}
+            order={toOrderParams(state)}
+            marks={marks}
+            onStep={(id) => preview(id, true)}
+            onClose={() => preview(null)}
           />
         )}
-      </main>
-      <div className={styles.facets}>
-        <SignalFacets state={state} onChange={setState} placement="column" />
-        <EntityFacets state={state} onChange={setState} placement="column" />
-        <AiFacets state={state} onChange={setState} onNotice={showNotice} placement="column" />
+        {insights && (
+          <SidePanel label="Einblicke" title="Einblicke" width="340px" onClose={toggleInsights}>
+            <p className={styles.insightsScope}>
+              {summary.data && summary.data.total !== null
+                ? `in ${formatTotal(summary.data)} Treffern, ein Klick filtert`
+                : "ein Klick filtert"}
+            </p>
+            <div className={styles.facets}>
+              <SignalFacets state={state} onChange={setState} />
+              <EntityFacets state={state} onChange={setState} />
+              <AiFacets state={state} onChange={setState} onNotice={showNotice} />
+            </div>
+          </SidePanel>
+        )}
       </div>
 
       {saving && (

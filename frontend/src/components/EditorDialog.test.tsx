@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { EDITOR_LIMIT } from "../lib/editor";
+import { rows } from "../test/mailList";
 import { renderApp } from "../test/render";
 
 function openDialog(button: string): HTMLElement {
@@ -12,7 +13,7 @@ function openDialog(button: string): HTMLElement {
 describe("editor name", () => {
   it("is entered in the top bar, kept in this browser and forgotten when emptied", async () => {
     renderApp("/mails");
-    await screen.findAllByRole("row");
+    await rows();
     let dialog = openDialog("Namen eintragen");
     expect(
       within(dialog).getByText(

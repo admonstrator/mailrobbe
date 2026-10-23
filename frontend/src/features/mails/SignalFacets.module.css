@@ -1,5 +1,5 @@
-/* The signal facets look like the entity facets (EntityFacets.module.css) and have one group:
-   its chips wrap in the column; above the table they are one line, "mehr" beside it. */
+/* The signal facets look like the entity facets (EntityFacets.module.css) and have one group,
+   whose chips wrap. */
 .row {
   display: flex;
   flex-direction: column;
@@ -7,13 +7,6 @@
   gap: 6px;
   min-width: 0;
   transition: opacity 0.15s;
-}
-
-.line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

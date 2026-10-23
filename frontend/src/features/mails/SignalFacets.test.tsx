@@ -1,14 +1,17 @@
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { signalFacetsFiltered, signalOverviewNever, summaryFiltered } from "../../test/fixtures";
+import { openInsights, rows } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const facetCalls = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname === "/api/mails/signals");
 
+/** The signal facets in the panel "Einblicke", which this opens. */
 async function facets(): Promise<HTMLElement> {
-  const heading = await screen.findByRole("heading", { name: "Signale", level: 2 });
+  const insights = await openInsights();
+  const heading = await within(insights).findByRole("heading", { name: "Signale", level: 3 });
   return heading.closest("section")!;
 }
 
@@ -21,7 +24,7 @@ async function chipTexts(panel: HTMLElement): Promise<string[]> {
     .map((chip) => chip.textContent ?? "");
 }
 
-describe("signal facets beside the mail list", () => {
+describe("signal facets in the panel Einblicke", () => {
   it("show how many mails carry each signal, in the response's order", async () => {
     const { calls } = renderApp("/mails");
     const panel = await facets();
@@ -141,9 +144,10 @@ describe("signal facets beside the mail list", () => {
         ? { signals: {}, mails: 0, sampled: false }
         : fixtureApi(call),
     );
+    await openInsights();
     await waitFor(() => expect(facetCalls(calls)).toHaveLength(1));
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Signale", level: 2 })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: "Signale", level: 3 })).toBeNull(),
     );
   });
 
@@ -165,23 +169,13 @@ describe("signal facets beside the mail list", () => {
     ).toBeTruthy();
   });
 
-  it("fold away on their own, remembered in this browser, and ask for nothing while folded", async () => {
-    const first = renderApp("/mails");
-    const panel = await facets();
-    await within(panel).findByText("in allen Mails");
-    fireEvent.click(within(panel).getByRole("button", { name: "Ausblenden" }));
-    expect(localStorage.getItem("mailrobbe.signal-facets")).toBe("closed");
-    expect(localStorage.getItem("mailrobbe.facets")).toBeNull();
-    expect(within(panel).queryByRole("group", { name: "Signale" })).toBeNull();
-    first.router.dispose();
-    cleanup();
-
+  it("ask for nothing while the panel is closed", async () => {
     const { calls } = renderApp("/mails?has_attachment=true");
-    const again = await facets();
-    expect(within(again).getByRole("button", { name: "Einblenden" })).toBeTruthy();
-    await screen.findByRole("link", {
-      name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
-    });
+    await rows();
     expect(facetCalls(calls)).toHaveLength(0);
+    await chipTexts(await facets());
+    expect(facetCalls(calls)).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Schließen" }));
+    expect(screen.queryByRole("heading", { name: "Signale", level: 3 })).toBeNull();
   });
 });

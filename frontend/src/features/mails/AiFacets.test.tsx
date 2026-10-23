@@ -9,6 +9,7 @@ import {
   summaryFiltered,
   tags as teamTags,
 } from "../../test/fixtures";
+import { openInsights } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 /** The fixture backend with the AI facets (filtered ones whenever a filter is given), the tag
@@ -35,8 +36,10 @@ const facetCalls = (calls: ApiCall[]) =>
 const adoptCalls = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname.endsWith("/adopt"));
 
+/** A panel of the AI facets in the panel "Einblicke", which this opens. */
 async function panel(name: string): Promise<HTMLElement> {
-  const heading = await screen.findByRole("heading", { name, level: 2 });
+  const insights = await openInsights();
+  const heading = await within(insights).findByRole("heading", { name, level: 2 });
   return heading.closest("section")!;
 }
 
@@ -45,7 +48,7 @@ const chipTexts = (section: HTMLElement) =>
     .getAllByRole("button", { pressed: false })
     .map((chip) => chip.textContent);
 
-describe("AI facets beside the mail list", () => {
+describe("AI facets in the panel Einblicke", () => {
   it("show the AI tags and themes of every mail, marked machine made", async () => {
     const { calls } = renderApp("/mails", aiApi());
     const tagsPanel = await panel("KI-Schlagwörter");
@@ -97,9 +100,10 @@ describe("AI facets beside the mail list", () => {
 
   it("are left out while no mail has a summary", async () => {
     const { calls } = renderApp("/mails", aiApi(aiFacetsEmpty));
-    await screen.findByRole("heading", { name: "Entitäten", level: 2 });
+    await openInsights();
+    await screen.findByRole("heading", { name: "Entitäten", level: 3 });
     await waitFor(() => expect(facetCalls(calls)).toHaveLength(1));
-    await screen.findByRole("heading", { name: "Signale", level: 2 });
+    await screen.findByRole("heading", { name: "Signale", level: 3 });
     expect(screen.queryByRole("heading", { name: "KI-Schlagwörter" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "KI-Themen" })).toBeNull();
   });

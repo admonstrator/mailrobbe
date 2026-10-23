@@ -1,0 +1,378 @@
+import { useEffect, useRef, useState } from "react";
+
+import {
+  EVENT_KEYS,
+  type DkimKey,
+  type MboxFileInfo,
+  type ResearchOverview,
+  type Stats,
+} from "../../api/types";
+import { Button } from "../../components/Button";
+import { Checkbox } from "../../components/Checkbox";
+import { DkimDot } from "../../components/DkimDot";
+import { PlusIcon } from "../../components/icons";
+import { DKIM_FILTER_LABELS, DKIM_KEYS } from "../../lib/dkim";
+import { formatNumber, utcDay } from "../../lib/format";
+import { TAG_PALETTE } from "../../lib/research";
+import { parseAmount } from "../entities/amount";
+import { CONTEXT_LABELS, ENTITY_CONTEXTS } from "../entities/labels";
+import { EVENT_LABELS, type FilterChip } from "./chips";
+import { DomainDialog } from "./DomainDialog";
+import styles from "./FilterBar.module.css";
+import { DateField } from "./FilterColumn";
+import column from "./FilterColumn.module.css";
+import { FilterBarContext, FilterGroup, FilterPopover } from "./FilterGroup";
+import {
+  toFilters,
+  withFilters,
+  withoutSidebarFilters,
+  type FilterPatch,
+  type ListState,
+} from "./listState";
+import { ResearchFilters } from "./ResearchFilters";
+
+const ALWAYS_SHOWN: readonly DkimKey[] = ["pass", "fail", "no_key", "unsigned"];
+const TOP_DOMAINS = 5;
+
+/** The filters of the mail list as a bar above it (D335): the active filters as chips with a
+ *  cross, then one chip per filter group that opens the group's controls below it, the rare ones
+ *  under "Weitere Filter". */
+export function FilterBar({
+  state,
+  onChange,
+  chips,
+  stats,
+  mboxFiles,
+  research,
+}: {
+  state: ListState;
+  onChange: (next: ListState) => void;
+  chips: FilterChip[];
+  stats: Stats | undefined;
+  mboxFiles: MboxFileInfo[] | undefined;
+  research: ResearchOverview | undefined;
+}) {
+  const [domainDialog, setDomainDialog] = useState(false);
+  const change = (patch: FilterPatch) => onChange(withFilters(state, patch));
+
+  // DKIM: all boxes checked and none checked both mean "no DKIM filter".
+  const dkimShown = DKIM_KEYS.filter(
+    (key) => ALWAYS_SHOWN.includes(key) || (stats?.dkim[key] ?? 0) > 0 || state.dkim.includes(key),
+  );
+  const dkimChecked = (key: DkimKey) => state.dkim.length === 0 || state.dkim.includes(key);
+  function toggleDkim(key: DkimKey, checked: boolean) {
+    const current = state.dkim.length ? state.dkim : dkimShown;
+    const next = checked ? [...current, key] : current.filter((other) => other !== key);
+    const all = dkimShown.every((other) => next.includes(other));
+    change({ dkim: all ? [] : DKIM_KEYS.filter((other) => next.includes(other)) });
+  }
+
+  const topDomains = stats?.sender_domains.slice(0, TOP_DOMAINS) ?? [];
+  const otherSelected = state.sender_domain.filter(
+    (domain) => !topDomains.some((top) => top.domain === domain),
+  );
+  function toggleDomain(domain: string, checked: boolean) {
+    change({
+      sender_domain: checked
+        ? [...state.sender_domain, domain]
+        : state.sender_domain.filter((other) => other !== domain),
+    });
+  }
+
+  const dayMin = stats?.date_min ? utcDay(stats.date_min) : undefined;
+  const dayMax = stats?.date_max ? utcDay(stats.date_max) : undefined;
+  const fileCount = stats?.mbox_files ?? mboxFiles?.length;
+  const moreActive =
+    state.has_attachment ||
+    state.in_thread ||
+    state.external ||
+    state.hide_duplicates ||
+    state.collapse_near ||
+    state.mbox_file !== null;
+
+  return (
+    <div className={styles.bar} role="group" aria-label="Filter">
+      {chips.map((chip) => (
+        <span key={chip.id} className={styles.active}>
+          {chip.color && (
+            <span
+              className={styles.dot}
+              style={{ background: TAG_PALETTE[chip.color].text }}
+              aria-hidden="true"
+            />
+          )}
+          {chip.label}
+          <button
+            type="button"
+            className={styles.remove}
+            aria-label={`Filter entfernen: ${chip.label}`}
+            title="Filter entfernen"
+            onClick={() => onChange(chip.next)}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2.2" />
+            </svg>
+          </button>
+        </span>
+      ))}
+      <FilterBarContext value={true}>
+        <FilterGroup
+          id="mails.date"
+          title="Zeitraum"
+          active={state.date_from !== null || state.date_to !== null}
+        >
+          <div className={column.dates}>
+            <DateField
+              id="filter-date-from"
+              label="von"
+              value={state.date_from}
+              min={dayMin}
+              max={state.date_to ?? dayMax}
+              onCommit={(date_from) => change({ date_from })}
+            />
+            <DateField
+              id="filter-date-to"
+              label="bis"
+              value={state.date_to}
+              min={state.date_from ?? dayMin}
+              max={dayMax}
+              onCommit={(date_to) => change({ date_to })}
+            />
+          </div>
+        </FilterGroup>
+
+        <FilterGroup id="mails.dkim" title="DKIM-Status" chip="DKIM" active={state.dkim.length > 0}>
+          {dkimShown.map((key) => (
+            <Checkbox
+              key={key}
+              checked={dkimChecked(key)}
+              onChange={(checked) => toggleDkim(key, checked)}
+              count={stats?.dkim[key]}
+            >
+              <DkimDot status={key} decorative />
+              {DKIM_FILTER_LABELS[key]}
+            </Checkbox>
+          ))}
+        </FilterGroup>
+
+        <FilterGroup
+          id="mails.domain"
+          title="Absender-Domain"
+          chip="Absender"
+          active={state.sender_domain.length > 0}
+        >
+          {topDomains.map(({ domain, mails }) => (
+            <Checkbox
+              key={domain}
+              checked={state.sender_domain.includes(domain)}
+              onChange={(checked) => toggleDomain(domain, checked)}
+              count={mails}
+            >
+              {domain}
+            </Checkbox>
+          ))}
+          {otherSelected.map((domain) => (
+            <Checkbox key={domain} checked onChange={(checked) => toggleDomain(domain, checked)}>
+              {domain}
+            </Checkbox>
+          ))}
+          {stats && stats.sender_domain_count > 0 && (
+            <button type="button" className={column.more} onClick={() => setDomainDialog(true)}>
+              Alle {formatNumber(stats.sender_domain_count)} Domains …
+            </button>
+          )}
+        </FilterGroup>
+
+        <AmountFilters state={state} change={change} />
+
+        <ResearchFilters state={state} change={change} research={research} />
+
+        <EventFilters state={state} change={change} stats={stats} />
+      </FilterBarContext>
+
+      <FilterPopover label="Weitere Filter" active={moreActive} dashed icon={<PlusIcon />}>
+        <div className={column.sub} role="group" aria-label="Weitere">
+          <Checkbox
+            checked={state.has_attachment}
+            onChange={(has_attachment) => change({ has_attachment })}
+          >
+            Mit Anhang
+          </Checkbox>
+          <Checkbox checked={state.in_thread} onChange={(in_thread) => change({ in_thread })}>
+            Teil eines Threads
+          </Checkbox>
+          {((stats?.internal_domains.length ?? 0) > 0 || state.external) && (
+            <Checkbox checked={state.external} onChange={(external) => change({ external })}>
+              Nur extern ↔ intern
+            </Checkbox>
+          )}
+          <Checkbox
+            checked={state.hide_duplicates}
+            onChange={(hide_duplicates) => change({ hide_duplicates })}
+          >
+            Doppelte ausblenden
+          </Checkbox>
+          {((stats?.near?.groups ?? 0) > 0 || state.collapse_near) && (
+            <Checkbox
+              checked={state.collapse_near}
+              onChange={(collapse_near) => change({ collapse_near })}
+            >
+              Dubletten zusammenfassen
+            </Checkbox>
+          )}
+        </div>
+        <div className={column.sub}>
+          <label htmlFor="filter-mbox" className={column.subLegend}>
+            MBOX-Datei
+          </label>
+          <select
+            id="filter-mbox"
+            className={column.select}
+            value={state.mbox_file ?? ""}
+            onChange={(event) =>
+              change({ mbox_file: event.target.value ? Number(event.target.value) : null })
+            }
+          >
+            <option value="">
+              {fileCount === undefined ? "Alle Dateien" : `Alle ${formatNumber(fileCount)} Dateien`}
+            </option>
+            {state.mbox_file !== null &&
+              !mboxFiles?.some((file) => file.id === state.mbox_file) && (
+                <option value={state.mbox_file}>Datei #{state.mbox_file}</option>
+              )}
+            {mboxFiles?.map((file) => (
+              <option key={file.id} value={file.id}>
+                {file.path}
+              </option>
+            ))}
+          </select>
+        </div>
+      </FilterPopover>
+
+      {Object.keys(toFilters(state)).some((key) => key !== "q") && (
+        <Button variant="link" size="sm" onClick={() => onChange(withoutSidebarFilters(state))}>
+          Zurücksetzen
+        </Button>
+      )}
+
+      {domainDialog && (
+        <DomainDialog
+          selected={state.sender_domain}
+          onToggle={toggleDomain}
+          onClose={() => setDomainDialog(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The amounts mentioned in a mail or its attachments (D86): at least a value, in any currency
+ *  (no conversion), and the contexts such an amount stands next to. The value counts on Enter
+ *  or when the field is left; German notation such as 10.000 is read, an empty field clears it. */
+function AmountFilters({
+  state,
+  change,
+}: {
+  state: ListState;
+  change: (patch: FilterPatch) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const shown = state.amount_min === null ? "" : formatNumber(state.amount_min);
+
+  useEffect(() => {
+    if (input.current && document.activeElement !== input.current) input.current.value = shown;
+  }, [shown]);
+
+  function commit(field: HTMLInputElement) {
+    const value = parseAmount(field.value);
+    if (value === undefined) {
+      field.value = shown; // not an amount: the filter stays as it is
+      return;
+    }
+    field.value = value === null ? "" : formatNumber(value);
+    if (value !== state.amount_min) change({ amount_min: value });
+  }
+
+  return (
+    <FilterGroup
+      id="mails.amount"
+      title="Beträge"
+      active={state.amount_min !== null || state.amount_context.length > 0}
+    >
+      <p className={column.scope}>In Text oder Anhang erwähnt, jede Währung</p>
+      <div className={column.amount}>
+        <label htmlFor="filter-amount-min" className={column.dateLabel}>
+          ab
+        </label>
+        <input
+          ref={input}
+          id="filter-amount-min"
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          className={column.input}
+          defaultValue={shown}
+          placeholder="z. B. 10.000"
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            commit(event.currentTarget);
+          }}
+          onBlur={(event) => commit(event.currentTarget)}
+        />
+      </div>
+      <div className={column.sub} role="group" aria-label="Im Zusammenhang mit">
+        <span className={column.subLegend}>Im Zusammenhang mit</span>
+        {ENTITY_CONTEXTS.map((key) => (
+          <Checkbox
+            key={key}
+            checked={state.amount_context.includes(key)}
+            onChange={(checked) =>
+              change({
+                amount_context: ENTITY_CONTEXTS.filter((other) =>
+                  other === key ? checked : state.amount_context.includes(other),
+                ),
+              })
+            }
+          >
+            {CONTEXT_LABELS[key]}
+          </Checkbox>
+        ))}
+      </div>
+    </FilterGroup>
+  );
+}
+
+/** Calendar mails (D155), offered once the archive holds any. */
+function EventFilters({
+  state,
+  change,
+  stats,
+}: {
+  state: ListState;
+  change: (patch: FilterPatch) => void;
+  stats: Stats | undefined;
+}) {
+  const shown = EVENT_KEYS.filter(
+    (key) => (stats?.events[key] ?? 0) > 0 || state.event.includes(key),
+  );
+  if (shown.length === 0) return null;
+  function toggle(key: (typeof EVENT_KEYS)[number], checked: boolean) {
+    const next = checked ? [...state.event, key] : state.event.filter((other) => other !== key);
+    change({ event: EVENT_KEYS.filter((other) => next.includes(other)) });
+  }
+  return (
+    <FilterGroup id="mails.events" title="Termine" active={state.event.length > 0}>
+      {shown.map((key) => (
+        <Checkbox
+          key={key}
+          checked={state.event.includes(key)}
+          onChange={(checked) => toggle(key, checked)}
+          count={stats?.events[key]}
+        >
+          {EVENT_LABELS[key]}
+        </Checkbox>
+      ))}
+    </FilterGroup>
+  );
+}

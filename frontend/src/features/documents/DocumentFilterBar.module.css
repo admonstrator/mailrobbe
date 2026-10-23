@@ -1,41 +1,12 @@
-/* The filter column of the document list, in the look of the mail list's column: beside the
-   list it stays below the shell header, as high as the window, and scrolls on its own. */
+/* The filter bar of the document list (D335): chips that open popovers, as on the mail list;
+   the controls inside are the groups of the former filter column. */
 
-.column {
-  position: sticky;
-  top: var(--sticky-top);
-  flex: 0 1 264px;
-  align-self: flex-start;
+.bar {
   display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-sizing: border-box;
-  height: var(--content-height);
-  min-width: 240px;
-  padding: 16px 18px 24px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border-right: 1px solid var(--color-border);
-  background: var(--color-surface);
-  scrollbar-width: thin;
-}
-
-.column > * {
-  flex-shrink: 0;
-}
-
-.head {
-  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-}
-
-.heading {
-  margin: 0;
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-muted);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .group {
@@ -50,6 +21,7 @@
 
 .legend {
   margin-bottom: 8px;
+  font-size: 13px;
   padding: 0;
   font-weight: 600;
 }
@@ -213,15 +185,4 @@ label.legend {
 
 .moreValues {
   align-self: flex-start;
-}
-
-@media (max-width: 759px) {
-  .column {
-    position: static;
-    flex: 1 1 100%;
-    height: auto;
-    overflow: visible;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
 }
