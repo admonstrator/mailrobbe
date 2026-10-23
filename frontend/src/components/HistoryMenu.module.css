@@ -153,23 +153,23 @@
 }
 
 .mail {
-  background: #e8effc;
-  color: #1d5bd6;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
 }
 
 .person {
-  background: #f1e8fd;
-  color: #6d28d9;
+  background: var(--color-purple-soft);
+  color: var(--color-purple-text);
 }
 
 .document {
-  background: #fdf1d8;
-  color: #a3530a;
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
 }
 
 .akte {
-  background: #dcf5e4;
-  color: #15803d;
+  background: var(--color-pass-soft);
+  color: var(--color-pass-text);
 }
 
 .link,

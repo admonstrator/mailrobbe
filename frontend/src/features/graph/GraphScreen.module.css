@@ -87,8 +87,9 @@
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  /* The map stays on paper in the dark theme too: its labels and colours are drawn for white. */
   background-color: #fbfbfc;
-  background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+  background-image: radial-gradient(#e3e6eb 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
@@ -99,7 +100,7 @@
   padding: 2px 14px;
   border-radius: var(--radius-tile);
   background: rgb(255 255 255 / 85%);
-  color: var(--color-accent-hover);
+  color: #1446a8;
   font-size: 44px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;

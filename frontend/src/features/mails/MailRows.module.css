@@ -33,13 +33,13 @@
 .row:hover {
   z-index: 1;
   box-shadow:
-    inset 1px 0 0 #dadfe7,
-    inset -1px 0 0 #dadfe7,
+    inset 1px 0 0 var(--color-border-strong),
+    inset -1px 0 0 var(--color-border-strong),
     0 1px 3px rgb(22 24 29 / 14%);
 }
 
 .selected {
-  background: #f3f6fd;
+  background: var(--color-row-selected);
 }
 
 .open {
@@ -73,7 +73,7 @@
   border-radius: 999px;
   padding: 0;
   background: transparent;
-  color: #9aa3b1;
+  color: var(--color-unsigned);
   cursor: pointer;
 }
 
@@ -84,7 +84,7 @@
 
 .starred,
 .starred:hover {
-  color: #e0a21b;
+  color: var(--color-star);
 }
 
 .avatar {

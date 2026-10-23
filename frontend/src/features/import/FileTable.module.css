@@ -130,7 +130,7 @@
 }
 
 .state_done {
-  color: #166534;
+  color: var(--color-pass-text);
   font-weight: 500;
 }
 
@@ -145,7 +145,7 @@
 }
 
 .state_error {
-  color: #991b1b;
+  color: var(--color-fail-text);
   font-weight: 500;
 }
 

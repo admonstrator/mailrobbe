@@ -8,8 +8,10 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router";
 
 import { createQueryClient } from "./api/queries";
+import { watchTheme } from "./lib/theme";
 import { routes } from "./routes";
 
+watchTheme();
 const queryClient = createQueryClient();
 const router = createBrowserRouter(routes);
 

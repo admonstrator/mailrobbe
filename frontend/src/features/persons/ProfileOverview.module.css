@@ -82,7 +82,7 @@
 }
 
 .in {
-  color: #0f766e;
+  color: var(--color-teal-text);
 }
 
 .other {

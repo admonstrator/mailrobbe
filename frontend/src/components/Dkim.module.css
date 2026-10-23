@@ -49,7 +49,7 @@
 
 .badge_pass {
   background: var(--color-pass-soft);
-  color: #166534;
+  color: var(--color-pass-text);
 }
 
 .badge_consistent {
@@ -59,13 +59,13 @@
 
 .badge_fail {
   background: var(--color-fail-soft);
-  color: #991b1b;
+  color: var(--color-fail-text);
 }
 
 .badge_no_key,
 .badge_temp_error {
   background: var(--color-no-key-soft);
-  color: #92400e;
+  color: var(--color-no-key-text);
 }
 
 .badge_unsigned,

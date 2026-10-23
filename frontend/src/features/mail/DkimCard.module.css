@@ -77,7 +77,7 @@
 }
 
 .pass {
-  color: #166534;
+  color: var(--color-pass-text);
 }
 
 .consistent {
@@ -85,12 +85,12 @@
 }
 
 .fail {
-  color: #991b1b;
+  color: var(--color-fail-text);
 }
 
 .no_key,
 .temp_error {
-  color: #92400e;
+  color: var(--color-no-key-text);
 }
 
 .unsigned {
@@ -126,13 +126,13 @@
 
 .reason_fail {
   background: var(--color-fail-soft);
-  color: #991b1b;
+  color: var(--color-fail-text);
 }
 
 .reason_no_key,
 .reason_temp_error {
   background: var(--color-no-key-soft);
-  color: #92400e;
+  color: var(--color-no-key-text);
 }
 
 /* What a reconstructed key does not show, in the ring of its status dot. */
