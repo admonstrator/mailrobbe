@@ -129,14 +129,20 @@ def test_an_answer_names_each_letter_once() -> None:
     for wrong in (
         "kein JSON",
         '{"persons": "A"}',
-        '{"persons": [{"members": ["A", "A"], "sure": true, "reason": ""}]}',
         '{"persons": [{"members": ["E"], "sure": true, "reason": ""}]}',
         '{"persons": [{"members": ["A"], "reason": ""}]}',
     ):
         with pytest.raises(AnswerError):
             read_answer(wrong, 4)
+    # a letter named again stays where it came first; an entry left empty is dropped (D338)
+    again = (
+        '{"persons": [{"members": ["A", "B", "A"], "sure": true, "reason": "Gleich."}, '
+        '{"members": ["B"], "sure": true, "reason": "Keine weiteren."}]}'
+    )
+    assert read_answer(again, 2) == [Seen((0, 1), True, "Gleich.")]
     schema = answer_schema(3)["properties"]["persons"]["items"]["properties"]
     assert schema["members"]["items"]["enum"] == ["A", "B", "C"]
+    assert list(schema) == ["reason", "members", "sure"]  # the reason before the decision
 
 
 def test_the_pairs_of_an_answer() -> None:

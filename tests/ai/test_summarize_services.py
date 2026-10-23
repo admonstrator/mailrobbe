@@ -2,10 +2,12 @@
 the real test of a text service."""
 
 import json
+from dataclasses import replace
 
 import pytest
 
-from mailrobbe.ai.model import SUMMARY_ANSWER_TOKENS
+from mailrobbe.ai import services
+from mailrobbe.ai.model import SUMMARY_ANSWER_TOKENS, Reasoning, configured_services
 from mailrobbe.ai.prompts import MATERIAL_END, MATERIAL_START
 from mailrobbe.ai.services import (
     TEST_TEXT,
@@ -87,6 +89,51 @@ def test_ollama_gets_the_schema_as_format_and_the_context_as_num_ctx() -> None:
     }
     assert (chat.body["think"], chat.body["stream"]) == (False, False)
     assert [message["role"] for message in chat.body["messages"]] == ["system", "user"]
+
+
+def thinking(fake: FakeService, reasoning: Reasoning) -> ChatAnswer:
+    service = replace(fake.service(capability="text"), reasoning=reasoning)
+    return chat_text(
+        service,
+        fake.protocol,
+        system="System",
+        user="Nutzer",
+        schema=SCHEMA,
+        max_tokens=SUMMARY_ANSWER_TOKENS,
+        timeout=5,
+        context_tokens=4096,
+    )
+
+
+def test_the_text_model_thinks_as_deep_as_the_settings_say() -> None:
+    with fake_service("lmstudio", models={"textmodell": None}, answer=ANSWER) as fake:
+        thinking(fake, "medium")
+        (chat,) = fake.chats
+    assert chat.body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert chat.body["reasoning_effort"] == "medium"
+    with fake_service("ollama", models={"textmodell": None}, answer=ANSWER) as fake:
+        thinking(fake, "high")
+        (chat,) = fake.chats
+    assert chat.body["think"] == "high"
+    assert (
+        configured_services(settings(ai_text_url="http://127.0.0.1:1234/v1"))["text"].reasoning
+        == "off"
+    )
+
+
+def test_ollama_takes_true_when_a_model_takes_no_depth(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[object] = []
+
+    def request(service: object, url: str, timeout: float, payload: dict[str, object]) -> object:
+        sent.append(payload.get("think", "none"))
+        if isinstance(payload.get("think"), str):
+            raise services._HttpStatus(400, "think value low is not supported for this model")
+        return {"message": {"content": ANSWER}, "done_reason": "stop"}
+
+    monkeypatch.setattr(services, "_request", request)
+    with fake_service("ollama", models={"textmodell": None}) as fake:
+        assert thinking(fake, "low").text == ANSWER
+    assert sent == ["low", True]
 
 
 @pytest.mark.parametrize("flavour", ["openai", "ollama"])

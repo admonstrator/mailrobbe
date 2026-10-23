@@ -8,7 +8,9 @@ requests then go to {url}/v1/... when {url}/... answers 404. `GET models` lists 
 Studio's `GET /api/v0/models` says which are vision models (type "vlm"). `POST
 chat/completions` carries the picture as a PNG data URL, temperature 0, a max_tokens limit, and
 for a local service chat_template_kwargs that switch thinking off (llama.cpp and LM Studio take
-or ignore it; OpenAI itself refuses unknown fields, so a remote service never gets it).
+or ignore it; OpenAI itself refuses unknown fields, so a remote service never gets it). A text
+service whose reasoning is set (D338) gets thinking switched on instead, and locally its depth
+as reasoning_effort; Ollama gets the depth as `think`, or true for a model that takes no depth.
 
 Ollama: `GET /api/tags` lists the models, `POST /api/show` tells whether one has the capability
 "vision", `POST /api/chat` carries the picture in `images`, with stream and thinking off, the
@@ -371,16 +373,19 @@ def _ollama_chat(
 
 
 def _ollama_post(service: Service, payload: dict[str, Any], timeout: float) -> Any:
-    """POST /api/chat; asked again without `think` when Ollama refuses it for a model without
-    thinking."""
+    """POST /api/chat; when Ollama refuses `think`, asked again with true for a model that
+    takes no depth, then without it for a model without thinking."""
     url = f"{service.url}/api/chat"
-    try:
-        return _request(service, url, timeout, payload)
-    except _HttpStatus as error:
-        if error.status != 400 or "think" not in error.body.lower():
-            raise
-        del payload["think"]
-        return _request(service, url, timeout, payload)
+    while True:
+        try:
+            return _request(service, url, timeout, payload)
+        except _HttpStatus as error:
+            if error.status != 400 or "think" not in error.body.lower() or "think" not in payload:
+                raise
+            if isinstance(payload["think"], str):
+                payload["think"] = True
+            else:
+                del payload["think"]
 
 
 def _ollama_answer(answer: Any) -> ChatAnswer:
@@ -423,7 +428,7 @@ def chat_text(
                 "model": model,
                 "messages": messages,
                 "stream": False,
-                "think": False,
+                "think": False if service.reasoning == "off" else service.reasoning,
                 "format": schema,
                 "options": {"temperature": 0, "num_ctx": context_tokens, "num_predict": max_tokens},
                 "keep_alive": KEEP_ALIVE,
@@ -458,7 +463,10 @@ def _openai_text(
         },
     }
     if locality(service.url) == "local":
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
+        thinking = service.reasoning != "off"
+        payload["chat_template_kwargs"] = {"enable_thinking": thinking}
+        if thinking:
+            payload["reasoning_effort"] = service.reasoning
     try:
         answer = _openai(service, "chat/completions", timeout, payload)
     except _HttpStatus as error:
