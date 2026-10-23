@@ -33,6 +33,9 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     GET  /api/persons/merge-certain              CertainMergePlan: what merging every certain
                                                  suggestion would do (D162)
     POST /api/persons/merge-certain              CertainMergeResult, one batch of merges (D162)
+    GET  /api/persons/merge-ai                   CertainMergePlan of the pairs the alias check was
+                                                 sure of (D326)
+    POST /api/persons/merge-ai                   CertainMergeResult, one batch of merges (D326)
     GET  /api/persons/merges?MergeLogParams      MergeLogPage, newest first (D163)
     POST /api/persons/merges/{id}/undo           MergeUndoResult (D163); 409 merge_undone
     POST /api/persons/merge-batches/{id}/undo    MergeUndoResult, every merge of the batch not
@@ -1221,6 +1224,7 @@ class AliasCheckInfo(BaseModel):
     """What the text model said about two persons (D323): the newest check of their roots."""
 
     verdict: AliasVerdict
+    certain: bool  # the model was sure (D324); "Alle sicheren KI-Treffer" merges these (D326)
     reason: str  # the model's words, German
     model: str
     checked_at: datetime
@@ -1272,6 +1276,7 @@ class AliasCheckState(BaseModel):
     running: bool  # an AI run with --aliases is alive
     checked: int  # pairs the text model judged so far
     same: int  # open pairs it judged one person: the view with ai
+    sure: int  # of them, the ones it was sure of (D326)
 
 
 class SuggestionPage(BaseModel):

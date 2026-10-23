@@ -734,6 +734,7 @@ export interface YearActivity {
 /** What the text model said about two persons (D323): the newest check of their roots. */
 export interface AliasCheckInfo {
   verdict: AliasVerdict;
+  certain: boolean; // the model was sure (D324); "Alle sicheren KI-Treffer" merges these (D326)
   reason: string; // the model's words, German
   model: string;
   checked_at: string;
@@ -781,6 +782,7 @@ export interface AliasCheckState {
   running: boolean; // an AI run with --aliases is alive
   checked: number; // pairs the text model judged so far
   same: number; // open pairs it judged one person: the view with ai
+  sure: number; // of them, the ones it was sure of (D326)
 }
 
 export interface SuggestionPage {
@@ -1004,7 +1006,16 @@ export interface ImportOptions {
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
 // names: DKIM key names; texts: mails and documents summarised (D300); pairs: of persons (D321)
 export type StepUnit =
-  "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages" | "texts" | "pairs";
+  | "bytes"
+  | "mails"
+  | "documents"
+  | "names"
+  | "domains"
+  | "places"
+  | "pages"
+  | "texts"
+  | "pairs"
+  | "groups";
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
@@ -2893,8 +2904,9 @@ export interface AiProgress extends RunProgress {
   position?: number | null; // seconds reached in the recording in work
   duration?: number | null; // of the recording in work, once decoded
   summaries: number; // summarize tasks done (D300)
-  aliases?: number; // pairs of persons checked (D321)
-  aliases_same?: number; // of them judged one person
+  aliases?: number; // groups of persons checked (D321, D324)
+  aliases_same?: number; // pairs of them judged one person
+  aliases_sure?: number; // of those, the model sure
 }
 
 /** A run of `mailrobbe ai run` (D187). */

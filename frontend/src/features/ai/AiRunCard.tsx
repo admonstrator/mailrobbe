@@ -24,8 +24,9 @@ const STATUS_TEXTS: Record<AiJob["status"], string> = {
 function readText(job: AiJob): string {
   const progress = job.progress;
   if (job.options.aliases) {
-    const pairs = progress.aliases ?? 0;
-    return `${formatNumber(pairs)} ${pairs === 1 ? "Paar" : "Paare"} geprüft, davon ${formatNumber(progress.aliases_same ?? 0)} dieselbe Person`;
+    const groups = progress.aliases ?? 0;
+    const same = progress.aliases_same ?? 0;
+    return `${formatNumber(groups)} ${groups === 1 ? "Gruppe" : "Gruppen"} geprüft, ${formatNumber(same)} ${same === 1 ? "Paar" : "Paare"} dieselbe Person, ${formatNumber(progress.aliases_sure ?? 0)} davon sicher`;
   }
   const blank = job.options.kinds.includes("transcribe")
     ? "ohne Schrift oder Sprache"

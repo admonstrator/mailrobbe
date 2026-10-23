@@ -602,7 +602,7 @@ async def test_what_is_asked_for_after_the_last_step_makes_the_run_go_round_agai
     }
 
 
-async def test_an_alias_run_takes_what_was_asked_for_on_a_page_after_its_pairs(
+async def test_an_alias_run_takes_what_was_asked_for_on_a_page_after_its_groups(
     archive: Any, database: str
 ) -> None:
     await queue(database, "Sommerfest")
@@ -612,7 +612,7 @@ async def test_an_alias_run_takes_what_was_asked_for_on_a_page_after_its_pairs(
         settings = text_settings(database, archive, fake)
         result = await run_ai(settings, options_for(settings, aliases=True))
     assert result.exit_code == 0 and model.asked == ["short"]
-    assert result.summary.message.startswith("0 of 0 pairs of persons checked")
+    assert result.summary.message.startswith("0 of 0 groups of persons checked")
     assert {name: row.status for name, row in (await tasks(database)).items()} == {
         "Kurze Antwort": "done",
         "Sommerfest": "waiting",
