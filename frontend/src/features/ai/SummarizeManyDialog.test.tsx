@@ -189,8 +189,11 @@ describe("summarising many (D308)", () => {
 describe("„Zusammenfassen“ where many are chosen", () => {
   it("on the AI page, everything without a summary", async () => {
     const { calls } = renderApp("/ki", summarizeApi());
-    const card = await screen.findByRole("region", { name: "Alles zusammenfassen" });
-    const button = within(card).getByRole("button", { name: "Alles zusammenfassen" });
+    // the button stands in the page's head, its hint in the title around it
+    const button = await screen.findByRole("button", { name: "Alles zusammenfassen" });
+    expect(button.closest("[title]")!.getAttribute("title")).toContain(
+      "Duplikate und ausgeblendete",
+    );
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     expect(await within(dialog()).findByText("1.207 Mails und Dokumente")).toBeTruthy();

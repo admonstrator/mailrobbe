@@ -24,4 +24,5 @@ htmlcov/
 
 # Frontend dependencies and build output
 /frontend/node_modules/
+node_modules/
 /frontend/dist/

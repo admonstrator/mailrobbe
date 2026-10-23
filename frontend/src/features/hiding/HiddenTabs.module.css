@@ -1,33 +1,30 @@
-/* Title and part links of the page "Ausgeblendet" (HiddenTabs.tsx). */
-
-.head {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-}
+/* The part links of the page "Ausgeblendet" (HiddenTabs.tsx), drawn like the tabs of D332. */
 
 .tabs {
   display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--color-border-subtle);
+  flex-wrap: wrap;
+  gap: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .tab {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  box-sizing: border-box;
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
-  padding: 8px 12px;
-  color: var(--color-muted);
-  font-weight: 500;
-  transition: color var(--transition-fast);
+  padding: 0 var(--space-1);
+  color: var(--color-nav);
+  font-size: 14px;
+  white-space: nowrap;
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .tab:hover {
+  border-bottom-color: var(--color-border-strong);
   color: var(--color-text);
   text-decoration: none;
 }
@@ -35,6 +32,6 @@
 .active,
 .active:hover {
   border-bottom-color: var(--color-accent);
-  color: var(--color-accent-hover);
+  color: var(--color-text);
   font-weight: 600;
 }

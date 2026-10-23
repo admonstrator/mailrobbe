@@ -1,19 +1,24 @@
+/* The 404 page: a short text in the middle of the white sheet, no box around it. */
+
 .page {
   display: flex;
   justify-content: center;
-  padding: 48px 24px;
+  padding: var(--space-7) var(--space-6);
 }
 
-.card {
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   width: 100%;
-  max-width: 560px;
-  padding: 28px 32px;
+  max-width: 520px;
+  padding-top: 10vh;
+  text-align: center;
 }
 
 .title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+  font: var(--font-page-title);
 }
 
 .text {
@@ -24,6 +29,7 @@
 
 .actions {
   display: flex;
-  gap: 8px;
-  margin-top: 4px;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
