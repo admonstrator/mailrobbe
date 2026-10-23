@@ -1,4 +1,5 @@
-"""The run's step summarize (D300 to D311): the waiting summarize tasks one at a time, for ai.run.
+"""The run's step summarize (D300 to D311): the waiting summarize tasks, for ai.run, several at
+once (D327).
 
     take    the next waiting task, highest priority first, then the oldest (FOR UPDATE SKIP
             LOCKED), within the run's restriction to some documents or mails (ai.run._ONLY); what
@@ -371,13 +372,15 @@ class SummarizeStep:
         return summary, reply
 
     async def _prepare(self) -> None:
-        """The prompts, the system prompt and the answer schema of this run (D305)."""
-        self._prompts = load_prompts().summarize
+        """The prompts, the system prompt and the answer schema of this run (D305); the prompts
+        last, as the sign for the requests running at once that all is set."""
+        prompts = load_prompts().summarize
         async with self.run.sessionmaker() as session:
             vocabulary = await load_vocabulary(session)
         self._themes = vocabulary.themes
-        self._system = system_prompt(self._prompts, vocabulary)
+        self._system = system_prompt(prompts, vocabulary)
         self._schema = answer_schema([theme.key for theme in vocabulary.themes])
+        self._prompts = prompts
 
     async def _ask(self, task: SummaryTask, instruction: str, body: str) -> _Reply:
         """One request with the instruction and this text as material; _Attempt for an answer

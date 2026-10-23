@@ -42,7 +42,7 @@ from mailrobbe.config import Settings
 from mailrobbe.enums import AliasTier, AliasVerdict
 from mailrobbe.importer.cli import run_import
 from mailrobbe.persons.merge import certain_groups, merge_certain
-from tests.ai.fakes import fake_service
+from tests.ai.fakes import AtOnce, fake_service
 from tests.ai.test_run import REMOTE_URL, rows
 from tests.conftest import _temporary_database
 from tests.importer.doubles import SEPARATOR
@@ -432,6 +432,18 @@ async def test_a_run_checks_the_groups_and_the_sure_ones_merge(archive: Any, dat
 
 
 @pytest.mark.db
+async def test_the_groups_are_asked_about_at_once_up_to_the_concurrency(
+    archive: Any, database: str
+) -> None:
+    respond = AtOnce(judge)
+    with fake_service("lmstudio", models={MODEL: None}, respond=respond) as fake:
+        settings = settings_for(database, archive, ai_text_url=fake.url, ai_text_model=MODEL)
+        options = options_for(settings).model_copy(update={"concurrency": 2})
+        result = await run_ai(settings, options)
+    assert result.exit_code == 0, result.summary.message
+    assert (result.summary.aliases, result.summary.aliases_sure, respond.most) == (2, 2, 2)
+
+
 async def test_a_verdict_against_keeps_a_sure_chain_apart(archive: Any, database: str) -> None:
     ids = {
         row.canonical_email: row.id
