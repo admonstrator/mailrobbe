@@ -7,7 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Runtime settings, read from MAILROBBE_* environment variables."""
+    """Runtime settings, read from MAILROBBE_* environment variables. All but the ones
+    stored_settings.FIXED names can be changed on the page "Einstellungen" too, which stores them
+    over the environment (D313)."""
 
     model_config = SettingsConfigDict(env_prefix="MAILROBBE_", env_ignore_empty=True)
 

@@ -79,8 +79,17 @@ class Previews:
 
     def __init__(self, settings: Settings) -> None:
         self.cache = PreviewCache(settings.preview_dir)
-        self.slots = asyncio.Semaphore(max(1, settings.preview_workers))
+        self._workers = max(1, settings.preview_workers)
+        self._slots = asyncio.Semaphore(self._workers)
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
+
+    def slots(self, settings: Settings) -> asyncio.Semaphore:
+        """The conversion slots, preview_workers of them; a changed setting (D313) holds for the
+        conversions that start after it, the running ones finish in the old slots."""
+        workers = max(1, settings.preview_workers)
+        if workers != self._workers:
+            self._workers, self._slots = workers, asyncio.Semaphore(workers)
+        return self._slots
 
     def lock(self, key: str) -> asyncio.Lock:
         """The lock of one preview; it lives as long as someone holds or awaits it."""
@@ -193,7 +202,7 @@ async def _convert(
     """Read, check and convert a document, and cache what came of it."""
     data = await _read(settings, source)
     if source.password is not None:  # an opened document (D236): decrypted first, never stored
-        async with previews.slots:
+        async with previews.slots(settings):
             try:
                 data = await decrypt(
                     data,
@@ -212,7 +221,7 @@ async def _convert(
             "no_preview",
             f"attachment {source.attachment_id} is {fmt.name}: only DOCX and ODT are shown as HTML",
         )
-    async with previews.slots:
+    async with previews.slots(settings):
         try:
             page = await convert(
                 data, fmt.name, timeout=settings.preview_timeout, memory=settings.preview_memory

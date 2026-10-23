@@ -200,7 +200,7 @@ describe("signal overview", () => {
     expect(settings.textContent).toContain("Noch nicht berechnet.");
     expect(href(settings, "Zum Import")).toBe("/import");
     expect(settings.textContent).toContain(
-      "Nicht gesetzt: Von intern an privat, Von privat an intern und Private Zweitadresse sind aus, bis MAILROBBE_INTERNAL_DOMAINS die eigenen Domains der Organisation nennt",
+      "Nicht gesetzt: Von intern an privat, Von privat an intern und Private Zweitadresse sind aus, bis die Einstellungen die eigenen Domains der Organisation nennen",
     );
     expect(settings.textContent).toContain(
       "Als Hilfe die Absender-Domains mit den meisten Mails: nordlicht-gmbh.example (88.120), stadtwerke-beispiel.example (41.933)",
@@ -208,9 +208,7 @@ describe("signal overview", () => {
 
     // Signals that are off: greyed with the reason, without figures or links.
     const alias = entry("Private Zweitadresse");
-    expect(alias.textContent).toContain(
-      "Aus, bis MAILROBBE_INTERNAL_DOMAINS die eigenen Domains nennt.",
-    );
+    expect(alias.textContent).toContain("Aus, bis die Einstellungen die eigenen Domains nennen.");
     expect(within(alias).queryByRole("link")).toBeNull();
     expect(entry("Private Adresse").textContent).toContain("noch nicht berechnet");
     expect(card("Personen").textContent).toContain("Noch nicht berechnet.");

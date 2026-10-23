@@ -231,7 +231,7 @@ function Settings({ overview }: { overview: SignalOverview }) {
             {!settings.timezone_known && (
               <span className={cx(styles.notice, styles.inline)}>
                 PostgreSQL kennt diese Zeitzone nicht. Der nächste Import kann die Signale erst
-                berechnen, wenn MAILROBBE_TIMEZONE eine gültige Zone nennt, etwa Europe/Berlin.
+                berechnen, wenn die Einstellungen eine gültige Zone nennen, etwa Europe/Berlin.
               </span>
             )}
           </dd>
@@ -255,9 +255,9 @@ function Settings({ overview }: { overview: SignalOverview }) {
       </dl>
       <p className={styles.footnote}>
         Die Anbieter, Uhrzeiten, die Schwelle und die Präfixe stehen in themes.toml unter [signals],
-        die Domains und die Zeitzone in .env (MAILROBBE_INTERNAL_DOMAINS, MAILROBBE_PRIVATE_DOMAINS,
-        MAILROBBE_TIMEZONE). Änderungen gelten ab dem nächsten „Import starten“. Mails automatischer
-        Absender wie Newsletter tragen nur die Wortfelder.
+        die Domains und die Zeitzone unter <Link to="/einstellungen">Einstellungen</Link>.
+        Änderungen gelten ab dem nächsten „Import starten“. Mails automatischer Absender wie
+        Newsletter tragen nur die Wortfelder.
       </p>
     </Card>
   );
@@ -275,7 +275,7 @@ function InternalDomains({ overview }: { overview: SignalOverview }) {
     <div className={cx(styles.notice, styles.inline)}>
       <p>
         {off.length > 0
-          ? `Nicht gesetzt: ${joinList(off)} ${off.length === 1 ? "ist" : "sind"} aus, bis MAILROBBE_INTERNAL_DOMAINS die eigenen Domains der Organisation nennt, durch Kommas getrennt.`
+          ? `Nicht gesetzt: ${joinList(off)} ${off.length === 1 ? "ist" : "sind"} aus, bis die Einstellungen die eigenen Domains der Organisation nennen.`
           : "Nicht gesetzt."}
       </p>
       {overview.sender_domains.length > 0 && (

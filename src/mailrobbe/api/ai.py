@@ -88,7 +88,7 @@ from mailrobbe.api import processes
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.documents import READABLE, RESULT_FIGURES, document_conditions
 from mailrobbe.api.filters import FilterError, internal_domains
-from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _start, _stop, _valid, ai_job
+from mailrobbe.api.imports import JSON_BODY, NoOptions, Runs, _start, _stop, ai_job
 from mailrobbe.api.schemas import (
     AI_QUEUE_LIMIT,
     AI_RULE_MINUTES,
@@ -124,17 +124,13 @@ from mailrobbe.api.schemas import (
 )
 from mailrobbe.api.selection import resolve_selection
 from mailrobbe.config import Settings
-from mailrobbe.db.models import AiSendLog, AiTask, Document, Job
+from mailrobbe.db.models import AiSendLog, AiTask, Document
 from mailrobbe.enums import AiResultState, AiTarget, AiTaskKind, JobKind
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
 ResultId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
 JobId = Annotated[int, fastapi.Path(ge=-(2**63), le=2**63 - 1)]
-
-# The options of the latest run that the next start from the AI page takes over (D49).
-DEFAULT_KEYS = ("ocr_engine", "vision_model", "max_pages", "max_minutes", "text_model")
-
 
 # Status ----------------------------------------------------------------------------------------
 
@@ -143,7 +139,7 @@ DEFAULT_KEYS = ("ocr_engine", "vision_model", "max_pages", "max_minutes", "text_
 async def ai_status(session: Session, settings: AppSettings) -> AiStatus:
     row = await jobs.latest_job(session, JobKind.AI)
     # A service named by a host is looked up (D181): off the event loop.
-    services, defaults = await asyncio.to_thread(_settings_view, settings, row)
+    services, defaults = await asyncio.to_thread(_settings_view, settings)
     vision = _usable_vision(services)
     seconds = await _calibration(session)
     work_lists = [
@@ -170,12 +166,11 @@ async def ai_status(session: Session, settings: AppSettings) -> AiStatus:
     )
 
 
-def _settings_view(settings: Settings, latest: Job | None) -> tuple[list[AiServiceInfo], AiOptions]:
-    """The configured services as rows and the defaults of a start (D49); blocking, since a
+def _settings_view(settings: Settings) -> tuple[list[AiServiceInfo], AiOptions]:
+    """The configured services as rows and the defaults of a start (D315); blocking, since a
     service's host may be looked up."""
-    return [_service_info(service, settings) for service in _services(settings)], _defaults(
-        settings, latest
-    )
+    services = [_service_info(service, settings) for service in _services(settings)]
+    return services, AiOptions.from_settings(settings)
 
 
 def _services(settings: Settings) -> list[Service]:
@@ -213,18 +208,6 @@ async def text_usable(settings: Settings) -> bool:
     if service is None:
         return False
     return await asyncio.to_thread(lambda: refusal(service, settings) is None)
-
-
-def _defaults(settings: Settings, latest: Job | None) -> AiOptions:
-    """The settings' options with the DEFAULT_KEYS of the latest run (D49)."""
-    options = AiOptions.from_settings(settings)
-    stored = None if latest is None else _valid(AiOptions, latest.options)
-    if stored is None:
-        return options
-    update = {key: getattr(stored, key) for key in DEFAULT_KEYS}
-    if not stored.text_model:  # a run before M17 or without a text service: the settings' model
-        del update["text_model"]
-    return options.model_copy(update=update)
 
 
 _CALIBRATION = text("""
@@ -431,12 +414,11 @@ async def _start_for(
     mail_ids: Sequence[int] = (),
 ) -> AiQueuedRun:
     """Start a run reading only these documents (D280) and mails (D307), or the whole queue
-    without either (D308), with the latest run's options; a live AI run takes them next
+    without either (D308), with the settings' options (D315); a live AI run takes them next
     instead, and any other live run leaves them waiting."""
     if await jobs.job_alive(session, JobKind.AI):
         return "running"
-    latest = await jobs.latest_job(session, JobKind.AI)
-    _, defaults = await asyncio.to_thread(_settings_view, settings, latest)
+    _, defaults = await asyncio.to_thread(_settings_view, settings)
     arguments = _run_arguments(
         defaults.ocr_engine,
         defaults.vision_model,
@@ -539,8 +521,7 @@ async def _enqueue_summaries(
             "invalid_selection",
             "give exactly one of mail_ids, mail_filters, document_ids and filters",
         )
-    latest = await jobs.latest_job(session, JobKind.AI)
-    services, defaults = await asyncio.to_thread(_settings_view, settings, latest)
+    services, defaults = await asyncio.to_thread(_settings_view, settings)
     if not _usable_text(services):
         raise api_error(400, "invalid_option", "no usable text service is configured")
     mail_ids = list(request.mail_ids or [])
@@ -840,8 +821,7 @@ async def start_run(
     request: AiRunRequest, session: Session, settings: AppSettings, runs: Runs
 ) -> AiJob:
     """Start `mailrobbe ai run` as the dashboard starts its runs (D46, D187)."""
-    latest = await jobs.latest_job(session, JobKind.AI)
-    services, defaults = await asyncio.to_thread(_settings_view, settings, latest)
+    services, defaults = await asyncio.to_thread(_settings_view, settings)
     engine = request.engine or defaults.ocr_engine
     if engine == "vision" and not _usable_vision(services):
         raise api_error(400, "invalid_option", "no usable vision service is configured")

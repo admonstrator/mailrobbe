@@ -41,7 +41,7 @@ from mailrobbe.aggregates import refresh_global_stats
 from mailrobbe.attachments import containers, phase
 from mailrobbe.attachments.extract import extract_document
 from mailrobbe.blocks import phase as blocks
-from mailrobbe.config import Settings, get_settings
+from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.entities import phase as entities
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus, MboxStatus
@@ -63,6 +63,7 @@ from mailrobbe.passwords import phase as passwords
 from mailrobbe.places import phase as places
 from mailrobbe.signals import phase as signals
 from mailrobbe.signals.model import rules as signal_rules
+from mailrobbe.stored_settings import command_settings
 from mailrobbe.topics import phase as topics
 
 log = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def run(args: argparse.Namespace) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    settings = get_settings()
+    settings = command_settings(args.origin)
     workers = args.workers or max(1, settings.import_workers)
     try:
         return asyncio.run(

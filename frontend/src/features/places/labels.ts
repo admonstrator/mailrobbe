@@ -155,7 +155,7 @@ export function mapErrorText(error: Error, action: "start" | "stop" | "delete" =
   if (error instanceof ApiError) {
     switch (error.code) {
       case "map_off":
-        return "Der Download von Kartendaten ist auf diesem Server abgeschaltet (MAILROBBE_MAP_SOURCE=off).";
+        return "Der Download von Kartendaten ist auf diesem Server abgeschaltet (Einstellungen, Detailkarte: Quelle „off“).";
       case "job_running":
         return action === "delete"
           ? "Solange ein Download läuft, lässt sich die Detailkarte nicht löschen."

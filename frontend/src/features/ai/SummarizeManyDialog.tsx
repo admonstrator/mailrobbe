@@ -24,7 +24,7 @@ export type SummarizeSelection =
   { mail_ids: number[] } | { mail_filters: MailFilters } | { filters: DocumentFilters };
 
 /** The title of a "Zusammenfassen" that cannot work yet (D300). */
-export const NO_TEXT_SERVICE = "Kein Textmodell eingerichtet (MAILROBBE_AI_TEXT_URL)";
+export const NO_TEXT_SERVICE = "Kein Textmodell eingerichtet (System › Einstellungen)";
 
 /** "Zusammenfassen" for a selection (D308): opens the dialog. Without a usable text service it
  *  is shown disabled with the setting that is missing, so the team learns the function exists. */
@@ -103,7 +103,7 @@ function refusalText(error: Error, mails: boolean): string {
       case "too_many_documents":
         return `Höchstens ${formatNumber(AI_QUEUE_LIMIT)} auf einmal; bitte die Auswahl eingrenzen.`;
       case "invalid_option":
-        return `${NO_TEXT_SERVICE}, siehe Seite „KI“.`;
+        return `${NO_TEXT_SERVICE}.`;
       case "empty_selection":
         return mails ? "Diese Auswahl enthält keine Mails." : "Diese Auswahl ist leer.";
     }

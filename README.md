@@ -181,27 +181,19 @@ Danach unter http://127.0.0.1:8000/import „Import starten“ klicken. Neue Fun
 
 ### Einstellungen
 
-Einstellungen stehen in der Datei `.env` neben `docker-compose.yml`, eine Zeile je Wert. Sie wirken nach `docker compose up -d`, was die Auswertung betrifft nach dem nächsten „Import starten“.
+Die meisten Einstellungen stehen in der Oberfläche unter **System › Einstellungen**: die eigenen Domains, Zeitzone und Standardblöcke, Text- und Bildmodell (Adresse, Modell, Schlüssel, Kontext), Texterkennung und Transkription, die Grenzen für Import, Anhänge und Vorschau, DKIM und die Detailkarte. Eine Änderung gilt sofort für die Oberfläche und für jeden Lauf, der danach startet, was Signale und Standardblöcke betrifft nach dem nächsten „Import starten“. Ein Wert von dort geht der `.env` vor, „Zurücksetzen“ holt den Wert aus der `.env` oder die Voreinstellung zurück. Bisherige Einträge in der `.env` gelten also weiter, bis jemand sie auf der Seite ändert.
+
+In der Datei `.env` neben `docker-compose.yml` (eine Zeile je Wert, wirksam nach `docker compose up -d`) bleibt, was vor der Oberfläche gebraucht wird oder nicht einen Klick entfernt sein soll:
 
 | Wert | Wofür |
 | --- | --- |
 | `MAILROBBE_MBOX_HOST_DIR` | Ordner mit den MBOX-Dateien (Voreinstellung `./data/mbox`) |
-| `MAILROBBE_INTERNAL_DOMAINS` | die Domains der Organisation, kommagetrennt (`firma.de,firma.ch`); nötig für den Filter „Nur extern ↔ intern“ und die Signale zwischen intern und privat |
 | `MAILROBBE_BASIC_AUTH_USER`, `MAILROBBE_BASIC_AUTH_PASSWORD` | Benutzername und Kennwort für die Oberfläche; ohne beide ist sie offen |
-| `MAILROBBE_TIMEZONE` | Zeitzone für Nacht und Wochenende (Voreinstellung `Europe/Berlin`) |
-| `MAILROBBE_PRIVATE_DOMAINS` | weitere Domains privater Mailanbieter, zusätzlich zur eingebauten Liste |
-| `MAILROBBE_BLOCK_MIN_MAILS` | ab wie vielen Mails ein Absatz am Ende als Standardblock gilt (Voreinstellung 25) |
-| `MAILROBBE_IMPORT_WORKERS` | Prozesse für den Import (Voreinstellung: Zahl der Kerne, höchstens 8) |
-| `MAILROBBE_DKIM_NAMESERVERS` | eigene DNS-Server für die DKIM-Schlüssel, kommagetrennt |
-| `MAILROBBE_AI_TEXT_URL`, `MAILROBBE_AI_TEXT_MODEL` | Sprachmodell für „Zusammenfassen“, etwa `http://host.docker.internal:1234/v1` für LM Studio oder `http://host.docker.internal:11434` für Ollama; leer: kein Zusammenfassen |
-| `MAILROBBE_AI_CONTEXT_TOKENS` | Kontextlänge, mit der das Sprachmodell geladen ist (Voreinstellung 4096); längere Texte fasst Mailrobbe in Teilen zusammen |
-| `MAILROBBE_AI_VISION_URL`, `MAILROBBE_AI_VISION_MODEL` | Bildmodell für die Texterkennung, genauso angegeben; leer: nur Tesseract |
 | `MAILROBBE_AI_ALLOW_REMOTE` | `true` erlaubt KI-Dienste außerhalb des eigenen Rechners und Netzes; ohne bleibt alles lokal |
-| `MAILROBBE_AI_TRANSCRIBE_THREADS` | Rechenkerne für die Transkription (Voreinstellung: Zahl der Kerne, höchstens 4) |
-| `MAILROBBE_AI_TRANSCRIBE_MAX_MINUTES` | wie viele Minuten einer Aufnahme ein Lauf höchstens transkribiert (Voreinstellung 180) |
 | `MAILROBBE_MAP_HOST_DIR` | Ordner für die Detailkarte (bis 10 GB) außerhalb von Docker, etwa `./data/maps` |
-| `MAILROBBE_MAP_SOURCE` | `off` nimmt das Angebot der Detailkarte ganz weg |
 | `MAILROBBE_PORT` | Port der Oberfläche (Voreinstellung 8000) |
+
+Die Werte der Seite lassen sich in der `.env` vorbelegen, etwa `MAILROBBE_INTERNAL_DOMAINS=firma.de,firma.ch`, `MAILROBBE_AI_TEXT_URL` oder `MAILROBBE_IMPORT_WORKERS`; welche Namen `docker-compose.yml` weiterreicht, steht dort.
 
 Die Recherchethemen mit ihren Wortfeldern und Suchen und die Regeln der Signale stehen in [`src/mailrobbe/themes.toml`](src/mailrobbe/themes.toml); nach einer Änderung `docker compose up -d --build` und „Import starten“. Alle übrigen Einstellungen stehen in [`src/mailrobbe/config.py`](src/mailrobbe/config.py).
 

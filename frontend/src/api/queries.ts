@@ -161,6 +161,8 @@ import type {
   SelectorPage,
   SelectorSummary,
   ServiceCheck,
+  SettingsUpdate,
+  SettingsView,
   SignalFacets,
   SignalOverview,
   SocialCard,
@@ -1396,6 +1398,32 @@ export function useSaveBlockOverride() {
             }
           : text,
       );
+    },
+  });
+}
+
+// The page "Einstellungen" (D313 to D315) -------------------------------------------------------
+
+export const settingsKeys = { all: ["settings"] as const };
+
+export function useSettings() {
+  return useQuery({
+    queryKey: settingsKeys.all,
+    queryFn: ({ signal }) => apiGet<SettingsView>("/api/settings", undefined, signal),
+  });
+}
+
+/** A save takes the server's answer and loads everything else again: a setting may change any
+ *  view (the AI page, the signals, the map, the standard blocks). */
+export function useSaveSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (update: SettingsUpdate) => apiPut<SettingsView>("/api/settings", update),
+    onSuccess: (view) => {
+      queryClient.setQueryData(settingsKeys.all, view);
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] !== settingsKeys.all[0],
+      });
     },
   });
 }

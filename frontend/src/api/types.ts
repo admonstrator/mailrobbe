@@ -126,7 +126,8 @@ export type ErrorCode =
   | "not_locked" // 409: the document is not locked, or (decrypted) has no password found yet
   | "decrypt_failed" // 422: the found password did not decrypt it; message says why
   | "map_off" // 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
-  | "too_many_documents"; // 400: a selection for the AI queue above AI_QUEUE_LIMIT (D186)
+  | "too_many_documents" // 400: a selection for the AI queue above AI_QUEUE_LIMIT (D186)
+  | "invalid_setting"; // 400: a value the setting does not take; message starts "<name>: "
 
 /** Body of every contract error: {"detail": ApiErrorDetail}. */
 export interface ApiErrorDetail {
@@ -3227,4 +3228,37 @@ export interface AiTagAdopted {
   tag_id: number; // the team tag
   created: boolean;
   mails: number;
+}
+
+// The page "Einstellungen" (D313 to D315) ------------------------------------------------------
+
+/** How the page edits a setting: text, a secret (written, never shown), a whole or a decimal
+ *  number, a size in bytes, on or off, or one of choices. */
+export type SettingKind = "text" | "secret" | "integer" | "number" | "bytes" | "boolean" | "choice";
+/** Where the value comes from: stored on the page, the environment (.env), or the default. */
+export type SettingSource = "stored" | "env" | "default";
+export type SettingValue = boolean | number | string | null;
+
+export interface SettingInfo {
+  name: string; // the field of the server's settings, MAILROBBE_<NAME> in .env
+  kind: SettingKind;
+  value: SettingValue; // what holds now; null for a secret
+  base: SettingValue; // what a reset brings back (.env or the default); null for a secret
+  source: SettingSource;
+  secret_set: boolean; // kind secret: a key holds now
+  choices: string[]; // kind choice
+  minimum: number | null;
+  maximum: number | null;
+  changed_at: string | null; // source stored
+  changed_by: string | null;
+}
+
+export interface SettingsView {
+  items: SettingInfo[]; // in the server's order
+  fixed: string[]; // the settings only .env sets
+}
+
+/** New values by name; null deletes the stored one. All or nothing. */
+export interface SettingsUpdate {
+  values: Record<string, SettingValue>;
 }

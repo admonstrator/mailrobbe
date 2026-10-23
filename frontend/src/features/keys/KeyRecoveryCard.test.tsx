@@ -273,7 +273,9 @@ describe("archive preview", () => {
 
   it("says when the archive is off and offers nothing", async () => {
     const { dialog } = await openPreview({ url: null, domains: [], skipped: [], continues: null });
-    expect(await within(dialog).findByText(/Das Schlüsselarchiv ist abgeschaltet/)).toBeTruthy();
+    expect(
+      await within(dialog).findByText(/Das Schlüsselarchiv ist in den Einstellungen abgeschaltet/),
+    ).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Abfragen" })).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: "Schließen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -286,7 +288,7 @@ describe("archive preview", () => {
     await within(dialog).findByText("nordlicht-gmbh.example");
     fireEvent.click(within(dialog).getByRole("button", { name: "Abfragen" }));
     expect((await within(dialog).findByRole("alert")).textContent).toBe(
-      "Das Schlüsselarchiv ist abgeschaltet (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off).",
+      "Das Schlüsselarchiv ist in den Einstellungen abgeschaltet („off“).",
     );
   });
 });

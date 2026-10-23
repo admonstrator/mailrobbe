@@ -247,6 +247,12 @@ document (target). MailFilters has ai_tag and ai_theme, DocumentFilters ai_tag:
                                                  same name on the mails carrying the AI tag
                                                  (D310); 404 not_found for an unknown AI tag
 
+The page "Einstellungen" (D313 to D315):
+
+    GET  /api/settings                           SettingsView: every setting the page changes
+    PUT  /api/settings                           SettingsUpdate -> SettingsView; 400
+                                                 invalid_setting, nothing stored
+
 The mails of a person (SPEC 5.3) are GET /api/mails with person=<id> and person_role (D32), so
 paging, neighbours and the CSV export work as for the mail list; the mails carrying a document
 (D75) are GET /api/mails with document=<id>.
@@ -423,6 +429,7 @@ ErrorCode = Literal[
     "decrypt_failed",  # 422: the found password did not decrypt it; message says why
     "map_off",  # 409: no detail map is offered (MAILROBBE_MAP_SOURCE=off, D245)
     "too_many_documents",  # 400: a selection for the AI queue above AI_QUEUE_LIMIT (D186)
+    "invalid_setting",  # 400: a value the setting does not take; message starts "<name>: "
 ]
 
 
@@ -3558,6 +3565,42 @@ class AiTagAdopted(BaseModel):
     tag_id: int  # the team tag (tag.id), found by its name or made with it
     created: bool  # the team tag was made now
     mails: int  # mails it was added to now (those that had it already not counted)
+
+
+# The page "Einstellungen" (D313 to D315) ---------------------------------------------------------
+
+# How the page edits a setting: text, a secret (written, never shown), a whole or a decimal number,
+# a size in bytes, on or off, or one of choices.
+SettingKind = Literal["text", "secret", "integer", "number", "bytes", "boolean", "choice"]
+# Where the value comes from: stored on the page, the environment (.env), or the default.
+SettingSource = Literal["stored", "env", "default"]
+SettingValue = bool | int | float | str | None
+
+
+class SettingInfo(BaseModel):
+    name: str  # the field of config.Settings, MAILROBBE_<NAME> in the environment
+    kind: SettingKind
+    value: SettingValue  # what holds now; None for a secret
+    base: SettingValue  # what deleting the stored value brings back; None for a secret
+    source: SettingSource
+    secret_set: bool  # kind secret: a key holds now (value stays None); else false
+    choices: list[str]  # kind choice
+    minimum: float | None
+    maximum: float | None
+    changed_at: datetime | None  # source stored
+    changed_by: str | None  # the editor of the stored value (D54)
+
+
+class SettingsView(BaseModel):
+    items: list[SettingInfo]  # in the order of config.Settings
+    fixed: list[str]  # the settings only the environment sets (stored_settings.FIXED)
+
+
+class SettingsUpdate(BaseModel):
+    """New values by name; null deletes the stored one, so the environment's or the default holds
+    again. A value equal to that is not stored either. All or nothing."""
+
+    values: dict[str, SettingValue] = Field(min_length=1)
 
 
 AiQueued.model_rebuild()

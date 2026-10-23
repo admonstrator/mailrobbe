@@ -12,6 +12,7 @@ from mailrobbe.api import (
     ai_tags,
     auth,
     blocks,
+    configuration,
     detail,
     documents,
     entities,
@@ -39,6 +40,7 @@ from mailrobbe.api import (
     timeline,
     topics,
 )
+from mailrobbe.api.deps import refresh_settings
 from mailrobbe.config import Settings, get_settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 
@@ -52,12 +54,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await refresh_settings(app)
         yield
         await runs.stop()  # the dashboard's runs end with the server (D46)
         await engine.dispose()
 
     app = FastAPI(title="Mailrobbe", lifespan=lifespan)
+    app.state.env_settings = settings  # the environment's; the stored ones go over them (D313)
     app.state.settings = settings
+    app.state.settings_read = False
     app.state.engine = engine
     app.state.sessionmaker = create_sessionmaker(engine)
     app.state.runs = runs
@@ -106,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ai.router)
     app.include_router(summaries.router)  # M17 (D307)
     app.include_router(ai_tags.router)  # M17 (D309, D310)
+    app.include_router(configuration.router)  # the page Einstellungen (D313)
     auth.install(app, settings)
     frontend.mount(app, settings.frontend_dir)  # last: its catch-all must not shadow /api
     return app

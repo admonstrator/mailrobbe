@@ -676,9 +676,9 @@ async def test_a_run_starts_with_the_defaults_and_stops(
         return bool((await status(dashboard))["job"]["status"] == "stopped")
 
     await until(ended)
-    # the next start takes the latest run's choice (D49)
+    # the next start takes the settings again, not the latest run's choice (D315)
     defaults = (await status(dashboard))["defaults"]
-    assert (defaults["max_pages"], defaults["max_minutes"]) == (7, 30)
+    assert (defaults["max_pages"], defaults["max_minutes"]) == (50, 180)
     assert await error_code(dashboard.client, "/api/ai/run/stop", {}, 409) == "no_job"
 
 
@@ -1073,7 +1073,7 @@ async def test_an_element_starts_a_run_of_its_own(
     assert not (await status(texts))["job"]["alive"]
 
 
-async def test_a_run_takes_the_text_model_and_keeps_it(
+async def test_a_run_takes_the_text_model_for_itself(
     texts: Dashboard, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake(monkeypatch, "done")
@@ -1082,9 +1082,7 @@ async def test_a_run_takes_the_text_model_and_keeps_it(
     job = await post(texts.client, "/api/ai/run", {"text_model": "text-large"}, 202)
     assert job["options"]["text_model"] == "text-large"
     await reaped(texts)
-    assert (await status(texts))["defaults"]["text_model"] == "text-large"
-    # a run before milestone 17 knew no text model: the settings' one stays the default
-    await rows(texts.url, "UPDATE job SET options = options - 'text_model'")
+    # the next start takes the settings' model again (D315)
     assert (await status(texts))["defaults"]["text_model"] == "text-test"
 
 

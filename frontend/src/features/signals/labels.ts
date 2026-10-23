@@ -115,7 +115,7 @@ export function signalRule(key: SignalKey | "silent", settings: SignalSettings):
 }
 
 /** Why a signal is off: the three that compare with the internal domains (D131). */
-export const UNAVAILABLE_TEXT = "Aus, bis MAILROBBE_INTERNAL_DOMAINS die eigenen Domains nennt.";
+export const UNAVAILABLE_TEXT = "Aus, bis die Einstellungen die eigenen Domains nennen.";
 
 /** "0,3 %"; "unter 0,1 %" for a share above nothing that would round to nothing. */
 export function percentText(share: number): string {

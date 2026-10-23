@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from mailrobbe.config import Settings, get_settings
+from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine
 from mailrobbe.dkim.cli import error_line
 from mailrobbe.enums import JobKind, JobOrigin, JobStatus
@@ -64,6 +64,7 @@ from mailrobbe.places.tiles import (
     source_host,
     source_setting,
 )
+from mailrobbe.stored_settings import command_settings
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(args: argparse.Namespace) -> int:
     quiet = getattr(args, "quiet", False)
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
-    settings = get_settings()
+    settings = command_settings(args.origin)
     if args.task == "status":
         print(json.dumps(status(settings), indent=2))
         return 0

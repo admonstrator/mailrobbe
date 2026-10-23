@@ -226,7 +226,7 @@ describe("the card Kartendaten (D245, D246)", () => {
     ).toBeTruthy();
     fireEvent.click(box.getByRole("button", { name: "Detailkarte laden" }));
     expect((await box.findByRole("alert")).textContent).toBe(
-      "Der Download von Kartendaten ist auf diesem Server abgeschaltet (MAILROBBE_MAP_SOURCE=off).",
+      "Der Download von Kartendaten ist auf diesem Server abgeschaltet (Einstellungen, Detailkarte: Quelle „off“).",
     );
   });
 

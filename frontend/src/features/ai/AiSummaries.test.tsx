@@ -99,7 +99,7 @@ describe("summaries on the AI page", () => {
     renderApp("/ki", api(aiStatus));
     const services = await screen.findByRole("region", { name: "Dienste" });
     expect(within(services).getByText(/Kein Textmodell eingerichtet/).textContent).toContain(
-      "MAILROBBE_AI_TEXT_URL",
+      "unter Einstellungen mit Adresse und Modell",
     );
     const intro = screen.getByRole("region", { name: "Was die KI macht" });
     expect(intro.textContent).toContain("„maschinell erzeugt“");
