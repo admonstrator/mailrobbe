@@ -134,7 +134,7 @@ def test_an_answer_names_each_letter_once() -> None:
     ):
         with pytest.raises(AnswerError):
             read_answer(wrong, 4)
-    # a letter named again stays where it came first; an entry left empty is dropped (D337)
+    # a letter named again stays where it came first; an entry left empty is dropped (D338)
     again = (
         '{"persons": [{"members": ["A", "B", "A"], "sure": true, "reason": "Gleich."}, '
         '{"members": ["B"], "sure": true, "reason": "Keine weiteren."}]}'

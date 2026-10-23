@@ -129,7 +129,7 @@ class Settings(BaseSettings):
     ai_text_model: str = ""
     ai_text_key: SecretStr = SecretStr("")
     ai_text_protocol: Literal["auto", "openai", "ollama"] = "auto"
-    # whether the text model thinks before it answers, and how deep (D337): off is fastest
+    # whether the text model thinks before it answers, and how deep (D338): off is fastest
     ai_text_reasoning: Literal["off", "low", "medium", "high"] = "off"
     ai_context_tokens: int = Field(default=4096, ge=2048)
 

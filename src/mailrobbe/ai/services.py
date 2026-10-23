@@ -9,7 +9,7 @@ Studio's `GET /api/v0/models` says which are vision models (type "vlm"). `POST
 chat/completions` carries the picture as a PNG data URL, temperature 0, a max_tokens limit, and
 for a local service chat_template_kwargs that switch thinking off (llama.cpp and LM Studio take
 or ignore it; OpenAI itself refuses unknown fields, so a remote service never gets it). A text
-service whose reasoning is set (D337) gets thinking switched on instead, and locally its depth
+service whose reasoning is set (D338) gets thinking switched on instead, and locally its depth
 as reasoning_effort; Ollama gets the depth as `think`, or true for a model that takes no depth.
 
 Ollama: `GET /api/tags` lists the models, `POST /api/show` tells whether one has the capability

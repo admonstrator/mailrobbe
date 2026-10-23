@@ -10,7 +10,7 @@
     check   read_answer: the persons the model sees, each with its letters, sure and a reason
             (spaces tidied, cut at ALIAS_REASON_MAX_CHARS). A letter not in the group makes the
             answer invalid; a letter named again in a later entry stays in its first one (an
-            entry left empty is dropped, D337); a letter missing is a person of its own, not
+            entry left empty is dropped, D338); a letter missing is a person of its own, not
             sure. An answer cut at its length, an HTTP error or an answer that is no valid one
             is an attempt: the group is asked again, and after AI_TASK_ATTEMPTS attempts left
             for a later run and counted as failed
@@ -103,7 +103,7 @@ def answer_schema(size: int) -> dict[str, Any]:
                 "type": "array",
                 "items": {
                     "type": "object",
-                    # the reason first: the model weighs, then decides by it (D337)
+                    # the reason first: the model weighs, then decides by it (D338)
                     "properties": {
                         "reason": {"type": "string"},
                         "members": {
@@ -229,7 +229,7 @@ class AliasStep:
         return max(0, (context - prompt - self._answer_tokens()) * CHARS_PER_TOKEN)
 
     def _answer_tokens(self) -> int:
-        """max_tokens of a request: the answer, and the thinking when the model thinks (D337)."""
+        """max_tokens of a request: the answer, and the thinking when the model thinks (D338)."""
         thinks = self.service is not None and self.service.reasoning != "off"
         return ALIAS_ANSWER_TOKENS + (ALIAS_THINKING_TOKENS if thinks else 0)
 
