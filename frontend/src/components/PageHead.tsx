@@ -49,7 +49,7 @@ export function StateBadge({ tone, children }: { tone: BadgeTone; children: Reac
 /** A "?" whose tooltip holds an explanation that used to stand on the page (D334). */
 export function HelpTip({ text }: { text: string }) {
   return (
-    <span className={styles.help} title={text} aria-label={text} role="img">
+    <span className={styles.help} title={text} aria-label={text} role="img" tabIndex={0}>
       <HelpIcon size={16} />
     </span>
   );
