@@ -10,10 +10,10 @@ import {
   type FirstMentions,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { Checkbox } from "../../components/Checkbox";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
+import { HelpMark } from "../../components/HelpMark";
 import { personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -66,19 +66,18 @@ export function FirstMentionList({
     data && data.persons !== null && data.persons > data.items.length && limit < MAX_FIRST_MENTIONS;
 
   return (
-    <Card className={styles.card} aria-labelledby={titleId}>
+    <section className={styles.card} aria-labelledby={titleId}>
       <div className={styles.head}>
-        <CardTitle id={titleId}>Wer taucht wann zuerst auf</CardTitle>
+        <h2 id={titleId} className={styles.title}>
+          Wer taucht wann zuerst auf
+        </h2>
+        <HelpMark text="Für jede Person die früheste Mail unter den Treffern, an der sie beteiligt ist: wann sie zum ersten Mal mit dieser Suche zu tun hatte, und mit wem." />
         {data && (
           <span className={styles.total} aria-live="polite">
             {totalText(data)}
           </span>
         )}
       </div>
-      <p className={styles.intro}>
-        Für jede Person die früheste Mail unter den Treffern, an der sie beteiligt ist: wann sie zum
-        ersten Mal mit dieser Suche zu tun hatte, und mit wem.
-      </p>
       <div className={styles.toggles}>
         <Checkbox
           checked={state.role === "sent"}
@@ -185,6 +184,6 @@ export function FirstMentionList({
             )}
         </>
       )}
-    </Card>
+    </section>
   );
 }

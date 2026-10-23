@@ -18,7 +18,6 @@ import {
   type TimelineSeries,
 } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { Chip } from "../../components/Chip";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
@@ -123,7 +122,7 @@ export function TimelinePage() {
     data ? mailListHref(bucketList(state, data.starts[index], data.bucket, series)) : "/mails";
 
   return (
-    <main className={styles.page}>
+    <div className={styles.page}>
       <title>Zeitachse · Mailrobbe</title>
       <div className={styles.head}>
         <div className={styles.heading}>
@@ -183,7 +182,7 @@ export function TimelinePage() {
           </TimelineControls>
         </div>
 
-        <Card className={styles.chartCard}>
+        <div className={styles.chartCard}>
           {timeline.isPending ? (
             <div className={styles.loading}>
               <Spinner label="Zeitachse wird gezählt" />
@@ -238,7 +237,7 @@ export function TimelinePage() {
               <Explanation timeline={timeline.data} total={timeline.data.total} />
             </>
           )}
-        </Card>
+        </div>
       </section>
 
       <FirstMentionList
@@ -248,7 +247,7 @@ export function TimelinePage() {
         limit={limit}
         onMore={() => setLimit(Math.min(limit + FIRST_MENTIONS, MAX_FIRST_MENTIONS))}
       />
-    </main>
+    </div>
   );
 }
 

@@ -1,9 +1,11 @@
+/* On the shell's white sheet (D334): the controls as a bar parted by a line, the chart and
+   the first mentions without boxes. */
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-5);
   min-width: 0;
-  padding: 20px 24px 32px;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .head {
@@ -29,8 +31,7 @@
 
 .title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+  font: var(--font-page-title);
 }
 
 .intro {
@@ -51,11 +52,9 @@
   position: sticky;
   top: var(--sticky-top);
   z-index: 10;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  padding: 10px 16px;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
 }
 
 .search {
@@ -91,7 +90,10 @@
 }
 
 .chartCard {
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .loading {
@@ -199,7 +201,7 @@
 
 @media (max-width: 759px) {
   .page {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .search {
