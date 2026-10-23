@@ -1,0 +1,54 @@
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  min-height: 24px;
+  padding-left: 2px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pass {
+  color: var(--color-pass-text);
+  font-weight: 600;
+}
+
+.noKey {
+  color: var(--color-no-key-text);
+  font-weight: 600;
+}
+
+.skeleton {
+  width: 320px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--color-skeleton);
+}
+
+.spark {
+  margin-left: auto;
+}
+
+.bar,
+.outlier {
+  cursor: pointer;
+}
+
+.bar {
+  fill: #9db6ea;
+}
+
+.outlier {
+  fill: var(--color-no-key);
+}
+
+.bar:hover,
+.outlier:hover {
+  fill: var(--color-accent);
+}
+
+.timeline {
+  font-size: 13px;
+}

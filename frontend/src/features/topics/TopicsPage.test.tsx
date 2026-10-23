@@ -7,6 +7,7 @@ import {
   topicTermsSampled,
   topicTermsTimedOut,
 } from "../../test/fixtures";
+import { menuItem, rows } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 // Intl puts a no-break space before "%".
@@ -349,16 +350,20 @@ describe("topic clusters", () => {
 });
 
 describe("links to the Auswahl", () => {
-  it("opens the terms of the mail list's filters from its toolbar", async () => {
-    renderApp("/mails?q=Spende&person=11&sort=date_asc");
-    const link = await screen.findByRole("link", { name: "Begriffe" });
-    expect(href(link)).toBe("/themen?view=selection&q=Spende&person=11");
+  it("opens the terms of the mail list's filters from its menu", async () => {
+    const { router } = renderApp("/mails?q=Spende&person=11&sort=date_asc");
+    await rows();
+    menuItem("Begriffe dieser Treffer");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/themen"));
+    expect(router.state.location.search).toBe("?view=selection&q=Spende&person=11");
   });
 
   it("leaves the link out of the mail list without filters", async () => {
     renderApp("/mails");
-    await screen.findByRole("table");
-    expect(screen.queryByRole("link", { name: "Begriffe" })).toBeNull();
+    await rows();
+    fireEvent.click(screen.getAllByRole("button", { name: "Weitere Aktionen" })[0]);
+    expect(screen.getByRole("menuitem", { name: "Treffer in der Zeitachse" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: "Begriffe dieser Treffer" })).toBeNull();
   });
 
   it("opens the terms of the timeline's filters from its head", async () => {

@@ -1,9 +1,5 @@
 /* The AI facets look like the entity and signal facets (EntityFacets.module.css), one group per
-   panel; above the table the two share a line where they fit. */
-section.top {
-  flex: 1 1 340px;
-}
-
+   panel. */
 /* The mark of machine made tags and hints (D311), small before the scope of the counts. */
 .scope {
   display: inline-flex;
@@ -33,13 +29,6 @@ section.top {
   gap: 6px;
   min-width: 0;
   transition: opacity 0.15s;
-}
-
-.line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 8px;
 }
 
 /* The quiet action of a tag chip, where an entity's chip has its page. */

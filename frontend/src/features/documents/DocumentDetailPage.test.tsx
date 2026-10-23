@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { readHistory } from "../../lib/history";
 import { documentDetail } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 import { stubIntersectionObserver } from "../../test/scroll";
@@ -9,9 +10,13 @@ function card(heading: string | RegExp): HTMLElement {
   return screen.getByRole("heading", { name: heading }).closest("section")!;
 }
 
-function tile(label: string): string {
+/** The figure of the quiet line "Kennzahlen" that names label, and its title. */
+function figure(label: string): [string, string] {
   const list = screen.getByRole("list", { name: "Kennzahlen" });
-  return within(list).getByText(label).parentElement!.textContent!;
+  const item = within(list)
+    .getAllByRole("listitem")
+    .find((one) => one.textContent!.includes(label))!;
+  return [item.textContent!, item.title];
 }
 
 const withDocument = (patch: Partial<typeof documentDetail>) => (call: ApiCall) =>
@@ -55,10 +60,11 @@ describe("document page", () => {
     expect(download.hasAttribute("download")).toBe(true);
     expect(screen.queryByRole("img", { name: /Vorschau/ })).toBeNull();
 
-    expect(tile("Mails")).toBe("Mails6ohne Duplikate");
-    expect(tile("Anhänge")).toBe("Anhänge7Vorkommen, mit Duplikaten");
-    expect(tile("Erstmals")).toMatch(/^Erstmals28\.09\.2026\d\d:\d\d Uhr$/);
-    expect(tile("Zuletzt")).toMatch(/^Zuletzt18\.10\.2026/);
+    expect(figure("Mails")).toEqual(["6 Mails", "ohne Duplikate"]);
+    expect(figure("Anhänge")).toEqual(["7 Anhänge", "Vorkommen, mit Duplikaten"]);
+    expect(figure("erster Versand")[0]).toBe("28.09.2026 erster Versand");
+    expect(figure("erster Versand")[1]).toMatch(/^28\.09\.2026,? \d\d:\d\d Uhr$/);
+    expect(figure("letzter Versand")[0]).toBe("18.10.2026 letzter Versand");
 
     const names = card("Dateinamen (3)");
     expect(
@@ -293,5 +299,26 @@ describe("a document's mails by page (D193)", () => {
     expect(router.state.location.search).toBe("?limit=200");
     await waitFor(() => expect(mails().at(-1)!.url.searchParams.get("limit")).toBe("200"));
     expect(mails().at(-1)!.url.searchParams.has("last")).toBe(false);
+  });
+});
+
+describe("the document page in the history (D333)", () => {
+  it("records the file name and the mail it came with", async () => {
+    renderApp("/anhaenge/5101");
+    await screen.findByRole("heading", { level: 1, name: "Rahmenvereinbarung_2026_final.pdf" });
+    await waitFor(() =>
+      expect(readHistory()[0]).toMatchObject({
+        kind: "document",
+        id: 5101,
+        title: "Rahmenvereinbarung_2026_final.pdf",
+        subtitle: "aus „Vertrag Nordstahl: Änderungswünsche Einkauf“",
+        path: "/anhaenge/5101",
+      }),
+    );
+  });
+
+  it("names the kind where no first mail is known", async () => {
+    renderApp("/anhaenge/5101", withDocument({ first_mail: null }));
+    await waitFor(() => expect(readHistory()[0]?.subtitle).toBe("PDF"));
   });
 });

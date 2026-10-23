@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { hitsPage } from "../../test/fixtures";
+import { openFilter } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 /** The list answers with the page of a search for "Neger" whenever q holds it. */
@@ -22,12 +23,14 @@ const menu = () => screen.getByRole("dialog", { name: "Suchmenü" });
 const search = (location: { search: string }) => new URLSearchParams(location.search);
 
 describe("the search options of the search menu (D177)", () => {
-  it("are no longer a group of the filter column", () => {
+  it("are no longer a filter of the filter bar", async () => {
     renderApp("/mails?q=Neger", negerApi);
-    const column = screen.getByRole("complementary", { name: "Filter" });
-    const legends = [...column.querySelectorAll("legend")].map((legend) => legend.textContent);
-    expect(legends[0]).toBe("Zeitraum");
-    expect(within(column).queryByRole("checkbox", { name: "Ganzes Wort" })).toBeNull();
+    const bar = await screen.findByRole("group", { name: "Filter" });
+    const chips = within(bar).getAllByRole("button", { expanded: false });
+    expect(chips[0].textContent).toBe("Zeitraum");
+    expect(within(bar).queryByRole("button", { name: /^Suchen in/ })).toBeNull();
+    const more = await openFilter("Weitere Filter");
+    expect(within(more).queryByRole("checkbox", { name: "Ganzes Wort" })).toBeNull();
   });
 
   it("start with every place ticked, no whole words and no minimum", () => {
@@ -169,8 +172,8 @@ describe("the search options of the search menu (D177)", () => {
     );
 
     fireEvent.click(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" }));
-    const column = screen.getByRole("complementary", { name: "Filter" });
-    fireEvent.click(within(column).getByRole("button", { name: "Zurücksetzen" }));
+    const bar = screen.getByRole("group", { name: "Filter" });
+    fireEvent.click(within(bar).getByRole("button", { name: "Zurücksetzen" }));
     expect(router.state.location.search).toBe("?q=Neger");
     expect(within(menu()).getByRole("checkbox", { name: "Ganzes Wort" })).toHaveProperty(
       "checked",

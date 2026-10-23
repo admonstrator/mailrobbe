@@ -1,0 +1,34 @@
+/* The pager in a list's toolbar (D335): the range and two round steps. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-2);
+}
+
+.range {
+  margin-right: var(--space-1);
+  color: var(--color-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.step {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--color-nav);
+}
+
+.step:hover {
+  background: var(--color-ground);
+}
+
+.disabled,
+.disabled:hover {
+  background: transparent;
+  opacity: 0.4;
+}

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { mailItems, mailPage } from "../../test/fixtures";
+import { downloads, menuItem } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 describe("mail list and attachments", () => {
@@ -17,7 +18,7 @@ describe("mail list and attachments", () => {
     );
     const mark = await screen.findByText("im Anhang");
     expect(mark.getAttribute("title")).toBe("Suchbegriff steht im Text eines Anhangs");
-    const row = mark.closest("tr")!;
+    const row = mark.closest("li")!;
     expect(within(row).getByRole("img", { name: "Anhang" })).toBeTruthy();
     expect(within(row).getByText(/Vertragsentwurf Rahmenvereinbarung 2026/)).toBeTruthy();
     expect(screen.getAllByText("im Anhang")).toHaveLength(1);
@@ -53,9 +54,9 @@ describe("mail list and attachments", () => {
     expect(page.url.searchParams.get("document")).toBe("5101");
     const summary = calls.find((call) => call.url.pathname === "/api/mails/summary")!;
     expect(summary.url.searchParams.get("document")).toBe("5101");
-    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
-      "/api/mails/export.csv?document=5101&sort=date_asc",
-    );
+    const hrefs = downloads();
+    menuItem("Als CSV herunterladen");
+    expect(hrefs).toEqual(["/api/mails/export.csv?document=5101&sort=date_asc"]);
 
     fireEvent.click(chip);
     expect(router.state.location.search).toBe("?sort=date_asc");

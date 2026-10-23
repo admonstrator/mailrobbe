@@ -1,4 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import styles from "./CompactBar.module.css";
 
@@ -32,9 +39,72 @@ export function useScrolledPast<T extends Element>(): [(element: T | null) => vo
  *  it moves nothing on the page; 48 px high, which the frames and scroll margins below leave
  *  free together with the header's height. */
 export function CompactBar({ label, children }: { label: string; children: ReactNode }) {
+  const bar = useRef<HTMLDivElement>(null);
+  const span = useSheetSpan(bar);
   return (
-    <div role="region" aria-label={label} className={styles.bar}>
+    <div
+      ref={bar}
+      role="region"
+      aria-label={label}
+      className={styles.bar}
+      style={span ? { left: span.left, width: span.width } : undefined}
+    >
       {children}
     </div>
   );
+}
+
+/** The white sheet a page stands on (D332): the outermost element around the bar that is
+ *  narrower than the window, as the sheet beside the sidebar is; null when the page spans the
+ *  window. */
+function sheetOf(element: HTMLElement): HTMLElement | null {
+  const windowWidth = document.documentElement.clientWidth;
+  let sheet: HTMLElement | null = null;
+  for (
+    let node = element.parentElement;
+    node && node !== document.body;
+    node = node.parentElement
+  ) {
+    const { width } = node.getBoundingClientRect();
+    if (width > 0 && width < windowWidth - 1) sheet = node;
+  }
+  return sheet;
+}
+
+/** Where the sheet stands across the window, followed as the window or the sidebar change its
+ *  width; null without a sheet, where the bar spans the window. */
+function useSheetSpan(
+  element: RefObject<HTMLElement | null>,
+): { left: number; width: number } | null {
+  const [span, setSpan] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!element.current) return;
+    const bar = element.current;
+    let observed: HTMLElement | null = null;
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => measure());
+    function measure() {
+      const sheet = sheetOf(bar);
+      if (sheet !== observed) {
+        if (observed) observer?.unobserve(observed);
+        if (sheet) observer?.observe(sheet);
+        observed = sheet;
+      }
+      const next = sheet ? sheet.getBoundingClientRect() : null;
+      setSpan((now) =>
+        next === null
+          ? null
+          : now?.left === next.left && now.width === next.width
+            ? now
+            : { left: next.left, width: next.width },
+      );
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, [element]);
+  return span;
 }

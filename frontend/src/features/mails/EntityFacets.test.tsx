@@ -1,14 +1,17 @@
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entityFacetsFiltered, summaryFiltered } from "../../test/fixtures";
+import { openFilter, openInsights, rows } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const facetCalls = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname === "/api/mails/facets");
 
+/** The entity facets in the panel "Einblicke", which this opens. */
 async function facets(): Promise<HTMLElement> {
-  const heading = await screen.findByRole("heading", { name: "Entitäten", level: 2 });
+  const insights = await openInsights();
+  const heading = await within(insights).findByRole("heading", { name: "Entitäten", level: 3 });
   return heading.closest("section")!;
 }
 
@@ -23,14 +26,14 @@ async function loadedFacets(): Promise<HTMLElement> {
   return panel;
 }
 
-describe("entity facets beside the mail list", () => {
+describe("entity facets in the panel Einblicke", () => {
   it("show the top entities per kind group, the themes' terms first", async () => {
     const { calls } = renderApp("/mails");
     const panel = await facets();
     await within(panel).findByText("in allen Mails");
 
     const groups = within(panel)
-      .getAllByRole("heading", { level: 3 })
+      .getAllByRole("heading", { level: 4 })
       .map((heading) => heading.textContent);
     expect(groups).toEqual([
       "Themenbegriffe",
@@ -164,9 +167,10 @@ describe("entity facets beside the mail list", () => {
         ? { kinds: {}, mails: 0, sampled: false }
         : fixtureApi(call),
     );
+    await openInsights();
     await waitFor(() => expect(facetCalls(calls)).toHaveLength(1));
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Entitäten", level: 2 })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: "Entitäten", level: 3 })).toBeNull(),
     );
     expect(screen.queryByText("Keine Entitäten erkannt")).toBeNull();
   });
@@ -189,25 +193,18 @@ describe("entity facets beside the mail list", () => {
     ).toBeTruthy();
   });
 
-  it("fold away, remembered in this browser, and ask for nothing while folded", async () => {
-    const first = renderApp("/mails");
-    const panel = await facets();
-    await within(panel).findByText("in allen Mails");
-    const hide = within(panel).getByRole("button", { name: "Ausblenden" });
-    expect(hide.getAttribute("aria-expanded")).toBe("true");
-    fireEvent.click(hide);
-    expect(localStorage.getItem("mailrobbe.facets")).toBe("closed");
-    expect(within(panel).queryByRole("group", { name: "Themenbegriffe" })).toBeNull();
-    first.router.dispose();
-    cleanup();
-
+  it("ask for nothing while the panel is closed, and close with it", async () => {
     const { calls } = renderApp("/mails?has_attachment=true");
-    const again = await facets();
-    expect(within(again).getByRole("button", { name: "Einblenden" })).toBeTruthy();
-    await screen.findByRole("link", {
-      name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
-    });
+    await rows();
     expect(facetCalls(calls)).toHaveLength(0);
+    const panel = await facets();
+    await within(panel).findByRole("group", { name: "Themenbegriffe" });
+    expect(facetCalls(calls)).toHaveLength(1);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.queryByRole("complementary", { name: "Einblicke" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Einblicke" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   });
 });
 
@@ -233,7 +230,7 @@ describe("entity and amount filters of the mail list", () => {
 
   it("read the amount in German notation on Enter and on leaving the field", async () => {
     const { router, calls } = renderApp("/mails");
-    const column = screen.getByRole("complementary", { name: "Filter" });
+    const column = await openFilter("Beträge");
     const field = within(column).getByRole("textbox", { name: "ab" });
 
     fireEvent.change(field, { target: { value: "10.000" } });
@@ -266,7 +263,7 @@ describe("entity and amount filters of the mail list", () => {
 
   it("filter by the contexts of amounts, each a chip of its own", async () => {
     const { router } = renderApp("/mails?amount_min=5000");
-    const column = screen.getByRole("complementary", { name: "Filter" });
+    const column = await openFilter("Beträge");
     expect((within(column).getByRole("textbox", { name: "ab" }) as HTMLInputElement).value).toBe(
       "5.000",
     );

@@ -9,14 +9,16 @@ import {
   useMailNeighbors,
   useMailSummary,
 } from "../../api/queries";
-import type { AiSummaryResult, AttachmentInfo } from "../../api/types";
+import type { AiSummaryResult, AttachmentInfo, MailDetail } from "../../api/types";
 import { buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { CompactBar, useScrolledPast } from "../../components/CompactBar";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
-import { formatNumber } from "../../lib/format";
+import { formatDate, formatNumber } from "../../lib/format";
+import { useRecordVisit } from "../../lib/history";
 import { isPlainKey } from "../../lib/keys";
+import { personName } from "../../lib/person";
 import { SummaryCard } from "../ai/SummaryCard";
 import { HiddenNote, HideCard } from "../hiding/MailHiding";
 import {
@@ -68,10 +70,26 @@ function withList(path: string, listQuery: string): string {
   return listQuery ? `${path}?${listQuery}` : path;
 }
 
+/** The mail's entry in "Zuletzt angesehen" (D333): subject, sender and day. */
+function mailVisit(mail: MailDetail) {
+  const sender = mail.participants.find((person) => person.role === "from");
+  const subtitle = [sender && personName(sender), mail.date && formatDate(mail.date)]
+    .filter(Boolean)
+    .join(" · ");
+  return {
+    kind: "mail" as const,
+    id: mail.id,
+    title: mail.subject || "(ohne Betreff)",
+    subtitle: subtitle || undefined,
+    path: `/mails/${mail.id}`,
+  };
+}
+
 function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
   const navigate = useNavigate();
   const list = useMemo(() => parseListState(new URLSearchParams(listQuery)), [listQuery]);
   const detail = useMailDetail(id);
+  useRecordVisit(detail.data ? mailVisit(detail.data) : null);
   const neighbors = useMailNeighbors(id, toOrderParams(list));
   const summary = useMailSummary(toFilters(list));
   const hits = useMailHits(id, toHitsParams(list));
