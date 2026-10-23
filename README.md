@@ -14,6 +14,7 @@
 Von admon, mit Hartnäckigkeit und zu viel Energydrink. Keine Firma dahinter — wenn es deiner Recherche geholfen hat, freut sich die Weiterentwicklung über Unterstützung.
 
 Fragen, Lob, Kritik: [hey@admon.me](mailto:hey@admon.me), auf Wunsch verschlüsselt mit [diesem PGP-Schlüssel](https://github.com/admonstrator/Admonstrator/blob/main/pgp/hey@admon.me.asc).
+
 <sub>Fingerabdruck `C2D7 EB96 8E27 4D5F 1B24  1B04 95E1 6BDE A94F 50A4`</sub>
 
 [Website](https://mailrobbe.admon.me/) | [Für wen](#für-wen) | [Auf einen Blick](#auf-einen-blick) | [Was Mailrobbe kann](#was-mailrobbe-kann) | [Schnellstart](#schnellstart) | [Häufige Fragen](#häufige-fragen)
