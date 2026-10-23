@@ -1,4 +1,4 @@
-"""The run's step aliases (D321 to D325): the candidate groups one at a time, for ai.run.
+"""The run's step aliases (D321 to D325): the candidate groups, for ai.run (several at once, D327).
 
     read    the groups once, when the run checks (ai.aliases.candidates); their number is the
             step's total
@@ -200,12 +200,18 @@ class AliasStep:
         log.info("text: %s, model %s (local)", service.display_url, service.model)
 
     async def work(self, counter: Step) -> None:
-        """Every group in order, until the run is asked to stop."""
-        for group in self.groups:
-            if self.run.job.stop.is_set():
-                return
-            await self._check(group)
-            counter.advance()
+        """Every group in order, options.concurrency at once (D327), until the run is asked to
+        stop."""
+        waiting = iter(self.groups)
+
+        async def worker() -> None:
+            for group in waiting:
+                if self.run.job.stop.is_set():
+                    return
+                await self._check(group)
+                counter.advance()
+
+        await self.run._together(worker)
 
     def _limit(self) -> int:
         """The characters the material may take: the context without prompt and answer."""

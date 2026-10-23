@@ -9,7 +9,7 @@
     check     ai.summarize.answer: the JSON answer read and checked, tags normalised, quotes
               found in the text or dropped (D304)
     store     ai.store.store_summary_result: ai_result with its tags and theme hints
-    step      ai.summarize.step: the waiting summarize tasks one at a time, for ai.run, which
+    step      ai.summarize.step: the waiting summarize tasks, for ai.run, which
               checks the text service and runs the step's loop
 
 Everything a model writes here is a reading that can be wrong ("Maschinell erzeugt", D311): it is

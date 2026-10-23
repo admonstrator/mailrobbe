@@ -36,7 +36,7 @@ from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.enums import AiTarget, JobKind
 from mailrobbe.importer.cli import run_import
 from mailrobbe.themes import load_themes
-from tests.ai.fakes import FakeService, fake_service
+from tests.ai.fakes import AtOnce, FakeService, fake_service
 from tests.ai.test_run import REMOTE_URL, Fake, Page, Rendered, rows
 from tests.attachments.doubles import attachment_mail
 from tests.conftest import _temporary_database
@@ -551,6 +551,23 @@ async def test_a_step_turns_to_what_was_asked_for_in_another_step(
     }
     figures = steps(await latest(database))
     assert (figures["ocr"].status, figures["summarize"].status) == ("done", "done")
+
+
+async def test_texts_are_summarised_at_once_up_to_the_concurrency(
+    archive: Any, database: str
+) -> None:
+    await queue(database, "Sommerfest", "Kurze Antwort")
+    model = Model()
+    respond = AtOnce(model)
+    with fake_service("lmstudio", models={MODEL: None}, respond=respond) as fake:
+        settings = text_settings(database, archive, fake)
+        result = await run_ai(settings, options_for(settings, concurrency=2))
+    assert result.exit_code == 0 and sorted(model.asked) == ["short", "whole"]
+    assert (result.summary.summaries, respond.most) == (2, 2)
+    assert {name: row.status for name, row in (await tasks(database)).items()} == {
+        "Sommerfest": "done",
+        "Kurze Antwort": "done",
+    }
 
 
 async def test_a_summary_asked_for_waits_for_the_ocr_of_its_document(

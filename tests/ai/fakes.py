@@ -418,3 +418,24 @@ class FakeTranscriber:
             for line in recording.lines
             if piece.start <= line.start < piece.end
         ]
+
+
+class AtOnce:
+    """Wraps a respond function and counts the requests answered at the same time: each one
+    lingers a moment, so requests sent together overlap."""
+
+    def __init__(self, respond: Callable[[Any], str], linger: float = 0.3) -> None:
+        self.respond, self.linger = respond, linger
+        self.lock = threading.Lock()
+        self.now = self.most = 0
+
+    def __call__(self, body: Any) -> str:
+        with self.lock:
+            self.now += 1
+            self.most = max(self.most, self.now)
+        try:
+            time.sleep(self.linger)
+            return self.respond(body)
+        finally:
+            with self.lock:
+                self.now -= 1
