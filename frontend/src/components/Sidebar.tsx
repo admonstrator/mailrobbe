@@ -116,11 +116,13 @@ function NavItem({ item, folded: iconsOnly }: { item: Item; folded: boolean }) {
   );
 }
 
+/** The caption of a group of links. Not a heading: the sidebar stands before every page's own
+ *  title and should not add to the page's outline. */
 function Group({ title, folded: iconsOnly }: { title: string; folded: boolean }) {
   return iconsOnly ? (
     <div className={styles.rule} role="separator" aria-label={title} />
   ) : (
-    <h2 className={styles.heading}>{title}</h2>
+    <p className={styles.heading}>{title}</p>
   );
 }
 
@@ -180,6 +182,7 @@ export function Sidebar() {
                 key={search.id}
                 to={search.query ? `/mails?${search.query}` : "/mails"}
                 title={search.name}
+                aria-label={`Gespeicherte Suche: ${search.name}`}
                 className={cx(styles.item, currentSearch === search.query && styles.active)}
                 aria-current={currentSearch === search.query ? "page" : undefined}
               >
@@ -205,9 +208,9 @@ export function Sidebar() {
       </nav>
       {!iconsOnly && history.length > 0 && (
         <section aria-labelledby="sidebar-recent" className={styles.recent}>
-          <h2 id="sidebar-recent" className={styles.heading}>
+          <p id="sidebar-recent" className={styles.heading}>
             Zuletzt angesehen
-          </h2>
+          </p>
           {history.slice(0, 3).map((visit) => (
             <Link
               key={`${visit.kind}:${visit.id}`}

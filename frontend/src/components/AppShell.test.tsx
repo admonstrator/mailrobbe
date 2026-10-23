@@ -59,8 +59,10 @@ describe("the sidebar (D332)", () => {
     expect(labels.slice(-4)).toEqual(["Import", "KI", "Ausgeblendet", "Einstellungen"]);
     const ki = within(navigation).getByRole("link", { name: "KI" });
     expect(ki.getAttribute("aria-current")).toBe("page");
-    expect(within(navigation).getByRole("heading", { name: "Auswerten" })).toBeTruthy();
-    expect(within(navigation).getByRole("heading", { name: "System" })).toBeTruthy();
+    // the groups' captions are no headings, so the page's own title stays the first one
+    expect(within(navigation).getByText("Auswerten")).toBeTruthy();
+    expect(within(navigation).getByText("System")).toBeTruthy();
+    expect(within(navigation).queryByRole("heading")).toBeNull();
 
     fireEvent.click(within(navigation).getByRole("link", { name: "Import" }));
     expect(router.state.location.pathname).toBe("/import");
@@ -71,8 +73,11 @@ describe("the sidebar (D332)", () => {
     const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
     const mails = within(navigation).getByRole("link", { name: "Mails" });
     await waitFor(() => expect(mails.textContent).toMatch(/^Mails\d/));
-    const search = await within(navigation).findByRole("link", { name: "Nordstahl an Einkauf" });
-    expect(within(navigation).getByRole("heading", { name: "Gespeicherte Suchen" })).toBeTruthy();
+    const search = await within(navigation).findByRole("link", {
+      name: "Gespeicherte Suche: Nordstahl an Einkauf",
+    });
+    expect(search.textContent).toBe("Nordstahl an Einkauf");
+    expect(within(navigation).getByText("Gespeicherte Suchen")).toBeTruthy();
     fireEvent.click(search);
     expect(router.state.location.pathname).toBe("/mails");
     expect(router.state.location.search).toBe("?q=from%3Anordstahl&sort=date_asc");
