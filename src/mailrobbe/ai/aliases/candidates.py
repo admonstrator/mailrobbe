@@ -1,18 +1,25 @@
-"""The pairs the alias check asks about (D321): pure but for read_candidates.
+"""The groups of persons the alias check asks about (D321, D324): pure but for read_groups.
 
-Pairs of root persons that are humans, from two sources:
+Pairs of root persons that are humans come from two sources:
 
     suggested  every open alias suggestion of tier uncertain (persons.suggestions); the certain
                ones need no second opinion
-    loose      pairs that share a loose key and no suggestion: the surname (the last word of an
-               address's main name, folded) with the first letter of the first name, so "Hans
-               Müller", "Hans-Peter Mueller" and "Heinz Müller" share "mueller h". A key of more
-               than LOOSE_GROUP roots is a common name and gives nothing, as MAX_GROUP does for
-               the suggestions
+    loose      roots whose addresses share a loose key: the surname (the last word of an
+               address's main name, persons.suggestions.normalize_name: titles dropped,
+               "Nachname, Vorname" turned around, folded; for an address without one its most
+               used display name, initials allowed) with the first letter of the first name,
+               so "Dr. Thomas Hermann", "Thomas Hermann", "T. Hermann" and "Hermann, Thomas"
+               share "hermann t". Within a key only first names that fit join (fitting:
+               "Thomas" and "T.", "Hans" and "Hans-Peter", not "Matthias" and "Miriam"), the
+               cheap sorting before any request (D324). A key of more than GROUP_MAX roots is a
+               common name and gives nothing
 
-Pairs with a check (alias_check) or a dismissal (alias_dismissal) are left out, both read through
-the roots of their persons. Order: suggestions with name and local part, other suggestions, loose
-pairs; within each, the pair whose busier person has more mails first, then by ids.
+Pairs with a check of the current prompt or a verdict same (alias_check) or a dismissal
+(alias_dismissal) are left out, all read through the roots of their persons. The open pairs are
+joined into groups: the persons they connect, asked about in one request, when they are at most
+GROUP_MAX; a larger cluster is asked about by its loose keys and its remaining pairs. Order:
+groups holding a suggestion with name and local part, other suggestions, loose groups; within
+each, the group whose busiest person has more mails first, then by ids.
 """
 
 import re
@@ -25,9 +32,11 @@ from sqlalchemy import text
 
 from mailrobbe.enums import AliasTier
 from mailrobbe.persons.roots import Executor
-from mailrobbe.persons.suggestions import address_keys, fold
+from mailrobbe.persons.suggestions import address_keys, fold, normalize_name
 
-LOOSE_GROUP = 4  # roots sharing a loose key; more and it gives no pair
+GROUP_MAX = 6  # persons asked about in one request
+
+Pair = tuple[int, int]
 
 _WORDS = re.compile(r"[a-z]+")
 # Every address of a human root with its display names.
@@ -42,11 +51,13 @@ _SUGGESTIONS = text("""
         same_name IS NOT NULL AND same_local_part IS NOT NULL AS both
     FROM alias_suggestion
 """)
-# Pairs not to ask about, through the roots of their persons.
+# Pairs not to ask about, through the roots of their persons: dismissed, judged one person, or
+# checked with the current prompt (an older prompt's other verdicts are asked again, D325).
 _LEFT_OUT = text("""
     SELECT least(coalesce(a.merged_into, a.id), coalesce(b.merged_into, b.id)),
         greatest(coalesce(a.merged_into, a.id), coalesce(b.merged_into, b.id))
     FROM (SELECT person_a, person_b FROM alias_check
+          WHERE prompt_version >= :version OR verdict = 'same'
           UNION SELECT person_a, person_b FROM alias_dismissal) d
     JOIN person a ON a.id = d.person_a JOIN person b ON b.id = d.person_b
 """)
@@ -56,14 +67,13 @@ _MAILS = text("""
 
 
 @dataclass(frozen=True, slots=True)
-class Candidate:
-    """A pair to ask about: roots a < b."""
+class Group:
+    """Roots to ask about together, ascending."""
 
-    a: int
-    b: int
-    suggested: bool  # an open suggestion; else a loose pair
-    both: bool = False  # suggested by name and local part
-    mails: int = 0  # of the busier person
+    members: tuple[int, ...]
+    suggested: bool = False  # holds an open suggestion; else loose pairs only
+    both: bool = False  # holds a suggestion by name and local part
+    mails: int = 0  # of the busiest person
 
 
 def loose_key(name: str) -> str | None:
@@ -72,59 +82,138 @@ def loose_key(name: str) -> str | None:
     return f"{words[-1]} {words[0][0]}" if len(words) >= 2 else None
 
 
-def loose_pairs(addresses: Iterable[tuple[int, str, Mapping[str, int]]]) -> set[tuple[int, int]]:
-    """The pairs of roots sharing a loose key of LOOSE_GROUP roots at most, from the addresses
-    (root, address, display names); role addresses and shared mailboxes have no main name."""
-    groups: defaultdict[str, set[int]] = defaultdict(set)
+def loose_sets(addresses: Iterable[tuple[int, str, Mapping[str, int]]]) -> list[frozenset[int]]:
+    """The roots sharing a loose key whose first names fit (fitting), 2 to GROUP_MAX of them,
+    from the addresses (root, address, display names); role addresses and shared mailboxes have
+    no main name."""
+    keys: defaultdict[str, defaultdict[int, set[str]]] = defaultdict(lambda: defaultdict(set))
     for root, email, used in addresses:
-        keys = address_keys(email, tuple(used.items()))
-        name = keys[1] if keys is not None else None
+        found = address_keys(email, tuple(used.items()))
+        if found is None:
+            continue
+        name = found[1] or _initialled(used)
         key = loose_key(name) if name is not None else None
-        if key is not None:
-            groups[key].add(root)
-    return {
-        pair
-        for roots in groups.values()
-        if 2 <= len(roots) <= LOOSE_GROUP
-        for pair in combinations(sorted(roots), 2)
-    }
+        if name is not None and key is not None:
+            keys[key][root].add(_WORDS.findall(fold(name))[0])
+    sets = []
+    for firsts in keys.values():
+        if len(firsts) > GROUP_MAX:
+            continue
+        pairs = [
+            (a, b)
+            for a, b in combinations(sorted(firsts), 2)
+            if any(fitting(x, y) for x in firsts[a] for y in firsts[b])
+        ]
+        sets += [cluster for cluster in _clusters(pairs) if len(cluster) >= 2]
+    return sorted(sets, key=sorted)
 
 
-def order(
+def fitting(first: str, other: str) -> bool:
+    """Whether two folded first names may be one person's: the same, an initial of the other,
+    one the start of the other ("hans", "hans-peter" as "hans"), or one letter apart from four
+    letters on ("thomas", "tomas"). "matthias" and "miriam" are not, so they are not asked."""
+    if first == other or len(first) == 1 or len(other) == 1:
+        return True
+    if first.startswith(other) or other.startswith(first):
+        return True
+    return min(len(first), len(other)) >= 4 and _one_apart(first, other)
+
+
+def _one_apart(first: str, other: str) -> bool:
+    """One letter changed, added or dropped."""
+    if abs(len(first) - len(other)) > 1:
+        return False
+    if len(first) == len(other):
+        return sum(a != b for a, b in zip(first, other, strict=True)) == 1
+    short, long = sorted((first, other), key=len)
+    return any(long[:i] + long[i + 1 :] == short for i in range(len(long)))
+
+
+def _initialled(used: Mapping[str, int]) -> str | None:
+    """The most used display name of two words or more, for an address without a main name:
+    "Dr. T. Hermann" is none for the suggestions, but has a loose key."""
+    names = [(mails, name) for name, mails in used.items() if normalize_name(name) is not None]
+    return normalize_name(max(names, key=lambda item: (item[0], item[1]))[1]) if names else None
+
+
+def groups(
     suggestions: Iterable[tuple[int, int, AliasTier, bool]],
-    loose: Set[tuple[int, int]],
-    left_out: Set[tuple[int, int]],
+    loose: Iterable[frozenset[int]],
+    left_out: Set[Pair],
     mails: Mapping[int, int],
-) -> list[Candidate]:
-    """The candidates in the order they are asked about (module docstring), from the suggestions
-    (a, b, tier, both), the loose pairs, the pairs left out and the mails per root."""
-    suggested = {(a, b) for a, b, *_ in suggestions}
-    found = [
-        Candidate(a, b, True, both)
+) -> list[Group]:
+    """The groups in the order they are asked about (module docstring), from the suggestions
+    (a, b, tier, both), the sets of a loose key, the pairs left out and the mails per root."""
+    loose = list(loose)
+    suggested: dict[Pair, bool] = {
+        (a, b): both
         for a, b, tier, both in suggestions
         if tier is AliasTier.UNCERTAIN and (a, b) not in left_out
-    ]
-    found += [Candidate(a, b, False) for a, b in loose - suggested - left_out]
-    ranked = [
-        Candidate(c.a, c.b, c.suggested, c.both, max(mails.get(c.a, 0), mails.get(c.b, 0)))
-        for c in found
-    ]
-    return sorted(ranked, key=lambda c: (not c.suggested, not c.both, -c.mails, c.a, c.b))
+    }
+    certain = {(a, b) for a, b, tier, _ in suggestions if tier is AliasTier.CERTAIN}
+    open_pairs = set(suggested)
+    for roots in loose:
+        open_pairs |= {p for p in combinations(sorted(roots), 2) if p not in left_out | certain}
+    found: list[frozenset[int]] = []
+    for cluster in _clusters(open_pairs):
+        if len(cluster) <= GROUP_MAX:
+            found.append(cluster)
+            continue
+        covered: set[Pair] = set()
+        for roots in loose:
+            part = roots & cluster
+            inside = {p for p in combinations(sorted(part), 2) if p in open_pairs}
+            if inside - covered:
+                found.append(part)
+                covered |= inside
+        found += [frozenset(p) for p in sorted(open_pairs - covered) if set(p) <= cluster]
+    ranked = []
+    for members in found:
+        pairs = set(combinations(sorted(members), 2))
+        ranked.append(
+            Group(
+                tuple(sorted(members)),
+                suggested=bool(pairs & suggested.keys()),
+                both=any(suggested.get(p, False) for p in pairs),
+                mails=max(mails.get(root, 0) for root in members),
+            )
+        )
+    return sorted(ranked, key=lambda g: (not g.suggested, not g.both, -g.mails, g.members))
 
 
-async def read_candidates(db: Executor) -> list[Candidate]:
-    """Every pair to ask about now, in order; about as long as a refresh of the suggestions
-    takes to find its keys."""
+def _clusters(pairs: Iterable[Pair]) -> list[frozenset[int]]:
+    """The connected persons of these pairs."""
+    parent: dict[int, int] = {}
+
+    def find(person: int) -> int:
+        while parent[person] != person:
+            parent[person] = parent[parent[person]]
+            person = parent[person]
+        return person
+
+    for a, b in pairs:
+        parent.setdefault(a, a)
+        parent.setdefault(b, b)
+        parent[find(a)] = find(b)
+    found: defaultdict[int, set[int]] = defaultdict(set)
+    for person in parent:
+        found[find(person)].add(person)
+    return sorted((frozenset(members) for members in found.values()), key=sorted)
+
+
+async def read_groups(db: Executor, version: int) -> list[Group]:
+    """Every group to ask about now with the prompt of this version, in order; about as long as
+    a refresh of the suggestions takes to find its keys."""
     addresses = (await db.execute(_ADDRESSES)).all()
     suggestions = [
         (row.person_a, row.person_b, AliasTier(row.tier), row.both)
         for row in await db.execute(_SUGGESTIONS)
     ]
-    left_out = {(a, b) for a, b in await db.execute(_LEFT_OUT)}
-    loose = loose_pairs((root, email, used) for root, email, used in addresses)
-    roots = {root for pair in loose for root in pair} | {
+    left_out = {(a, b) for a, b in await db.execute(_LEFT_OUT, {"version": version})}
+    loose = loose_sets((root, email, used) for root, email, used in addresses)
+    roots = {root for members in loose for root in members} | {
         root for a, b, *_ in suggestions for root in (a, b)
     }
     found = await db.execute(_MAILS, {"ids": sorted(roots)})
     mails = {row.person_id: row.mails for row in found}
-    return order(suggestions, loose, left_out, mails)
+    return groups(suggestions, loose, left_out, mails)

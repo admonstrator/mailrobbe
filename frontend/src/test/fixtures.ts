@@ -795,6 +795,7 @@ export const aliasCheck: AliasCheckState = {
   running: false,
   checked: 0,
   same: 0,
+  sure: 0,
 };
 
 export const suggestionPage: SuggestionPage = {
@@ -3574,6 +3575,7 @@ export const aiSuggestionPage: SuggestionPage = {
       ...uncertainSuggestionPage.items[1],
       ai: {
         verdict: "same",
+        certain: true,
         reason:
           "Beide Schlusszeilen nennen dieselbe Telefonnummer und die Funktion Schriftführerin.",
         model: "textmodell",
@@ -3589,6 +3591,7 @@ export const aiSuggestionPage: SuggestionPage = {
       reason: "ai",
       ai: {
         verdict: "same",
+        certain: false,
         reason: "Die private Adresse beginnt, als die dienstliche endet; dieselben Kontakte.",
         model: "textmodell",
         checked_at: "2026-10-23T09:01:00Z",
@@ -3599,7 +3602,7 @@ export const aiSuggestionPage: SuggestionPage = {
   total: 2,
   counts: suggestionCounts,
   computed: true,
-  check: { available: true, running: false, checked: 12, same: 2 },
+  check: { available: true, running: false, checked: 12, same: 2, sure: 1 },
 };
 
 export const certainMergePlan: CertainMergePlan = {

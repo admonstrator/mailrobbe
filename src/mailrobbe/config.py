@@ -92,7 +92,8 @@ class Settings(BaseSettings):
     # Ollama one such as http://host.docker.internal:11434; empty: no vision service. The
     # protocol is detected unless set. A service outside the own machine and private networks is
     # refused unless ai_allow_remote (D181); then a run stops after ai_remote_token_budget
-    # tokens. ai_concurrency requests per service at once, ai_timeout seconds each.
+    # tokens. ai_concurrency requests per service at once (pages read by the vision model,
+    # summaries, groups of the alias check, D327), ai_timeout seconds each.
     ai_vision_url: str = ""
     ai_vision_model: str = ""
     ai_vision_key: SecretStr = SecretStr("")

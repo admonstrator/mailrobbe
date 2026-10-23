@@ -788,10 +788,25 @@ async def test_the_verdicts_of_the_alias_check(
 
     def verdict(verdict: str, reason: str, minutes: int) -> Json:
         at = stamp(BASE + timedelta(minutes=minutes))
-        return {"verdict": verdict, "reason": reason, "model": "textmodell", "checked_at": at}
+        return {
+            "verdict": verdict,
+            "certain": False,
+            "reason": reason,
+            "model": "textmodell",
+            "checked_at": at,
+        }
 
     page = await get(writable, "/api/persons/suggestions", [("ai", "true")])
-    assert page["check"] == {"available": False, "running": False, "checked": 4, "same": 2}
+    assert page["check"] == {
+        "available": False,
+        "running": False,
+        "checked": 4,
+        "same": 2,
+        "sure": 0,
+    }
+    # nothing the model was sure of: nothing to merge at once (D326)
+    nothing = {"merges": 0, "persons": 0, "left_out_groups": 0, "left_out_persons": 0}
+    assert await get(writable, "/api/persons/merge-ai") == nothing
     assert page["total"] == 2
     found = {frozenset((i["first"]["id"], i["second"]["id"])): i for i in page["items"]}
     assert set(found) == {frozenset((same_a, same_b)), frozenset((seed.busy, loose))}
@@ -838,7 +853,7 @@ async def test_suggestions_that_were_never_computed(
         "total": 0,
         "counts": {"certain": 0, "uncertain": 0},
         "computed": False,
-        "check": {"available": False, "running": False, "checked": 0, "same": 0},
+        "check": {"available": False, "running": False, "checked": 0, "same": 0, "sure": 0},
     }
     # Suggestions of older rules, then none at all.
     for change in (

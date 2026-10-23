@@ -71,8 +71,8 @@ SUMMARY_RULE_SECONDS_PER_TASK = 3.0
 SUMMARY_RULE_SECONDS_PER_KTOKEN = 5.0
 
 # The alias check (D321 to D323).
-ALIAS_ANSWER_TOKENS = 1000  # max_tokens of a verdict: a word and a few sentences
-ALIAS_REASON_MAX_CHARS = 600  # a longer reason is cut there; the prompt asks for 400
+ALIAS_ANSWER_TOKENS = 1000  # max_tokens of an answer: the persons of a group with reasons
+ALIAS_REASON_MAX_CHARS = 600  # a longer reason is cut there; the prompt asks for 300
 
 
 class ForbiddenService(ValueError):
@@ -385,8 +385,9 @@ class AiProgress(RunProgress):
     duration: float | None = None  # of the recording in work, once decoded
     unreachable_since: datetime | None = None  # a service did not answer since then (D184)
     summaries: int = 0  # summarize tasks done (D300); done, no_text and failed count OCR's
-    aliases: int = 0  # pairs of persons checked (D321)
-    aliases_same: int = 0  # of them judged one person
+    aliases: int = 0  # groups of persons checked (D321, D324)
+    aliases_same: int = 0  # pairs of them judged one person
+    aliases_sure: int = 0  # of those, the model sure
 
 
 TRANSCRIBER_MODULES = ("onnx_asr", "onnxruntime", "av")  # what the transcriber needs installed

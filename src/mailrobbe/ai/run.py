@@ -27,18 +27,18 @@
                 at most the piece in work and the next run goes on from there (D293). Then
                 store.store_transcript_result, the task done, ai_calibration updated per minute
                 of recording. A file without sound or without speech is done without a text
-    summarize   the waiting summaries of mails and documents one at a time (ai.summarize.step,
-                D300 to D306), after OCR and transcription so a text recognised in this run is
-                what they read; a long text part by part, each part kept, so a stop continues
-                at the next part
+    summarize   the waiting summaries of mails and documents, concurrency at once
+                (ai.summarize.step, D300 to D306, D327), after OCR and transcription so a text
+                recognised in this run is what they read; a long text part by part, each part
+                kept, so a stop continues at the next part
     entities    the entities phase of the import (D84), which also computes the entity figures,
     signals     and the signals phase (D135), when a document's text changed in this run
 
 A run with --aliases (AiOptions.aliases, D321) takes no task but what is asked for on a page
-meanwhile (below): its check reads the candidate pairs of the alias check and makes the text
+meanwhile (below): its check reads the candidate groups of the alias check and makes the text
 service usable, which must be one on this machine (D322); its step aliases (ai.aliases.step) asks
-about one pair at a time and keeps each verdict, so a stop continues with the pairs not yet
-checked.
+about one group of persons at a time (D324) and keeps the verdicts of its pairs, so a stop
+continues with the groups not yet checked.
 
 A run started for some documents or mails (AiOptions.documents, AiOptions.mails, D280, D307)
 takes only their tasks, of every kind, and leaves the rest of the queue waiting.
@@ -80,7 +80,7 @@ import asyncio
 import logging
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -261,9 +261,10 @@ class AiSummary:
     summaries: int = 0  # summaries stored
     summaries_failed: int = 0
     text: str | None = None  # display URL of the text service the run used
-    aliases_queued: int = 0  # candidate pairs of a run with --aliases (D321)
-    aliases: int = 0  # pairs checked
-    aliases_same: int = 0  # of them judged one person
+    aliases_queued: int = 0  # candidate groups of a run with --aliases (D321, D324)
+    aliases: int = 0  # groups checked
+    aliases_same: int = 0  # pairs of them judged one person
+    aliases_sure: int = 0  # of those, the model sure
     aliases_failed: int = 0
 
 
@@ -1452,8 +1453,8 @@ class _Run:
     # summarize ---------------------------------------------------------------------------------
 
     async def _summarize(self) -> bool:
-        """The waiting summarize tasks one at a time (ai.summarize.step, D300 to D306); False
-        when it turned to tasks asked for elsewhere (D329)."""
+        """The waiting summarize tasks, options.concurrency at once (ai.summarize.step, D300 to
+        D306, D327); False when it turned to tasks asked for elsewhere (D329)."""
         step = self.summaries
         if step.service is None:  # none waits, or no usable text service (_check_text)
             self._skip("summarize")
@@ -1462,15 +1463,20 @@ class _Run:
         self.ran.add("summarize")
         ended, turned = None, False
         with self.job.steps.step("summarize", unit="texts", total=step.waiting) as counter:
-            try:
-                while not self.job.stop.is_set():
+
+            async def worker() -> None:
+                nonlocal turned
+                while not self.job.stop.is_set() and not turned:
                     task = await step.take(counter)
                     if task is None:
-                        break
+                        return
                     self.taken += 1
                     await step.work(task, counter)
-                    if turned := await self._turn(AiTaskKind.SUMMARIZE):
-                        break
+                    if await self._turn(AiTaskKind.SUMMARIZE):
+                        turned = True
+
+            try:
+                await self._together(worker)
             except _Ended as error:  # the step ends stopped or done, not failed
                 ended = error
         if ended is not None:
@@ -1478,6 +1484,16 @@ class _Run:
         if self.job.stop.is_set():
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
         return not turned
+
+    async def _together(self, worker: Callable[[], Coroutine[Any, Any, None]]) -> None:
+        """worker() options.concurrency times at once, each taking the next piece of work until
+        none is left (D327); the first to fail cancels the others, and its error is raised."""
+        try:
+            async with asyncio.TaskGroup() as group:
+                for _ in range(max(1, self.options.concurrency)):
+                    group.create_task(worker())
+        except BaseExceptionGroup as failed:
+            raise failed.exceptions[0] from None
 
     async def _answer[T](self, service: Service, call: Callable[[], T]) -> T:
         """What call() gives in a thread once service answers (D184): one that does not answer
@@ -1544,7 +1560,7 @@ class _Run:
             self.job.steps.skip("aliases")
             return
         self.job.set_phase("aliases")
-        with self.job.steps.step("aliases", unit="pairs", total=waiting) as counter:
+        with self.job.steps.step("aliases", unit="groups", total=waiting) as counter:
             await self.aliases.work(counter)
         if self.job.stop.is_set():
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
@@ -1553,8 +1569,9 @@ class _Run:
         """The figures of a run with --aliases in one line, for job.message."""
         summary = self.summary
         line = (
-            f"{summary.aliases} of {summary.aliases_queued} pairs of persons checked "
-            f"({summary.aliases_same} one person, {summary.aliases_failed} failed)"
+            f"{summary.aliases} of {summary.aliases_queued} groups of persons checked "
+            f"({summary.aliases_same} pairs one person, {summary.aliases_sure} of them sure, "
+            f"{summary.aliases_failed} failed)"
         )
         if summary.tokens_in or summary.tokens_out:
             line += f", {summary.tokens_in + summary.tokens_out} tokens"

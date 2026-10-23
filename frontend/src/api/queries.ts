@@ -230,7 +230,7 @@ export const queryKeys = {
   personMailCounts: (id: number, params: PersonMailCountParams) =>
     ["persons", "mail-counts", id, params] as const,
   personEvents: (id: number) => ["persons", "events", id] as const,
-  certainMergePlan: ["persons", "merge-certain"] as const,
+  certainMergePlan: (ai: boolean) => ["persons", ai ? "merge-ai" : "merge-certain"] as const,
   mergeLog: ["persons", "merges"] as const,
   graph: (params: GraphParams) => ["graph", params] as const,
   graphSize: (params: GraphParams) => ["graph-size", params] as const,
@@ -551,22 +551,29 @@ function refreshMerged(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["mail"], refetchType: "none" });
 }
 
-/** What "Alle sicheren zusammenführen" would merge now (D162), asked when its dialog opens. */
-export function useCertainMergePlan(enabled: boolean) {
+/** What "Alle sicheren zusammenführen" would merge now (D162), or with ai "Alle sicheren
+ *  KI-Treffer zusammenführen" (D326), asked when its dialog opens. */
+export function useCertainMergePlan(enabled: boolean, ai = false) {
   return useQuery({
-    queryKey: queryKeys.certainMergePlan,
+    queryKey: queryKeys.certainMergePlan(ai),
     queryFn: ({ signal }) =>
-      apiGet<CertainMergePlan>("/api/persons/merge-certain", undefined, signal),
+      apiGet<CertainMergePlan>(
+        ai ? "/api/persons/merge-ai" : "/api/persons/merge-certain",
+        undefined,
+        signal,
+      ),
     enabled,
     staleTime: 0,
   });
 }
 
-/** Merges every certain suggestion as one run (D162). */
-export function useMergeCertain() {
+/** Merges every certain suggestion as one run (D162), or with ai every pair the text model was
+ *  sure of (D326). */
+export function useMergeCertain(ai = false) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<CertainMergeResult>("/api/persons/merge-certain"),
+    mutationFn: () =>
+      apiPost<CertainMergeResult>(ai ? "/api/persons/merge-ai" : "/api/persons/merge-certain"),
     onSuccess: () => refreshMerged(queryClient),
   });
 }

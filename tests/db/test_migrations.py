@@ -295,7 +295,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0024"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0025"
 
 
 @pytest.mark.db
@@ -506,6 +506,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0024' WHERE alembic_version.version_num = '0023'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0025' WHERE alembic_version.version_num = '0024'"
         in sql
     )
 
