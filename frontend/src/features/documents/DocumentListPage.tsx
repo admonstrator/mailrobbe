@@ -5,7 +5,6 @@ import { ApiError } from "../../api/client";
 import { useDocumentPage, useDocumentSummary, useStats } from "../../api/queries";
 import type { DocumentSort, DocumentSummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
@@ -15,11 +14,13 @@ import { formatNumber } from "../../lib/format";
 import { edgePages, listPagination, type Total } from "../../lib/paging";
 import { DebouncedInput } from "./DebouncedInput";
 import { AiQueueButton } from "./DocumentOcr";
-import { DocumentFilterColumn } from "./DocumentFilterColumn";
+import { DocumentFilterBar } from "./DocumentFilterBar";
 import styles from "./DocumentListPage.module.css";
-import { DocumentTable } from "./DocumentTable";
+import { DocumentPanel } from "./DocumentPanel";
+import { DocumentRows } from "./DocumentRows";
 import { highlightTerms } from "../../lib/highlight";
 import { SummarizeButton } from "../ai/SummarizeManyDialog";
+import { CompactPager } from "../mails/CompactPager";
 import { useBarHeight } from "../mails/useBarHeight";
 import { SORT_LABELS } from "./labels";
 import {
@@ -49,7 +50,12 @@ function totalText(summary: DocumentSummary | undefined, filtered: boolean): str
   return filtered ? `${total} ${noun} gefunden` : `${total} ${noun}`;
 }
 
-/** The document list "Anhänge" (D74): filters, search, sort, one page of documents. */
+/** The URL parameter of the document open in the panel beside the list (D335). */
+export const DOCUMENT_PREVIEW_PARAM = "vorschau";
+
+/** The document list "Anhänge" (D74), in the pattern of the mail list (D335): a sticky head with
+ *  title, count, search, sort and pager, the filter chips, the rows, and a document opened from
+ *  a row in the panel beside them, kept in the URL (?vorschau=). */
 export function DocumentListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parseDocumentListState(searchParams), [searchParams]);
@@ -64,64 +70,73 @@ export function DocumentListPage() {
   const programs = useDocumentSummary(facetFilters(filters, "program"));
   const terms = useMemo(() => highlightTerms(state.q), [state.q]);
   const bar = useBarHeight<HTMLDivElement>();
+  const previewText = searchParams.get(DOCUMENT_PREVIEW_PARAM);
+  const previewId = previewText && /^\d+$/.test(previewText) ? Number(previewText) : null;
 
+  // The list's own state; the open document goes along while the filters stay.
   const setState = (next: DocumentListState) =>
-    setSearchParams(documentListSearch(next), { preventScrollReset: true });
+    setSearchParams(withPreview(documentListSearch(next), previewId), {
+      preventScrollReset: true,
+    });
   // Typing replaces the entry instead of adding one per pause; the latest URL is the base, as
   // the timer fires after the render that started it.
   const typed = (patch: DocumentFilterPatch) =>
     setSearchParams(
-      (current) => documentListSearch(withDocumentFilters(parseDocumentListState(current), patch)),
+      (current) =>
+        withPreview(
+          documentListSearch(withDocumentFilters(parseDocumentListState(current), patch)),
+          previewId,
+        ),
       { replace: true, preventScrollReset: true },
     );
+  const preview = (id: number | null) =>
+    setSearchParams((current) => withPreview(new URLSearchParams(current), id), {
+      preventScrollReset: true,
+    });
+
+  const paging =
+    page.data && page.data.items.length > 0
+      ? listPagination(
+          state,
+          page.data,
+          page.data.items.length,
+          documentTotal(summary.data),
+          documentListHref,
+        )
+      : null;
 
   return (
-    <div className={styles.layout}>
+    <div className={styles.page}>
       <title>Anhänge · Mailrobbe</title>
-      <DocumentFilterColumn
-        state={state}
-        onChange={setState}
-        onName={(name) => typed({ name })}
-        kinds={kinds.data}
-        statuses={statuses.data}
-        protections={protections.data}
-        authors={authors.data}
-        programs={programs.data}
-        stats={stats.data}
-      />
-      <main className={styles.main}>
-        {/* Title, count, search and sort in one row that stays above the table while it
-            scrolls. */}
-        <div ref={bar} className={styles.listBar}>
-          <div className={styles.head}>
-            <h1 className={styles.title}>Anhänge</h1>
-            <span className={styles.total} aria-live="polite">
-              {totalText(summary.data, hasDocumentFilters(state))}
-            </span>
+      {/* Title, count, search, sort and the filters stay above the rows while they scroll. */}
+      <div ref={bar} className={styles.head}>
+        <div className={styles.toolbar}>
+          <h1 className={styles.title}>Anhänge</h1>
+          <span className={styles.total} aria-live="polite">
+            {totalText(summary.data, hasDocumentFilters(state))}
+          </span>
+          <div className={styles.search}>
+            <SearchIcon className={styles.searchIcon} />
+            <label htmlFor="document-search" className="sr-only">
+              Anhänge durchsuchen
+            </label>
+            <DebouncedInput
+              id="document-search"
+              type="search"
+              className={styles.searchInput}
+              placeholder="Text und Dateinamen der Anhänge durchsuchen …"
+              value={state.q}
+              onCommit={(q) => typed({ q })}
+            />
+          </div>
+          <div className={styles.tools}>
             {hasDocumentFilters(state) && (
               <>
                 <AiQueueButton filters={filters} summary={summary.data} />
                 <SummarizeButton selection={{ filters }} />
               </>
             )}
-          </div>
-
-          <div className={styles.toolbar}>
-            <div className={styles.search}>
-              <SearchIcon className={styles.searchIcon} />
-              <label htmlFor="document-search" className="sr-only">
-                Anhänge durchsuchen
-              </label>
-              <DebouncedInput
-                id="document-search"
-                type="search"
-                className={styles.searchInput}
-                placeholder="Text und Dateinamen der Anhänge durchsuchen …"
-                value={state.q}
-                onCommit={(q) => typed({ q })}
-              />
-            </div>
-            <label htmlFor="document-sort" className={styles.sortLabel}>
+            <label htmlFor="document-sort" className="sr-only">
               Sortierung
             </label>
             <select
@@ -138,10 +153,24 @@ export function DocumentListPage() {
                 </option>
               ))}
             </select>
+            {paging && <CompactPager paging={paging} />}
           </div>
         </div>
+        <DocumentFilterBar
+          state={state}
+          onChange={setState}
+          onName={(name) => typed({ name })}
+          kinds={kinds.data}
+          statuses={statuses.data}
+          protections={protections.data}
+          authors={authors.data}
+          programs={programs.data}
+          stats={stats.data}
+        />
+      </div>
 
-        <Card className={styles.tableCard}>
+      <div className={styles.body}>
+        <div className={styles.list}>
           {page.isPending ? (
             <div className={styles.loading}>
               <Spinner label="Anhänge werden geladen" />
@@ -168,24 +197,32 @@ export function DocumentListPage() {
               </EmptyState>
             )
           ) : (
-            <DocumentTable items={page.data.items} terms={terms} stale={page.isPlaceholderData} />
+            <DocumentRows
+              items={page.data.items}
+              terms={terms}
+              stale={page.isPlaceholderData}
+              openId={previewId}
+              onOpen={preview}
+              narrow={previewId !== null}
+            />
           )}
-        </Card>
-
-        {page.data && page.data.items.length > 0 && (
-          <Pagination
-            {...listPagination(
-              state,
-              page.data,
-              page.data.items.length,
-              documentTotal(summary.data),
-              documentListHref,
-            )}
-          />
-        )}
-      </main>
+          {paging && (
+            <div className={styles.foot}>
+              <Pagination {...paging} />
+            </div>
+          )}
+        </div>
+        {previewId !== null && <DocumentPanel id={previewId} onClose={() => preview(null)} />}
+      </div>
     </div>
   );
+}
+
+/** search with the document of the panel, or without one. */
+function withPreview(search: URLSearchParams, id: number | null): URLSearchParams {
+  if (id === null) search.delete(DOCUMENT_PREVIEW_PARAM);
+  else search.set(DOCUMENT_PREVIEW_PARAM, String(id));
+  return search;
 }
 
 /** The list's length as DocumentSummary counts it, for the page numbers (D193). */

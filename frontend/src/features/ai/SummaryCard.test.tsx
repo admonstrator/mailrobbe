@@ -323,7 +323,7 @@ describe("summaries on the mail and document pages", () => {
   it("summarises a document from beside its download", async () => {
     const view = { ...aiSummaryNone };
     const { calls } = renderApp(`/anhaenge/${documentDetail.id}`, summaryApi(view));
-    const header = (await screen.findByRole("heading", { level: 1 })).closest("section")!;
+    const header = (await screen.findByRole("heading", { level: 1 })).closest("header")!;
     const button = await within(header).findByRole("button", { name: "Zusammenfassen" });
     const download = within(header).getByRole("link", { name: "Herunterladen" });
     expect(download.parentElement).toBe(button.parentElement);
@@ -355,7 +355,7 @@ describe("summaries on the mail and document pages", () => {
     ).toBeTruthy();
     expect(within(card).getByRole("link", { name: "Spendenquittungen" })).toBeTruthy();
     expect(within(card).queryByRole("button", { name: /als Team-Tag übernehmen/ })).toBeNull();
-    const header = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    const header = screen.getByRole("heading", { level: 1 }).closest("header")!;
     expect(within(header).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
   });
 });

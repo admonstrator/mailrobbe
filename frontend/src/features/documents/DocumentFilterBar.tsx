@@ -1,0 +1,348 @@
+import { useState } from "react";
+
+import { useAiTags } from "../../api/queries";
+import {
+  FACET_LIMIT,
+  MAX_FACET_LIMIT,
+  type DocumentKind,
+  type DocumentSummary,
+  type DocumentTextStatus,
+  type Stats,
+} from "../../api/types";
+import { Button } from "../../components/Button";
+import { Checkbox } from "../../components/Checkbox";
+import { PlusIcon } from "../../components/icons";
+import { Spinner } from "../../components/Spinner";
+import { utcDay } from "../../lib/format";
+import { useDebounced } from "../../lib/useDebounced";
+import { DateField } from "../mails/FilterColumn";
+import { FilterBarContext, FilterGroup, FilterPopover } from "../mails/FilterGroup";
+import { DebouncedInput } from "./DebouncedInput";
+import styles from "./DocumentFilterBar.module.css";
+import { KindIcon } from "./KindIcon";
+import {
+  DOCUMENT_KINDS,
+  KIND_LABELS,
+  PROTECTION_FILTER_LABELS,
+  PROTECTIONS,
+  TEXT_ORIGIN_LABELS,
+  TEXT_ORIGINS,
+  TEXT_STATUS_FILTER_LABELS,
+  TEXT_STATUSES,
+} from "./labels";
+import { MetadataFacet } from "./MetadataFacet";
+import { PersonField } from "./PersonField";
+import { ProtectionMark } from "./ProtectionMark";
+import {
+  facetFilters,
+  toDocumentFilters,
+  withDocumentFilters,
+  withoutDocumentFilters,
+  type DocumentFilterPatch,
+  type DocumentListState,
+} from "./urlState";
+
+/** Statuses always offered; the others once documents have them (or a link selects them). */
+const MAIN_STATUSES: readonly DocumentTextStatus[] = [
+  "text",
+  "scanned",
+  "encrypted",
+  "failed",
+  "unsupported",
+];
+
+/** Count of one value in a summary group: absent values have none; unknown while loading or when
+ *  counting ran out of time. */
+function countOf<K extends string>(
+  counts: Partial<Record<K, number>> | null | undefined,
+  key: K,
+): number | undefined {
+  return counts ? (counts[key] ?? 0) : undefined;
+}
+
+function toggle<T>(values: readonly T[], value: T, checked: boolean, order: readonly T[]): T[] {
+  const next = checked ? [...values, value] : values.filter((other) => other !== value);
+  return order.filter((item) => next.includes(item));
+}
+
+/** The filter bar of the document list (D74, D335): one chip per group, each opening its
+ *  controls in a popover, the rare groups under "Weitere Filter". Each group of checkboxes is
+ *  counted without its own selection, so its other values keep their counts. */
+export function DocumentFilterBar({
+  state,
+  onChange,
+  onName,
+  kinds,
+  statuses,
+  protections,
+  authors,
+  programs,
+  stats,
+}: {
+  state: DocumentListState;
+  onChange: (next: DocumentListState) => void;
+  /** The file name filter, typed: replaces the history entry instead of adding one per pause. */
+  onName: (name: string) => void;
+  kinds: DocumentSummary | undefined;
+  statuses: DocumentSummary | undefined;
+  protections: DocumentSummary | undefined;
+  /** The summaries the facets "Autor" and "Programm" count with (D167). */
+  authors: DocumentSummary | undefined;
+  programs: DocumentSummary | undefined;
+  stats: Stats | undefined;
+}) {
+  const change = (patch: DocumentFilterPatch) => onChange(withDocumentFilters(state, patch));
+  const shownStatuses = TEXT_STATUSES.filter(
+    (status) =>
+      MAIN_STATUSES.includes(status) ||
+      (statuses?.text_status?.[status] ?? 0) > 0 ||
+      state.text_status.includes(status),
+  );
+  const dayMin = stats?.date_min ? utcDay(stats.date_min) : undefined;
+  const dayMax = stats?.date_max ? utcDay(stats.date_max) : undefined;
+  const filters = toDocumentFilters(state);
+  const moreActive =
+    state.text_origin.length > 0 || state.protection.length > 0 || state.shared || state.external;
+  const filtered = Object.keys(filters).some((key) => key !== "q");
+
+  return (
+    <div className={styles.bar} role="group" aria-label="Filter">
+      <FilterBarContext value={true}>
+        <FilterGroup id="documents.kind" title="Art" active={state.kind.length > 0}>
+          {DOCUMENT_KINDS.map((kind: DocumentKind) => (
+            <Checkbox
+              key={kind}
+              checked={state.kind.includes(kind)}
+              onChange={(checked) =>
+                change({ kind: toggle(state.kind, kind, checked, DOCUMENT_KINDS) })
+              }
+              count={countOf(kinds?.kinds, kind)}
+            >
+              <KindIcon kind={kind} size={15} />
+              {KIND_LABELS[kind]}
+            </Checkbox>
+          ))}
+        </FilterGroup>
+
+        <FilterGroup id="documents.status" title="Textstatus" active={state.text_status.length > 0}>
+          {shownStatuses.map((status) => (
+            <div key={status} className={styles.option}>
+              <Checkbox
+                checked={state.text_status.includes(status)}
+                onChange={(checked) =>
+                  change({
+                    text_status: toggle(state.text_status, status, checked, TEXT_STATUSES),
+                  })
+                }
+                count={countOf(statuses?.text_status, status)}
+              >
+                {TEXT_STATUS_FILTER_LABELS[status]}
+              </Checkbox>
+              {status === "scanned" && (
+                <p className={styles.hint}>
+                  Ohne Textebene: Die Volltextsuche findet sie erst, wenn die Texterkennung (Seite
+                  „KI“) sie gelesen hat.
+                </p>
+              )}
+            </div>
+          ))}
+        </FilterGroup>
+
+        <FilterGroup
+          id="documents.date"
+          title="Zeitraum"
+          active={state.date_from !== null || state.date_to !== null}
+        >
+          <div className={styles.dates}>
+            <DateField
+              id="document-date-from"
+              label="von"
+              value={state.date_from}
+              min={dayMin}
+              max={state.date_to ?? dayMax}
+              onCommit={(date_from) => change({ date_from })}
+            />
+            <DateField
+              id="document-date-to"
+              label="bis"
+              value={state.date_to}
+              min={state.date_from ?? dayMin}
+              max={dayMax}
+              onCommit={(date_to) => change({ date_to })}
+            />
+          </div>
+        </FilterGroup>
+
+        <FilterPopover label="Person" active={state.person !== null}>
+          <PersonField
+            person={state.person}
+            role={state.person_role}
+            onChange={(person, person_role) => change({ person, person_role })}
+          />
+        </FilterPopover>
+
+        <FilterPopover label="Dateiname" active={state.name !== ""}>
+          <div className={styles.group}>
+            <label htmlFor="document-name" className={styles.legend}>
+              Dateiname enthält
+            </label>
+            <DebouncedInput
+              id="document-name"
+              type="search"
+              className={styles.input}
+              placeholder="z. B. protokoll, .xlsx"
+              value={state.name}
+              onCommit={onName}
+            />
+          </div>
+        </FilterPopover>
+
+        <MetadataFacet
+          field="author"
+          selected={state.author}
+          top={authors?.authors}
+          filters={facetFilters(filters, "author")}
+          onChange={(author) => change({ author })}
+        />
+
+        <MetadataFacet
+          field="program"
+          selected={state.program}
+          top={programs?.programs}
+          filters={facetFilters(filters, "program")}
+          onChange={(program) => change({ program })}
+        />
+
+        <AiTagFilter selected={state.ai_tag} onChange={(ai_tag) => change({ ai_tag })} />
+      </FilterBarContext>
+
+      <FilterPopover label="Weitere Filter" active={moreActive} dashed icon={<PlusIcon />}>
+        <FilterGroup id="documents.origin" title="Textquelle" active={state.text_origin.length > 0}>
+          {TEXT_ORIGINS.map((origin) => (
+            <Checkbox
+              key={origin}
+              checked={state.text_origin.includes(origin)}
+              onChange={(checked) =>
+                change({ text_origin: toggle(state.text_origin, origin, checked, TEXT_ORIGINS) })
+              }
+            >
+              {TEXT_ORIGIN_LABELS[origin]}
+            </Checkbox>
+          ))}
+        </FilterGroup>
+
+        <FilterGroup
+          id="documents.protection"
+          title="Verschlüsselt"
+          active={state.protection.length > 0}
+        >
+          {PROTECTIONS.map((protection) => (
+            <Checkbox
+              key={protection}
+              checked={state.protection.includes(protection)}
+              onChange={(checked) =>
+                change({ protection: toggle(state.protection, protection, checked, PROTECTIONS) })
+              }
+              count={countOf(protections?.protection, protection)}
+            >
+              <ProtectionMark protection={protection} decorative />
+              {PROTECTION_FILTER_LABELS[protection]}
+            </Checkbox>
+          ))}
+        </FilterGroup>
+
+        <div className={styles.group} role="group" aria-label="Weitere">
+          <Checkbox checked={state.shared} onChange={(shared) => change({ shared })}>
+            In mehreren Mails
+          </Checkbox>
+          {((stats?.internal_domains.length ?? 0) > 0 || state.external) && (
+            <Checkbox checked={state.external} onChange={(external) => change({ external })}>
+              Nur extern ↔ intern
+            </Checkbox>
+          )}
+        </div>
+      </FilterPopover>
+
+      {filtered && (
+        <Button variant="link" size="sm" onClick={() => onChange(withoutDocumentFilters(state))}>
+          Zurücksetzen
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** AI tags offered before a search. */
+const AI_TAGS_SHOWN = 6;
+
+/** The AI tags of the documents' summaries (D309), machine made (D311): the chosen ones as
+ *  chips, the most used others and a search by name (GET /api/ai/tags). Left out while the
+ *  archive has no AI tags and none is chosen. */
+function AiTagFilter({
+  selected,
+  onChange,
+}: {
+  selected: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [text, setText] = useState("");
+  const q = useDebounced(text.trim(), 250);
+  const searching = text.trim() !== "";
+  const named = useAiTags({ id: selected, limit: MAX_FACET_LIMIT }, selected.length > 0);
+  const top = useAiTags({ limit: AI_TAGS_SHOWN + selected.length });
+  const found = useAiTags({ q, limit: FACET_LIMIT }, q !== "");
+  if (selected.length === 0 && !top.data?.length) return null;
+  const offered = ((searching ? found.data : top.data) ?? [])
+    .filter((tag) => !selected.includes(tag.id))
+    .slice(0, searching ? FACET_LIMIT : AI_TAGS_SHOWN);
+  const label = (id: number) => named.data?.find((tag) => tag.id === id)?.label ?? `#${id}`;
+
+  return (
+    <FilterGroup id="documents.ai_tag" title="KI-Schlagwort" active={selected.length > 0}>
+      <p className={styles.note}>Maschinell erzeugt, aus den Zusammenfassungen.</p>
+      {selected.map((id) => (
+        <span key={id} className={styles.chip}>
+          <span className={styles.chipText}>{label(id)}</span>
+          <button
+            type="button"
+            className={styles.chipRemove}
+            aria-label={`KI-Schlagwort entfernen: ${label(id)}`}
+            onClick={() => onChange(selected.filter((other) => other !== id))}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <input
+        type="search"
+        className={styles.input}
+        aria-label="KI-Schlagwort suchen"
+        placeholder="KI-Schlagwort suchen …"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {searching && !found.data && !found.isError ? (
+        <p className={styles.resultNote}>
+          <Spinner label="KI-Schlagwörter werden gesucht" /> Suche …
+        </p>
+      ) : searching && found.isError ? (
+        <p className={styles.note}>Die Suche ist fehlgeschlagen.</p>
+      ) : searching && offered.length === 0 ? (
+        <p className={styles.note}>Nichts gefunden.</p>
+      ) : (
+        offered.map((tag) => (
+          <Checkbox
+            key={tag.id}
+            checked={false}
+            onChange={() => {
+              onChange([...selected, tag.id]);
+              setText("");
+            }}
+          >
+            {tag.label}
+          </Checkbox>
+        ))
+      )}
+    </FilterGroup>
+  );
+}

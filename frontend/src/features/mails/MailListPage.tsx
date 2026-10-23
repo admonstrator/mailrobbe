@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { ApiError, buildQuery } from "../../api/client";
@@ -21,7 +21,7 @@ import {
 import { Button, buttonClass } from "../../components/Button";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
-import { InsightsIcon, PageBackIcon, PageOnIcon } from "../../components/icons";
+import { InsightsIcon } from "../../components/icons";
 import { OverflowMenu, type OverflowItem } from "../../components/OverflowMenu";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { SidePanel } from "../../components/SidePanel";
@@ -41,6 +41,7 @@ import { BulkBar } from "./BulkBar";
 import { filterChips } from "./chips";
 import { useColumns } from "./columns";
 import { EntityFacets, useEntityChipNames } from "./EntityFacets";
+import { CompactPager } from "./CompactPager";
 import { FilterBar } from "./FilterBar";
 import {
   hasFilters,
@@ -380,17 +381,7 @@ export function MailListPage() {
               <option value="date_desc">Neueste zuerst</option>
               <option value="date_asc">Älteste zuerst</option>
             </select>
-            {paging && (
-              <nav className={styles.pager} aria-label="Seite">
-                <span className={styles.range}>{paging.range}</span>
-                <Step to={paging.prev} label="Vorige Seite">
-                  <PageBackIcon size={18} />
-                </Step>
-                <Step to={paging.next} label="Nächste Seite">
-                  <PageOnIcon size={18} />
-                </Step>
-              </nav>
-            )}
+            {paging && <CompactPager paging={paging} />}
             <OverflowMenu items={menu} />
           </div>
         </div>
@@ -524,19 +515,6 @@ export function MailListPage() {
       )}
       {exporting && <ExportDialog {...exporting} onClose={() => setExporting(null)} />}
     </div>
-  );
-}
-
-/** A step of the compact pager: a link, or a quiet disabled button where there is no page. */
-function Step({ to, label, children }: { to: string | null; label: string; children: ReactNode }) {
-  return to === null ? (
-    <span className={cx(styles.step, styles.disabled)} aria-disabled="true" aria-label={label}>
-      {children}
-    </span>
-  ) : (
-    <Link to={to} className={styles.step} aria-label={label} title={label}>
-      {children}
-    </Link>
   );
 }
 
