@@ -8,7 +8,7 @@ import { formatNumber } from "../../lib/format";
 import { useDebounced } from "../../lib/useDebounced";
 import { usePersonSearch } from "../graph/personSearch";
 import { personLabel } from "../persons/labels";
-import styles from "./DocumentFilterColumn.module.css";
+import styles from "./DocumentFilterBar.module.css";
 import type { DocumentPersonRole } from "./urlState";
 
 const ROLE_OPTIONS: [DocumentPersonRole | "", string][] = [

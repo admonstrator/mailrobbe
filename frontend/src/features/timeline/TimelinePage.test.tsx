@@ -33,8 +33,9 @@ describe("timeline screen", () => {
     const labels = within(navigation)
       .getAllByRole("link")
       .map((link) => link.textContent);
-    expect(labels.indexOf("Zeitachse")).toBe(labels.indexOf("Karte") + 2);
-    expect(labels.indexOf("Orte")).toBe(labels.indexOf("Karte") + 1);
+    // The first of the analysis screens, before Karte and Orte.
+    expect(labels.indexOf("Karte")).toBe(labels.indexOf("Zeitachse") + 1);
+    expect(labels.indexOf("Orte")).toBe(labels.indexOf("Zeitachse") + 2);
     expect(document.title).toBe("Zeitachse · Mailrobbe");
     expect(screen.getByRole("heading", { name: "Zeitachse", level: 1 })).toBeTruthy();
     expect(screen.getByText("Mailaufkommen für die aktuelle Suche und Filter")).toBeTruthy();

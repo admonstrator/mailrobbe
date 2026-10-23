@@ -1,7 +1,6 @@
-import { useImportErrors } from "../../api/queries";
-import type { ImportErrorItem } from "../../api/types";
+import { useImportErrors, type ImportErrorFilters } from "../../api/queries";
+import type { ImportErrorItem, ImportErrorKind } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { Spinner } from "../../components/Spinner";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import styles from "./ErrorLog.module.css";
@@ -42,32 +41,58 @@ export function ErrorEntry({
   );
 }
 
-/** "Fehlerprotokoll": the newest import errors, polled while a run is alive. */
-export function ErrorLog({ alive, onShowAll }: { alive: boolean; onShowAll: () => void }) {
+/** The tab "Fehler": the import errors grouped by their cause, each group opening its errors,
+ *  and the newest errors as the log, polled while a run is alive. */
+export function ErrorLog({
+  alive,
+  onShow,
+}: {
+  alive: boolean;
+  onShow: (filters: ImportErrorFilters) => void;
+}) {
   const errors = useImportErrors({ limit: NEWEST }, alive);
+  if (errors.isPending) return <Spinner label="Fehlerprotokoll wird geladen" />;
+  if (errors.isError) {
+    return <p className={styles.note}>Das Fehlerprotokoll konnte nicht geladen werden.</p>;
+  }
+  if (errors.data.items.length === 0) {
+    return <p className={styles.note}>Der Import hat keine Fehler gemeldet.</p>;
+  }
+  const kinds = (Object.entries(errors.data.kinds) as [ImportErrorKind, number][]).sort(
+    ([, a], [, b]) => b - a,
+  );
   return (
-    <Card variant="side" aria-labelledby="import-errors-title">
-      <div className={styles.head}>
-        <CardTitle id="import-errors-title">Fehlerprotokoll</CardTitle>
-        {errors.data && errors.data.total > 0 && (
-          <Button variant="link" size="xs" className={styles.all} onClick={onShowAll}>
+    <div className={styles.tab}>
+      <section aria-labelledby="import-error-kinds" className={styles.section}>
+        <div className={styles.head}>
+          <h2 id="import-error-kinds" className={styles.title}>
+            Nach Ursache
+          </h2>
+          <Button variant="link" size="sm" className={styles.all} onClick={() => onShow({})}>
             {`Alle ${formatNumber(errors.data.total)}`}
           </Button>
-        )}
-      </div>
-      {errors.isPending ? (
-        <Spinner label="Fehlerprotokoll wird geladen" />
-      ) : errors.isError ? (
-        <p className={styles.note}>Das Fehlerprotokoll konnte nicht geladen werden.</p>
-      ) : errors.data.items.length === 0 ? (
-        <p className={styles.note}>Der Import hat keine Fehler gemeldet.</p>
-      ) : (
+        </div>
+        <ul className={styles.kinds}>
+          {kinds.map(([kind, count]) => (
+            <li key={kind}>
+              <button type="button" className={styles.kind} onClick={() => onShow({ kind })}>
+                <span className={styles.kindText}>{ERROR_KIND_TEXTS[kind]}</span>
+                <span className={styles.kindCount}>{formatNumber(count)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section aria-labelledby="import-errors-title" className={styles.section}>
+        <h2 id="import-errors-title" className={styles.title}>
+          Fehlerprotokoll
+        </h2>
         <ol className={styles.list}>
           {errors.data.items.map((error) => (
             <ErrorEntry key={error.id} error={error} />
           ))}
         </ol>
-      )}
-    </Card>
+      </section>
+    </div>
   );
 }

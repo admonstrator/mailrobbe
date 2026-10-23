@@ -19,7 +19,6 @@ import type {
   AiTaskStatus,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -154,9 +153,11 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
     setFilter(filter.includes(value) ? filter.filter((s) => s !== value) : [...filter, value]);
 
   return (
-    <Card aria-labelledby="ai-queue-title">
+    <section className={styles.block} aria-labelledby="ai-queue-title">
       <div className={styles.cardHead}>
-        <CardTitle id="ai-queue-title">Warteschlange</CardTitle>
+        <h2 id="ai-queue-title" className={styles.blockTitle}>
+          Warteschlange
+        </h2>
         <div className={styles.headActions}>
           {counts.failed > 0 && (
             <Button
@@ -203,7 +204,7 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
             filter.length ? "Keine Aufträge mit diesem Status." : "Die Warteschlange ist leer."
           }
         >
-          Vorgemerkt wird oben in den Arbeitslisten, in der Anhangsliste oder auf der Seite eines
+          Vorgemerkt wird in den Arbeitslisten, in der Anhangsliste oder auf der Seite eines
           Dokuments; Zusammenfassungen auch in der Mailliste und auf der Seite einer Mail.
         </EmptyState>
       ) : (
@@ -241,7 +242,7 @@ export function QueueCard({ status, alive }: { status: AiStatus; alive: boolean 
         fetching={tasks.isFetchingNextPage}
         onMore={() => void tasks.fetchNextPage()}
       />
-    </Card>
+    </section>
   );
 }
 
@@ -325,8 +326,10 @@ export function ResultsCard({ alive }: { alive: boolean }) {
     setState(state.includes(value) ? state.filter((s) => s !== value) : [...state, value]);
 
   return (
-    <Card aria-labelledby="ai-results-title">
-      <CardTitle id="ai-results-title">Ergebnisse</CardTitle>
+    <section className={styles.block} aria-labelledby="ai-results-title">
+      <h2 id="ai-results-title" className={styles.blockTitle}>
+        Ergebnisse
+      </h2>
       <p className={styles.muted}>
         Jeder erkannte Text und jedes Transkript bleibt hier verzeichnet. Verworfen geht es aus der
         Suche, das Dokument bekommt einen früheren Text zurück oder steht wieder ohne Text da. Eine
@@ -379,7 +382,7 @@ export function ResultsCard({ alive }: { alive: boolean }) {
         onMore={() => void results.fetchNextPage()}
       />
       {target && <DiscardDialog target={target} onClose={() => setTarget(null)} />}
-    </Card>
+    </section>
   );
 }
 
@@ -597,8 +600,10 @@ export function SentCard() {
   const items = log.data?.pages.flatMap((page) => page.items) ?? [];
   const total = log.data?.pages[0]?.total ?? 0;
   return (
-    <Card aria-labelledby="ai-sent-title">
-      <CardTitle id="ai-sent-title">Gesendet</CardTitle>
+    <section className={styles.block} aria-labelledby="ai-sent-title">
+      <h2 id="ai-sent-title" className={styles.blockTitle}>
+        Gesendet
+      </h2>
       <p className={styles.muted}>
         {`Seitenbilder und Texte, die an einen Dienst im Internet gingen: ${formatNumber(total)} ${total === 1 ? "Sendung" : "Sendungen"}. Jede ist hier verzeichnet.`}
       </p>
@@ -641,6 +646,6 @@ export function SentCard() {
         fetching={log.isFetchingNextPage}
         onMore={() => void log.fetchNextPage()}
       />
-    </Card>
+    </section>
   );
 }

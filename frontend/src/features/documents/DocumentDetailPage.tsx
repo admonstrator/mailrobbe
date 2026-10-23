@@ -8,6 +8,7 @@ import { Button, buttonClass } from "../../components/Button";
 import { Card, CardTitle } from "../../components/Card";
 import { CompactBar, useScrolledPast } from "../../components/CompactBar";
 import { ErrorState } from "../../components/ErrorState";
+import { Figures, type Figure } from "../../components/PageHead";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import {
@@ -17,6 +18,7 @@ import {
   formatDateTime,
   formatNumber,
 } from "../../lib/format";
+import { useRecordVisit } from "../../lib/history";
 import { SummarizeButton, SummaryCard } from "../ai/SummaryCard";
 import { AttachmentPreview } from "../preview/AttachmentPreview";
 import { ContentsCard } from "./ContentsCard";
@@ -29,7 +31,7 @@ import {
   DocumentPersons,
   DocumentPreview,
 } from "./DocumentSide";
-import { StatusLabel } from "./DocumentTable";
+import { StatusLabel } from "./DocumentRows";
 import { DocumentTextCard } from "./DocumentTextCard";
 import { KindIcon } from "./KindIcon";
 import { MachineMark } from "./MachineMark";
@@ -64,9 +66,27 @@ export function DocumentDetailPage() {
   return <DocumentView key={id} id={Number(id)} />;
 }
 
+/** The document's entry in "Zuletzt angesehen" (D333): its name, and the mail it came with
+ *  first, else its kind. */
+function documentVisit(document: DocumentDetail) {
+  const first = document.first_mail;
+  return {
+    kind: "document" as const,
+    id: document.id,
+    title: documentName(document.name),
+    subtitle: first
+      ? `aus „${first.subject || "(ohne Betreff)"}“`
+      : document.kind
+        ? KIND_LABELS[document.kind]
+        : undefined,
+    path: documentPath(document.id),
+  };
+}
+
 function DocumentView({ id }: { id: number }) {
   const detail = useDocument(id);
   const name = detail.data ? documentName(detail.data.name) : null;
+  useRecordVisit(detail.data ? documentVisit(detail.data) : null);
   return (
     <div className={styles.page}>
       <title>{`${name ?? "Dokument"} · Mailrobbe`}</title>
@@ -126,7 +146,7 @@ function DocumentContent({ document }: { document: DocumentDetail }) {
       <main className={styles.main}>
         <DocumentHeader ref={header} document={document} />
         {document.protection && <ProtectionCard document={document} />}
-        <DocumentTiles document={document} />
+        <DocumentFigures document={document} />
         <SummaryCard target="document" id={document.id} />
         {document.preview && document.preview !== "image" && document.protection !== "locked" && (
           <PreviewCard document={document} kind={document.preview} onMedia={setPlayer} />
@@ -223,7 +243,7 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
   const heard = machine && document.text_origin === "transcript";
 
   return (
-    <Card ref={ref} className={styles.header}>
+    <header ref={ref} className={styles.header}>
       <div className={styles.identity}>
         <KindIcon kind={document.kind} size={36} />
         <div className={styles.titles}>
@@ -317,7 +337,7 @@ function DocumentHeader({ document, ref }: { document: DocumentDetail; ref?: Ref
           </dd>
         </div>
       </dl>
-    </Card>
+    </header>
   );
 }
 
@@ -405,40 +425,24 @@ function HashValue({ hash }: { hash: string }) {
   );
 }
 
-interface Tile {
-  label: string;
-  value: string;
-  sub: string;
-}
-
-function dateTile(label: string, iso: string | null): Tile {
-  if (!iso) return { label, value: "–", sub: "unbekannt" };
-  return { label, value: formatDate(iso), sub: formatDateTime(iso).slice(-5) + " Uhr" };
-}
-
-/** The figures of D70: mails without duplicates, every occurrence, first and last date. */
-function DocumentTiles({ document }: { document: DocumentDetail }) {
-  const tiles: Tile[] = [
-    { label: "Mails", value: formatNumber(document.mails), sub: "ohne Duplikate" },
+/** The figures of D70 as a row (D334): mails without duplicates, every occurrence, first and
+ *  last date. */
+function DocumentFigures({ document }: { document: DocumentDetail }) {
+  const items: Figure[] = [
+    { value: formatNumber(document.mails), label: "Mails", title: "ohne Duplikate" },
     {
-      label: "Anhänge",
       value: formatNumber(document.attachments),
-      sub: "Vorkommen, mit Duplikaten",
+      label: "Anhänge",
+      title: "Vorkommen, mit Duplikaten",
     },
-    dateTile("Erstmals", document.first_date),
-    dateTile("Zuletzt", document.last_date),
   ];
-  return (
-    <ul className={styles.tiles} aria-label="Kennzahlen">
-      {tiles.map((tile) => (
-        <li key={tile.label} className={styles.tile}>
-          <span className={styles.tileLabel}>{tile.label}</span>
-          <span className={styles.tileValue}>{tile.value}</span>
-          <span className={styles.tileSub}>{tile.sub}</span>
-        </li>
-      ))}
-    </ul>
-  );
+  for (const [label, iso] of [
+    ["erster Versand", document.first_date],
+    ["letzter Versand", document.last_date],
+  ] as const) {
+    if (iso) items.push({ value: formatDate(iso), label, title: `${formatDateTime(iso)} Uhr` });
+  }
+  return <Figures items={items} label="Kennzahlen" />;
 }
 
 function DocumentNotFound({ id }: { id?: number }) {

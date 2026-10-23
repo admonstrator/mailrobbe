@@ -2,10 +2,10 @@ import { useSearchParams } from "react-router";
 
 import { useResearch } from "../../api/queries";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
+import { PageHead } from "../../components/PageHead";
 import { formatNumber } from "../../lib/format";
 import styles from "./AktenScreen.module.css";
 import { CollectionList } from "./CollectionList";
@@ -52,7 +52,7 @@ export function AktenScreen() {
   const items: TabItem<AktenTab>[] = TABS.map((id) => {
     const count = counts[id];
     const label = TAB_LABELS[id];
-    return { id, label: count === undefined ? label : `${label} (${formatNumber(count)})` };
+    return { id, label: count === undefined ? label : `${label} ${formatNumber(count)}` };
   });
 
   return (
@@ -60,26 +60,23 @@ export function AktenScreen() {
       <title>
         {tab === "akten" ? "Akten · Mailrobbe" : `${TAB_LABELS[tab]} · Akten · Mailrobbe`}
       </title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Akten</h1>
-        {data && (
-          <span className={styles.total}>
-            {formatNumber(data.review.relevant)} relevant · {formatNumber(data.flagged)} markiert ·{" "}
-            {formatNumber(data.review.seen + data.review.relevant + data.review.irrelevant)}{" "}
-            gesichtet
-          </span>
-        )}
-        <div className={styles.tabs}>
-          <Tabs<AktenTab>
-            items={items}
-            active={tab}
-            onSelect={(next) =>
-              setSearchParams(next === "akten" ? {} : { tab: next }, { preventScrollReset: true })
-            }
-            idPrefix={TABS_ID}
-            label="Bereiche der Rechercheakte"
-          />
-        </div>
+      <PageHead
+        title="Akten"
+        sub={
+          data &&
+          `${formatNumber(data.review.relevant)} relevant · ${formatNumber(data.flagged)} markiert · ${formatNumber(data.review.seen + data.review.relevant + data.review.irrelevant)} gesichtet`
+        }
+      />
+      <div className={styles.tabs}>
+        <Tabs<AktenTab>
+          items={items}
+          active={tab}
+          onSelect={(next) =>
+            setSearchParams(next === "akten" ? {} : { tab: next }, { preventScrollReset: true })
+          }
+          idPrefix={TABS_ID}
+          label="Bereiche der Rechercheakte"
+        />
       </div>
 
       <div {...tabPanelProps(TABS_ID, tab)} className={styles.panel}>
@@ -88,18 +85,18 @@ export function AktenScreen() {
         ) : tab === "exporte" ? (
           <ExportList />
         ) : research.isPending ? (
-          <Card className={styles.loading}>
+          <div className={styles.loading}>
             <Spinner label="Rechercheakte wird geladen" />
-          </Card>
+          </div>
         ) : research.isError ? (
-          <Card>
+          <div>
             <ErrorState
               title="Die Rechercheakte konnte nicht geladen werden."
               actions={<Button onClick={() => void research.refetch()}>Erneut versuchen</Button>}
             >
               Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
             </ErrorState>
-          </Card>
+          </div>
         ) : tab === "themen" ? (
           <ThemeList starterMissing={research.data.starter_missing} />
         ) : tab === "suchen" ? (

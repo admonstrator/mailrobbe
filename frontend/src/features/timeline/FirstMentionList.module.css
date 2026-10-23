@@ -1,25 +1,28 @@
+/* A section on the page's sheet, parted from the chart by a line (D334). */
 .card {
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-border);
 }
 
 .head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font: var(--font-section);
 }
 
 .total {
   color: var(--color-muted);
   font-size: 13px;
-}
-
-.intro {
-  margin: 0;
-  max-width: 80ch;
-  color: var(--color-muted);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .toggles {
@@ -37,7 +40,7 @@
 
 /* No scroll container on wide screens, so the table header can stick below the shell's. */
 .scroll {
-  margin: 0 -24px;
+  margin: 0;
 }
 
 .table {
@@ -76,12 +79,12 @@
 
 .table th:first-child,
 .table td:first-child {
-  padding-left: 24px;
+  padding-left: var(--space-2);
 }
 
 .table th:last-child,
 .table td:last-child {
-  padding-right: 24px;
+  padding-right: var(--space-2);
 }
 
 .table tbody tr:last-child td {

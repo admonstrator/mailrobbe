@@ -6,7 +6,7 @@
 
 .table {
   width: 100%;
-  min-width: 960px;
+  min-width: 640px;
   border-collapse: collapse;
   transition: opacity 0.15s;
 }
@@ -20,19 +20,19 @@
   top: calc(var(--sticky-top) + var(--bar-height, 0px));
   z-index: 2;
   background: var(--color-surface);
-  box-shadow: inset 0 -1px var(--color-border);
-  padding: 10px 12px;
+  box-shadow: inset 0 -1px var(--color-border-subtle);
+  padding: var(--space-2) var(--space-3);
   color: var(--color-muted);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 500;
   text-align: left;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .table td {
-  padding: 6px 12px;
+  height: 52px;
+  box-sizing: border-box;
+  padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--color-border-subtle);
   font-size: 14px;
   vertical-align: middle;
@@ -40,10 +40,6 @@
 
 .table tbody tr {
   cursor: pointer;
-}
-
-.table tbody tr:last-child td {
-  border-bottom: 0;
 }
 
 .table tbody tr:hover td {
@@ -57,19 +53,31 @@
   white-space: nowrap;
 }
 
+.domainCol {
+  width: 22%;
+}
+
+.dateCol {
+  width: 110px;
+}
+
 .person {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
 .identity {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.nameLine {
+  position: relative;
+  align-self: flex-start;
 }
 
 .name,
@@ -78,10 +86,54 @@
   font-weight: 500;
 }
 
+/* The short profile of a name (D336): shown while the pointer or the focus is on the name. */
+.card {
+  position: absolute;
+  top: calc(100% + var(--space-5));
+  left: 0;
+  z-index: 10;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 16px 40px rgb(22 24 29 / 16%);
+  cursor: default;
+}
+
+.nameLine:hover > .card,
+.nameLine:focus-within > .card {
+  display: flex;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cardWho {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cardName {
+  font-weight: 600;
+}
+
+.cardLine {
+  color: var(--color-nav);
+  font-size: 13px;
+}
+
 .aliases {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
   background: var(--color-field);
   color: var(--color-nav);
   font-size: 12px;
@@ -95,13 +147,14 @@
 }
 
 .role {
-  margin-left: 8px;
+  margin-left: var(--space-2);
   color: var(--color-muted);
   font-size: 12px;
 }
 
 .domain {
   color: var(--color-nav);
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 
@@ -112,16 +165,8 @@
 .date,
 .muted {
   color: var(--color-muted);
+  font-size: 13px;
   white-space: nowrap;
-}
-
-/* The sticky header keeps the card's rounded corners. */
-.table th:first-child {
-  border-top-left-radius: var(--radius-card);
-}
-
-.table th:last-child {
-  border-top-right-radius: var(--radius-card);
 }
 
 @media (max-width: 1023px) {

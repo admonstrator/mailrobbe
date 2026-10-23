@@ -41,12 +41,16 @@ describe("profile card of a person's terms", () => {
         .getByRole("link", { name: "Alle Begriffe" })
         .getAttribute("href"),
     ).toBe("/themen?view=selection&person=11&person_role=sent");
-    // Between the yearly activity and the timeline.
+    // In the overview beside the contacts, above the signals.
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(headings.indexOf("Auffällige Begriffe")).toBe(
-      headings.indexOf("Aktivität pro Jahr") + 1,
+      headings.indexOf("Mit wem am meisten") + 1,
     );
-    expect(headings[headings.indexOf("Auffällige Begriffe") + 1]).toMatch(/^Verlauf/);
+    expect(
+      within(await card())
+        .getByRole("img")
+        .getAttribute("title"),
+    ).toBe("In den gesendeten Mails, verglichen mit dem übrigen Archiv");
   });
 
   it("says quietly that the next import computes the terms", async () => {

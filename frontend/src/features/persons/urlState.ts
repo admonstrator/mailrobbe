@@ -141,3 +141,32 @@ export function personMailList(personId: number, state: ProfileMailState): ListS
     limit: state.limit,
   };
 }
+
+/** The tabs of a profile (D336). */
+export type ProfileTab = "ueberblick" | "mails" | "kontakte" | "anhaenge" | "termine" | "signale";
+
+export const PROFILE_TABS: readonly ProfileTab[] = [
+  "ueberblick",
+  "mails",
+  "kontakte",
+  "anhaenge",
+  "termine",
+  "signale",
+];
+
+/** The tab a profile's URL names; without one the mails when the URL narrows them (a link from
+ *  before the tabs, or one into the person's mails), else the overview. */
+export function parseProfileTab(search: URLSearchParams): ProfileTab {
+  const named = PROFILE_TABS.find((tab) => tab === search.get("tab"));
+  if (named) return named;
+  return profileMailSearch(parseProfileMailState(search)).toString() ? "mails" : "ueberblick";
+}
+
+/** The query string of a profile: the tab, left out where it is the one the rest implies, and
+ *  the mail state, kept on every tab so that going back to the mails finds them as left. */
+export function profileSearch(tab: ProfileTab, state: ProfileMailState): URLSearchParams {
+  const search = profileMailSearch(state);
+  const implied = search.toString() ? "mails" : "ueberblick";
+  if (tab === implied) return search;
+  return new URLSearchParams([["tab", tab], ...search]);
+}

@@ -9,7 +9,9 @@ import { formatDate, formatNumber, formatPercent } from "../../lib/format";
 import styles from "./PersonTable.module.css";
 import { aliasHint, personLabel } from "./labels";
 
-/** One page of the person list. Each row opens the profile; the name is the real link. */
+/** One page of the person list (D31, D336): who it is, the domain, mails, contacts and the last
+ *  mail; the rest of the figures in a short profile on hovering or focusing the name. Each row
+ *  opens the profile; the name is the real link. */
 export function PersonTable({ items, stale }: { items: PersonSummary[]; stale: boolean }) {
   const navigate = useNavigate();
 
@@ -25,29 +27,23 @@ export function PersonTable({ items, stale }: { items: PersonSummary[]; stale: b
         <thead>
           <tr>
             <th>Person</th>
-            <th>Domain</th>
+            <th className={styles.domainCol}>Domain</th>
             <th className={styles.num}>Mails</th>
-            <th className={styles.num}>Gesendet</th>
-            <th className={styles.num}>Empfangen</th>
             <th className={styles.num}>Kontakte</th>
-            <th>Letzte Mail</th>
-            <th className={styles.num}>DKIM gültig</th>
+            <th className={cx(styles.num, styles.dateCol)}>Zuletzt</th>
           </tr>
         </thead>
         <tbody>
           {items.map((person) => {
             const { figures } = person;
+            const name = person.label?.name || person.name;
             return (
               <tr key={person.id} onClick={(event) => openRow(event, person.id)}>
                 <td>
                   <div className={styles.person}>
-                    <Avatar
-                      personId={person.id}
-                      name={person.label?.name || person.name}
-                      email={person.email}
-                    />
+                    <Avatar personId={person.id} name={name} email={person.email} />
                     <div className={styles.identity}>
-                      <span>
+                      <span className={styles.nameLine}>
                         <Link to={personPath(person.id)} className={styles.name}>
                           {personLabel(person)}
                         </Link>
@@ -57,27 +53,38 @@ export function PersonTable({ items, stale }: { items: PersonSummary[]; stale: b
                         {person.aliases > 0 && (
                           <span className={styles.aliases}>{aliasHint(person.aliases)}</span>
                         )}
+                        <span className={styles.card} role="tooltip">
+                          <span className={styles.cardHead}>
+                            <Avatar personId={person.id} name={name} email={person.email} />
+                            <span className={styles.cardWho}>
+                              <span className={styles.cardName}>{personLabel(person)}</span>
+                              <span className={styles.address}>{person.email}</span>
+                            </span>
+                          </span>
+                          <span className={styles.cardLine}>
+                            {`${formatNumber(figures.sent)} gesendet · ${formatNumber(
+                              figures.received,
+                            )} empfangen · `}
+                            {figures.dkim_pass_ratio === null
+                              ? "keine geprüfte Mail gesendet"
+                              : `DKIM gültig ${formatPercent(figures.dkim_pass_ratio)}`}
+                          </span>
+                          {figures.first_date && figures.last_date && (
+                            <span className={styles.cardLine}>
+                              {`Aktiv ${formatDate(figures.first_date)} bis ${formatDate(figures.last_date)}`}
+                            </span>
+                          )}
+                        </span>
                       </span>
-                      {(person.label?.name || person.name) && (
-                        <span className={styles.address}>{person.email}</span>
-                      )}
+                      {name && <span className={styles.address}>{person.email}</span>}
                     </div>
                   </div>
                 </td>
                 <td className={styles.domain}>{person.domain}</td>
                 <td className={cx(styles.num, styles.strong)}>{formatNumber(figures.mails)}</td>
-                <td className={styles.num}>{formatNumber(figures.sent)}</td>
-                <td className={styles.num}>{formatNumber(figures.received)}</td>
                 <td className={styles.num}>{formatNumber(figures.contacts)}</td>
-                <td className={styles.date}>
+                <td className={cx(styles.num, styles.date)}>
                   {figures.last_date ? formatDate(figures.last_date) : "–"}
-                </td>
-                <td className={styles.num}>
-                  {figures.dkim_pass_ratio === null ? (
-                    <span className={styles.muted}>–</span>
-                  ) : (
-                    formatPercent(figures.dkim_pass_ratio)
-                  )}
                 </td>
               </tr>
             );

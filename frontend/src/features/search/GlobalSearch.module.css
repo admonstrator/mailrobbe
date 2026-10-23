@@ -5,21 +5,21 @@
   display: flex;
   flex: 1 1 320px;
   min-width: 160px;
-  max-width: 560px;
+  max-width: 760px;
 }
 
 .search {
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  height: 36px;
+  height: 44px;
   box-sizing: border-box;
-  padding: 0 4px 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-field);
+  padding: 0 6px 0 16px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--color-ground-hover);
   transition:
     border-color var(--transition-fast),
     background-color var(--transition-fast),
@@ -28,6 +28,10 @@
 
 .search:hover {
   border-color: var(--color-border-strong);
+}
+
+.search:hover:not(:focus-within) {
+  background: #d9dfe8;
 }
 
 .search:focus-within {
@@ -46,7 +50,7 @@
   min-width: 0;
   border: 0;
   background: transparent;
-  font-size: 14px;
+  font-size: 15px;
   outline: none;
 }
 
@@ -71,10 +75,10 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: 999px;
   padding: 0;
   background: transparent;
   color: var(--color-muted);
@@ -118,11 +122,11 @@
   text-align: center;
 }
 
-/* 6 px below the header (the 36 px field sits 10 px above its lower edge); GlobalSearch sets
+/* 6 px below the header (the 44 px field sits 6 px above its lower edge); GlobalSearch sets
    left and width from the window's width. */
 .panel {
   position: absolute;
-  top: calc(100% + 16px);
+  top: calc(100% + 12px);
   left: 0;
   z-index: 40;
   box-sizing: border-box;
@@ -130,9 +134,9 @@
   overflow: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+  border-radius: 14px;
   background: var(--color-surface);
-  box-shadow: var(--shadow-popover);
+  box-shadow: 0 16px 40px rgb(22 24 29 / 16%);
   animation: menu-in 120ms ease-out;
 }
 
@@ -147,8 +151,7 @@
   }
 }
 
-/* With the header's narrower steps (AppShell.module.css) the field gives up the kbd hint for
-   its text. */
+/* On narrower windows the field gives up the kbd hint for its text. */
 @media (max-width: 1359px) {
   .area {
     min-width: 120px;
@@ -156,14 +159,6 @@
 
   .kbd {
     display: none;
-  }
-}
-
-/* Where the header's navigation may scroll (AppShell.module.css), the field gives way first: it
-   takes only the room left, down to its minimum, before the navigation scrolls. */
-@media (max-width: 1023px) {
-  .area {
-    flex-basis: 0;
   }
 }
 

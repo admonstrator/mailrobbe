@@ -6,14 +6,14 @@ import { ApiError } from "../../api/client";
 import { usePersonPage, useSuggestions } from "../../api/queries";
 import type { PersonPage, PersonSort } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
-import { Checkbox } from "../../components/Checkbox";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
+import { PageHead } from "../../components/PageHead";
+import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { edgePages, listPagination } from "../../lib/paging";
 import { MergeLog } from "./MergeLog";
@@ -32,7 +32,7 @@ const SEARCH_DELAY = 300;
 const TABS_ID = "persons";
 
 const SORT_LABELS: Record<PersonSort, string> = {
-  mails: "Mails",
+  mails: "Meiste Mails",
   name: "Name",
   recent: "Letzte Mail",
 };
@@ -44,12 +44,12 @@ const listHref = (state: PersonListState) => {
 
 const TITLES: Record<PersonsTab, string> = {
   personen: "Personen · Mailrobbe",
-  vorschlaege: "Alias-Vorschläge · Mailrobbe",
-  zusammengefuehrt: "Zuletzt zusammengeführt · Mailrobbe",
+  vorschlaege: "Zusammenführen · Mailrobbe",
+  zusammengefuehrt: "Zusammengeführt · Mailrobbe",
 };
 
 /** The person list (D31), the open alias suggestions (D30, D160) and the merge log (D163),
- *  one tab each. */
+ *  one tab each (D336): the title with the count, the tabs, then the tab's content. */
 export function PersonsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const state = useMemo(() => parsePersonListState(searchParams), [searchParams]);
@@ -68,38 +68,41 @@ export function PersonsPage() {
     );
 
   const tabs: TabItem<PersonsTab>[] = [
-    { id: "personen", label: "Personen" },
+    { id: "personen", label: "Alle" },
     {
       id: "vorschlaege",
       label:
         certainTotal === undefined
-          ? "Alias-Vorschläge"
-          : `Alias-Vorschläge (${formatNumber(certainTotal)} sicher)`,
+          ? "Zusammenführen"
+          : `Zusammenführen ${formatNumber(certainTotal)} sicher`,
+      title: "Vorschläge, welche Adressen zu einer Person gehören",
     },
-    { id: "zusammengefuehrt", label: "Zuletzt zusammengeführt" },
+    { id: "zusammengefuehrt", label: "Zusammengeführt", title: "Zuletzt zusammengeführt" },
   ];
 
   return (
     <main className={styles.page}>
       <title>{TITLES[state.tab]}</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Personen</h1>
-        {page.data && (
-          <span className={styles.total} aria-live="polite">
-            {state.q || state.labelled
-              ? `${formatNumber(page.data.total)} ${page.data.total === 1 ? "Person" : "Personen"} gefunden`
-              : `${formatNumber(page.data.total)} Personen`}
-          </span>
-        )}
-        <div className={styles.tabs}>
-          <Tabs<PersonsTab>
-            items={tabs}
-            active={state.tab}
-            onSelect={(tab) => setState({ ...state, tab })}
-            idPrefix={TABS_ID}
-            label="Personen, Alias-Vorschläge und Zusammenführungen"
-          />
-        </div>
+      <PageHead
+        title="Personen"
+        sub={
+          page.data && (
+            <span aria-live="polite">
+              {state.q || state.labelled
+                ? `${formatNumber(page.data.total)} ${page.data.total === 1 ? "Person" : "Personen"} gefunden`
+                : `${formatNumber(page.data.total)} Personen`}
+            </span>
+          )
+        }
+      />
+      <div className={styles.tabs}>
+        <Tabs<PersonsTab>
+          items={tabs}
+          active={state.tab}
+          onSelect={(tab) => setState({ ...state, tab })}
+          idPrefix={TABS_ID}
+          label="Personen, Alias-Vorschläge und Zusammenführungen"
+        />
       </div>
 
       <div {...tabPanelProps(TABS_ID, state.tab)} className={styles.panel}>
@@ -115,8 +118,19 @@ export function PersonsPage() {
           <>
             <div className={styles.toolbar}>
               <PersonSearch value={state.q} onSearch={search} />
+              <button
+                type="button"
+                aria-pressed={state.labelled}
+                className={cx(styles.toggle, state.labelled && styles.toggleOn)}
+                title="Nur Personen, die das Team benannt hat"
+                onClick={() =>
+                  setState({ ...state, labelled: !state.labelled, cursor: null, page: 1 })
+                }
+              >
+                Nur benannte
+              </button>
               <label htmlFor="person-sort" className={styles.sortLabel}>
-                Sortierung
+                Sortiert nach
               </label>
               <select
                 id="person-sort"
@@ -137,14 +151,6 @@ export function PersonsPage() {
                   </option>
                 ))}
               </select>
-              <div className={styles.labelled}>
-                <Checkbox
-                  checked={state.labelled}
-                  onChange={(labelled) => setState({ ...state, labelled, cursor: null, page: 1 })}
-                >
-                  Nur benannte
-                </Checkbox>
-              </div>
             </div>
             <PersonList page={page} state={state} />
           </>
@@ -176,7 +182,7 @@ function PersonSearch({ value, onSearch }: { value: string; onSearch: (q: string
         id="person-search"
         type="search"
         defaultValue={value}
-        placeholder="Name oder Adresse, auch Teil davon …"
+        placeholder="Name oder Adresse"
         autoComplete="off"
         spellCheck={false}
         className={styles.searchInput}
@@ -193,7 +199,7 @@ function PersonSearch({ value, onSearch }: { value: string; onSearch: (q: string
 function PersonList({ page, state }: { page: UseQueryResult<PersonPage>; state: PersonListState }) {
   return (
     <>
-      <Card className={styles.tableCard}>
+      <div className={styles.tableCard}>
         {page.isPending ? (
           <div className={styles.loading}>
             <Spinner label="Personen werden geladen" />
@@ -237,7 +243,7 @@ function PersonList({ page, state }: { page: UseQueryResult<PersonPage>; state: 
         ) : (
           <PersonTable items={page.data.items} stale={page.isPlaceholderData} />
         )}
-      </Card>
+      </div>
       {page.data && page.data.items.length > 0 && (
         <Pagination
           {...listPagination(

@@ -14,7 +14,6 @@ import {
   type PersonRole,
 } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { DkimDot } from "../../components/DkimDot";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
@@ -22,7 +21,6 @@ import { SearchIcon } from "../../components/icons";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { PersonLink } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
-import { Tabs, tabPanelProps } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatDateTime, formatNumber } from "../../lib/format";
@@ -37,7 +35,6 @@ import { personMailList, withSelection, type ProfileMailState } from "./urlState
 
 type MailTab = "all" | PersonRole;
 
-const TABS_ID = "person-mails";
 const TABS: MailTab[] = ["all", "sent", "received", "cc"];
 const TAB_LABELS: Record<MailTab, string> = { all: "Alle", ...PERSON_ROLE_LABELS };
 
@@ -57,7 +54,7 @@ function figureCounts(figures: PersonFigures): PersonMailCounts {
   };
 }
 
-/** The person's mails (D32): tabs by role, a contact, a year and a search to narrow them (D330),
+/** The person's mails (D32), the profile's tab Mails: a choice of the role, a contact, a year and a search to narrow them (D330),
  *  one page of the mail list. Tab counts are the figures, or counted for a chosen year, contact
  *  or search. */
 export function PersonMails({
@@ -144,7 +141,7 @@ export function PersonMails({
   };
 
   return (
-    <Card className={styles.card} aria-label="Mails der Person">
+    <section className={styles.card} aria-label="Mails der Person">
       <div className={styles.bar}>
         <div className={styles.searchRow}>
           <MailSearch value={state.q} onSearch={(q) => onChange(withSelection(state, { q }))} />
@@ -155,18 +152,26 @@ export function PersonMails({
             In der Mailliste öffnen
           </Link>
         </div>
-        <Tabs<MailTab>
-          items={TABS.map((id) => ({ id, label: tabLabel(id) }))}
-          active={tab}
-          onSelect={(id) =>
-            id !== tab && onChange(withSelection(state, { role: id === "all" ? null : id }))
-          }
-          idPrefix={TABS_ID}
-          label="Rolle der Person"
-          end={filters}
-        />
+        <div className={styles.roleRow}>
+          <div role="group" aria-label="Rolle der Person" className={styles.roles}>
+            {TABS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={id === tab}
+                className={cx(styles.roleButton, id === tab && styles.roleActive)}
+                onClick={() =>
+                  id !== tab && onChange(withSelection(state, { role: id === "all" ? null : id }))
+                }
+              >
+                {tabLabel(id)}
+              </button>
+            ))}
+          </div>
+          {filters}
+        </div>
       </div>
-      <div {...tabPanelProps(TABS_ID, tab)}>
+      <div>
         {page.isPending ? (
           <div className={styles.loading}>
             <Spinner label="Mails werden geladen" />
@@ -226,7 +231,7 @@ export function PersonMails({
           />
         </div>
       )}
-    </Card>
+    </section>
   );
 }
 

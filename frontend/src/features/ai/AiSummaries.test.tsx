@@ -112,9 +112,10 @@ describe("summaries on the AI page", () => {
     expect(within(services).getByText(/Kein Textmodell eingerichtet/).textContent).toContain(
       "unter Einstellungen mit Adresse und Modell",
     );
-    const intro = screen.getByRole("region", { name: "Was die KI macht" });
-    expect(intro.textContent).toContain("„maschinell erzeugt“");
-    expect(intro.textContent).toContain("sie werden nicht durchsuchbar");
+    // what the AI does stands behind the help of the page's head
+    const intro = screen.getByRole("img", { name: /^Gescannte PDFs/ }).getAttribute("aria-label")!;
+    expect(intro).toContain("„maschinell erzeugt“");
+    expect(intro).toContain("sie werden nicht durchsuchbar");
   });
 
   it("shows the text model and lists summaries by their mail", async () => {
@@ -127,7 +128,8 @@ describe("summaries on the AI page", () => {
     expect(within(services).queryByText(/Kein Textmodell eingerichtet/)).toBeNull();
 
     // the queue counts every kind and names a mail by its subject
-    const queue = screen.getByRole("region", { name: "Warteschlange" });
+    fireEvent.click(screen.getByRole("tab", { name: /^Lauf und Warteschlange/ }));
+    const queue = await screen.findByRole("region", { name: "Warteschlange" });
     expect(within(queue).getByRole("button", { name: "vorgemerkt 15" })).toBeTruthy();
     const task = await within(queue).findByRole("link", { name: mail.subject! });
     expect(task.getAttribute("href")).toBe("/mails/184221");
@@ -137,7 +139,8 @@ describe("summaries on the AI page", () => {
     const thread = within(queue).getByRole("link", { name: "Thread: Rahmenvereinbarung 2026" });
     expect(thread.getAttribute("href")).toBe("/mails/184001");
 
-    const results = screen.getByRole("region", { name: "Ergebnisse" });
+    fireEvent.click(screen.getByRole("tab", { name: "Ergebnisse" }));
+    const results = await screen.findByRole("region", { name: "Ergebnisse" });
     const result = (await within(results).findByRole("link", { name: mail.subject! })).closest(
       "tr",
     )!;
@@ -154,7 +157,7 @@ describe("summaries on the AI page", () => {
   });
 
   it("discards a summary after a confirmation", async () => {
-    const { calls } = renderApp("/ki", api(withSummaries));
+    const { calls } = renderApp("/ki?tab=ergebnisse", api(withSummaries));
     const results = await screen.findByRole("region", { name: "Ergebnisse" });
     const row = (await within(results).findByRole("link", { name: mail.subject! })).closest("tr")!;
     fireEvent.click(within(row).getByRole("button", { name: "Verwerfen" }));
@@ -166,7 +169,7 @@ describe("summaries on the AI page", () => {
   });
 
   it("starts a run with the text model", async () => {
-    const { calls } = renderApp("/ki", api(withSummaries));
+    const { calls } = renderApp("/ki?tab=lauf", api(withSummaries));
     const run = await screen.findByRole("region", { name: "Lauf" });
     expect(run.textContent).toContain("3 Zusammenfassungen sind vorgemerkt");
     const model = within(run).getByRole("textbox", { name: "Textmodell" });
@@ -188,7 +191,7 @@ describe("summaries on the AI page", () => {
       ...withSummaries,
       queue: { ...withSummaries.queue, ocr: { ...withSummaries.queue.ocr, waiting: 0 } },
     };
-    renderApp("/ki", api(status));
+    renderApp("/ki?tab=lauf", api(status));
     const run = await screen.findByRole("region", { name: "Lauf" });
     expect(run.textContent).not.toContain("Nichts vorgemerkt");
     expect(within(run).getByRole("button", { name: "KI-Lauf starten" })).toHaveProperty(
@@ -199,7 +202,7 @@ describe("summaries on the AI page", () => {
 
   it("shows the summaries of a live run", async () => {
     const job = { ...aiJobRunning, progress: { ...aiJobRunning.progress, summaries: 4 } };
-    renderApp("/ki", api({ ...aiStatusRunning, job }));
+    renderApp("/ki?tab=lauf", api({ ...aiStatusRunning, job }));
     const run = await screen.findByRole("region", { name: "Lauf" });
     expect((await within(run).findByText(/Dokumente gelesen/)).textContent).toContain(
       "4 Zusammenfassungen",

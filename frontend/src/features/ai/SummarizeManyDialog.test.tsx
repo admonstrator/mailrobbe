@@ -189,8 +189,11 @@ describe("summarising many (D308)", () => {
 describe("„Zusammenfassen“ where many are chosen", () => {
   it("on the AI page, everything without a summary", async () => {
     const { calls } = renderApp("/ki", summarizeApi());
-    const card = await screen.findByRole("region", { name: "Alles zusammenfassen" });
-    const button = within(card).getByRole("button", { name: "Alles zusammenfassen" });
+    // the button stands in the page's head, its hint in the title around it
+    const button = await screen.findByRole("button", { name: "Alles zusammenfassen" });
+    expect(button.closest("[title]")!.getAttribute("title")).toContain(
+      "Duplikate und ausgeblendete",
+    );
     await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button);
     expect(await within(dialog()).findByText("1.207 Mails und Dokumente")).toBeTruthy();
@@ -256,9 +259,9 @@ describe("„Zusammenfassen“ where many are chosen", () => {
 
   it("on an Akte, for its mails", async () => {
     const { calls } = renderApp("/akten/1", summarizeApi());
-    const button = await screen.findByRole("button", { name: "Zusammenfassen" });
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(button);
+    // On the Akte page it is a choice of the menu "…".
+    fireEvent.click(await screen.findByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Zusammenfassen" }));
     await within(dialog()).findByText("1.207 Mails");
     expect(taskCalls(calls)[0].body).toEqual({
       kind: "summarize",
@@ -268,13 +271,22 @@ describe("„Zusammenfassen“ where many are chosen", () => {
   });
 
   it("disabled with the missing setting while no text service is usable (D300)", async () => {
-    const { calls } = renderApp("/akten/1", summarizeApi({ status: aiStatus }));
+    const { calls } = renderApp("/anhaenge?kind=pdf", summarizeApi({ status: aiStatus }));
     const button = (await screen.findByRole("button", {
       name: "Zusammenfassen",
     })) as HTMLButtonElement;
     await waitFor(() => expect(button.getAttribute("title")).toBe(NO_TEXT_SERVICE));
     expect(button.disabled).toBe(true);
     expect(NO_TEXT_SERVICE).toBe("Kein Textmodell eingerichtet (System › Einstellungen)");
+    expect(taskCalls(calls)).toEqual([]);
+  });
+
+  it("disabled in the Akte's menu while no text service is usable", async () => {
+    const { calls } = renderApp("/akten/1", summarizeApi({ status: aiStatus }));
+    fireEvent.click(await screen.findByRole("button", { name: "Weitere Aktionen" }));
+    const item = await screen.findByRole("menuitem", { name: "Zusammenfassen (kein Textmodell)" });
+    expect((item as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(item);
     expect(taskCalls(calls)).toEqual([]);
   });
 });

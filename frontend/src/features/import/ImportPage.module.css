@@ -1,28 +1,23 @@
+/* A page on the shell's white sheet (D334): head, figures, tabs, content. */
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-5);
   min-width: 0;
-  padding: 20px 24px 24px;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .loading {
-  align-items: center;
-  padding: 48px;
-}
-
-.toolbar {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: center;
+  padding: var(--space-7);
 }
 
 .notice {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  border-radius: var(--radius-control);
+  gap: var(--space-3);
+  border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
 }
@@ -41,7 +36,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -59,10 +54,12 @@
   overflow-wrap: anywhere;
 }
 
-.summaryLoading {
-  display: flex;
-  justify-content: center;
-  padding: 24px;
+.tabs {
+  margin-top: calc(var(--space-2) * -1);
+}
+
+.panel {
+  min-width: 0;
 }
 
 .summaryError {
@@ -71,26 +68,25 @@
   font-size: 13px;
 }
 
-/* The file table over the whole width, the result cards below it in as many columns of at
-   least 320 px as fit, each card kept whole. */
-.columns {
+.results {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-6);
 }
 
-.main {
-  min-width: 0;
+.resultGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-6);
 }
 
-.side {
-  min-width: 0;
-  margin-bottom: -16px;
-  column-gap: 16px;
-  column-width: 320px;
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.side > * {
-  margin-bottom: 16px;
-  break-inside: avoid;
+.sectionTitle {
+  margin: 0;
+  font: var(--font-section);
 }

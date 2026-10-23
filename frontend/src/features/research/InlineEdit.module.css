@@ -13,6 +13,36 @@
   flex-shrink: 0;
 }
 
+.quiet {
+  align-items: center;
+}
+
+.quiet .edit {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--color-muted);
+  opacity: 0;
+}
+
+.quiet .edit:hover {
+  background: var(--color-hover);
+  color: var(--color-text);
+}
+
+.quiet:hover .edit,
+.quiet:focus-within .edit {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .quiet .edit {
+    opacity: 1;
+  }
+}
+
 .form {
   display: flex;
   flex: 1;

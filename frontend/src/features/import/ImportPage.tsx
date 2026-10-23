@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import {
   runAlive,
@@ -13,15 +14,17 @@ import {
 } from "../../api/queries";
 import type { FileProblem, ImportStatus, ScanResult } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { CrossIcon } from "../../components/icons";
+import { OverflowMenu } from "../../components/OverflowMenu";
 import { Spinner } from "../../components/Spinner";
+import { tabPanelProps, Tabs } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
+import { formatNumber } from "../../lib/format";
+import { KeyRecoveryCard } from "../keys/KeyRecoveryCard";
 import { AiRunLine } from "./AiRunLine";
 import { ArchiveTiles } from "./ArchiveTiles";
-import { KeyRecoveryCard } from "../keys/KeyRecoveryCard";
 import { DkimResult } from "./DkimResult";
 import { DocumentResult } from "./DocumentResult";
 import { ErrorDialog } from "./ErrorDialog";
@@ -30,7 +33,8 @@ import { FileTable } from "./FileTable";
 import styles from "./ImportPage.module.css";
 import { actionErrorText, MBOX_DIR_MISSING, scanSummary } from "./labels";
 import { canResume, startRequest, type SettingsDraft } from "./model";
-import { RunCard } from "./RunCard";
+import { PageHead, StateBadge } from "../../components/PageHead";
+import { runBadge, RunProgress, RunSub, RunTab } from "./RunCard";
 import { SettingsCard } from "./SettingsCard";
 
 interface Notice {
@@ -38,10 +42,12 @@ interface Notice {
   content: ReactNode;
 }
 
+type ImportTab = "lauf" | "dateien" | "fehler" | "ergebnis" | "optionen";
+
+const TABS: readonly ImportTab[] = ["lauf", "dateien", "fehler", "ergebnis", "optionen"];
+
 /** Paths a rescan notice lists; beyond this it gives the counts only. */
 const LISTED_PATHS = 10;
-
-const DKIM_HINT = "Prüft Mails ohne Ergebnis, mit „Schlüssel fehlt“ oder mit DNS-Fehler erneut.";
 
 /** When a run ends, its mails and figures reach every screen: everything is loaded again. */
 function useRefreshWhenRunEnds(alive: boolean) {
@@ -53,7 +59,8 @@ function useRefreshWhenRunEnds(alive: boolean) {
   }, [alive, queryClient]);
 }
 
-/** The import dashboard (SPEC 5.5, D46 to D50). */
+/** The import dashboard (SPEC 5.5, D46 to D50) as a page of D336: head with state and actions,
+ *  the figures as a row, tabs for the run, the files, the errors, the results and the options. */
 export function ImportPage() {
   const status = useImportStatus();
   useRefreshWhenRunEnds(runAlive(status.data));
@@ -62,18 +69,16 @@ export function ImportPage() {
     <main className={styles.page}>
       <title>Import · Mailrobbe</title>
       {status.isPending ? (
-        <Card className={styles.loading}>
+        <div className={styles.loading}>
           <Spinner label="Importstatus wird geladen" />
-        </Card>
+        </div>
       ) : status.isError ? (
-        <Card>
-          <ErrorState
-            title="Der Importstatus konnte nicht geladen werden."
-            actions={<Button onClick={() => void status.refetch()}>Erneut versuchen</Button>}
-          >
-            Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
-          </ErrorState>
-        </Card>
+        <ErrorState
+          title="Der Importstatus konnte nicht geladen werden."
+          actions={<Button onClick={() => void status.refetch()}>Erneut versuchen</Button>}
+        >
+          Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
+        </ErrorState>
       ) : (
         <Dashboard status={status.data} />
       )}
@@ -83,6 +88,11 @@ export function ImportPage() {
 
 function Dashboard({ status }: { status: ImportStatus }) {
   const summary = useImportSummary();
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("tab") as ImportTab | null;
+  // A new archive opens on its files, where the scan is offered.
+  const first: ImportTab = status.files.length === 0 && !status.import_job ? "dateien" : "lauf";
+  const tab: ImportTab = requested && TABS.includes(requested) ? requested : first;
   const [notice, setNotice] = useState<Notice | null>(null);
   const [draft, setDraft] = useState<SettingsDraft>({});
   const [errorFilters, setErrorFilters] = useState<ImportErrorFilters | null>(null);
@@ -95,16 +105,36 @@ function Dashboard({ status }: { status: ImportStatus }) {
       onError: showError,
     });
   };
+  const select = (next: ImportTab) =>
+    setParams(
+      (before) => {
+        const search = new URLSearchParams(before);
+        if (next === first) search.delete("tab");
+        else search.set("tab", next);
+        return search;
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  const badge = runBadge(status.import_job);
+  const { totals } = status;
 
   return (
     <>
-      <Toolbar
-        status={status}
-        draft={draft}
-        rescanning={rescan.isPending}
-        onRescan={startRescan}
-        onStarted={() => setDraft({})}
-        onNotice={setNotice}
+      <PageHead
+        title="Import"
+        badge={<StateBadge tone={badge.tone}>{badge.text}</StateBadge>}
+        sub={<RunSub status={status} />}
+        actions={
+          <Actions
+            status={status}
+            draft={draft}
+            rescanning={rescan.isPending}
+            onRescan={startRescan}
+            onStarted={() => setDraft({})}
+            onNotice={setNotice}
+            onOptions={() => select("optionen")}
+          />
+        }
       />
       {notice && (
         <div
@@ -123,54 +153,61 @@ function Dashboard({ status }: { status: ImportStatus }) {
           </Button>
         </div>
       )}
-      <RunCard status={status} duplicates={summary.data?.duplicates} onError={showError} />
+      <RunProgress status={status} summary={summary.data} />
       <AiRunLine run={status.ai_job} />
-      {summary.data ? (
-        <ArchiveTiles summary={summary.data} />
-      ) : summary.isError ? (
-        <p className={styles.summaryError}>
-          Die Kennzahlen des Archivs konnten nicht geladen werden.
-        </p>
-      ) : (
-        <div className={styles.summaryLoading}>
-          <Spinner label="Kennzahlen werden geladen" />
-        </div>
-      )}
-      <div className={styles.columns}>
-        <div className={styles.main}>
-          {status.files.length === 0 ? (
-            <Card>
-              <EmptyState
-                title="Noch keine MBOX-Dateien"
-                actions={
-                  <Button
-                    variant="primary"
-                    onClick={startRescan}
-                    disabled={!status.mbox_dir_ok || runAlive(status) || rescan.isPending}
-                  >
-                    Verzeichnis neu scannen
-                  </Button>
-                }
-              >
-                {status.mbox_dir_ok
-                  ? `Lege MBOX-Dateien in das Verzeichnis ${status.mbox_dir} und scanne es neu.`
-                  : MBOX_DIR_MISSING}
-              </EmptyState>
-            </Card>
+      <div className={styles.tabs}>
+        <Tabs
+          idPrefix="import"
+          label="Bereiche des Imports"
+          active={tab}
+          onSelect={select}
+          items={[
+            { id: "lauf", label: "Lauf" },
+            { id: "dateien", label: "Dateien", count: formatNumber(totals.files) },
+            {
+              id: "fehler",
+              label: "Fehler",
+              count: totals.error_count > 0 ? formatNumber(totals.error_count) : undefined,
+            },
+            { id: "ergebnis", label: "Ergebnis" },
+            { id: "optionen", label: "Startoptionen" },
+          ]}
+        />
+      </div>
+      <div {...tabPanelProps("import", tab)} className={styles.panel}>
+        {tab === "lauf" ? (
+          <RunTab status={status} onError={showError} />
+        ) : tab === "dateien" ? (
+          status.files.length === 0 ? (
+            <EmptyState
+              title="Noch keine MBOX-Dateien"
+              actions={
+                <Button
+                  variant="primary"
+                  onClick={startRescan}
+                  disabled={!status.mbox_dir_ok || runAlive(status) || rescan.isPending}
+                >
+                  Verzeichnis neu scannen
+                </Button>
+              }
+            >
+              {status.mbox_dir_ok
+                ? `Lege MBOX-Dateien in das Verzeichnis ${status.mbox_dir} und scanne es neu.`
+                : MBOX_DIR_MISSING}
+            </EmptyState>
           ) : (
             <FileTable
               status={status}
               onShowErrors={(file) => setErrorFilters({ mbox_file: file.id })}
             />
-          )}
-        </div>
-        <div className={styles.side}>
-          {summary.data && <DkimResult summary={summary.data} />}
-          <KeyRecoveryCard />
-          {summary.data && <DocumentResult summary={summary.data} />}
-          <ErrorLog alive={runAlive(status)} onShowAll={() => setErrorFilters({})} />
+          )
+        ) : tab === "fehler" ? (
+          <ErrorLog alive={runAlive(status)} onShow={setErrorFilters} />
+        ) : tab === "ergebnis" ? (
+          <Results summary={summary} />
+        ) : (
           <SettingsCard defaults={status.defaults} draft={draft} onChange={setDraft} />
-        </div>
+        )}
       </div>
       {errorFilters && (
         <ErrorDialog
@@ -183,15 +220,49 @@ function Dashboard({ status }: { status: ImportStatus }) {
   );
 }
 
-/** Start or pause, the DKIM recheck and the rescan. While a run is alive only that run can be
+/** The tab "Ergebnis": the DKIM result, the attachments read, the archive's figures and the
+ *  deleted selectors with their runs. */
+function Results({ summary }: { summary: ReturnType<typeof useImportSummary> }) {
+  return (
+    <div className={styles.results}>
+      {summary.data ? (
+        <>
+          <div className={styles.resultGrid}>
+            <DkimResult summary={summary.data} />
+            <DocumentResult summary={summary.data} />
+          </div>
+          <section aria-labelledby="import-archive-title" className={styles.section}>
+            <h2 id="import-archive-title" className={styles.sectionTitle}>
+              Archiv
+            </h2>
+            <ArchiveTiles summary={summary.data} />
+          </section>
+        </>
+      ) : summary.isError ? (
+        <p className={styles.summaryError}>
+          Die Kennzahlen des Archivs konnten nicht geladen werden.
+        </p>
+      ) : (
+        <div className={styles.loading}>
+          <Spinner label="Kennzahlen werden geladen" />
+        </div>
+      )}
+      <KeyRecoveryCard />
+    </div>
+  );
+}
+
+/** Start or stop the run as the one main button; the DKIM recheck, the rescan, the deleted
+ *  selectors and the start options in the menu "…". While a run is alive only that run can be
  *  stopped (D46, D50). */
-function Toolbar({
+function Actions({
   status,
   draft,
   rescanning,
   onRescan,
   onStarted,
   onNotice,
+  onOptions,
 }: {
   status: ImportStatus;
   draft: SettingsDraft;
@@ -199,7 +270,9 @@ function Toolbar({
   onRescan: () => void;
   onStarted: () => void;
   onNotice: (notice: Notice | null) => void;
+  onOptions: () => void;
 }) {
+  const navigate = useNavigate();
   const start = useStartImport();
   const pause = usePauseImport();
   const dkim = useStartDkimRun();
@@ -225,7 +298,7 @@ function Toolbar({
   }
 
   return (
-    <div className={styles.toolbar}>
+    <>
       {job?.alive ? (
         <Button
           disabled={job.stop_requested || pause.isPending}
@@ -234,7 +307,7 @@ function Toolbar({
             pause.mutate(undefined, { onError: showError });
           }}
         >
-          {job.stop_requested ? "Wird pausiert …" : "Pausieren"}
+          {job.stop_requested ? "Wird angehalten …" : "Anhalten"}
         </Button>
       ) : (
         <Button
@@ -246,28 +319,29 @@ function Toolbar({
           {canResume(status) ? "Import fortsetzen" : "Import starten"}
         </Button>
       )}
-      <Button
-        disabled={busy !== null || dkim.isPending}
-        title={busy ?? DKIM_HINT}
-        onClick={() => {
-          onNotice(null);
-          dkim.mutate(undefined, { onError: showError });
-        }}
-      >
-        DKIM für „Schlüssel fehlt“ neu prüfen
-      </Button>
-      <Button
-        disabled={needsDir !== null || rescanning}
-        title={
-          job?.alive
-            ? "Es läuft gerade ein Import; er arbeitet die Dateien ab, die er beim Start gefunden hat."
-            : (needsDir ?? undefined)
-        }
-        onClick={onRescan}
-      >
-        Verzeichnis neu scannen
-      </Button>
-    </div>
+      <OverflowMenu
+        items={[
+          {
+            label: "Verzeichnis neu scannen",
+            disabled: needsDir !== null || rescanning,
+            onSelect: onRescan,
+          },
+          {
+            label: "DKIM für „Schlüssel fehlt“ neu prüfen",
+            disabled: busy !== null || dkim.isPending,
+            onSelect: () => {
+              onNotice(null);
+              dkim.mutate(undefined, { onError: showError });
+            },
+          },
+          {
+            label: "Gelöschte Selektoren",
+            onSelect: () => void navigate("/import/selektoren"),
+          },
+          { label: "Startoptionen …", separated: true, onSelect: onOptions },
+        ]}
+      />
+    </>
   );
 }
 

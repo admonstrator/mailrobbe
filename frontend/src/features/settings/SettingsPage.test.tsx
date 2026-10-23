@@ -60,9 +60,11 @@ function api(answer?: (call: ApiCall) => unknown) {
 const puts = (calls: ApiCall[]) =>
   calls.filter((call) => call.method === "PUT" && call.url.pathname === "/api/settings");
 
+/** Chooses a group in the navigation at the left. */
 function open(title: string) {
-  const toggle = screen.getByRole("button", { name: title });
-  if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+  const groups = screen.getByRole("navigation", { name: "Bereiche der Einstellungen" });
+  fireEvent.click(within(groups).getByRole("button", { name: title }));
+  expect(screen.getByRole("heading", { level: 2, name: title })).toBeTruthy();
 }
 
 describe("settings page", () => {
@@ -78,6 +80,7 @@ describe("settings page", () => {
       "sonst 25.",
     );
     expect(screen.getByRole("button", { name: "Archiv und Signale" })).toBeTruthy();
+    open("KI: Textmodell");
     expect(screen.getByLabelText("API-Schlüssel").getAttribute("placeholder")).toBe("keiner");
     expect(screen.getByRole("option", { name: "OpenAI-kompatibel" })).toBeTruthy();
     open("Import");
@@ -96,10 +99,11 @@ describe("settings page", () => {
       target: { value: "Europe/Vienna" },
     });
     fireEvent.change(screen.getByLabelText("Eigene Domains"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("API-Schlüssel"), { target: { value: "sk-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Zurücksetzen" }));
     expect(screen.getByLabelText("Standardblock ab")).toHaveProperty("value", "25");
     expect(screen.getByText("Wird beim Speichern zurückgesetzt.")).toBeTruthy();
+    open("KI: Textmodell");
+    fireEvent.change(screen.getByLabelText("API-Schlüssel"), { target: { value: "sk-1" } });
     open("Import");
     fireEvent.change(screen.getByLabelText("Mails vollständig bis"), { target: { value: "64" } });
     open("DKIM");
@@ -118,6 +122,7 @@ describe("settings page", () => {
       },
     });
     expect(await within(bar).findByText("Gespeichert.")).toBeTruthy();
+    open("Archiv und Signale");
     expect(screen.getByLabelText("Zeitzone")).toHaveProperty("value", "Europe/Berlin");
   });
 
@@ -156,15 +161,13 @@ describe("settings page", () => {
     expect(screen.getByLabelText("Zeitzone")).toHaveProperty("value", "Mars/Olymp");
   });
 
-  it("is in the menu System", () => {
+  it("is in the sidebar's group System", () => {
     const { router } = renderApp("/einstellungen", api());
     const navigation = screen.getByRole("navigation", { name: "Hauptnavigation" });
-    const system = within(navigation).getByRole("button", { name: "System" });
-    expect(system.className).toMatch(/active/);
-    fireEvent.click(system);
+    const settings = within(navigation).getByRole("link", { name: "Einstellungen" });
+    expect(settings.getAttribute("aria-current")).toBe("page");
     fireEvent.click(within(navigation).getByRole("link", { name: "KI" }));
     expect(router.state.location.pathname).toBe("/ki");
-    fireEvent.click(system);
     fireEvent.click(within(navigation).getByRole("link", { name: "Einstellungen" }));
     expect(router.state.location.pathname).toBe("/einstellungen");
   });

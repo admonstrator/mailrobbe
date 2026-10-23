@@ -1,4 +1,4 @@
-import { useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { ApiError } from "../../api/client";
 import {
@@ -26,45 +26,37 @@ import { mailsText } from "../entities/labels";
 import { Dialog } from "../persons/Dialog";
 import styles from "./AiFacets.module.css";
 import type { ChipNames } from "./chips";
-import { columnWide, facetScope, subscribeWidth, useClipped } from "./EntityFacets";
+import { facetScope } from "./EntityFacets";
 import facets from "./EntityFacets.module.css";
 import { toFilters, withFilters, type ListState } from "./listState";
 
-type Placement = "column" | "top";
-
 /** The AI tags and themes of the list's mails (D309): two panels "KI-Schlagwörter" and
- *  "KI-Themen" under the entity facets, beside the table or above it, counted as they are
+ *  "KI-Themen" under the entity facets in the panel "Einblicke" (D335), counted as they are
  *  (D87), each folding by its heading. A click adds a tag or theme to the filter, a second one
  *  takes it out; a tag's quiet action gives the team tag of its name to its mails (D310). Both
  *  are marked machine made (D311). A panel without entries is left out, so an archive without
- *  summaries looks as before. Mounted at both places; each renders only at its widths. */
+ *  summaries looks as before. */
 export function AiFacets({
   state,
   onChange,
   onNotice,
-  placement,
 }: {
   state: ListState;
   onChange: (next: ListState) => void;
-  /** The notice after a tag was adopted, which the list shows above the table. */
+  /** The notice after a tag was adopted, which the list shows above the rows. */
   onNotice: (text: string) => void;
-  placement: Placement;
 }) {
-  const wide = useSyncExternalStore(subscribeWidth, columnWide, () => false);
-  if (wide !== (placement === "column")) return null;
-  return <AiPanels state={state} onChange={onChange} onNotice={onNotice} placement={placement} />;
+  return <AiPanels state={state} onChange={onChange} onNotice={onNotice} />;
 }
 
 function AiPanels({
   state,
   onChange,
   onNotice,
-  placement,
 }: {
   state: ListState;
   onChange: (next: ListState) => void;
   onNotice: (text: string) => void;
-  placement: Placement;
 }) {
   const filters = toFilters(state);
   const counts = useAiFacets(filters);
@@ -84,8 +76,8 @@ function AiPanels({
   return (
     <>
       {data.tags.length > 0 && (
-        <Panel id="mails.ai-tags" title="KI-Schlagwörter" scope={scope} placement={placement}>
-          <Chips placement={placement} stale={stale} content={data.tags}>
+        <Panel id="mails.ai-tags" title="KI-Schlagwörter" scope={scope}>
+          <Chips stale={stale}>
             {data.tags.map((tag) => {
               const selected = state.ai_tag.includes(tag.id);
               return (
@@ -120,8 +112,8 @@ function AiPanels({
         </Panel>
       )}
       {data.themes.length > 0 && (
-        <Panel id="mails.ai-themes" title="KI-Themen" scope={scope} placement={placement}>
-          <Chips placement={placement} stale={stale} content={data.themes}>
+        <Panel id="mails.ai-themes" title="KI-Themen" scope={scope}>
+          <Chips stale={stale}>
             {data.themes.map((theme) => {
               const selected = state.ai_theme.includes(theme.key);
               const color = themes.data?.find((other) => other.key === theme.key)?.color;
@@ -177,23 +169,18 @@ function Panel({
   id,
   title,
   scope,
-  placement,
   children,
 }: {
   id: string;
   title: string;
   scope: string;
-  placement: Placement;
   children: ReactNode;
 }) {
   const [open, setOpen] = useFold(id, true);
   const titleId = useId();
   const bodyId = useId();
   return (
-    <section
-      className={cx(facets.panel, facets[placement], styles[placement], !open && facets.closed)}
-      aria-labelledby={titleId}
-    >
+    <section className={facets.panel} aria-labelledby={titleId}>
       <div className={facets.head}>
         <FoldHeading
           id={titleId}
@@ -219,38 +206,11 @@ function Panel({
   );
 }
 
-/** The chips of a panel: they wrap in the column; above the table they are one line with "mehr"
- *  beside it while some are hidden, as the signal facets are. */
-function Chips({
-  placement,
-  stale,
-  content,
-  children,
-}: {
-  placement: Placement;
-  stale: boolean;
-  content: { mails: number }[];
-  children: ReactNode;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const list = useRef<HTMLUListElement>(null);
-  const clip = placement === "top" && !expanded;
-  const clipped = useClipped(list, clip, content.map((entry) => entry.mails).join());
+/** The chips of a panel, wrapping. */
+function Chips({ stale, children }: { stale: boolean; children: ReactNode }) {
   return (
-    <div className={cx(styles.row, placement === "top" && styles.line, stale && facets.stale)}>
-      <ul ref={list} className={cx(facets.chips, clip && facets.clipped)}>
-        {children}
-      </ul>
-      {placement === "top" && (clipped || expanded) && (
-        <button
-          type="button"
-          className={facets.more}
-          aria-expanded={expanded}
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? "weniger" : "mehr"}
-        </button>
-      )}
+    <div className={cx(styles.row, stale && facets.stale)}>
+      <ul className={facets.chips}>{children}</ul>
     </div>
   );
 }

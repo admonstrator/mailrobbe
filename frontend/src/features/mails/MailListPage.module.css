@@ -1,177 +1,127 @@
-.layout {
+/* The list on the shell's white sheet (D334): a sticky head, then the rows and beside them a
+   panel when one is open. The window scrolls (D190). */
+.page {
   display: flex;
-  flex: 1;
-  align-items: flex-start;
-}
-
-.main {
-  display: flex;
-  flex: 999 1 560px;
   flex-direction: column;
-  gap: 12px;
   min-width: 0;
-  padding: 16px 20px 24px;
-  container: list / inline-size;
 }
 
-/* The figures beside the timeline where both fit, so the table starts high on the screen; one
-   above the other on narrow screens, and the figures as one strip while the timeline is hidden. */
-.overview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-}
-
-@container list (min-width: 680px) {
-  .overview {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .overview:has([data-timeline="hidden"]) {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.figures {
-  display: grid;
-  min-width: 0;
-  container: figures / inline-size;
-}
-
-/* The signal and the entity facets above the table (below FACETS_COLUMN_QUERY): folded ones
-   share a line, an open one takes the whole width. */
-.topFacets {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-}
-
-.topFacets:empty {
-  display: none;
-}
-
-/* Stays below the shell header while the table scrolls; the page's background behind it, edge
-   to edge of the column, so rows pass under it. Its height is --list-bar (useBarHeight). */
-.listBar {
+/* Stays below the shell header while the rows scroll; its height is --list-bar (useBarHeight),
+   below which the panels stick. */
+.head {
   position: sticky;
   top: var(--sticky-top);
   z-index: 10;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: -6px -20px 0;
-  padding: 6px 20px 8px;
-  background: var(--color-bg);
+  gap: 10px;
+  padding: var(--space-3) var(--space-4) 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--color-surface);
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 10px;
-  min-height: 32px;
+  gap: var(--space-2) var(--space-3);
+  min-height: 36px;
+}
+
+.selectAll {
+  width: 16px;
+  height: 16px;
+  margin: 0 var(--space-1) 0 6px;
+}
+
+.title {
+  margin: 0;
+  font: var(--font-page-title);
+  font-size: 20px;
 }
 
 .hits {
+  min-width: 0;
   color: var(--color-muted);
-  font-size: 13px;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
-/* "1.234 ausgeblendet · zeigen" (D223): the link in the line of the figures. */
-.hits .showHidden {
-  padding: 0;
-  font-size: 13px;
-}
-
-.actions {
+.tools {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-left: auto;
 }
 
+.pressed,
+.pressed:hover {
+  border-color: var(--color-nav-active);
+  background: var(--color-nav-active);
+  color: var(--color-nav-active-text);
+}
+
 .sort {
+  height: 32px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  padding: 5px 8px;
+  border-radius: 8px;
+  padding: 0 var(--space-2);
   background: var(--color-surface);
   font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
 .notice {
   margin: 0;
-  border: 1px solid var(--color-pass);
-  border-radius: var(--radius-card);
-  padding: 8px 12px;
-  background: var(--color-pass-soft);
   color: var(--color-pass-text);
-  font-weight: 600;
+  font-size: 13px;
 }
 
-/* clip, not hidden: no scroll container, so the table's head can stick to the window. */
-.tableCard {
-  gap: 0;
-  padding: 0;
-  overflow: clip;
+.body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.list {
+  flex: 1;
+  min-width: 0;
 }
 
 .loading {
   display: flex;
   justify-content: center;
-  padding: 48px;
+  padding: var(--space-7);
 }
 
-/* From the facets' width on (FACETS_COLUMN_QUERY) the signal and the entity facets share one
-   column right of the table: the signals on top, the entities below. It stays beside the list
-   with a scroll of its own, as the filter column does. */
+.foot {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+/* The panels stick below the head, not only below the shell header. */
+.body > aside {
+  top: calc(var(--sticky-top) + var(--list-bar, 0px));
+  max-height: calc(var(--content-height) - var(--list-bar, 0px));
+}
+
+.insightsScope {
+  margin: 0 0 var(--space-4);
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
 .facets {
   display: flex;
   flex-direction: column;
+  gap: var(--space-5);
 }
 
-.facets > section {
-  flex: none;
-}
-
-.facets > section:last-child {
-  flex-grow: 1;
-}
-
-.facets > section + section {
-  border-top: 1px solid var(--color-border);
-}
-
-@media (min-width: 1280px) {
-  .facets {
-    position: sticky;
-    top: var(--sticky-top);
-    flex: 0 0 272px;
-    box-sizing: border-box;
-    height: var(--content-height);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    border-left: 1px solid var(--color-border);
-    background: var(--color-surface);
-    scrollbar-width: thin;
-  }
-}
-
-/* Narrow screens: the filters above the list instead of beside it. */
-@media (max-width: 759px) {
-  .layout {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .main {
-    flex: 1 1 auto;
-    padding: 16px;
-  }
-
-  .listBar {
-    margin-inline: -16px;
-    padding-inline: 16px;
+@media (width < 1024px) {
+  .body > aside {
+    top: var(--header-height);
+    max-height: none;
   }
 }

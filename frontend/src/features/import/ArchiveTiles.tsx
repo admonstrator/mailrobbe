@@ -9,7 +9,7 @@ import {
   formatPercent,
   formatRelative,
 } from "../../lib/format";
-import styles from "./ArchiveTiles.module.css";
+import { Figures } from "../../components/PageHead";
 
 interface Tile {
   label: string;
@@ -91,14 +91,14 @@ export function ArchiveTiles({ summary }: { summary: ImportSummary }) {
     attachmentsTile(summary),
   ];
   return (
-    <ul className={styles.tiles} aria-label="Kennzahlen des Archivs">
-      {tiles.map((tile) => (
-        <li key={tile.label} className={styles.tile} title={tile.title}>
-          <span className={styles.label}>{tile.label}</span>
-          <span className={styles.value}>{tile.value}</span>
-          {tile.sub && <span className={styles.sub}>{tile.sub}</span>}
-        </li>
-      ))}
-    </ul>
+    <Figures
+      label="Kennzahlen des Archivs"
+      items={tiles.map((tile) => ({
+        label: tile.label,
+        value: tile.value,
+        sub: tile.sub,
+        title: tile.title,
+      }))}
+    />
   );
 }

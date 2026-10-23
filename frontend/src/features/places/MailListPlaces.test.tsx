@@ -1,16 +1,19 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { menuItem, rows } from "../../test/mailList";
 import { renderApp } from "../../test/render";
 
 const search = (router: { state: { location: { search: string } } }) =>
   decodeURIComponent(router.state.location.search);
 
 describe("the mail list and the page Orte (D247, D248)", () => {
-  it("opens the page Orte with the list's filters (Auf der Karte)", async () => {
-    renderApp("/mails?q=Spende&has_attachment=true&sort=date_asc");
-    const link = await screen.findByRole("link", { name: "Auf der Karte" });
-    expect(link.getAttribute("href")).toBe("/orte?q=Spende&has_attachment=true");
+  it("opens the page Orte with the list's filters (Treffer auf der Karte)", async () => {
+    const { router } = renderApp("/mails?q=Spende&has_attachment=true&sort=date_asc");
+    await rows();
+    menuItem("Treffer auf der Karte");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/orte"));
+    expect(search(router)).toBe("?q=Spende&has_attachment=true");
   });
 
   it("shows the photos of a map's view as a chip that can be removed", async () => {

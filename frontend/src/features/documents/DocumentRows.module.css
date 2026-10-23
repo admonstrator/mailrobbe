@@ -1,0 +1,171 @@
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-variant-numeric: tabular-nums;
+  transition: opacity 0.15s;
+}
+
+.stale {
+  opacity: 0.55;
+}
+
+/* One document: a line like a mail program's, about 56 px high with its second line. */
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 6px var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface);
+  cursor: pointer;
+  /* a row brought into view (keyboard, find in page) stops below the sticky bar */
+  scroll-margin-top: calc(var(--list-bar, 0px) + 8px);
+}
+
+.row:hover {
+  z-index: 1;
+  box-shadow:
+    inset 1px 0 0 #dadfe7,
+    inset -1px 0 0 #dadfe7,
+    0 1px 3px rgb(22 24 29 / 14%);
+}
+
+.open {
+  background: var(--color-accent-soft);
+}
+
+.icon {
+  flex: none;
+  line-height: 0;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.name,
+.name:hover {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.name:hover {
+  text-decoration: underline;
+}
+
+.names {
+  flex: none;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.second {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippet mark {
+  border-radius: 2px;
+  padding: 0 1px;
+  background: var(--color-no-key-soft);
+  color: var(--color-text);
+}
+
+.status {
+  flex: none;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--color-field);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.notable {
+  background: var(--color-no-key-soft);
+  color: var(--color-no-key-text);
+}
+
+.problem {
+  background: var(--color-fail-soft);
+  color: var(--color-fail-text);
+}
+
+.mails {
+  flex: none;
+  width: 80px;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sender {
+  flex: none;
+  width: 160px;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person,
+.person:hover {
+  color: var(--color-text);
+}
+
+.date {
+  flex: none;
+  width: 84px;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--color-muted);
+}
+
+/* A panel beside: the name and its second line take the room. */
+.narrow .sender,
+.narrow .mails {
+  display: none;
+}
+
+@container (max-width: 720px) {
+  .sender,
+  .mails {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rows {
+    transition: none;
+  }
+}

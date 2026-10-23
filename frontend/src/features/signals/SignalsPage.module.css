@@ -1,29 +1,21 @@
+/* On the shell's white sheet (D334): sections parted by space and thin lines, no boxes. */
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-5);
   min-width: 0;
-  padding: 20px 24px 24px;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
-.title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-}
-
-/* What signals are and how to search with them, folded away on request, side by side where
-   both fit. */
+/* What signals are and how to search with them: a quiet line to unfold. */
 .introBox {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
+  margin-top: calc(-1 * var(--space-4));
 }
 
 .introSummary {
-  padding: 12px 24px;
-  font-size: 14px;
-  font-weight: 600;
+  width: fit-content;
+  color: var(--color-accent);
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -31,15 +23,11 @@
   color: var(--color-accent-hover);
 }
 
-.introBox[open] .introSummary {
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
 .intro {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
-  gap: 12px 40px;
-  padding: 14px 24px 16px;
+  gap: var(--space-3) 40px;
+  padding: var(--space-3) 0 var(--space-2);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -71,21 +59,35 @@
 }
 
 .loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-7);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.sectionHead {
+  display: flex;
   align-items: center;
-  padding: 48px;
 }
 
-.cardTitle {
+.sectionTitle {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font: var(--font-section);
 }
 
-/* Settings: when the figures were computed, then the rules' values in a compact grid. */
+/* When the figures were computed; the rules' values in a compact grid at the end. */
 .status {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .computed {
@@ -156,9 +158,9 @@
 /* The groups of mail signals, two side by side on wide screens. */
 .groups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 620px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr));
   align-items: start;
-  gap: 16px;
+  gap: var(--space-5) 40px;
 }
 
 /* A group of signals: each signal a row with its rule, figures and links, its senders below. */
@@ -387,7 +389,7 @@
 
 @media (max-width: 759px) {
   .page {
-    padding: 16px;
+    padding: var(--space-4);
   }
 }
 

@@ -4,8 +4,8 @@ import { ApiError } from "../../api/client";
 import { useEntity, useThemes } from "../../api/queries";
 import type { EntityDetail, EntitySample, ThemeInfo } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
+import { Figures, HelpTip, type Figure } from "../../components/PageHead";
 import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
@@ -38,9 +38,9 @@ export function EntityDetailPage() {
   const { id } = useParams();
   if (!id || !/^\d+$/.test(id)) {
     return (
-      <div className={styles.page}>
+      <main className={styles.page}>
         <EntityNotFound />
-      </div>
+      </main>
     );
   }
   return <EntityView key={id} id={Number(id)} />;
@@ -50,7 +50,7 @@ function EntityView({ id }: { id: number }) {
   const detail = useEntity(id);
   const label = detail.data?.label;
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>{`${label ?? "Entität"} · Entitäten · Mailrobbe`}</title>
       <nav aria-label="Pfad" className={styles.breadcrumb}>
         <Link to="/entitaeten">Entitäten</Link>
@@ -69,19 +69,19 @@ function EntityView({ id }: { id: number }) {
         detail.error instanceof ApiError && detail.error.code === "not_found" ? (
           <EntityNotFound id={id} />
         ) : (
-          <Card className={styles.message}>
+          <div className={styles.message}>
             <ErrorState
               title="Die Entität konnte nicht geladen werden."
               actions={<Button onClick={() => void detail.refetch()}>Erneut versuchen</Button>}
             >
               Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
             </ErrorState>
-          </Card>
+          </div>
         )
       ) : (
         <EntityContent entity={detail.data} />
       )}
-    </div>
+    </main>
   );
 }
 
@@ -89,12 +89,12 @@ function EntityContent({ entity }: { entity: EntityDetail }) {
   const themes = useThemes();
   return (
     <div className={styles.columns}>
-      <main className={styles.main}>
+      <div className={styles.main}>
         <EntityHeader entity={entity} themes={themes.data} />
-        <EntityTiles entity={entity} />
+        <EntityFigures entity={entity} />
         <EntityYears entity={entity} />
         <EntitySamples entity={entity} />
-      </main>
+      </div>
       <aside className={styles.side} aria-label="Zur Entität">
         {hasContexts(entity.kind) && <EntityContexts entity={entity} />}
         <EntityPersons
@@ -157,7 +157,7 @@ function EntityHeader({
   const person = entity.archive_person;
 
   return (
-    <Card className={styles.header}>
+    <section className={styles.header}>
       <div className={styles.identity}>
         <span className={styles.marker}>
           <EntityIcon kind={entity.kind} size={22} />
@@ -213,7 +213,7 @@ function EntityHeader({
           </Link>
         ))}
       </div>
-    </Card>
+    </section>
   );
 }
 
@@ -228,25 +228,17 @@ function dateTile(label: string, iso: string | null): Tile {
   return { label, value: formatDate(iso), sub: formatDateTime(iso).slice(-5) + " Uhr" };
 }
 
-/** The figures of D85: mentioning mails without duplicates, documents, first and last mention. */
-function EntityTiles({ entity }: { entity: EntityDetail }) {
+/** The figures of D85: mentioning mails without duplicates, documents, first and last mention;
+ *  what each counts and the time of day in its tooltip. */
+function EntityFigures({ entity }: { entity: EntityDetail }) {
   const tiles: Tile[] = [
     { label: "Mails", value: formatNumber(entity.mails), sub: "ohne Duplikate" },
     { label: "Dokumente", value: formatNumber(entity.documents), sub: "Anhänge, die es erwähnen" },
     dateTile("Erste Erwähnung", entity.first_date),
     dateTile("Letzte Erwähnung", entity.last_date),
   ];
-  return (
-    <ul className={styles.tiles} aria-label="Kennzahlen">
-      {tiles.map((tile) => (
-        <li key={tile.label} className={styles.tile}>
-          <span className={styles.tileLabel}>{tile.label}</span>
-          <span className={styles.tileValue}>{tile.value}</span>
-          <span className={styles.tileSub}>{tile.sub}</span>
-        </li>
-      ))}
-    </ul>
-  );
+  const figures: Figure[] = tiles.map(({ label, value, sub }) => ({ label, value, title: sub }));
+  return <Figures label="Kennzahlen" items={figures} />;
 }
 
 /** Mentioning mails per UTC year as bars; each year opens its mails in the mail list. */
@@ -254,12 +246,12 @@ function EntityYears({ entity }: { entity: EntityDetail }) {
   const { years } = entity;
   const max = Math.max(1, ...years.map((year) => year.mails));
   return (
-    <Card aria-labelledby="entity-years-title">
+    <section className={styles.section} aria-labelledby="entity-years-title">
       <div className={styles.cardHead}>
-        <CardTitle id="entity-years-title">Mails pro Jahr</CardTitle>
-        {years.length > 0 && (
-          <span className={styles.hint}>Ein Klick auf ein Jahr öffnet dessen Mails.</span>
-        )}
+        <h2 id="entity-years-title" className={styles.sectionTitle}>
+          Mails pro Jahr
+        </h2>
+        {years.length > 0 && <HelpTip text="Ein Klick auf ein Jahr öffnet dessen Mails." />}
       </div>
       {years.length === 0 ? (
         <p className={styles.hint}>Keine datierten Mails.</p>
@@ -288,7 +280,7 @@ function EntityYears({ entity }: { entity: EntityDetail }) {
           ))}
         </ol>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -296,9 +288,11 @@ function EntityYears({ entity }: { entity: EntityDetail }) {
  *  written (D88). */
 function EntitySamples({ entity }: { entity: EntityDetail }) {
   return (
-    <Card aria-labelledby="entity-samples-title">
+    <section className={styles.section} aria-labelledby="entity-samples-title">
       <div className={styles.cardHead}>
-        <CardTitle id="entity-samples-title">Früheste Erwähnungen</CardTitle>
+        <h2 id="entity-samples-title" className={styles.sectionTitle}>
+          Früheste Erwähnungen
+        </h2>
         <Link to={entityMailsHref([entity.id], { sort: "date_asc" })} className={styles.all}>
           Alle in der Mailliste
         </Link>
@@ -316,7 +310,7 @@ function EntitySamples({ entity }: { entity: EntityDetail }) {
           ))}
         </ol>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -354,7 +348,7 @@ function Sample({ sample, label }: { sample: EntitySample; label: string }) {
 
 function EntityNotFound({ id }: { id?: number }) {
   return (
-    <Card className={styles.message}>
+    <div className={styles.message}>
       <ErrorState
         title="Diese Entität gibt es nicht."
         actions={
@@ -367,6 +361,6 @@ function EntityNotFound({ id }: { id?: number }) {
           ? "Die Adresse nennt keine gültige Nummer."
           : `Im Archiv gibt es keine Entität mit der Nummer #${id}. Was nicht mehr erwähnt wird, entfällt beim nächsten Import.`}
       </ErrorState>
-    </Card>
+    </div>
   );
 }

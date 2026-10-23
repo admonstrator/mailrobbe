@@ -5,9 +5,9 @@ import { ApiError } from "../../api/client";
 import { useEntityPage, useEntitySummary, useThemes } from "../../api/queries";
 import type { EntityPage, EntitySort, EntitySummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
+import { PageHead } from "../../components/PageHead";
 import { SearchIcon } from "../../components/icons";
 import { PageTooFar, Pagination } from "../../components/Pagination";
 import { Spinner } from "../../components/Spinner";
@@ -79,7 +79,7 @@ export function EntityListPage() {
   const tabs: TabItem<EntityTab>[] = (["all", ...ENTITY_GROUPS] as const).map((tab) => {
     const label = tab === "all" ? "Alle" : GROUP_LABELS[tab];
     const count = tabCount(summary.data, tab);
-    return { id: tab, label: count === undefined ? label : `${label} (${formatNumber(count)})` };
+    return { id: tab, label: count === undefined ? label : `${label} ${formatNumber(count)}` };
   });
   const total = tabCount(summary.data, "all");
   const waiting =
@@ -91,17 +91,11 @@ export function EntityListPage() {
   return (
     <main className={styles.page}>
       <title>Entitäten · Mailrobbe</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Entitäten</h1>
-        {total !== undefined && (
-          <span className={styles.total}>{`${formatNumber(total)} erkannt`}</span>
-        )}
-      </div>
-      <p className={styles.intro}>
-        Was in Mails und Anhängen erwähnt wird: Beträge, Konten, Organisationen, Namen, Orte,
-        Kontaktdaten, Daten und die Begriffe der Recherchethemen. Jede Zeile führt zu den Mails, die
-        sie erwähnen.
-      </p>
+      <PageHead
+        title="Entitäten"
+        help="Was in Mails und Anhängen erwähnt wird: Beträge, Konten, Organisationen, Namen, Orte, Kontaktdaten, Daten und die Begriffe der Recherchethemen. Jede Zeile führt zu den Mails, die sie erwähnen."
+        sub={total !== undefined && `${formatNumber(total)} erkannt in Mails und Anhängen`}
+      />
       {waiting && (
         <p className={styles.notice}>
           {waiting} <Link to="/import">Zum Import</Link>
@@ -185,7 +179,7 @@ export function EntityListPage() {
           </select>
         </div>
 
-        <Card className={styles.tableCard}>
+        <div className={styles.tableCard}>
           {page.isPending ? (
             <div className={styles.loading}>
               <Spinner label="Entitäten werden geladen" />
@@ -202,7 +196,7 @@ export function EntityListPage() {
               stale={page.isPlaceholderData}
             />
           )}
-        </Card>
+        </div>
 
         {page.data && page.data.items.length > 0 && (
           <Pagination

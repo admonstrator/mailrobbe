@@ -138,7 +138,6 @@ export function GraphScreen() {
         canvas={canvas}
       />
       <main className={styles.main}>
-        <h1 className="sr-only">Beziehungskarte</h1>
         <MapHeader
           graph={data}
           legend={state.color ? legend : null}

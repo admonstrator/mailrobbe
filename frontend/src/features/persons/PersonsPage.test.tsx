@@ -69,21 +69,24 @@ describe("person list", () => {
         : fixtureApi(call),
     );
     await screen.findByRole("link", { name: "Anna Keller" });
-    const only = screen.getByRole("checkbox", { name: "Nur benannte" });
-    expect(only).toHaveProperty("checked", false);
+    const only = screen.getByRole("button", { name: "Nur benannte" });
+    expect(only.getAttribute("aria-pressed")).toBe("false");
 
     fireEvent.click(only);
     expect(router.state.location.search).toBe("?labelled=true");
     const link = await screen.findByRole("link", { name: "Kassenwart Nord" });
     expect(link.getAttribute("href")).toBe("/personen/12");
     expect(personCalls(calls).at(-1)!.url.search).toBe("?labelled=true");
-    expect(within(row("Kassenwart Nord")).getAllByRole("cell")[0].textContent).toBe(
-      "KNKassenwart NordSchatzmeisterj.brandt@stadtwerke-beispiel.example",
-    );
+    const namedCell = within(row("Kassenwart Nord")).getAllByRole("cell")[0];
+    expect(within(namedCell).getByText("Schatzmeister")).toBeTruthy();
+    // The address below the name and in the short profile.
+    expect(within(namedCell).getAllByText("j.brandt@stadtwerke-beispiel.example")).toHaveLength(2);
     expect(screen.getByText("1 Person gefunden")).toBeTruthy();
-    expect(screen.getByRole("checkbox", { name: "Nur benannte" })).toHaveProperty("checked", true);
+    expect(screen.getByRole("button", { name: "Nur benannte" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Nur benannte" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nur benannte" }));
     expect(router.state.location.search).toBe("");
     expect(await screen.findByRole("link", { name: "Anna Keller" })).toBeTruthy();
   });
@@ -107,23 +110,33 @@ describe("person list", () => {
     expect(anna.getAttribute("href")).toBe("/personen/11");
     expect(screen.getByRole("heading", { name: "Personen", level: 1 })).toBeTruthy();
     expect(screen.getByText("1.710 Personen")).toBeTruthy();
-    expect(await screen.findByRole("tab", { name: "Alias-Vorschläge (4 sicher)" })).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: "Zusammenführen 4 sicher" })).toBeTruthy();
     expect(document.title).toBe("Personen · Mailrobbe");
 
+    expect(screen.getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "Person",
+      "Domain",
+      "Mails",
+      "Kontakte",
+      "Zuletzt",
+    ]);
     const cells = within(row("Anna Keller")).getAllByRole("cell");
-    // Intl puts a no-break space before "%".
-    expect(cells.map((cell) => cell.textContent?.replace(/\s/g, " "))).toEqual([
-      "AKAnna Keller+2 Aliaseanna.keller@nordlicht-gmbh.example",
+    expect(within(cells[0]).getByText("+2 Aliase")).toBeTruthy();
+    expect(cells.slice(1).map((cell) => cell.textContent)).toEqual([
       "nordlicht-gmbh.example",
       "11.318",
-      "3.412",
-      "7.906",
       "214",
       "18.10.2026",
-      "97,8 %",
     ]);
-    expect(within(row("Verteiler Einkauf")).getByText("–")).toBeTruthy();
-    expect(within(row("noreply@bank.example")).getByText("99,8 %")).toBeTruthy();
+    // The rest of the figures in the short profile of the name; Intl puts a no-break space
+    // before "%".
+    const card = (name: string) =>
+      within(row(name)).getByRole("tooltip", { hidden: true }).textContent!.replace(/\s/g, " ");
+    expect(card("Anna Keller")).toBe(
+      "AKAnna Kelleranna.keller@nordlicht-gmbh.example3.412 gesendet · 7.906 empfangen · DKIM gültig 97,8 %Aktiv 11.03.2016 bis 18.10.2026",
+    );
+    expect(card("Verteiler Einkauf")).toMatch(/keine geprüfte Mail gesendet/);
+    expect(card("noreply@bank.example")).toMatch(/DKIM gültig 99,8 %/);
     expect(screen.getAllByRole("row")).toHaveLength(13);
 
     expect(screen.getByText("1–12 von 1.710")).toBeTruthy();
@@ -147,7 +160,7 @@ describe("person list", () => {
     await waitFor(() => expect(screen.getByText("1 Person gefunden")).toBeTruthy());
     expect(personCalls(calls).at(-1)!.url.search).toBe("?q=Keller");
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Sortierung" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Sortiert nach" }), {
       target: { value: "recent" },
     });
     expect(router.state.location.search).toBe("?q=Keller&sort=recent");
@@ -195,9 +208,9 @@ describe("alias suggestions", () => {
       within(rows[1]).getByText("Sicher: Name passt zu beiden Adressen, gleiche Organisation"),
     ).toBeTruthy();
     expect(
-      screen.getByRole("tab", { name: "Alias-Vorschläge (4 sicher)", selected: true }),
+      screen.getByRole("tab", { name: "Zusammenführen 4 sicher", selected: true }),
     ).toBeTruthy();
-    expect(document.title).toBe("Alias-Vorschläge · Mailrobbe");
+    expect(document.title).toBe("Zusammenführen · Mailrobbe");
   });
 
   it("merges a suggestion into its first person, removes the row and confirms", async () => {
@@ -217,7 +230,7 @@ describe("alias suggestions", () => {
       "/personen/11",
     );
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: "Alias-Vorschläge (3 sicher)" })).toBeTruthy(),
+      expect(screen.getByRole("tab", { name: "Zusammenführen 3 sicher" })).toBeTruthy(),
     );
   });
 
@@ -299,7 +312,7 @@ describe("alias suggestions", () => {
     expect(screen.queryByRole("button", { name: "Alle sicheren zusammenführen" })).toBeNull();
     expect(tiers()).toContain("uncertain");
     // The tab still counts the certain ones.
-    expect(screen.getByRole("tab", { name: "Alias-Vorschläge (4 sicher)" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Zusammenführen 4 sicher" })).toBeTruthy();
   });
 
   it("shows what the KI judged and starts the alias check", async () => {
@@ -457,7 +470,7 @@ describe("merge log", () => {
         name: "„Alle sicheren zusammenführen“ vom 21.10.2026 16:03",
       }),
     ).toBeTruthy();
-    expect(document.title).toBe("Zuletzt zusammengeführt · Mailrobbe");
+    expect(document.title).toBe("Zusammengeführt · Mailrobbe");
     expect(
       screen.getByText("290 Zusammenführungen, davon 1 rückgängig gemacht · Lena Vogt"),
     ).toBeTruthy();
@@ -522,7 +535,7 @@ describe("person list paging (D193)", () => {
       "/personen?cursor=on&limit=25&page=5",
     );
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Nur benannte" }));
+    fireEvent.click(screen.getByRole("button", { name: "Nur benannte" }));
     expect(router.state.location.search).toBe("?labelled=true&limit=25");
   });
 
