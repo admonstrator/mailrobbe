@@ -10,7 +10,7 @@ import {
   type TagUpdate,
 } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
+import { HelpMark } from "../../components/HelpMark";
 import { EmptyState } from "../../components/EmptyState";
 import { TAG_COLORS, TAG_COLOR_LABELS, TAG_PALETTE } from "../../lib/research";
 import { Dialog } from "../persons/Dialog";
@@ -31,13 +31,14 @@ export function TagList({ tags }: { tags: TagInfo[] }) {
     <>
       <div className={styles.toolbar}>
         <p className={styles.intro}>
-          Schlagworte ordnen Mails nach Themen und Fragen; eine Mail kann beliebig viele tragen.
+          Schlagworte ordnen Mails nach Themen und Fragen.
+          <HelpMark text="Eine Mail kann beliebig viele Schlagworte tragen." />
         </p>
         <Button variant="primary" onClick={() => setEditing("new")}>
           Neues Schlagwort
         </Button>
       </div>
-      <Card className={styles.listCard}>
+      <div className={styles.listCard}>
         {tags.length === 0 ? (
           <EmptyState title="Noch kein Schlagwort">
             Schlagworte entstehen hier, in der Mailliste oder mit dem Themen-Startset.
@@ -78,7 +79,7 @@ export function TagList({ tags }: { tags: TagInfo[] }) {
             ))}
           </ul>
         )}
-      </Card>
+      </div>
       {editing && (
         <TagDialog tag={editing === "new" ? null : editing} onClose={() => setEditing(null)} />
       )}

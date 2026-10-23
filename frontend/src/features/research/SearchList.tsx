@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useDeleteSearch, useMailSummary, useUpdateSearch } from "../../api/queries";
 import { NAME_LIMIT, type CollectionInfo, type SavedSearch } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
+import { HelpMark } from "../../components/HelpMark";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { parseListState, toFilters } from "../mails/listState";
@@ -32,11 +32,11 @@ export function SearchList({
     <>
       <div className={styles.toolbar}>
         <p className={styles.intro}>
-          Eine gespeicherte Suche merkt sich Suchtext, Filter und Sortierung der Mailliste. Sie
-          läuft bei jedem Öffnen neu, ihre Treffer folgen also dem Archiv.
+          Suchtext, Filter und Sortierung der Mailliste, bei jedem Öffnen neu ausgeführt.
+          <HelpMark text="Eine gespeicherte Suche merkt sich Suchtext, Filter und Sortierung der Mailliste. Sie läuft bei jedem Öffnen neu, ihre Treffer folgen also dem Archiv." />
         </p>
       </div>
-      <Card className={styles.listCard}>
+      <div className={styles.listCard}>
         {searches.length === 0 ? (
           <EmptyState title="Noch keine gespeicherte Suche">
             Eine Suche wird in der Mailliste gespeichert; das Themen-Startset legt die Suchen der
@@ -57,7 +57,7 @@ export function SearchList({
             ))}
           </ul>
         )}
-      </Card>
+      </div>
       {deleting && (
         <ConfirmDialog
           title="Suche löschen"
