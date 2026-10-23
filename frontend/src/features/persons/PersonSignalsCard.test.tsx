@@ -24,7 +24,7 @@ function row(card: HTMLElement, name: string): string[] {
 
 describe("signals of a person's sent mails", () => {
   it("count each signal, its share of the sent mails beside the archive's, and link them", async () => {
-    const { calls } = renderApp("/personen/11");
+    const { calls } = renderApp("/personen/11?tab=signale");
     const card = await signalsCard();
     await within(card).findByRole("table");
     expect(calls.filter((call) => call.url.pathname === "/api/persons/11/signals")).toHaveLength(1);
@@ -58,11 +58,14 @@ describe("signals of a person's sent mails", () => {
         .getAttribute("href"),
     ).toBe("/mails?person=11&person_role=sent&signal=term%3Aspenden");
     expect(within(card).queryByText(/Verstummt/)).toBeNull();
+    expect(within(card).getByRole("img").getAttribute("title")).toMatch(
+      /^Anteil: an den gesendeten Mails der Person; im Archiv: an allen Mails beim letzten Import/,
+    );
   });
 
   it("say since when the person fell silent, with the timeline", async () => {
     renderApp(
-      "/personen/11",
+      "/personen/11?tab=signale",
       withSignals({ ...personSignals, silent_since: "2025-07-01T00:00:00Z", silent_mails: 48 }),
     );
     const card = await signalsCard();
@@ -77,7 +80,7 @@ describe("signals of a person's sent mails", () => {
 
   it("show the silence alone when no sent mail has a signal", async () => {
     renderApp(
-      "/personen/11",
+      "/personen/11?tab=signale",
       withSignals({
         sent: 0,
         signals: [],
@@ -92,21 +95,41 @@ describe("signals of a person's sent mails", () => {
     expect(within(card).queryByRole("table")).toBeNull();
   });
 
-  it("step aside when there is nothing to say", async () => {
+  it("step aside when there is nothing to say, and the tab says so", async () => {
     const { calls } = renderApp(
-      "/personen/11",
+      "/personen/11?tab=signale",
       withSignals({ sent: 12, signals: [], silent_since: null, silent_mails: null }),
     );
     await screen.findByRole("heading", { name: "Anna Keller", level: 1 });
     await waitFor(() =>
       expect(calls.some((call) => call.url.pathname === "/api/persons/11/signals")).toBe(true),
     );
-    await waitFor(() => expect(screen.queryByRole("heading", { name: TITLE })).toBeNull());
+    expect(
+      await screen.findByText(/^Keine gesendete Mail dieser Person trägt ein Signal\./),
+    ).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: TITLE })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Überblick" }));
+    await screen.findByRole("list", { name: "Kennzahlen" });
+    expect(screen.queryByRole("heading", { name: "Signale" })).toBeNull();
+  });
+
+  it("stand as chips in the overview, each opening its mails", async () => {
+    const { router } = renderApp("/personen/11");
+    const chips = await screen.findByRole("list", { name: "Signale der gesendeten Mails" });
+    const links = within(chips).getAllByRole("link");
+    expect(links).toHaveLength(8);
+    expect(links[0].textContent).toBe("Private Adresse 412");
+    expect(
+      within(chips).getByRole("link", { name: "96 Mails mit Nachts" }).getAttribute("href"),
+    ).toBe("/mails?person=11&person_role=sent&signal=night");
+    const block = screen.getByRole("heading", { name: "Signale" }).closest("section")!;
+    fireEvent.click(within(block).getByRole("button", { name: "Details" }));
+    expect(router.state.location.search).toBe("?tab=signale");
   });
 
   it("offer a retry when they cannot be loaded", async () => {
     let fail = true;
-    renderApp("/personen/11", (call) =>
+    renderApp("/personen/11?tab=signale", (call) =>
       call.url.pathname === "/api/persons/11/signals" && fail
         ? Response.json({ detail: "boom" }, { status: 500 })
         : fixtureApi(call),
@@ -119,7 +142,7 @@ describe("signals of a person's sent mails", () => {
   });
 
   it("ask for the root when the profile was opened by an alias", async () => {
-    const { calls } = renderApp("/personen/21");
+    const { calls } = renderApp("/personen/21?tab=signale");
     await signalsCard();
     await waitFor(() =>
       expect(

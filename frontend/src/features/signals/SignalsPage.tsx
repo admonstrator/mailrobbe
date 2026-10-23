@@ -5,8 +5,8 @@ import { withQuery } from "../../api/client";
 import { useSignals } from "../../api/queries";
 import type { SignalGroup, SignalInfo, SignalOverview, SilentPerson } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
+import { Figures, HelpTip, PageHead } from "../../components/PageHead";
 import { PersonLink, personPath } from "../../components/PersonLink";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
@@ -51,21 +51,19 @@ export function SignalsPage() {
   return (
     <main className={styles.page}>
       <title>Signale · Mailrobbe</title>
-      <h1 className={styles.title}>Signale</h1>
+      <PageHead title="Signale" sub="Einfache Regeln, die auf lesenswerte Mails zeigen." />
       <Intro />
       {overview.isPending ? (
-        <Card className={styles.loading}>
+        <div className={styles.loading}>
           <Spinner label="Signale werden geladen" />
-        </Card>
+        </div>
       ) : overview.isError ? (
-        <Card>
-          <ErrorState
-            title="Die Signale konnten nicht geladen werden."
-            actions={<Button onClick={() => void overview.refetch()}>Erneut versuchen</Button>}
-          >
-            Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
-          </ErrorState>
-        </Card>
+        <ErrorState
+          title="Die Signale konnten nicht geladen werden."
+          actions={<Button onClick={() => void overview.refetch()}>Erneut versuchen</Button>}
+        >
+          Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
+        </ErrorState>
       ) : (
         <Overview overview={overview.data} target={target} />
       )}
@@ -77,9 +75,9 @@ const INTRO_KEY = "mailrobbe.signals-intro";
 
 function loadIntroOpen(): boolean {
   try {
-    return localStorage.getItem(INTRO_KEY) !== "closed";
+    return localStorage.getItem(INTRO_KEY) === "open";
   } catch {
-    return true; // storage blocked: open
+    return false; // storage blocked: folded
   }
 }
 
@@ -91,8 +89,8 @@ function saveIntroOpen(open: boolean): void {
   }
 }
 
-/** What signals are and how to search with them: open until folded, then folded on later
- *  visits too. */
+/** What signals are and how to search with them: folded below the head until opened, and
+ *  open on later visits once opened. */
 function Intro() {
   const [open, setOpen] = useState(loadIntroOpen);
   return (
@@ -148,9 +146,23 @@ function Intro() {
 function Overview({ overview, target }: { overview: SignalOverview; target: string }) {
   const computed = overview.computed_at !== null;
   const wording = overview.signals.filter((info) => info.group === "wording");
+  const available = overview.signals.filter((info) => info.available);
   return (
     <>
-      <Settings overview={overview} />
+      <Status overview={overview} />
+      {computed && (
+        <Figures
+          label="Kennzahlen"
+          items={[
+            { label: "Mails ohne Duplikate", value: formatNumber(overview.mails) },
+            {
+              label: "Signale mit Treffern",
+              value: `${formatNumber(available.filter((info) => info.mails > 0).length)} von ${formatNumber(overview.signals.length)}`,
+            },
+            { label: "Verstummte Personen", value: formatNumber(overview.silent_count) },
+          ]}
+        />
+      )}
       <div className={styles.groups}>
         {MAIL_GROUPS.map((group) => (
           <SignalGroupCard
@@ -187,35 +199,46 @@ function Overview({ overview, target }: { overview: SignalOverview; target: stri
         )}
       </div>
       <SilentCard overview={overview} computed={computed} target={target} />
+      <Settings overview={overview} />
     </>
   );
 }
 
-/** The settings the rules read and when they were applied last (D131 to D135). */
-function Settings({ overview }: { overview: SignalOverview }) {
-  const { settings, computed_at: computedAt } = overview;
+/** When the signals were computed last, and whether the figures still follow the rules. */
+function Status({ overview }: { overview: SignalOverview }) {
+  const { computed_at: computedAt } = overview;
   return (
-    <Card aria-labelledby="signals-settings" className={styles.settings}>
-      <h2 id="signals-settings" className={styles.cardTitle}>
-        Regeln und Stand
-      </h2>
-      <div className={styles.status}>
-        {computedAt === null ? (
-          <p className={styles.notice}>
-            Noch nicht berechnet. Die Signale entstehen beim nächsten Import, ohne dass Mails neu
-            eingelesen werden. <Link to="/import">Zum Import</Link>
-          </p>
-        ) : (
-          <p className={styles.computed}>
-            {`Berechnet beim Import am ${formatDateTime(computedAt)}, über ${mailsText(overview.mails)} ohne Duplikate.`}
-          </p>
-        )}
-        {computedAt !== null && overview.outdated && (
-          <p className={styles.notice}>
-            Diese Zahlen entstanden unter anderen Regeln oder Wortfeldern als den jetzigen. Der
-            nächste <Link to="/import">Import</Link> berechnet sie neu.
-          </p>
-        )}
+    <section aria-label="Stand" className={styles.status}>
+      {computedAt === null ? (
+        <p className={styles.notice}>
+          Noch nicht berechnet. Die Signale entstehen beim nächsten Import, ohne dass Mails neu
+          eingelesen werden. <Link to="/import">Zum Import</Link>
+        </p>
+      ) : (
+        <p className={styles.computed}>
+          {`Berechnet beim Import am ${formatDateTime(computedAt)}, über ${mailsText(overview.mails)} ohne Duplikate.`}
+        </p>
+      )}
+      {computedAt !== null && overview.outdated && (
+        <p className={styles.notice}>
+          Diese Zahlen entstanden unter anderen Regeln oder Wortfeldern als den jetzigen. Der
+          nächste <Link to="/import">Import</Link> berechnet sie neu.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** The settings the rules read (D131 to D135). */
+function Settings({ overview }: { overview: SignalOverview }) {
+  const { settings } = overview;
+  return (
+    <section aria-labelledby="signals-settings" className={styles.section}>
+      <div className={styles.sectionHead}>
+        <h2 id="signals-settings" className={styles.sectionTitle}>
+          Regeln
+        </h2>
+        <HelpTip text="Die Anbieter, Uhrzeiten, die Schwelle und die Präfixe stehen in themes.toml unter [signals], die Domains und die Zeitzone unter Einstellungen. Änderungen gelten ab dem nächsten „Import starten“. Mails automatischer Absender wie Newsletter tragen nur die Wortfelder." />
       </div>
       <dl className={styles.rules}>
         <div className={cx(styles.setting, settings.internal_domains.length === 0 && styles.wide)}>
@@ -254,12 +277,9 @@ function Settings({ overview }: { overview: SignalOverview }) {
         </div>
       </dl>
       <p className={styles.footnote}>
-        Die Anbieter, Uhrzeiten, die Schwelle und die Präfixe stehen in themes.toml unter [signals],
-        die Domains und die Zeitzone unter <Link to="/einstellungen">Einstellungen</Link>.
-        Änderungen gelten ab dem nächsten „Import starten“. Mails automatischer Absender wie
-        Newsletter tragen nur die Wortfelder.
+        Ändern unter <Link to="/einstellungen">Einstellungen</Link> und in themes.toml.
       </p>
-    </Card>
+    </section>
   );
 }
 
@@ -306,8 +326,8 @@ function SignalGroupCard({
   if (signals.length === 0) return null;
   const titleId = `signal-group-${group}`;
   return (
-    <Card aria-labelledby={titleId}>
-      <h2 id={titleId} className={styles.cardTitle}>
+    <section aria-labelledby={titleId} className={styles.section}>
+      <h2 id={titleId} className={styles.sectionTitle}>
         {GROUP_NAMES[group]}
       </h2>
       {children}
@@ -321,7 +341,7 @@ function SignalGroupCard({
           />
         ))}
       </ul>
-    </Card>
+    </section>
   );
 }
 
@@ -426,8 +446,8 @@ function SilentCard({
 }) {
   const { silent, silent_count: count } = overview;
   return (
-    <Card aria-labelledby="signal-group-persons">
-      <h2 id="signal-group-persons" className={styles.cardTitle}>
+    <section aria-labelledby="signal-group-persons" className={styles.section}>
+      <h2 id="signal-group-persons" className={styles.sectionTitle}>
         {GROUP_NAMES.persons}
       </h2>
       <div
@@ -455,7 +475,7 @@ function SilentCard({
           )}
         </>
       )}
-    </Card>
+    </section>
   );
 }
 

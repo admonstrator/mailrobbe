@@ -2,6 +2,7 @@ import { Link } from "react-router";
 
 import { useCreateStarter, useThemes } from "../../api/queries";
 import { Button } from "../../components/Button";
+import { HelpTip } from "../../components/PageHead";
 import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
@@ -28,8 +29,8 @@ export function ThemeList({ starterMissing }: { starterMissing: number }) {
     <>
       <div className={styles.toolbar}>
         <p className={styles.intro}>
-          Die Themen der Recherche mit ihrem Wortfeld: Jedes Wort und jede Suche öffnet die
-          Mailliste. Was davon zählt, entscheiden die Lesenden.
+          Die Themen der Recherche mit ihrem Wortfeld.
+          <HelpTip text="Jedes Wort und jede Suche öffnet die Mailliste. Was davon zählt, entscheiden die Lesenden." />
         </p>
       </div>
       {starterMissing > 0 && (

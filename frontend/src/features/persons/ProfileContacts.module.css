@@ -1,0 +1,101 @@
+.contacts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A box here means something: one contact to open. */
+.card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  transition: background-color var(--transition-fast);
+}
+
+.card:hover {
+  background: var(--color-hover);
+}
+
+.who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The whole card opens the profile. */
+.name::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.address {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.figures {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Above the card's link. */
+.mails {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  font-size: 13px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.count {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-7);
+}

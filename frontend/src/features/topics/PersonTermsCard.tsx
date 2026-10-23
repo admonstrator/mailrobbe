@@ -7,7 +7,7 @@ import { Link } from "react-router";
 import { useThemes, useTopicTerms } from "../../api/queries";
 import type { ThemeInfo, TopicTerms } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
+import { HelpTip } from "../../components/PageHead";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { DEFAULT_LIST_STATE, toFilters, withFilters, type ListState } from "../mails/listState";
@@ -25,12 +25,12 @@ export function PersonTermsCard({ personId }: { personId: number }) {
   const themes = useThemes();
 
   return (
-    <Card className={styles.card}>
+    <section className={styles.card} aria-labelledby="person-terms-title">
       <div className={styles.head}>
-        <CardTitle>Auffällige Begriffe</CardTitle>
-        <span className={styles.hint}>
-          in den gesendeten Mails, verglichen mit dem übrigen Archiv
-        </span>
+        <h2 id="person-terms-title" className={styles.title}>
+          Auffällige Begriffe
+        </h2>
+        <HelpTip text="In den gesendeten Mails, verglichen mit dem übrigen Archiv" />
         <Link to={selectionHref(list)} className={styles.all}>
           Alle Begriffe
         </Link>
@@ -49,7 +49,7 @@ export function PersonTermsCard({ personId }: { personId: number }) {
       ) : (
         <Found data={terms.data} list={list} themes={themes.data} />
       )}
-    </Card>
+    </section>
   );
 }
 

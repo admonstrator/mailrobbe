@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useMergeLog, useUndoMerge, useUndoMergeBatch } from "../../api/queries";
 import type { MergeBatchInfo, MergeLogEntry, MergeUndoResult } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
+import { HelpTip } from "../../components/PageHead";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { PersonLink } from "../../components/PersonLink";
@@ -40,21 +40,21 @@ export function MergeLog() {
 
   if (log.isPending) {
     return (
-      <Card className={styles.loading}>
+      <div className={styles.loading}>
         <Spinner label="Zusammenführungen werden geladen" />
-      </Card>
+      </div>
     );
   }
   if (log.isError) {
     return (
-      <Card>
+      <div>
         <ErrorState
           title="Die Zusammenführungen konnten nicht geladen werden."
           actions={<Button onClick={() => void log.refetch()}>Erneut versuchen</Button>}
         >
           Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
         </ErrorState>
-      </Card>
+      </div>
     );
   }
 
@@ -64,8 +64,8 @@ export function MergeLog() {
   return (
     <>
       <p className={styles.intro}>
-        Jede Zusammenführung seit dem Protokoll lässt sich hier rückgängig machen, auch nach
-        späteren. Ältere Zusammenführungen löst man im Profil Adresse für Adresse.
+        Rückgängig machen geht hier für jede Zusammenführung seit dem Protokoll.
+        <HelpTip text="Auch nach späteren Zusammenführungen. Ältere Zusammenführungen löst man im Profil Adresse für Adresse." />
       </p>
       <p role="status" className={cx(styles.notice, !notice && "sr-only")}>
         {notice}
@@ -75,7 +75,7 @@ export function MergeLog() {
           {personErrorText(failed)}
         </p>
       )}
-      <Card className={styles.card}>
+      <div className={styles.card}>
         {groups.length === 0 ? (
           <EmptyState title="Noch nichts zusammengeführt">
             Zusammenführungen erscheinen hier, sobald Personen zusammengeführt werden.
@@ -103,7 +103,7 @@ export function MergeLog() {
             </section>
           ))
         )}
-      </Card>
+      </div>
       {log.hasNextPage && (
         <div className={styles.more}>
           <Button onClick={() => void log.fetchNextPage()} disabled={log.isFetchingNextPage}>

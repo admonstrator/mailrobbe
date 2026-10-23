@@ -1,39 +1,26 @@
 /* The Akten screen and its tabs; the list rows are shared by every tab. */
 
+/* On the shell's white sheet (D334): lists are parted by lines, not boxes. */
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   min-width: 0;
-  padding: 20px 24px 24px;
-}
-
-.head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .tabs {
-  margin-left: 16px;
-}
-
-.title {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+  margin: var(--space-3) 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .total {
   color: var(--color-muted);
-  font-size: 13px;
 }
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   min-width: 0;
 }
 
@@ -53,16 +40,16 @@
 }
 
 .loading {
-  align-items: center;
-  padding: 48px;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-7);
 }
 
 /* List rows */
 
 .listCard {
-  gap: 0;
-  padding: 0;
-  overflow: hidden;
+  border-top: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .list {
@@ -79,8 +66,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 24px;
-  padding: 14px 20px;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-3) var(--space-2);
   border-top: 1px solid var(--color-border-subtle);
 }
 
@@ -304,7 +291,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px 20px;
+  padding: var(--space-3) var(--space-2);
   border-top: 1px solid var(--color-border-subtle);
 }
 
@@ -335,16 +322,12 @@
 
 @media (max-width: 640px) {
   .page {
-    padding: 16px;
-  }
-
-  .tabs {
-    margin-left: 0;
+    padding: var(--space-4);
   }
 
   .item,
   .note {
-    padding: 12px 16px;
+    padding: var(--space-3) var(--space-2);
   }
 
   .itemMain {

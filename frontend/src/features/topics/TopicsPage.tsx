@@ -3,9 +3,9 @@ import { Link, useSearchParams } from "react-router";
 
 import { useThemes, useTopicPeriods } from "../../api/queries";
 import { buttonClass } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
+import { PageHead } from "../../components/PageHead";
 import { formatNumber } from "../../lib/format";
 import { ClustersView } from "./ClustersView";
 import { stateText } from "./labels";
@@ -42,27 +42,24 @@ export function TopicsPage() {
     id: view,
     label:
       view === "clusters" && computed?.computed_at
-        ? `${VIEW_LABELS[view]} (${formatNumber(computed.clusters)})`
+        ? `${VIEW_LABELS[view]} ${formatNumber(computed.clusters)}`
         : VIEW_LABELS[view],
   }));
 
   return (
     <main className={styles.page}>
       <title>Themen · Mailrobbe</title>
-      <div className={styles.head}>
-        <h1 className={styles.title}>Themen</h1>
-        {line && <p className={styles.state}>{line}</p>}
-      </div>
-      <p className={styles.intro}>
-        Wörter, die in einem Zeitraum, bei einer Person oder in einer Suche häufiger vorkommen als
-        im übrigen Archiv, und Wörter, die oft zusammen in denselben Mails stehen. Jedes Wort führt
-        zu den Mails, in denen es steht.
-      </p>
+      <PageHead
+        title="Themen"
+        help="Wörter, die in einem Zeitraum, bei einer Person oder in einer Suche häufiger vorkommen als im übrigen Archiv, und Wörter, die oft zusammen in denselben Mails stehen. Jedes Wort führt zu den Mails, in denen es steht."
+        sub={line}
+      />
+      <Explanation />
 
       <div className={styles.layout}>
         <div className={styles.main}>
           {computed?.computed_at === null ? (
-            <Card>
+            <div>
               <EmptyState
                 title="Die Begriffe sind noch nicht berechnet."
                 actions={
@@ -74,7 +71,7 @@ export function TopicsPage() {
                 Der nächste Import berechnet sie, nach den Entitäten, aus den schon importierten
                 Mails; nichts wird neu eingelesen.
               </EmptyState>
-            </Card>
+            </div>
           ) : (
             <>
               <Tabs<TopicView>
@@ -96,17 +93,19 @@ export function TopicsPage() {
             </>
           )}
         </div>
-        <Explanation />
       </div>
     </main>
   );
 }
 
-/** How the terms are found and how to search with them (D142, D148), in plain words. */
+/** How the terms are found and how to search with them (D142, D148), in plain words: folded
+ *  below the head until asked for. */
 function Explanation() {
   return (
-    <Card className={styles.explanation} aria-labelledby="topics-explanation">
-      <CardTitle id="topics-explanation">So entstehen die Begriffe</CardTitle>
+    <details className={styles.explanation}>
+      <summary className={styles.summary}>
+        <h2 className={styles.summaryTitle}>So entstehen die Begriffe</h2>
+      </summary>
       <div className={styles.rules}>
         <p>
           <strong>Ein Begriff</strong> ist ein Wort mit allen seinen Formen: Spende, Spenden und
@@ -142,6 +141,6 @@ function Explanation() {
           Mails.
         </p>
       </div>
-    </Card>
+    </details>
   );
 }

@@ -1,0 +1,83 @@
+.documents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.row:hover {
+  background: var(--color-hover);
+}
+
+.icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--space-2);
+  background: var(--color-ground);
+}
+
+.what {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.name {
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info {
+  color: var(--color-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.info a {
+  color: inherit;
+}
+
+.date {
+  flex: none;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.note {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-7);
+}

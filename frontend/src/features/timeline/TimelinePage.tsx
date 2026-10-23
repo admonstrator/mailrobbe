@@ -18,12 +18,12 @@ import {
   type TimelineSeries,
 } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { Chip } from "../../components/Chip";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
 import { Spinner } from "../../components/Spinner";
+import { PageHead } from "../../components/PageHead";
 import { formatNumber } from "../../lib/format";
 import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
@@ -125,24 +125,24 @@ export function TimelinePage() {
   return (
     <main className={styles.page}>
       <title>Zeitachse · Mailrobbe</title>
-      <div className={styles.head}>
-        <div className={styles.heading}>
-          <h1 className={styles.title}>Zeitachse</h1>
-          <p className={styles.intro}>Mailaufkommen für die aktuelle Suche und Filter</p>
-        </div>
-        <div className={styles.headLinks}>
-          <Link
-            to={selectionHref(state.list)}
-            className={buttonClass()}
-            title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
-          >
-            Begriffe
-          </Link>
-          <Link to={mailListHref(state.list)} className={buttonClass()}>
-            In der Mailliste öffnen
-          </Link>
-        </div>
-      </div>
+      <PageHead
+        title="Zeitachse"
+        sub="Mailaufkommen für die aktuelle Suche und Filter"
+        actions={
+          <>
+            <Link
+              to={selectionHref(state.list)}
+              className={buttonClass()}
+              title="Wörter, die in diesen Mails häufiger sind als im übrigen Archiv"
+            >
+              Begriffe
+            </Link>
+            <Link to={mailListHref(state.list)} className={buttonClass()}>
+              In der Mailliste öffnen
+            </Link>
+          </>
+        }
+      />
 
       {/* The controls stick below the header while the chart is in view; the first mentions'
           table header takes their place further down. */}
@@ -183,7 +183,7 @@ export function TimelinePage() {
           </TimelineControls>
         </div>
 
-        <Card className={styles.chartCard}>
+        <div className={styles.chartCard}>
           {timeline.isPending ? (
             <div className={styles.loading}>
               <Spinner label="Zeitachse wird gezählt" />
@@ -238,7 +238,7 @@ export function TimelinePage() {
               <Explanation timeline={timeline.data} total={timeline.data.total} />
             </>
           )}
-        </Card>
+        </div>
       </section>
 
       <FirstMentionList

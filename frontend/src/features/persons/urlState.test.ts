@@ -6,9 +6,11 @@ import {
   DEFAULT_PROFILE_MAIL_STATE,
   parsePersonListState,
   parseProfileMailState,
+  parseProfileTab,
   personListSearch,
   personMailList,
   profileMailSearch,
+  profileSearch,
   toPersonListParams,
   withSelection,
 } from "./urlState";
@@ -128,5 +130,41 @@ describe("a profile's mail list", () => {
     });
     // The person itself is no contact.
     expect(personMailList(11, { ...DEFAULT_PROFILE_MAIL_STATE, contact: 11 }).between).toEqual([]);
+  });
+});
+
+describe("a profile's tab in the URL (D336)", () => {
+  it("is the overview without a tab, and the mails when the URL narrows them", () => {
+    expect(parseProfileTab(params(""))).toBe("ueberblick");
+    expect(parseProfileTab(params("role=sent"))).toBe("mails");
+    expect(parseProfileTab(params("year=2023&page=2"))).toBe("mails");
+    expect(parseProfileTab(params("tab=kontakte&role=sent"))).toBe("kontakte");
+    expect(parseProfileTab(params("tab=unbekannt"))).toBe("ueberblick");
+    expect(parseProfileTab(params("tab=unbekannt&q=Kasse"))).toBe("mails");
+  });
+
+  it("is written only where the rest does not imply it, beside the kept mail state", () => {
+    const narrowed = { ...DEFAULT_PROFILE_MAIL_STATE, role: "sent" as const, year: 2023 };
+    expect(profileSearch("ueberblick", DEFAULT_PROFILE_MAIL_STATE).toString()).toBe("");
+    expect(profileSearch("mails", DEFAULT_PROFILE_MAIL_STATE).toString()).toBe("tab=mails");
+    expect(profileSearch("mails", narrowed).toString()).toBe("role=sent&year=2023");
+    expect(profileSearch("ueberblick", narrowed).toString()).toBe(
+      "tab=ueberblick&role=sent&year=2023",
+    );
+    expect(profileSearch("signale", narrowed).toString()).toBe("tab=signale&role=sent&year=2023");
+    for (const tab of [
+      "ueberblick",
+      "mails",
+      "kontakte",
+      "anhaenge",
+      "termine",
+      "signale",
+    ] as const) {
+      for (const state of [DEFAULT_PROFILE_MAIL_STATE, narrowed]) {
+        const search = profileSearch(tab, state);
+        expect(parseProfileTab(search)).toBe(tab);
+        expect(parseProfileMailState(search)).toEqual(state);
+      }
+    }
   });
 });
