@@ -3,7 +3,6 @@ import { useId, useState } from "react";
 import { useStartAiRun, useStopAiRun } from "../../api/queries";
 import type { AiJob, AiProgress, AiStatus, OcrEngineChoice } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { Spinner } from "../../components/Spinner";
 import { formatClock, formatDateTime, formatNumber } from "../../lib/format";
 import { StepList } from "../import/StepList";
@@ -55,8 +54,10 @@ export function AiRunCard({ status }: { status: AiStatus }) {
   const summaries = status.queue.summarize.waiting;
   const waiting = queueCounts(status.queue).waiting - summaries;
   return (
-    <Card aria-labelledby="ai-run-title">
-      <CardTitle id="ai-run-title">Lauf</CardTitle>
+    <section className={styles.block} aria-labelledby="ai-run-title">
+      <h2 id="ai-run-title" className={styles.blockTitle}>
+        Lauf
+      </h2>
       {alive && job ? (
         <LiveRun job={job} />
       ) : (
@@ -65,7 +66,7 @@ export function AiRunCard({ status }: { status: AiStatus }) {
           <StartForm status={status} waiting={waiting} summaries={summaries} />
         </>
       )}
-    </Card>
+    </section>
   );
 }
 
