@@ -82,6 +82,8 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   container_id and path make an entry an attachment of every mail carrying the container (D231,
   D232); password and password_finding keep each password found and where it stands (D234),
   document_password the one that opened a document (D236).
+- setting holds the settings changed on the page "Einstellungen", one row per setting, over the
+  environment (D313).
 """
 
 from datetime import date, datetime
@@ -1734,3 +1736,14 @@ class AiThemeHint(Base):
     # Its character offset in the text the summary read (mail.body_text or the document's
     # extracted_text); None when it stands only in the subject or the file name.
     position: Mapped[int | None] = mapped_column(Integer)
+
+
+class Setting(Base):
+    """A setting changed on the page "Einstellungen" (D313): its value over the environment's."""
+
+    __tablename__ = "setting"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)  # a field of config.Settings
+    value: Mapped[Any] = mapped_column(JSONB)  # as stored_settings.json_value writes it
+    changed_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    changed_by: Mapped[str | None] = mapped_column(Text)  # the editor's name (D54)

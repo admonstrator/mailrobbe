@@ -222,10 +222,10 @@ describe("the card KI-Zusammenfassung", () => {
       summaryApi({ ...aiSummaryMail, available: false }),
     );
     const card = await findCard();
-    expect(
-      within(card).getByText(/Kein Textmodell eingerichtet \(MAILROBBE_AI_TEXT_URL\)/),
-    ).toBeTruthy();
-    expect(within(card).getByRole("link", { name: "Seite „KI“" }).getAttribute("href")).toBe("/ki");
+    expect(within(card).getByText(/Kein Textmodell eingerichtet, siehe/)).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Einstellungen" }).getAttribute("href")).toBe(
+      "/einstellungen",
+    );
     expect(within(card).queryByRole("button", { name: "Neu zusammenfassen" })).toBeNull();
     expect(within(card).getByRole("button", { name: "Verwerfen" })).toBeTruthy();
   });

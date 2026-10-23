@@ -91,7 +91,7 @@ export const TEXT_STATUS_TEXTS: Record<DocumentTextStatus, string> = {
   unsupported:
     "Aus diesem Format liest Mailrobbe keinen Text (etwa Bilder, Audio, Video oder alte Office-Formate). Gefunden wird es über den Dateinamen.",
   too_large:
-    "Die Datei ist größer als das Limit der Textauswertung und wurde nicht gelesen (MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE).",
+    "Die Datei ist größer als das Limit der Textauswertung und wurde nicht gelesen (Einstellungen, „Text lesen bis“).",
   failed: "Der Text ließ sich nicht auslesen: Die Datei ist beschädigt oder unlesbar.",
   timeout:
     "Das Auslesen dauerte zu lange und wurde abgebrochen. Der bis dahin gelesene Text ist gespeichert und durchsuchbar.",

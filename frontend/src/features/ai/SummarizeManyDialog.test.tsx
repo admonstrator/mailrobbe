@@ -136,7 +136,7 @@ describe("summarising many (D308)", () => {
   it("says when no text model is set up, with a link to the AI page", async () => {
     renderDialog({ mail_ids: [4711] }, summarizeApi({ preview: apiError("invalid_option") }));
     expect((await within(dialog()).findByRole("alert")).textContent).toBe(
-      "Kein Textmodell eingerichtet (MAILROBBE_AI_TEXT_URL), siehe Seite „KI“.",
+      "Kein Textmodell eingerichtet (System › Einstellungen).",
     );
     expect(
       within(dialog()).getByRole("link", { name: "zur Seite „KI“" }).getAttribute("href"),
@@ -253,7 +253,7 @@ describe("„Zusammenfassen“ where many are chosen", () => {
     })) as HTMLButtonElement;
     await waitFor(() => expect(button.getAttribute("title")).toBe(NO_TEXT_SERVICE));
     expect(button.disabled).toBe(true);
-    expect(NO_TEXT_SERVICE).toBe("Kein Textmodell eingerichtet (MAILROBBE_AI_TEXT_URL)");
+    expect(NO_TEXT_SERVICE).toBe("Kein Textmodell eingerichtet (System › Einstellungen)");
     expect(taskCalls(calls)).toEqual([]);
   });
 });

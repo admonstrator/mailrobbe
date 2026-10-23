@@ -1,15 +1,20 @@
 """Request dependencies shared by the routers: database session, settings, editor, errors."""
 
+import logging
 import unicodedata
 from collections.abc import AsyncIterator
 from typing import Annotated
 from urllib.parse import unquote
 
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from mailrobbe.api.schemas import ApiErrorDetail, ErrorCode
 from mailrobbe.config import Settings
+from mailrobbe.stored_settings import apply, stored_rows
+
+log = logging.getLogger(__name__)
 
 
 async def _session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -17,7 +22,24 @@ async def _session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
-def _settings(request: Request) -> Settings:
+async def refresh_settings(app: FastAPI) -> None:
+    """The environment's settings with the stored ones over them (D313) into app.state.settings,
+    at the server's start and after a save. When the database does not answer they stay as they
+    are, and the next request needing them tries again."""
+    state = app.state
+    try:
+        async with state.sessionmaker() as session:
+            rows = await stored_rows(session)
+    except (SQLAlchemyError, OSError) as error:
+        log.warning("stored settings not read, the environment's apply: %s", error)
+        return
+    state.settings = apply(state.env_settings, {name: row.value for name, row in rows.items()})
+    state.settings_read = True
+
+
+async def _settings(request: Request) -> Settings:
+    if not request.app.state.settings_read:
+        await refresh_settings(request.app)
     settings: Settings = request.app.state.settings
     return settings
 

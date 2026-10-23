@@ -144,8 +144,7 @@ export function SummaryCard({
         )}
         {!view.available && (
           <p className={styles.note}>
-            Kein Textmodell eingerichtet (MAILROBBE_AI_TEXT_URL), siehe{" "}
-            <Link to="/ki">Seite „KI“</Link>.
+            Kein Textmodell eingerichtet, siehe <Link to="/einstellungen">Einstellungen</Link>.
           </p>
         )}
         {result && !task && (

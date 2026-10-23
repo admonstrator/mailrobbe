@@ -15,10 +15,10 @@ from typing import Any
 
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
-from mailrobbe.config import get_settings
 from mailrobbe.dkim.recheck import DEFAULT_STATUSES, UNCHECKED, run_recheck
 from mailrobbe.enums import DkimStatus, JobOrigin
 from mailrobbe.jobrun import EXIT_INTERRUPTED, RunRefused
+from mailrobbe.stored_settings import command_settings
 
 _STATUSES: dict[str, DkimStatus | None] = {
     UNCHECKED: None,
@@ -84,7 +84,7 @@ def run(args: argparse.Namespace) -> int:
         changes["dkim_offline"] = True
     if args.dns_override is not None:
         changes["dkim_dns_override"] = args.dns_override
-    settings = get_settings().model_copy(update=changes)
+    settings = command_settings(args.origin).model_copy(update=changes)
     override = settings.dkim_dns_override
     if override is not None and not override.is_file():
         logging.error("DNS override table not found: %s", override)

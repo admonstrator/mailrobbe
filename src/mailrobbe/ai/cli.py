@@ -50,12 +50,13 @@ from mailrobbe.ai.model import (
 )
 from mailrobbe.ai.queue import enqueue, enqueue_summaries, task_counts, work_list_ids
 from mailrobbe.ai.run import EXIT_FAILED, Engines, default_engines, run_ai
-from mailrobbe.config import Settings, get_settings
+from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine, create_sessionmaker
 from mailrobbe.dkim.cli import error_line
 from mailrobbe.enums import JobKind, JobOrigin
 from mailrobbe.jobrun import EXIT_INTERRUPTED, RunRefused, describe, stop_on_signals
 from mailrobbe.jobs import latest_job
+from mailrobbe.stored_settings import command_settings
 
 log = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 def run(args: argparse.Namespace) -> int:
     quiet = getattr(args, "quiet", False)
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
-    settings = get_settings()
+    settings = command_settings(args.origin)
     try:
         if args.task == "check":
             checks = asyncio.run(check(settings))

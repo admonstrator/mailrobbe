@@ -1,10 +1,12 @@
+import { Link } from "react-router";
+
 import type { ImportOptions } from "../../api/types";
 import { Card, CardTitle } from "../../components/Card";
 import { settingsValues, type SettingsDraft } from "./model";
 import styles from "./SettingsCard.module.css";
 
-/** The options of the next start from the dashboard (D49), prefilled with its defaults. A field
- *  keeps what the user typed while the status is polled; the others follow the defaults. */
+/** The options of the next start from the dashboard (D49), prefilled with the settings (D315).
+ *  A field keeps what the user typed while the status is polled; the others follow them. */
 export function SettingsCard({
   defaults,
   draft,
@@ -17,7 +19,7 @@ export function SettingsCard({
   const values = settingsValues(defaults, draft);
   return (
     <Card variant="side" aria-labelledby="import-settings-title">
-      <CardTitle id="import-settings-title">Einstellungen</CardTitle>
+      <CardTitle id="import-settings-title">Nächster Start</CardTitle>
       <div className={styles.grid}>
         <label htmlFor="import-workers">Parallele Worker</label>
         <input
@@ -56,7 +58,10 @@ export function SettingsCard({
         />
       </div>
       <p className={styles.fixed}>Volltext: immer an (Betreff und Textteil)</p>
-      <p className={styles.hint}>Gilt für den nächsten Start aus dem Dashboard.</p>
+      <p className={styles.hint}>
+        Gilt nur für den nächsten Start aus dem Dashboard; dauerhaft unter{" "}
+        <Link to="/einstellungen">Einstellungen</Link>.
+      </p>
     </Card>
   );
 }

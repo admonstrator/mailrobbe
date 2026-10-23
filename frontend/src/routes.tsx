@@ -18,6 +18,7 @@ import { NotFoundPage } from "./features/placeholder/Placeholders";
 import { PlacesRoute } from "./features/places/lazyPages";
 import { AktenPage } from "./features/research/AktenPage";
 import { CollectionPage } from "./features/research/CollectionPage";
+import { SettingsRoute } from "./features/settings/lazyPages";
 import { SignalsRoute } from "./features/signals/lazyPages";
 import { TimelineRoute } from "./features/timeline/lazyPages";
 import { TopicsRoute } from "./features/topics/lazyPages";
@@ -49,6 +50,7 @@ export const routes: RouteObject[] = [
       { path: "/m/:hash", element: <PermalinkPage /> },
       { path: "/import", element: <ImportPage /> },
       { path: "/ki", element: <AiRoute /> },
+      { path: "/einstellungen", element: <SettingsRoute /> },
       { path: "/import/selektoren", element: <SelectorListRoute /> },
       { path: "/import/selektoren/:name", element: <SelectorDetailRoute /> },
       { path: "*", element: <NotFoundPage /> },

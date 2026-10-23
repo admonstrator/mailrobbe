@@ -25,7 +25,7 @@ from pathlib import Path
 from sqlalchemy.exc import SQLAlchemyError
 
 from mailrobbe.api.schemas import EVIDENCE_FILE_LIMIT
-from mailrobbe.config import Settings, get_settings
+from mailrobbe.config import Settings
 from mailrobbe.db.session import create_engine
 from mailrobbe.dkim.cli import error_line, positive_int
 from mailrobbe.dkim.keys.model import DkimKeysOptions, DkimKeysTask
@@ -33,6 +33,7 @@ from mailrobbe.dkim.keys.run import run_keys
 from mailrobbe.dkim.keys.store import KeyRejected, add_manual_key, selector_summary
 from mailrobbe.enums import JobOrigin
 from mailrobbe.jobrun import EXIT_INTERRUPTED, RunRefused
+from mailrobbe.stored_settings import command_settings
 
 EXIT_USAGE = 2
 
@@ -139,7 +140,7 @@ def _common(command: argparse.ArgumentParser) -> None:
 def run(args: argparse.Namespace) -> int:
     quiet = getattr(args, "quiet", False)
     logging.basicConfig(level=logging.WARNING if quiet else logging.INFO, format="%(message)s")
-    settings = get_settings()
+    settings = command_settings(args.origin)
     workers = getattr(args, "workers", None) or settings.import_workers
     try:
         if args.task == "status":

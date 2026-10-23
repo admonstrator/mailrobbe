@@ -39,6 +39,7 @@ const NAVIGATION: (NavItem | { label: string; items: NavItem[] })[] = [
       { to: "/ausgeblendet", label: "Ausgeblendet" },
       { to: "/import", label: "Import" },
       { to: "/ki", label: "KI" },
+      { to: "/einstellungen", label: "Einstellungen" },
     ],
   },
 ];

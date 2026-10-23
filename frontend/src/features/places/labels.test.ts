@@ -89,7 +89,9 @@ describe("the errors of the card Kartendaten", () => {
     new ApiError(status, code as never, "English detail");
 
   it("says them in German", () => {
-    expect(mapErrorText(error("map_off"))).toMatch(/abgeschaltet \(MAILROBBE_MAP_SOURCE=off\)/);
+    expect(mapErrorText(error("map_off"))).toMatch(
+      /abgeschaltet \(Einstellungen, Detailkarte: Quelle „off“\)/,
+    );
     expect(mapErrorText(error("job_running"))).toBe(
       "Es läuft bereits ein Download der Detailkarte.",
     );

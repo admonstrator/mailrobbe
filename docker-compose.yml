@@ -1,5 +1,8 @@
 # Works on Docker Desktop (macOS) and Linux. Sized for a machine with about 10 GB RAM shared by
 # Postgres and the importer; every value below can be overridden in a .env file next to this one.
+# Most MAILROBBE_* settings of the backend can also be changed in the web UI (System >
+# Einstellungen), which goes over .env (D313); paths, the database, Basic Auth and
+# MAILROBBE_AI_ALLOW_REMOTE stay here only.
 name: mailrobbe
 
 services:

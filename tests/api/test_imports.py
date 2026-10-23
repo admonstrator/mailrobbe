@@ -191,7 +191,6 @@ async def test_status_lists_the_files_and_their_sums(
     if latest:
         job = status["import_job"]
         assert (job["id"], job["status"], job["alive"]) == (latest[0].id, latest[0].status, False)
-        defaults |= {key: latest[0].options[key] for key in imports.DEFAULT_KEYS}
     else:
         assert status["import_job"] is None
     assert status["defaults"] == defaults
@@ -255,12 +254,8 @@ async def test_status_shows_the_latest_runs_and_whether_they_live(
     assert status["import_job"]["progress"] == jobs.ImportProgress().model_dump()
     assert status["dkim_job"]["options"] == dkim_options.model_dump()
     assert status["dkim_job"]["alive"] is False
-    # The next start from the dashboard uses the run's settings of D49, the rest from the server.
-    assert status["defaults"] == ImportOptions.from_settings(settings).model_dump() | {
-        "workers": 3,
-        "attachment_hash_limit": 1024,
-        "dkim_nameservers": "192.0.2.1",
-    }
+    # The next start from the dashboard uses the server's settings, not the run's (D315).
+    assert status["defaults"] == ImportOptions.from_settings(settings).model_dump()
 
     async with holding(url, JobKind.IMPORT):
         status = await get(dashboard.client, "/api/import/status")
@@ -535,8 +530,9 @@ async def test_an_import_started_from_the_dashboard_runs_until_paused(
     )
     assert (await get(client, "/api/stats"))["importer"]["running"] is False
     assert await error_code(client, "/api/import/pause", {}, 409) == "no_job"
-    # The next start uses the options of this run (D49).
-    assert (await get(client, "/api/import/status"))["defaults"] == job["options"]
+    # The next start uses the settings again, not the options of this run (D315).
+    defaults = (await get(client, "/api/import/status"))["defaults"]
+    assert defaults == ImportOptions.from_settings(settings).model_dump()
 
 
 async def test_a_start_without_options_uses_the_defaults(
@@ -553,7 +549,8 @@ async def test_a_start_without_options_uses_the_defaults(
     await run_ended(dashboard, "import_job")
     third = await post(client, "/api/import/start", {}, status=202)
     assert third["id"] > second["id"]
-    assert third["options"] == second["options"]
+    # the second start's choices held for it only (D315)
+    assert third["options"] == first["options"]
 
 
 async def test_a_dkim_recheck_started_from_the_dashboard_runs_until_stopped(

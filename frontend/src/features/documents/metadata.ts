@@ -242,6 +242,6 @@ export const METADATA_STATUS_TEXTS: Record<Exclude<DocumentMetadataStatus, "foun
   empty: "Die Datei enthält keine Metadaten.",
   unsupported: "Aus diesem Format liest Mailrobbe keine Metadaten.",
   too_large:
-    "Die Datei ist größer als das Limit der Auswertung und wurde nicht gelesen (MAILROBBE_ATTACHMENT_TEXT_MAX_SIZE).",
+    "Die Datei ist größer als das Limit der Auswertung und wurde nicht gelesen (Einstellungen, „Text lesen bis“).",
   failed: "Die Metadaten ließen sich nicht lesen: Die Datei ist beschädigt oder verschlüsselt.",
 };

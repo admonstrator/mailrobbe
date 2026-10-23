@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import { useAiStatus, useCheckAiService, useEnqueueAi } from "../../api/queries";
 import type {
@@ -157,15 +158,15 @@ function ServicesCard({ status }: { status: AiStatus }) {
       {!status.services.some((service) => service.capability === "vision") && (
         <p className={styles.muted}>
           Kein Bildmodell eingerichtet. Ohne eines liest Tesseract alles. Ein Bildmodell auf diesem
-          Rechner (LM Studio oder Ollama) wird in der .env mit MAILROBBE_AI_VISION_URL und
-          MAILROBBE_AI_VISION_MODEL eingetragen, etwa http://host.docker.internal:11434.
+          Rechner (LM Studio oder Ollama) wird unter <Link to="/einstellungen">Einstellungen</Link>{" "}
+          mit Adresse und Modell eingetragen, etwa http://host.docker.internal:11434.
         </p>
       )}
       {!status.services.some((service) => service.capability === "text") && (
         <p className={styles.muted}>
           Kein Textmodell eingerichtet, also keine Zusammenfassungen und Schlagwörter. Ein
-          Textmodell auf diesem Rechner wird in der .env mit MAILROBBE_AI_TEXT_URL und
-          MAILROBBE_AI_TEXT_MODEL eingetragen, etwa http://host.docker.internal:1234/v1.
+          Textmodell auf diesem Rechner wird unter <Link to="/einstellungen">Einstellungen</Link>{" "}
+          mit Adresse und Modell eingetragen, etwa http://host.docker.internal:1234/v1.
         </p>
       )}
     </Card>

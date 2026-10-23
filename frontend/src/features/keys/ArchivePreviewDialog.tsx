@@ -62,8 +62,8 @@ export function ArchivePreviewDialog({
       ) : preview.data.url === null ? (
         <>
           <p className={styles.text}>
-            Das Schlüsselarchiv ist abgeschaltet (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off). Mailrobbe
-            fragt kein Archiv; die Rekonstruktion und die Suche im eigenen Archiv gehen weiter.
+            Das Schlüsselarchiv ist in den Einstellungen abgeschaltet („off“). Mailrobbe fragt kein
+            Archiv; die Rekonstruktion und die Suche im eigenen Archiv gehen weiter.
           </p>
           <div className={styles.foot}>
             <Button onClick={onClose}>Schließen</Button>

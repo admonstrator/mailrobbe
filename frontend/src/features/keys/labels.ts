@@ -97,7 +97,7 @@ export function keysErrorText(error: Error): string {
       case "no_job":
         return "Es läuft gerade keine Schlüsselsuche, die angehalten werden könnte.";
       case "archive_off":
-        return "Das Schlüsselarchiv ist abgeschaltet (MAILROBBE_DKIM_KEY_ARCHIVE_URL=off).";
+        return "Das Schlüsselarchiv ist in den Einstellungen abgeschaltet („off“).";
       case "invalid_key":
         return "Kein gültiger Schlüssel.";
       case "invalid_option":

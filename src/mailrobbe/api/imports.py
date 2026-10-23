@@ -95,8 +95,6 @@ def _engine(request: Request) -> AsyncEngine:
 
 
 router = APIRouter(prefix="/api", tags=["import"])
-# The settings of a start from the dashboard that the next start takes over (D49).
-DEFAULT_KEYS = ("workers", "attachment_hash_limit", "dkim_nameservers")
 JSON_BODY = [Depends(_json_only)]
 Runs = Annotated[processes.Runs, Depends(_runs)]
 Engine = Annotated[AsyncEngine, Depends(_engine)]
@@ -124,7 +122,7 @@ async def import_status(session: Session, settings: AppSettings) -> ImportStatus
         import_job=None if import_row is None else await _import_job(session, settings, import_row),
         dkim_job=None if dkim_row is None else await _dkim_job(session, settings, dkim_row),
         keys_job=None if keys_row is None else await _keys_job(session, settings, keys_row),
-        defaults=_defaults(settings, import_row),
+        defaults=_defaults(settings),
         ai_job=None if ai_row is None else await ai_job(session, settings, ai_row),
     )
 
@@ -160,14 +158,10 @@ def _totals(files: list[MboxFileInfo]) -> ImportTotals:
     )
 
 
-def _defaults(settings: Settings, latest: Job | None) -> ImportOptions:
-    """What a start from the dashboard uses (D49): the DEFAULT_KEYS of the latest import run,
-    the rest from the server's settings, which a start passes on."""
-    options = ImportOptions.from_settings(settings)
-    stored = None if latest is None else _valid(ImportOptions, latest.options)
-    if stored is None:
-        return options
-    return options.model_copy(update={key: getattr(stored, key) for key in DEFAULT_KEYS})
+def _defaults(settings: Settings) -> ImportOptions:
+    """What a start from the dashboard uses unless its request says otherwise: the server's
+    settings (D315), which a start passes on."""
+    return ImportOptions.from_settings(settings)
 
 
 async def _import_job(session: AsyncSession, settings: Settings, job: Job) -> ImportJob:
@@ -380,7 +374,7 @@ def _decode_cursor(cursor: str) -> int:
 async def start_import(
     start: ImportStartRequest, session: Session, settings: AppSettings, runs: Runs
 ) -> ImportJob:
-    defaults = _defaults(settings, await jobs.latest_job(session, JobKind.IMPORT))
+    defaults = _defaults(settings)
     nameservers = defaults.dkim_nameservers
     if start.dkim_nameservers is not None:
         try:
