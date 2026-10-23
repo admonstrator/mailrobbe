@@ -10,6 +10,7 @@ import {
   type MailSummary,
 } from "../../api/types";
 import { Button } from "../../components/Button";
+import { OverflowMenu } from "../../components/OverflowMenu";
 import { Spinner } from "../../components/Spinner";
 import { formatNumber } from "../../lib/format";
 import { REVIEW_KEYS, REVIEW_LABELS, TAG_PALETTE } from "../../lib/research";
@@ -39,8 +40,9 @@ function matches(summary: MailSummary | undefined): string {
   return summary.exact ? `${count} Treffer` : `Treffer (mehr als ${count})`;
 }
 
-/** The bar above the mail table while mails are selected (D60): how many, every match instead
- *  of this page's, and the changes for all of them in one request. */
+/** The bar in place of the filters while mails are selected (D60, D335): how many, every match
+ *  instead of this page's, and the changes for all of them in one request; the rarer ones in
+ *  the menu "…". */
 export function BulkBar({
   selected,
   all,
@@ -84,6 +86,25 @@ export function BulkBar({
         <SelectAll selected={selected} summary={summary} onSelectAll={onSelectAll} />
       )}
       <div className={styles.actions}>
+        <Button size="sm" disabled={busy} onClick={() => run({ action: "review", review: "seen" })}>
+          Gesichtet
+        </Button>
+        <Button size="sm" disabled={busy} onClick={() => run({ action: "flag", flagged: true })}>
+          Merken
+        </Button>
+        <Menu label="Zur Akte" disabled={busy}>
+          {collections.length === 0 && <p className={styles.empty}>Noch keine Akten.</p>}
+          {collections.map((collection) => (
+            <MenuRow
+              key={collection.id}
+              name={collection.name}
+              addLabel={`Zu Akte „${collection.name}“ hinzufügen`}
+              removeLabel={`Aus Akte „${collection.name}“ entfernen`}
+              onAdd={() => run({ action: "collection_add", collection_id: collection.id })}
+              onRemove={() => run({ action: "collection_remove", collection_id: collection.id })}
+            />
+          ))}
+        </Menu>
         <Menu label="Schlagwort" disabled={busy}>
           {tags.length === 0 && <p className={styles.empty}>Noch keine Schlagwörter.</p>}
           {tags.map((tag) => (
@@ -98,49 +119,8 @@ export function BulkBar({
             />
           ))}
         </Menu>
-        <Menu label="Akte" disabled={busy}>
-          {collections.length === 0 && <p className={styles.empty}>Noch keine Akten.</p>}
-          {collections.map((collection) => (
-            <MenuRow
-              key={collection.id}
-              name={collection.name}
-              addLabel={`Zu Akte „${collection.name}“ hinzufügen`}
-              removeLabel={`Aus Akte „${collection.name}“ entfernen`}
-              onAdd={() => run({ action: "collection_add", collection_id: collection.id })}
-              onRemove={() => run({ action: "collection_remove", collection_id: collection.id })}
-            />
-          ))}
-        </Menu>
-        <Menu label="Status setzen" disabled={busy}>
-          {REVIEW_KEYS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={styles.item}
-              onClick={() => run({ action: "review", review: key === "unreviewed" ? null : key })}
-            >
-              {REVIEW_LABELS[key]}
-            </button>
-          ))}
-        </Menu>
-        <Menu label="Markierung" disabled={busy}>
-          <button
-            type="button"
-            className={styles.item}
-            onClick={() => run({ action: "flag", flagged: true })}
-          >
-            Markieren
-          </button>
-          <button
-            type="button"
-            className={styles.item}
-            onClick={() => run({ action: "flag", flagged: false })}
-          >
-            Markierung entfernen
-          </button>
-        </Menu>
         <Button size="sm" disabled={busy} onClick={onExport}>
-          Exportieren
+          Exportieren …
         </Button>
         <SummarizeButton
           selection={
@@ -149,10 +129,26 @@ export function BulkBar({
               : { mail_ids: selection.ids ?? [] }
           }
         />
-        <Button size="sm" variant="link" onClick={onClear}>
+        <OverflowMenu
+          label="Weitere Änderungen"
+          items={[
+            ...REVIEW_KEYS.filter((key) => key !== "seen").map((key) => ({
+              label: `Status: ${REVIEW_LABELS[key]}`,
+              disabled: busy,
+              onSelect: () => run({ action: "review", review: key === "unreviewed" ? null : key }),
+            })),
+            {
+              label: "Nicht mehr merken",
+              disabled: busy,
+              separated: true,
+              onSelect: () => run({ action: "flag", flagged: false }),
+            },
+          ]}
+        />
+        {busy && <Spinner label="Mails werden geändert" />}
+        <Button size="sm" variant="link" className={styles.clear} onClick={onClear}>
           Auswahl aufheben
         </Button>
-        {busy && <Spinner label="Mails werden geändert" />}
       </div>
       {bulk.isError && (
         <p className={styles.error} role="alert">

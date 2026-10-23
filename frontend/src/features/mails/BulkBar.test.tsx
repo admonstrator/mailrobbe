@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BulkRequest, MailSummary } from "../../api/types";
 import { filteredQuery, mailItems, summaryFiltered } from "../../test/fixtures";
+import { rowOf, rows } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 import type { ExportDialogProps } from "../research/ExportDialog";
 
@@ -36,6 +37,12 @@ const bulkCalls = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname === "/api/mails/bulk");
 const bar = () => screen.getByRole("region", { name: "Auswahl" });
 
+/** Chooses an entry of the bar's menu "…". */
+function moreChanges(name: string) {
+  fireEvent.click(within(bar()).getByRole("button", { name: "Weitere Änderungen" }));
+  fireEvent.click(within(bar()).getByRole("menuitem", { name }));
+}
+
 function openMenu(label: string): HTMLElement {
   fireEvent.click(within(bar()).getByRole("button", { name: `${label} ▾` }));
   return within(bar()).getByRole("group", { name: label });
@@ -48,7 +55,8 @@ describe("selection and bulk changes in the mail list", () => {
 
   it("shows status, tags and notes per row", async () => {
     renderApp("/mails");
-    const first = (await screen.findByRole("link", { name: mailItems[0].subject! })).closest("tr")!;
+    await rows();
+    const first = rowOf(mailItems[0].subject!);
     expect(within(first).getByRole("img", { name: "Status: Relevant" }).getAttribute("title")).toBe(
       "Relevant",
     );
@@ -56,14 +64,14 @@ describe("selection and bulk changes in the mail list", () => {
       within(first).getByRole("img", { name: "Schlagwörter: Spendenaffären, Vertrag Nordstahl" }),
     ).toBeTruthy();
     expect(within(first).getByRole("img", { name: "2 Notizen" }).textContent).toBe("2");
-    const fourth = screen.getByRole("link", { name: mailItems[3].subject! }).closest("tr")!;
+    const fourth = rowOf(mailItems[3].subject!);
     expect(within(fourth).getByRole("img", { name: "Status: Gesichtet" })).toBeTruthy();
     expect(within(fourth).queryByRole("img", { name: /Notiz/ })).toBeNull();
   });
 
   it("selects by checkbox without opening the mail, and a page at once", async () => {
     const { router } = renderApp("/mails");
-    await screen.findAllByRole("row");
+    await rows();
     fireEvent.click(rowBox(mailItems[0].subject!));
     expect(router.state.location.pathname).toBe("/mails");
     expect(within(bar()).getByText("1 ausgewählt")).toBeTruthy();
@@ -78,14 +86,15 @@ describe("selection and bulk changes in the mail list", () => {
     fireEvent.click(page);
     expect(screen.queryByRole("region", { name: "Auswahl" })).toBeNull();
 
-    // A click elsewhere in the row still opens the mail.
-    fireEvent.click(screen.getByText("Vertrag gekündigt?").closest("tr")!.lastElementChild!);
-    expect(router.state.location.pathname).toBe("/mails/183590");
+    // A click elsewhere in the row still opens the mail, in the preview.
+    fireEvent.click(rowOf("Vertrag gekündigt?"));
+    expect(router.state.location.pathname).toBe("/mails");
+    expect(new URLSearchParams(router.state.location.search).get("vorschau")).toBe("183590");
   });
 
   it("changes the selected mails by id and then clears the selection", async () => {
     const { calls } = renderApp("/mails", bulkApi());
-    await screen.findAllByRole("row");
+    await rows();
     fireEvent.click(rowBox(mailItems[0].subject!));
     fireEvent.click(rowBox(mailItems[2].subject!));
     const menu = openMenu("Schlagwort");
@@ -98,31 +107,33 @@ describe("selection and bulk changes in the mail list", () => {
 
     fireEvent.click(rowBox(mailItems[3].subject!));
     fireEvent.click(
-      within(openMenu("Akte")).getByRole("button", {
+      within(openMenu("Zur Akte")).getByRole("button", {
         name: "Aus Akte „Story Nordstahl“ entfernen",
       }),
     );
     await waitFor(() => expect(bulkCalls(calls)).toHaveLength(2));
     fireEvent.click(rowBox(mailItems[3].subject!));
-    fireEvent.click(within(openMenu("Status setzen")).getByRole("button", { name: "Ungesichtet" }));
+    moreChanges("Status: Ungesichtet");
     await waitFor(() => expect(bulkCalls(calls)).toHaveLength(3));
     fireEvent.click(rowBox(mailItems[3].subject!));
-    fireEvent.click(
-      within(openMenu("Markierung")).getByRole("button", { name: "Markierung entfernen" }),
-    );
+    moreChanges("Nicht mehr merken");
     await waitFor(() => expect(bulkCalls(calls)).toHaveLength(4));
+    fireEvent.click(rowBox(mailItems[3].subject!));
+    fireEvent.click(within(bar()).getByRole("button", { name: "Gesichtet" }));
+    await waitFor(() => expect(bulkCalls(calls)).toHaveLength(5));
 
     expect(bulkCalls(calls).map((call) => [call.method, call.body])).toEqual([
       ["POST", { ids: [184221, 184133], action: "tag_add", tag_id: 2 }],
       ["POST", { ids: [184102], action: "collection_remove", collection_id: 1 }],
       ["POST", { ids: [184102], action: "review", review: null }],
       ["POST", { ids: [184102], action: "flag", flagged: false }],
+      ["POST", { ids: [184102], action: "review", review: "seen" }],
     ]);
   });
 
   it("selects every match after asking and sends the filters", async () => {
     const { calls } = renderApp(filteredPath, bulkApi());
-    await screen.findAllByRole("row");
+    await rows();
     fireEvent.click(rowBox(mailItems[1].subject!));
     fireEvent.click(
       await within(bar()).findByRole("button", { name: "Alle 1.207 Treffer auswählen" }),
@@ -132,7 +143,7 @@ describe("selection and bulk changes in the mail list", () => {
     expect(within(bar()).getByText("Alle 1.207 Treffer ausgewählt")).toBeTruthy();
     expect(rowBox(mailItems[5].subject!)).toHaveProperty("checked", true);
 
-    fireEvent.click(within(openMenu("Status setzen")).getByRole("button", { name: "Relevant" }));
+    moreChanges("Status: Relevant");
     expect(await screen.findByText("1.200 von 1.207 Mails geändert")).toBeTruthy();
     expect(bulkCalls(calls)[0].body).toEqual({
       filters: { q: filteredQuery },
@@ -143,7 +154,7 @@ describe("selection and bulk changes in the mail list", () => {
 
   it("does not offer every match above the bulk limit", async () => {
     renderApp(filteredPath, bulkApi({ ...summaryFiltered, total: 60_000 }));
-    await screen.findAllByRole("row");
+    await rows();
     fireEvent.click(rowBox(mailItems[1].subject!));
     expect(
       await within(bar()).findByText(
@@ -163,7 +174,7 @@ describe("selection and bulk changes in the mail list", () => {
           )
         : api(call),
     );
-    await screen.findAllByRole("row");
+    await rows();
     fireEvent.click(rowBox(mailItems[1].subject!));
     fireEvent.click(
       await within(bar()).findByRole("button", {
@@ -171,7 +182,7 @@ describe("selection and bulk changes in the mail list", () => {
       }),
     );
     fireEvent.click(within(bar()).getByRole("button", { name: "Alle auswählen" }));
-    fireEvent.click(within(openMenu("Markierung")).getByRole("button", { name: "Markieren" }));
+    fireEvent.click(within(bar()).getByRole("button", { name: "Merken" }));
     expect(
       await within(bar()).findByText(
         "Zu viele Mails: Eine Änderung erfasst höchstens 50.000. Bitte die Suche eingrenzen.",
@@ -186,19 +197,22 @@ describe("selection and bulk changes in the mail list", () => {
 
   it("starts empty when sort or page change", async () => {
     renderApp("/mails");
-    await screen.findAllByRole("row");
+    await rows();
     fireEvent.click(rowBox(mailItems[0].subject!));
     fireEvent.change(screen.getByLabelText("Sortierung"), { target: { value: "date_asc" } });
     await waitFor(() => expect(screen.queryByRole("region", { name: "Auswahl" })).toBeNull());
     fireEvent.click(rowBox(mailItems[0].subject!));
-    fireEvent.click(screen.getByRole("link", { name: "Weiter ›" }));
+    fireEvent.click(screen.getByRole("link", { name: "Nächste Seite" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Auswahl" })).toBeNull());
   });
 
   it("opens the export for the whole filter or for the selection", async () => {
     renderApp(filteredPath);
-    await screen.findAllByRole("row");
-    fireEvent.click(screen.getByRole("button", { name: "Exportieren" }));
+    await rows();
+    fireEvent.click(screen.getAllByRole("button", { name: "Weitere Aktionen" })[0]);
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Exportieren (ZIP mit PDF und Prüfsummen) …" }),
+    );
     await waitFor(() => expect(exportDialog.props).not.toHaveLength(0));
     expect(exportDialog.props.at(-1)).toEqual({
       selection: { filters: { q: filteredQuery } },
@@ -210,7 +224,7 @@ describe("selection and bulk changes in the mail list", () => {
     (exportDialog.props.at(-1) as ExportDialogProps).onClose();
     fireEvent.click(rowBox(mailItems[0].subject!));
     fireEvent.click(rowBox(mailItems[1].subject!));
-    fireEvent.click(within(bar()).getByRole("button", { name: "Exportieren" }));
+    fireEvent.click(within(bar()).getByRole("button", { name: "Exportieren …" }));
     await waitFor(() =>
       expect(exportDialog.props.at(-1)).toEqual({
         selection: { ids: [184221, 184190] },

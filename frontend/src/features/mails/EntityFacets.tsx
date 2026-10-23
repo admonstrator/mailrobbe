@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
 
 import {
@@ -36,40 +36,6 @@ import type { ChipNames } from "./chips";
 import styles from "./EntityFacets.module.css";
 import { toFilters, withFilters, type ListState } from "./listState";
 
-/** From this width the facets are a column right of the table, which keeps about 680 px beside
- *  the filter column (MailTable's head sticks from there on); below it they are a block above the
- *  table that can be folded away. */
-export const FACETS_COLUMN_QUERY = "(min-width: 1280px)";
-
-export function subscribeWidth(onChange: () => void): () => void {
-  if (typeof window.matchMedia !== "function") return () => {};
-  const query = window.matchMedia(FACETS_COLUMN_QUERY);
-  query.addEventListener("change", onChange);
-  return () => query.removeEventListener("change", onChange);
-}
-
-export function columnWide(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia(FACETS_COLUMN_QUERY).matches;
-}
-
-const STORAGE_KEY = "mailrobbe.facets";
-
-function loadOpen(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) !== "closed";
-  } catch {
-    return true; // storage blocked: open
-  }
-}
-
-function saveOpen(open: boolean): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, open ? "open" : "closed");
-  } catch {
-    // storage blocked: the choice lasts until reload
-  }
-}
-
 /** "in allen Mails", "in 1.234 Treffern", "in 10.000 von 23.456 Treffern (Stichprobe)" (D87). */
 export function facetScope(
   facets: Pick<Facets, "mails" | "sampled">,
@@ -90,35 +56,18 @@ function groupEntries(facets: Facets | undefined, group: EntityGroup, limit: num
   return { entries: entries.slice(0, limit), more };
 }
 
-/** The entities most mentioned in the list's mails, per kind group (D87), beside the table or
- *  above it, depending on the width. Mounted at both places; each renders only at its widths. */
+/** The entities most mentioned in the list's mails, per kind group (D87), in the panel
+ *  "Einblicke" beside the list (D335). A click adds an entity to the filter, a second one takes
+ *  it out again. */
 export function EntityFacets({
   state,
   onChange,
-  placement,
 }: {
   state: ListState;
   onChange: (next: ListState) => void;
-  placement: "column" | "top";
 }) {
-  const wide = useSyncExternalStore(subscribeWidth, columnWide, () => false);
-  if (wide !== (placement === "column")) return null;
-  return <FacetPanel state={state} onChange={onChange} placement={placement} />;
-}
-
-function FacetPanel({
-  state,
-  onChange,
-  placement,
-}: {
-  state: ListState;
-  onChange: (next: ListState) => void;
-  placement: "column" | "top";
-}) {
-  const [open, setOpen] = useState(loadOpen);
-  const shown = placement === "column" || open;
   const filters = toFilters(state);
-  const facets = useEntityFacets(filters, shown);
+  const facets = useEntityFacets(filters);
   const summary = useMailSummary(filters);
   const themes = useThemes();
   const total = summary.data?.exact ? summary.data.total : null;
@@ -134,66 +83,46 @@ function FacetPanel({
   if (facets.data?.mails === 0 && !facets.isPlaceholderData) return null;
 
   return (
-    <section
-      className={cx(styles.panel, styles[placement], !shown && styles.closed)}
-      aria-labelledby={`facets-title-${placement}`}
-    >
+    <section className={styles.panel} aria-labelledby="facets-title">
       <div className={styles.head}>
-        <h2 id={`facets-title-${placement}`} className={styles.title}>
+        <h3 id="facets-title" className={styles.title}>
           Entitäten
-        </h2>
-        {shown && facets.data && (
-          <span className={styles.scope}>{facetScope(facets.data, total)}</span>
-        )}
+        </h3>
         <span className={styles.headLinks}>
           <Link to="/entitaeten" className={styles.all}>
             Alle Entitäten
           </Link>
-          {placement === "top" && (
-            <Button
-              variant="link"
-              size="xs"
-              aria-expanded={open}
-              onClick={() => {
-                setOpen(!open);
-                saveOpen(!open);
-              }}
-            >
-              {open ? "Ausblenden" : "Einblenden"}
-            </Button>
-          )}
         </span>
+        {facets.data && <span className={styles.scope}>{facetScope(facets.data, total)}</span>}
       </div>
-      {shown &&
-        (facets.isPending ? (
-          <div className={styles.state}>
-            <Spinner label="Entitäten werden geladen" />
-          </div>
-        ) : facets.isError ? (
-          <div className={styles.state} role="alert">
-            <span>Die Entitäten konnten nicht geladen werden.</span>
-            <Button size="xs" onClick={() => void facets.refetch()}>
-              Erneut versuchen
-            </Button>
-          </div>
-        ) : Object.keys(facets.data.kinds).length === 0 ? (
-          <NoEntities />
-        ) : (
-          <div className={cx(styles.groups, facets.isPlaceholderData && styles.stale)}>
-            {FACET_GROUPS.map((group) => (
-              <FacetGroup
-                key={group}
-                group={group}
-                placement={placement}
-                facets={facets.data}
-                filters={filters}
-                selected={state.entity}
-                themes={themes.data}
-                onToggle={toggle}
-              />
-            ))}
-          </div>
-        ))}
+      {facets.isPending ? (
+        <div className={styles.state}>
+          <Spinner label="Entitäten werden geladen" />
+        </div>
+      ) : facets.isError ? (
+        <div className={styles.state} role="alert">
+          <span>Die Entitäten konnten nicht geladen werden.</span>
+          <Button size="xs" onClick={() => void facets.refetch()}>
+            Erneut versuchen
+          </Button>
+        </div>
+      ) : Object.keys(facets.data.kinds).length === 0 ? (
+        <NoEntities />
+      ) : (
+        <div className={cx(styles.groups, facets.isPlaceholderData && styles.stale)}>
+          {FACET_GROUPS.map((group) => (
+            <FacetGroup
+              key={group}
+              group={group}
+              facets={facets.data}
+              filters={filters}
+              selected={state.entity}
+              themes={themes.data}
+              onToggle={toggle}
+            />
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -214,32 +143,9 @@ function NoEntities() {
   );
 }
 
-/** Whether the element's content is taller than the element: chips the one-line clip hides.
- *  Measured when the content or the size changes; false where the browser cannot tell (tests). */
-export function useClipped(
-  ref: RefObject<HTMLElement | null>,
-  active: boolean,
-  content: string,
-): boolean {
-  const [clipped, setClipped] = useState(false);
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!active || !element) return;
-    const measure = () => setClipped(element.scrollHeight > element.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref, active, content]);
-  return active && clipped;
-}
-
-/** One kind group: its top entities, and up to MAX_FACET_LIMIT on request ("mehr"). Above the
- *  table a group is one line; "mehr" opens it, and asks for more when there may be more. */
+/** One kind group: its top entities, and up to MAX_FACET_LIMIT on request ("mehr"). */
 function FacetGroup({
   group,
-  placement,
   facets,
   filters,
   selected,
@@ -247,7 +153,6 @@ function FacetGroup({
   onToggle,
 }: {
   group: EntityGroup;
-  placement: "column" | "top";
   facets: Facets;
   filters: MailFilters;
   selected: number[];
@@ -255,14 +160,7 @@ function FacetGroup({
   onToggle: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const chips = useRef<HTMLUListElement>(null);
-  const clip = placement === "top" && !expanded;
   const base = groupEntries(facets, group, FACET_LIMIT);
-  const clipped = useClipped(
-    chips,
-    clip,
-    base.entries.map(({ entity, mails }) => `${entity.id}:${mails}`).join(),
-  );
   const more = useEntityFacets(
     { ...filters, kind: [...GROUP_KINDS[group]], limit: MAX_FACET_LIMIT },
     expanded && base.more,
@@ -274,11 +172,11 @@ function FacetGroup({
 
   return (
     <div className={styles.group} role="group" aria-labelledby={titleId}>
-      <h3 id={titleId} className={styles.groupTitle}>
+      <h4 id={titleId} className={styles.groupTitle}>
         <EntityIcon kind={GROUP_KINDS[group][0]} size={13} />
         {GROUP_LABELS[group]}
-      </h3>
-      <ul ref={chips} className={cx(styles.chips, clip && styles.clipped)}>
+      </h4>
+      <ul className={styles.chips}>
         {entries.map((count) => (
           <FacetChip
             key={count.entity.id}
@@ -289,7 +187,7 @@ function FacetGroup({
           />
         ))}
       </ul>
-      {(base.more || expanded || clipped) && (
+      {(base.more || expanded) && (
         <button
           type="button"
           className={styles.more}

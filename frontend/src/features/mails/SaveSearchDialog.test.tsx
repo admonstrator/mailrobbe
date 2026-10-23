@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SavedSearchCreate } from "../../api/types";
 import { searches } from "../../test/fixtures";
+import { menuItem, rows } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 function api(call: ApiCall): unknown {
@@ -21,7 +22,8 @@ describe("saving a search", () => {
       "/mails?q=Vertrag&review=relevant&tag=2&sort=date_asc&cursor=abc&page=2",
       api,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Suche speichern" }));
+    await rows();
+    menuItem("Suche speichern …");
     const dialog = screen.getByRole("dialog", { name: "Suche speichern" });
     expect(within(dialog).getByLabelText("Name")).toHaveProperty("value", "Vertrag");
     const akte = within(dialog).getByLabelText("Akte (optional)");
@@ -47,7 +49,8 @@ describe("saving a search", () => {
 
   it("names a search without text after its filters and needs no Akte", async () => {
     const { calls } = renderApp("/mails?review=relevant&has_note=true", api);
-    fireEvent.click(await screen.findByRole("button", { name: "Suche speichern" }));
+    await rows();
+    menuItem("Suche speichern …");
     const dialog = screen.getByRole("dialog", { name: "Suche speichern" });
     expect(within(dialog).getByLabelText("Name")).toHaveProperty(
       "value",
@@ -67,7 +70,9 @@ describe("saving a search", () => {
 
   it("is offered only for a filtered list", async () => {
     renderApp("/mails");
-    await screen.findAllByRole("row");
-    expect(screen.queryByRole("button", { name: "Suche speichern" })).toBeNull();
+    await rows();
+    fireEvent.click(screen.getAllByRole("button", { name: "Weitere Aktionen" })[0]);
+    expect(screen.getByRole("menuitem", { name: /^Exportieren/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /^Suche speichern/ })).toBeNull();
   });
 });

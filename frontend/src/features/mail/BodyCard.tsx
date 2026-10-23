@@ -459,7 +459,7 @@ function Fold({
 /** The text with quotes, originals, forwards, signatures and standard blocks folded as the
  *  server's segments say (D151, D227); a folded block holding a search word opens itself (D79).
  *  Every paragraph can be marked as a standard block or taken back (D225). */
-function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
+export function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
   // the folds opened or closed by hand, by their place ("2", "2.1" for one inside it); the
   // others as the hits suggest
   const [toggled, setToggled] = useState<Record<string, boolean>>({});

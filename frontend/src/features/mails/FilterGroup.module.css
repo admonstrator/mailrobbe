@@ -62,3 +62,104 @@
     transition: none;
   }
 }
+
+/* The chip of a filter bar (D335) and its popover. */
+.chipArea {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--color-hover);
+}
+
+.chip[aria-expanded="true"] {
+  border-color: var(--color-accent);
+}
+
+.chip svg {
+  color: var(--color-muted);
+}
+
+.chipActive {
+  border-color: rgb(29 91 214 / 35%);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-weight: 500;
+}
+
+.chipActive:hover {
+  background: var(--color-nav-active);
+}
+
+.chipDashed {
+  padding: 0 var(--space-3);
+  border-style: dashed;
+  color: var(--color-nav);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+  font-size: 14px;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.popoverFoot {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.done {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.done:hover {
+  background: var(--color-accent-hover);
+}

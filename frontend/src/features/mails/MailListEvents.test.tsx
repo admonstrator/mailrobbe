@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { calendarEvent, mailDetail, mailItems, mailPage } from "../../test/fixtures";
+import { openFilter, rowOf } from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 describe("mail list and calendar invitations", () => {
@@ -20,19 +21,15 @@ describe("mail list and calendar invitations", () => {
     );
     const invitation = await screen.findByRole("img", { name: "Termin: Einladung" });
     expect(invitation.querySelector("title")?.textContent).toBe("Termin: Einladung");
-    expect(within(invitation.closest("td")!).getByRole("link").textContent).toBe(
-      mailItems[0].subject,
-    );
+    expect(invitation.closest("li")).toBe(rowOf(mailItems[0].subject!));
     const cancel = screen.getByRole("img", { name: "Termin: Absage" });
-    expect(within(cancel.closest("td")!).getByRole("link").textContent).toBe(mailItems[1].subject);
+    expect(cancel.closest("li")).toBe(rowOf(mailItems[1].subject!));
     expect(screen.getAllByRole("img", { name: /^Termin:/ })).toHaveLength(2);
   });
 
-  it("filters by kind in the group Termine with the archive's counts", async () => {
+  it("filters by kind in the popover Termine with the archive's counts", async () => {
     const { router, calls } = renderApp("/mails");
-    const group = (await screen.findByText("Termine", { selector: "legend button" })).closest(
-      "fieldset",
-    )!;
+    const group = await openFilter("Termine");
     expect(
       within(group)
         .getAllByRole("checkbox")

@@ -1,71 +1,75 @@
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   filteredPage,
   filteredQuery,
   hitsPage,
   mailDetail,
+  mailItems,
   mailPage,
   summaryAll,
 } from "../../test/fixtures";
+import {
+  downloads,
+  figures,
+  menuItem,
+  openFilter,
+  openInsights,
+  rowOf,
+  rows,
+} from "../../test/mailList";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const search = (location: { search: string }) => new URLSearchParams(location.search);
 
 const filteredPath = `/mails?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`;
 
-function tile(label: string): HTMLElement {
-  return within(screen.getByRole("main")).getByText(label, { selector: "span" }).parentElement!;
-}
-
 const timelineCalls = (calls: ApiCall[]) =>
   calls.filter((call) => call.url.pathname === "/api/timeline");
 
-/** The compact timeline, 36 months laid out 10 px each, as jsdom lays out nothing. */
-async function timeline(): Promise<HTMLElement> {
-  const slider = await screen.findByRole("slider", { name: "Mails pro Monat" });
-  vi.spyOn(slider, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 360, 80));
-  return slider;
-}
-
 describe("mail list", () => {
-  it("renders rows, chips, tiles and the range from the API", async () => {
+  it("renders rows, chips, figures and the range from the API", async () => {
     const { calls } = renderApp(filteredPath);
 
     const subject = await screen.findByRole("link", {
       name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
     });
     expect(subject.getAttribute("href")).toBe(`/mails/184221?${filteredPath.split("?")[1]}`);
-    expect(screen.getAllByRole("row")).toHaveLength(13);
+    expect(await rows()).toHaveLength(12);
     expect(screen.getByText("(kein Betreff)")).toBeTruthy();
     expect(screen.getAllByRole("img", { name: "DKIM ungültig" })).toHaveLength(1);
-    expect(screen.getAllByRole("link", { name: "Anna Keller" })[0].getAttribute("href")).toBe(
-      "/personen/11",
-    );
-    expect(screen.getByText("+11")).toBeTruthy();
+    expect(within(rowOf(mailItems[0].subject!)).getByText("Anna Keller")).toBeTruthy();
+    expect(screen.getByText(/ an .* \+11$/)).toBeTruthy();
 
     for (const label of ["Betreff: „Vertrag“", "to: @stadtwerke-beispiel.example", "Mit Anhang"]) {
       expect(screen.getByRole("button", { name: `Filter entfernen: ${label}` })).toBeTruthy();
     }
 
-    await waitFor(() => expect(within(tile("Mails im Filter")).getByText("1.207")).toBeTruthy());
-    expect(within(tile("DKIM gültig")).getByText("65,7 %")).toBeTruthy();
-    expect(within(tile("DKIM gültig")).getByText("von 1.196 signierten Mails")).toBeTruthy();
-    expect(within(tile("Schlüssel nicht abrufbar")).getByText("401")).toBeTruthy();
-    expect(within(tile("Beteiligte Personen")).getByText("38 Domains")).toBeTruthy();
-    expect(screen.getByText("1.207 Treffer · sortiert nach Datum ↓")).toBeTruthy();
-    expect(screen.getByText("1–12 von 1.207")).toBeTruthy();
+    const line = figures();
+    expect(await within(line).findByText("65,7 %")).toBeTruthy();
+    expect(within(line).getByText("65,7 %").parentElement!.getAttribute("title")).toBe(
+      "von 1.196 signierten Mails",
+    );
+    expect(within(line).getByText("401")).toBeTruthy();
+    expect(line.textContent).toContain("Personen aus 38 Domains");
+    expect(screen.getByText(`1.207 Treffer für „${filteredQuery}“`)).toBeTruthy();
+    const pager = screen.getByRole("navigation", { name: "Seite" });
+    expect(within(pager).getByText("1–12 von 1.207")).toBeTruthy();
 
     const page = calls.find((call) => call.url.pathname === "/api/mails")!;
     expect(page.url.searchParams.get("q")).toBe(filteredQuery);
     expect(page.url.searchParams.get("has_attachment")).toBe("true");
-    expect(screen.getByRole("link", { name: "Weiter ›" }).getAttribute("href")).toContain(
-      "cursor=cursor-page-2&page=2",
+    const next = screen.getByRole("link", { name: "Weiter ›" }).getAttribute("href");
+    expect(next).toContain("cursor=cursor-page-2&page=2");
+    expect(within(pager).getByRole("link", { name: "Nächste Seite" }).getAttribute("href")).toBe(
+      next,
     );
-    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
+    const hrefs = downloads();
+    menuItem("Als CSV herunterladen");
+    expect(hrefs).toEqual([
       `/api/mails/export.csv?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`,
-    );
+    ]);
   });
 
   it("removes a chip's term from q and loads the list again", async () => {
@@ -85,7 +89,7 @@ describe("mail list", () => {
 
   it("treats all DKIM boxes checked as no filter and unchecking one as a filter", async () => {
     const { router } = renderApp("/mails");
-    const column = screen.getByRole("complementary", { name: "Filter" });
+    const column = await openFilter("DKIM");
     const unsigned = await within(column).findByRole("checkbox", { name: /Nicht signiert/ });
     expect(unsigned).toHaveProperty("checked", true);
     expect(within(column).queryByRole("checkbox", { name: /DNS-Fehler/ })).toBeNull();
@@ -107,9 +111,11 @@ describe("mail list", () => {
     });
     const page = calls.find((call) => call.url.pathname === "/api/mails")!;
     expect(page.url.search).toBe("?hide_duplicates=true&person=11&person_role=sent");
-    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
+    const hrefs = downloads();
+    menuItem("Als CSV herunterladen");
+    expect(hrefs).toEqual([
       "/api/mails/export.csv?hide_duplicates=true&person=11&person_role=sent",
-    );
+    ]);
     fireEvent.click(chip);
     expect(router.state.location.search).toBe("?hide_duplicates=true");
   });
@@ -125,7 +131,7 @@ describe("mail list", () => {
     );
     expect(await screen.findByText("Suche nicht verstanden: after:2026-13-01")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Suche leeren" }).getAttribute("href")).toBe("/mails");
-    expect(within(tile("Mails im Filter")).getByText("–")).toBeTruthy();
+    expect(within(figures()).getByText("Zahlen nicht verfügbar")).toBeTruthy();
   });
 
   it("shows more than 10.000 for a lower bound and never 0 for unknown counts", async () => {
@@ -142,26 +148,30 @@ describe("mail list", () => {
           }
         : fixtureApi(call),
     );
-    await waitFor(() =>
-      expect(within(tile("Mails im Filter")).getByText("mehr als 10.000")).toBeTruthy(),
-    );
-    expect(within(tile("DKIM gültig")).getAllByText("–")).toHaveLength(2);
-    expect(screen.getByText("mehr als 10.000 Treffer · sortiert nach Datum ↓")).toBeTruthy();
-    expect(screen.getByText("1–12 von mehr als 10.000")).toBeTruthy();
+    expect(await screen.findByText("mehr als 10.000 Treffer für „Vertrag“")).toBeTruthy();
+    // Without DKIM counts the line names no share and never 0.
+    expect(figures().textContent).not.toContain("DKIM");
+    expect(figures().textContent).not.toContain("Personen");
+    const pager = screen.getByRole("navigation", { name: "Seite" });
+    expect(within(pager).getByText("1–12 von mehr als 10.000")).toBeTruthy();
   });
 
-  it("shows the filter's timeline above the table and narrows the list to a clicked month", async () => {
+  it("shows the filter's months as small bars and narrows the list to a clicked month", async () => {
     const { router, calls } = renderApp(filteredPath);
-    const slider = await timeline();
-    expect(slider.closest("section")!.querySelector("h2")!.textContent).toBe("Verlauf pro Monat");
-    expect(timelineCalls(calls)[0].url.search).toBe(
-      `?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`,
-    );
-    expect(screen.getByRole("link", { name: "Zeitachse öffnen" }).getAttribute("href")).toBe(
+    const bars = await screen.findByRole("img", { name: "Mails pro Monat" });
+    const sent = timelineCalls(calls)[0].url.searchParams;
+    expect([sent.get("q"), sent.get("has_attachment"), sent.get("bucket")]).toEqual([
+      filteredQuery,
+      "true",
+      "month",
+    ]);
+    expect(within(figures()).getByRole("link", { name: "Zeitachse" }).getAttribute("href")).toBe(
       `/zeitachse?${new URLSearchParams({ q: filteredQuery, has_attachment: "true" })}`,
     );
 
-    fireEvent.click(slider, { clientX: 145 });
+    const march = bars.querySelectorAll("rect")[14];
+    expect(march.querySelector("title")!.textContent).toMatch(/^März 2024: /);
+    fireEvent.click(march);
     const search = new URLSearchParams(router.state.location.search);
     expect(search.get("date_from")).toBe("2024-03-01");
     expect(search.get("date_to")).toBe("2024-03-31");
@@ -177,23 +187,23 @@ describe("mail list", () => {
     );
   });
 
-  it("hides the timeline, remembers it and counts nothing while hidden", async () => {
+  it("remembers the row density and the panel Einblicke in this browser", async () => {
     renderApp("/mails");
-    await timeline();
-    fireEvent.click(screen.getByRole("button", { name: "Zeitachse ausblenden" }));
-    expect(screen.queryByRole("slider")).toBeNull();
-    expect(localStorage.getItem("mailrobbe.timeline")).toBe("hidden");
+    await rows();
+    menuItem("Zeilen: kompakt");
+    expect(localStorage.getItem("mailrobbe.row-density")).toBe("compact");
+    await openInsights();
+    expect(localStorage.getItem("mailrobbe.insights")).toBe("open");
 
     cleanup();
-    const { calls } = renderApp("/mails");
-    await screen.findAllByRole("row");
-    const show = screen.getByRole("button", { name: "Zeitachse einblenden" });
-    expect(screen.queryByRole("slider")).toBeNull();
-    expect(timelineCalls(calls)).toHaveLength(0);
-    fireEvent.click(show);
-    expect(await screen.findByRole("slider")).toBeTruthy();
-    expect(timelineCalls(calls)).toHaveLength(1);
-    expect(localStorage.getItem("mailrobbe.timeline")).toBeNull();
+    renderApp("/mails");
+    await rows();
+    expect(screen.getByRole("complementary", { name: "Einblicke" })).toBeTruthy();
+    menuItem("Zeilen: bequem");
+    expect(localStorage.getItem("mailrobbe.row-density")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Einblicke" }));
+    expect(screen.queryByRole("complementary", { name: "Einblicke" })).toBeNull();
+    expect(localStorage.getItem("mailrobbe.insights")).toBeNull();
   });
 
   it("limits the list to a thread, named by its first mail's subject", async () => {
@@ -207,7 +217,7 @@ describe("mail list", () => {
     });
     const page = calls.find((call) => call.url.pathname === "/api/mails")!;
     expect(page.url.search).toBe("?thread=184001");
-    expect(timelineCalls(calls)[0].url.search).toBe("?thread=184001");
+    expect(timelineCalls(calls)[0].url.searchParams.get("thread")).toBe("184001");
     fireEvent.click(chip);
     expect(router.state.location.search).toBe("");
   });
@@ -223,34 +233,34 @@ describe("mail list", () => {
     renderApp("/mails?q=Neger", (call) =>
       call.url.pathname === "/api/mails" ? page : fixtureApi(call),
     );
-    const rows = (await screen.findAllByRole("row")).slice(1);
+    const items = await rows();
     const line = (row: HTMLElement) => row.querySelector('[title^="Suchwörter"]');
-    expect(line(rows[0])!.textContent).toBe("Betreff 1 · Text 3 · Anhang 2 · Dateiname 2");
-    expect(line(rows[0])!.getAttribute("title")).toBe(
+    expect(line(items[0])!.textContent).toBe("Betreff 1 · Text 3 · Anhang 2 · Dateiname 2");
+    expect(line(items[0])!.getAttribute("title")).toBe(
       "Suchwörter: 1 im Betreff, 3 im Mailtext, 2 im Text von Anhängen, 2 in Dateinamen",
     );
-    // in the subject's cell
+    // in the subject's row
     expect(
-      within(line(rows[0])!.closest("td")!).getByRole("link", {
+      within(line(items[0])!.closest("li")!).getByRole("link", {
         name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
       }),
     ).toBeTruthy();
     // Found through a file name only, which is the point.
-    expect(line(rows[1])!.textContent).toBe("Dateiname 2");
-    expect(line(rows[2])).toBeNull();
-    expect(line(rows[3])!.textContent).toBe("Text 1");
+    expect(line(items[1])!.textContent).toBe("Dateiname 2");
+    expect(line(items[2])).toBeNull();
+    expect(line(items[3])!.textContent).toBe("Text 1");
 
     // The mark of D73 beside the paperclip follows the counts and names the place.
     const mark = (row: HTMLElement) => within(row).queryByText("im Anhang")?.getAttribute("title");
-    expect(mark(rows[0])).toBe("Suchbegriff steht im Text und im Dateinamen eines Anhangs");
-    expect(mark(rows[1])).toBe("Suchbegriff steht im Dateinamen eines Anhangs");
-    expect(mark(rows[2])).toBeUndefined();
-    expect(mark(rows[3])).toBeUndefined();
+    expect(mark(items[0])).toBe("Suchbegriff steht im Text und im Dateinamen eines Anhangs");
+    expect(mark(items[1])).toBe("Suchbegriff steht im Dateinamen eines Anhangs");
+    expect(mark(items[2])).toBeUndefined();
+    expect(mark(items[3])).toBeUndefined();
   });
 
   it("adds no line to rows without hits", async () => {
     renderApp(filteredPath);
-    await screen.findAllByRole("row");
+    await rows();
     expect(document.querySelector('[title^="Suchwörter"]')).toBeNull();
   });
 
@@ -264,12 +274,13 @@ describe("mail list", () => {
         await screen.findByRole("button", { name: `Filter entfernen: ${label}` }),
       ).toBeTruthy();
     }
-    for (const path of ["/api/mails", "/api/mails/summary", "/api/timeline"]) {
+    for (const path of ["/api/mails", "/api/mails/summary"]) {
       expect(calls.find((call) => call.url.pathname === path)!.url.search).toBe(`?${options}`);
     }
-    expect(screen.getByRole("link", { name: "Export CSV" }).getAttribute("href")).toBe(
-      `/api/mails/export.csv?${options}`,
-    );
+    expect(timelineCalls(calls)[0].url.search).toBe(`?${options}&bucket=month`);
+    const hrefs = downloads();
+    menuItem("Als CSV herunterladen");
+    expect(hrefs).toEqual([`/api/mails/export.csv?${options}`]);
     // The detail links carry them, so the detail marks as the list searched.
     expect(
       screen
@@ -334,8 +345,8 @@ describe("paging with page numbers (D193)", () => {
 
   it("numbers the pages, jumps by number and by the field, all in the URL", async () => {
     const { router, calls } = renderApp(filteredPath, jumpingApi);
-    expect(await screen.findByText("1–12 von 1.207")).toBeTruthy();
-    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    const nav = await screen.findByRole("navigation", { name: "Seiten" });
+    expect(within(nav).getByText("1–12 von 1.207")).toBeTruthy();
     expect(within(nav).getByRole("link", { name: "Seite 1" }).getAttribute("aria-current")).toBe(
       "page",
     );
@@ -352,7 +363,7 @@ describe("paging with page numbers (D193)", () => {
     fireEvent.click(within(nav).getByRole("button", { name: "Los" }));
     expect(search(router.state.location).get("page")).toBe("13");
     expect(search(router.state.location).has("cursor")).toBe(false);
-    expect(await screen.findByText("601–612 von 1.207")).toBeTruthy();
+    expect((await screen.findAllByText("601–612 von 1.207")).length).toBeGreaterThan(0);
     expect(mailCalls(calls).at(-1)!.url.searchParams.get("page")).toBe("13");
     expect(screen.getByRole("link", { name: "Seite 13" }).getAttribute("aria-current")).toBe(
       "page",
@@ -375,7 +386,7 @@ describe("paging with page numbers (D193)", () => {
 
   it("goes back to the first page when a filter changes, at the same page size", async () => {
     const { router } = renderApp(`${filteredPath}&limit=25&page=7`, jumpingApi);
-    expect(await screen.findByText("151–162 von 1.207")).toBeTruthy();
+    expect((await screen.findAllByText("151–162 von 1.207")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByRole("combobox", { name: "Sortierung" }), {
       target: { value: "date_asc" },
     });
@@ -393,14 +404,14 @@ describe("paging with page numbers (D193)", () => {
       }
       return fixtureApi(call);
     });
-    expect(await screen.findByText("1–12 von mehr als 10.000")).toBeTruthy();
-    const nav = screen.getByRole("navigation", { name: "Seiten" });
+    const nav = await screen.findByRole("navigation", { name: "Seiten" });
+    expect(within(nav).getByText("1–12 von mehr als 10.000")).toBeTruthy();
     // The pages the lower bound fills are numbered, and the list goes on after them.
     expect(within(nav).getByRole("link", { name: "Seite 200" })).toBeTruthy();
     expect(nav.textContent).toContain("200…");
     fireEvent.click(within(nav).getByRole("link", { name: "Letzte Seite »" }));
     expect(router.state.location.search).toBe("?page=last");
-    expect(await screen.findByText("die letzten 12 von mehr als 10.000")).toBeTruthy();
+    expect((await screen.findAllByText("die letzten 12 von mehr als 10.000")).length).toBe(2);
     expect(mailCalls(calls).at(-1)!.url.search).toBe("?last=true");
     expect((await screen.findByRole("link", { name: "‹ Zurück" })).getAttribute("href")).toBe(
       "/mails?cursor=before-last",
