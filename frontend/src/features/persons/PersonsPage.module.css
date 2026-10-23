@@ -1,41 +1,39 @@
-/* The toolbar sticks below the shell's header, --bar-height high, and the table's header below
-   it. */
+/* The page sits on the shell's white sheet (D334). The toolbar sticks below the shell's header,
+   --bar-height high, and the table's header below it. */
 .page {
-  --bar-height: 56px;
+  --bar-height: 52px;
 
   display: flex;
   flex-direction: column;
-  gap: 4px;
   min-width: 0;
-  padding: 20px 24px 24px;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-}
-
-.tabs {
-  margin-left: 16px;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
 }
 
 .title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+  font: var(--font-page-title);
 }
 
 .total {
   color: var(--color-muted);
-  font-size: 13px;
+}
+
+.tabs {
+  margin: var(--space-3) 0 var(--space-4);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .toolbar {
@@ -45,22 +43,22 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   height: var(--bar-height);
-  background: var(--color-bg);
+  background: var(--color-surface);
 }
 
 .search {
   display: flex;
-  flex: 0 1 420px;
+  flex: 0 1 360px;
   align-items: center;
-  gap: 8px;
-  min-width: 220px;
-  height: 36px;
+  gap: var(--space-2);
+  min-width: 200px;
+  height: 34px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
+  border-radius: var(--space-2);
   background: var(--color-surface);
 }
 
@@ -82,6 +80,29 @@
   outline: none;
 }
 
+.toggle {
+  height: 34px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--space-2);
+  padding: 0 var(--space-3);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.toggle:hover {
+  background: var(--color-hover);
+}
+
+.toggleOn,
+.toggleOn:hover {
+  border-color: var(--color-nav-active);
+  background: var(--color-nav-active);
+  color: var(--color-nav-active-text);
+}
+
 .sortLabel {
   margin-left: auto;
   color: var(--color-muted);
@@ -89,39 +110,34 @@
 }
 
 .sort {
+  height: 34px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  padding: 7px 10px;
+  border-radius: var(--space-2);
+  padding: 0 var(--space-2);
   background: var(--color-surface);
   font-size: 13px;
-}
-
-.labelled {
-  font-size: 13px;
+  font-weight: 500;
 }
 
 .tableCard {
-  gap: 0;
-  padding: 0;
+  min-width: 0;
 }
 
 .loading {
   display: flex;
   justify-content: center;
-  padding: 48px;
+  padding: var(--space-7);
 }
 
 @media (max-width: 759px) {
   .page {
     --bar-height: 0px;
+
+    padding: var(--space-4);
   }
 
   .toolbar {
     position: static;
     height: auto;
-  }
-
-  .tabs {
-    margin-left: 0;
   }
 }
