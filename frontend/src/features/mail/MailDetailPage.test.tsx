@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import type { MailDkim, MailHits } from "../../api/types";
 import { mailDetail, wholeWordHits } from "../../test/fixtures";
+import { readHistory } from "../../lib/history";
+import { personName } from "../../lib/person";
 import { fixtureApi, renderApp } from "../../test/render";
 import { stubIntersectionObserver } from "../../test/scroll";
 
@@ -348,5 +350,31 @@ describe("mail detail", () => {
         : fixtureApi(call),
     );
     expect(await screen.findByText("Die MBOX-Datei ist nicht erreichbar.")).toBeTruthy();
+  });
+});
+
+describe("the mail detail in the history (D333)", () => {
+  it("records subject, sender and day once the mail has loaded", async () => {
+    renderApp(`/mails/184221?${listQuery}`);
+    await screen.findByRole("heading", { name: mailDetail.subject!, level: 1 });
+    const sender = mailDetail.participants.find((person) => person.role === "from")!;
+    await waitFor(() =>
+      expect(readHistory()[0]).toMatchObject({
+        kind: "mail",
+        id: 184221,
+        title: mailDetail.subject,
+        subtitle: `${personName(sender)} · 18.10.2026`,
+        path: "/mails/184221",
+      }),
+    );
+  });
+
+  it("calls a mail without subject (ohne Betreff)", async () => {
+    renderApp("/mails/184221", (call) =>
+      call.url.pathname === "/api/mails/184221"
+        ? { ...mailDetail, subject: null }
+        : fixtureApi(call),
+    );
+    await waitFor(() => expect(readHistory()[0]?.title).toBe("(ohne Betreff)"));
   });
 });

@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useScrolledPast } from "./CompactBar";
+import { CompactBar, useScrolledPast } from "./CompactBar";
 
 function Probe() {
   const [ref, past] = useScrolledPast<HTMLDivElement>();
@@ -58,5 +58,26 @@ describe("useScrolledPast", () => {
     expect(screen.getByText("sichtbar")).toBeTruthy();
     observer.at(-10, false);
     expect(screen.getByText("vorbei")).toBeTruthy();
+  });
+});
+
+describe("CompactBar", () => {
+  it("spans the white sheet inside the shell's main, else the window", () => {
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ left: 256, width: 1168 } as DOMRect);
+    const { unmount } = render(
+      <main>
+        <CompactBar label="Kopfzeile">Betreff</CompactBar>
+      </main>,
+    );
+    const bar = screen.getByRole("region", { name: "Kopfzeile" });
+    expect(bar.style.left).toBe("256px");
+    expect(bar.style.width).toBe("1168px");
+    unmount();
+    rect.mockRestore();
+
+    render(<CompactBar label="Kopfzeile">Betreff</CompactBar>);
+    expect(screen.getByRole("region", { name: "Kopfzeile" }).style.left).toBe("");
   });
 });

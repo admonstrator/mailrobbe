@@ -1,4 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import styles from "./CompactBar.module.css";
 
@@ -32,9 +39,42 @@ export function useScrolledPast<T extends Element>(): [(element: T | null) => vo
  *  it moves nothing on the page; 48 px high, which the frames and scroll margins below leave
  *  free together with the header's height. */
 export function CompactBar({ label, children }: { label: string; children: ReactNode }) {
+  const bar = useRef<HTMLDivElement>(null);
+  const span = useSheetSpan(bar);
   return (
-    <div role="region" aria-label={label} className={styles.bar}>
+    <div
+      ref={bar}
+      role="region"
+      aria-label={label}
+      className={styles.bar}
+      style={span ? { left: span.left, width: span.width } : undefined}
+    >
       {children}
     </div>
   );
+}
+
+/** Where the white sheet (the shell's main, D332) stands across the window, followed as the
+ *  window or the sidebar change its width; null outside a main, where the bar spans the window. */
+function useSheetSpan(
+  element: RefObject<HTMLElement | null>,
+): { left: number; width: number } | null {
+  const [span, setSpan] = useState<{ left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const sheet = element.current?.closest("main");
+    if (!sheet) return;
+    const measure = () => {
+      const { left, width } = sheet.getBoundingClientRect();
+      setSpan((now) => (now?.left === left && now.width === width ? now : { left, width }));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(sheet);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, [element]);
+  return span;
 }
