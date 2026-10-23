@@ -53,6 +53,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from functools import partial
 from typing import Any, cast
 
 from sqlalchemy import (
@@ -103,7 +104,7 @@ from mailrobbe.api.fulltext import (
     words_query,
 )
 from mailrobbe.api.hits import hit_count
-from mailrobbe.api.query import parse_day
+from mailrobbe.api.query import between_parties, parse_day, party_domain
 from mailrobbe.api.schemas import (
     BodyPart,
     MailFilters,
@@ -169,6 +170,8 @@ _WALK_FORMS: "weakref.WeakKeyDictionary[ColumnElement[bool], ColumnElement[bool]
 
 # Words as alternatives of words that must all hold, as in fulltext.FullText.groups.
 _Groups = tuple[tuple[Words, ...], ...]
+# What asks a unit's tsvector for a tsquery in some weights (fulltext.mail_matches and so on).
+_Matches = Callable[[ColumnElement[Any], str], ColumnElement[bool]]
 
 # The one condition object leaving out the hidden mails, so that `unfiltered` recognises it.
 VISIBLE = visible()
@@ -294,29 +297,31 @@ def text_query(terms: Sequence[QueryTerm]) -> ColumnElement[Any] | None:
 def text_conditions(search: FullText) -> list[ColumnElement[bool]]:
     """The conditions of q's full text words: the free words in the places of search.fields
     (D171), each placed word in its own place (D172), each proximity term in the free words'
-    places (D229), all of them as whole words with search.whole_word (D173) and in the parts of
-    the mail's text search.body_part names (D226); a placed word or a proximity term written
-    with a minus must not occur (D175)."""
+    places (D229), all of them as whole words with search.whole_word (D173), quoted ones always
+    (D341), and in the parts of the mail's text search.body_part names (D226); a placed word or
+    a proximity term written with a minus must not occur (D175)."""
     where = []
     part = search.body_part
-    whole = search.whole_word
     if search.search:
-        words = search.prefilter() if whole else search.search
+        # some words decided on the texts: the index is asked the prefilter (D173, D341)
+        decided = search.whole_word or search.mixed
+        words = search.prefilter() if decided else search.search
         query = None if words is None else ts_query(words)
-        groups = search.groups if whole else None
+        groups = search.groups if decided else None
         # the prefilter has no negated word
-        monotone = whole or not any(w.negated for group in search.groups for w in group)
-        where.append(full_text(search.fields, query, groups, part, monotone))
+        monotone = decided or not any(w.negated for group in search.groups for w in group)
+        where.append(full_text(search.fields, query, groups, part, monotone, search.exact))
     # each a condition of its own: a placed word in its place, a proximity term in the places
     # of the free words
     alone = [(frozenset((field,)), words) for field, words in search.placed]
     alone += [(search.fields, words) for words in search.near]
     for fields, typed in alone:
         written = replace(typed, negated=False)
-        groups = ((written,),) if whole else None
-        query = words_query(written, whole)
+        exact = search.exact(written)
+        groups = ((written,),) if exact else None
+        query = words_query(written, exact)
         # a proximity term's phrases are rechecked on every candidate anyway (mail_recheck)
-        monotone = written.distance is None or whole
+        monotone = written.distance is None or exact
         found = full_text(fields, query, groups, part, monotone)
         where.append(_negated([found]) if typed.negated else found)
     return where
@@ -328,13 +333,15 @@ def full_text(
     groups: _Groups | None,
     body_part: BodyPart,
     monotone: bool = False,
+    exact: Callable[[Words], bool] = lambda words: True,
 ) -> ColumnElement[bool]:
     """D73: the words occur in the mail's own subject and text, or in the file names and text of
     one of its attachments' documents, each side in its places among fields (D171), a side
     without any left out, the mail's text in the parts of body_part (D226). query is what the
     GIN indexes are asked (None: nothing to ask, every text is read); monotone when it has no
     negated word, so that the mail's side can be asked it as it is (fulltext.mail_recheck);
-    groups, for whole words, decide on the texts (D173).
+    groups decide on the texts, the words exact names as written (D173, D341) and the others by
+    their stems.
 
     For a set of mails (counts, CSV, all matches of a rare word) each side uses its GIN index:
     the mails' own ids and those of the matching documents' mails (one array, computed once) are
@@ -358,10 +365,12 @@ def full_text(
     def in_mail(asked: ColumnElement[Any], chosen: str) -> ColumnElement[bool]:
         return mail_matches(asked, chosen, monotone)
 
-    own = _in_unit(in_mail, places, texts, fields, query, groups)
+    strictly = partial(mail_matches, monotone=False)
+    own = _in_unit((in_mail, strictly), places, texts, fields, query, groups, exact)
     chosen = weights(fields, places)
     recheck = None if query is None or not chosen else mail_recheck(query, chosen, monotone)
-    document = _in_unit(document_matches, DOCUMENT_WEIGHTS, texts, fields, query, groups)
+    unit = (document_matches, document_matches)
+    document = _in_unit(unit, DOCUMENT_WEIGHTS, texts, fields, query, groups, exact)
     if document is None:
         assert own is not None, "fields name at least one place"
         return own if recheck is None else and_(own, recheck)
@@ -397,21 +406,25 @@ def full_text(
 
 
 def _in_unit(
-    matches: Callable[[ColumnElement[Any], str], ColumnElement[bool]],
+    unit: tuple[_Matches, _Matches],
     places: dict[SearchField, str],
     texts: dict[SearchField, ColumnElement[Any]],
     fields: frozenset[SearchField],
     query: ColumnElement[Any] | None,
     groups: _Groups | None,
+    exact: Callable[[Words], bool],
 ) -> ColumnElement[bool] | None:
     """The words in one unit of the search, a mail's own subject and text or a document's file
     names and text (places: the weights of its tsvector by place), limited to fields; None when
     none of fields is among places.
 
-    The unit's tsvector holds the query in the fields' weights (matches: fulltext.mail_matches
-    or document_matches). Whole words are looked for in the same condition after it, in the
-    texts of the places, so that PostgreSQL reads the texts of the index's candidates only.
+    The unit's tsvector holds the query in the fields' weights (unit: what asks it, as
+    fulltext.mail_matches or document_matches do, and what asks it for one word on its own, in
+    exactly these weights). The groups are decided in the same condition after it, the exact
+    words in the texts of the places, so that PostgreSQL reads the texts of the index's
+    candidates only.
     """
+    matches, strictly = unit
     chosen = weights(fields, places)
     if not chosen:
         return None
@@ -419,23 +432,34 @@ def _in_unit(
     if query is not None:
         found.append(matches(query, chosen))
     if groups is not None:
-        found.append(_whole_words(groups, [texts[place] for place in places if place in fields]))
+        texts_there = [texts[place] for place in places if place in fields]
+        found.append(_decided(groups, texts_there, exact, lambda asked: strictly(asked, chosen)))
     return and_(*found)
 
 
-def _whole_words(groups: _Groups, texts: Sequence[ColumnElement[Any]]) -> ColumnElement[bool]:
-    """D173, as websearch_to_tsquery reads the groups: in one of them every word occurs in one
-    of texts as written (fulltext.word_regex, any case) and every negated word in none. A
-    missing text (NULL) holds no word."""
+def _decided(
+    groups: _Groups,
+    texts: Sequence[ColumnElement[Any]],
+    exact: Callable[[Words], bool],
+    stemmed: Callable[[ColumnElement[Any]], ColumnElement[bool]],
+) -> ColumnElement[bool]:
+    """As websearch_to_tsquery reads the groups: in one of them every word occurs and every
+    negated word does not. An exact word occurs in one of texts as written (D173, D341:
+    fulltext.word_regex, any case), another where the unit's tsvector holds its stems
+    (stemmed); a word without a lexeme (a stop word) is left out, as websearch_to_tsquery
+    leaves it out. A missing text (NULL) holds no word."""
 
-    def occurs(words: Words) -> ColumnElement[bool]:
-        pattern = word_regex(words)
-        return func.coalesce(or_(*(text.regexp_match(pattern, "i") for text in texts)), false())
+    def holds(words: Words) -> ColumnElement[bool]:
+        if exact(words):
+            pattern = word_regex(words)
+            texts_hold = or_(*(text.regexp_match(pattern, "i") for text in texts))
+            found = func.coalesce(texts_hold, false())
+            return ~found if words.negated else found
+        asked = ts_query(replace(words, negated=False).websearch())
+        found = func.coalesce(stemmed(asked), false())
+        return or_(func.numnode(asked) == 0, ~found if words.negated else found)
 
-    return or_(
-        false(),
-        *(and_(*(~occurs(w) if w.negated else occurs(w) for w in group)) for group in groups),
-    )
+    return or_(false(), *(and_(*(holds(w) for w in group)) for group in groups))
 
 
 def _carries(document_id: int) -> ColumnElement[bool]:
@@ -467,16 +491,14 @@ def _negated(conditions: Sequence[ColumnElement[bool]]) -> ColumnElement[bool]:
 def _operator(term: QueryTerm) -> list[ColumnElement[bool]]:
     value = term.value
     match term.key:
-        case "from" | "to" | "cc":
-            pattern = _contains(value)
-            person = or_(
-                Person.canonical_email.ilike(pattern),
-                Person.display_name.ilike(pattern),
-                label_matches(Person, pattern),  # D157
-            )
-            return [_takes_part((ParticipationRole(term.key),), person)]
+        case "from" | "to" | "cc" | "bcc" | "recipient":
+            roles = _RECIPIENTS if term.key == "recipient" else (ParticipationRole(term.key),)
+            return [_takes_part(roles, _party(value))]
+        case "between":
+            first, second = between_parties(value)
+            return [_exchanged(_party(first), _party(second))]
         case "domain":
-            domain = value.lower().lstrip("@")
+            domain = value.lower().lstrip("@.")
             return [_takes_part(None, _in_domains(Person.domain, [domain]))]
         case "subject":
             return [Mail.subject.ilike(_contains(value))]
@@ -586,11 +608,30 @@ def _person_role(persons: Sequence[int], role: PersonRole) -> list[ColumnElement
     return [_takes_part((ParticipationRole.CC,), person), ~_takes_part(others, person)]
 
 
+def _party(value: str) -> ColumnElement[bool]:
+    """The persons a party of an address operator names (D340): with a leading @ or dot those of
+    the domain and its subdomains, otherwise those whose address, name or label (D157) holds
+    value."""
+    if (domain := party_domain(value)) is not None:
+        return _in_domains(Person.domain, [domain])
+    pattern = _contains(value)
+    return or_(
+        Person.canonical_email.ilike(pattern),
+        Person.display_name.ilike(pattern),
+        label_matches(Person, pattern),
+    )
+
+
 def _between(persons: Sequence[int]) -> ColumnElement[bool]:
     """One of the two persons sent the mail, the other received it (To, Cc or Bcc)."""
     if len(persons) != 2:
         raise FilterError(f"between takes exactly two person ids, not {len(persons)}")
-    first, second = (_person(person_id) for person_id in persons)
+    return _exchanged(*(_person(person_id) for person_id in persons))
+
+
+def _exchanged(first: ColumnElement[bool], second: ColumnElement[bool]) -> ColumnElement[bool]:
+    """A person matching first sent the mail and one matching second received it (To, Cc or
+    Bcc), or the other way round."""
     return or_(
         and_(_takes_part(_SENDER, first), _takes_part(_RECIPIENTS, second)),
         and_(_takes_part(_SENDER, second), _takes_part(_RECIPIENTS, first)),

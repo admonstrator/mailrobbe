@@ -139,6 +139,27 @@ SEARCHES: list[tuple[str, str, Params, set[int]]] = [
     ("not-before", "-before:2021-03-05", [], {4, 5, 6, 7, 8, 9}),
     ("not-after", "-after:5.3.2021", [], {0, 1, 2, 3}),
     ("not-subject", "-subject:Neger", [], {1, 2, 3, 4, 5, 6, 8, 9}),
+    # Quoted words and phrases as written (D341), the other words by their stems.
+    ("quoted-word", '"Negern"', [], {2}),
+    ("quoted-phrase-with-a-stop-word", '"den Neger"', [], {0}),
+    ("quoted-and-stemmed", '"Negern" Viertel', [], {2}),
+    ("quoted-or-stemmed", '"Negern" or Protokoll', [], {2, 6}),
+    ("stemmed-or-quoted", 'negere or "NEGER RAUS"', [], {0, 1, 2, 3, 4, 5, 6, 7}),
+    ("quoted-placed", 'text:"Negern"', [], {2}),
+    ("quoted-not", 'Neger -"Neger"', [], {2, 3, 4, 5}),
+    ("quoted-stop-word-left-out", '"Negern" die', [], {2}),
+    # Parties of a role (D340): a domain with its subdomains after @, an ending after a dot.
+    ("from-domain", "from:@partenaire.example", [], {3, 4}),
+    ("from-subdomain", "from:@example", [], {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}),
+    ("ending-is-no-part", "from:.dupont", [], set()),
+    ("part-of-an-address", "from:dupont", [], {3, 4}),
+    ("domain-with-a-dot", "domain:.partenaire.example", [], {3, 4}),
+    ("recipient", "recipient:@verein.example -from:@verein.example", [], {3, 4, 7}),
+    ("no-bcc", "bcc:@verein.example", [], set()),
+    ("between", "between:vorstand,karl", [], {0, 6}),
+    ("between-domain", "between:@partenaire.example,info", [], {3, 4}),
+    ("between-ending", "between:maria,.example", [], {1, 2}),
+    ("not-between", "-between:karl,vorstand Neger", [], {1, 2, 3, 4, 5, 7}),
 ]
 
 

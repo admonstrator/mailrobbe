@@ -134,23 +134,19 @@ describe("the search options of the search menu (D177)", () => {
     );
   });
 
-  it("shows the syntax in short lines", () => {
+  it("shows the operators in short lines, by group (D340, D341)", () => {
     renderApp("/mails");
-    const syntax = within(openMenu()).getByRole("region", { name: "Suchsyntax" });
+    const syntax = within(openMenu()).getByRole("region", { name: "Operatoren" });
+    const groups = [...syntax.querySelectorAll("h4")].map((heading) => heading.textContent);
+    expect(groups).toEqual(["Wörter", "Personen und Domains", "Weitere"]);
     const lines = [...syntax.querySelectorAll("dt")].map(
       (term) => `${term.textContent} ${term.nextElementSibling!.textContent}`,
     );
-    expect(lines).toEqual([
-      "betreff:Wort nur im Betreff",
-      "text:Wort nur im Mailtext",
-      "anhang:Wort nur im Text der Anhänge",
-      "datei:Wort nur in Dateinamen",
-      "-datei:Entwurf Minus schließt aus, auch vor from:, has: usw.",
-      "Wort or Wort eines der beiden",
-      '"genaue Phrase" die Wörter in dieser Folge',
-      '"Spende bar"~5 beide Wörter, höchstens 5 Wörter dazwischen',
-      "subject:Wort Teil des Betreffs, auch mitten im Wort",
-    ]);
+    expect(lines).toContain('"finale Fassung" genau so geschrieben, auch ein einzelnes Wort');
+    expect(lines).toContain("recipient:.ru an Adressen auf .ru");
+    expect(lines).toContain("between:anna,bert die eine Seite schrieb, die andere empfing");
+    expect(lines).toContain("-from:@beispiel.de Minus vor einem Operator schließt aus");
+    expect(lines).toHaveLength(24);
   });
 
   it("is reset with the other filters, keeping the search text, and by its own button", async () => {

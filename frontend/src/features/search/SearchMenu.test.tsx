@@ -40,6 +40,21 @@ describe("the search menu of the header", () => {
     expect(document.activeElement).toBe(toggle());
   });
 
+  it("opens at the operators from the help button of the field (D340)", () => {
+    renderApp("/personen");
+    const help = screen.getByRole("button", { name: "Operatoren der Suche" });
+    fireEvent.click(help);
+    expect(help.getAttribute("aria-expanded")).toBe("true");
+    expect(menu().hidden).toBe(false);
+    expect(document.activeElement).toBe(
+      within(menu()).getByRole("heading", { name: "Operatoren" }),
+    );
+    expect(within(menu()).getByText("between:anna,.ru")).toBeTruthy();
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(menu().hidden).toBe(true);
+    expect(document.activeElement).toBe(help);
+  });
+
   it("keeps its options on other screens and applies them to the next search", () => {
     const { router } = renderApp("/personen");
     fireEvent.click(toggle());

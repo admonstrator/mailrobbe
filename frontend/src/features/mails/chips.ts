@@ -63,6 +63,12 @@ const TERM_LABELS: Record<QueryKey, (value: string) => string> = {
   from: (value) => `from: ${value}`,
   to: (value) => `to: ${value}`,
   cc: (value) => `cc: ${value}`,
+  bcc: (value) => `bcc: ${value}`,
+  recipient: (value) => `An, Cc oder Bcc: ${value}`,
+  between: (value) => {
+    const [first = "", second = ""] = value.split(",").map((party) => party.trim());
+    return `Zwischen ${first} und ${second}`;
+  },
   subject: (value) => `Betreff: „${value}“`,
   domain: (value) => `Domain: ${value}`,
   has: () => "Mit Anhang",

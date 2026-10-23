@@ -9,7 +9,12 @@ operators betreff:, text:, anhang: and datei: are full text words looked for in 
 (D172). A token `"a b"~N` is a proximity term (D229, key near): the two words in the quotes with
 at most N words between them, in either order, N from 1 to PROXIMITY_LIMIT; anything else after
 the closing quote's `~`, or another number of words than two, is unusable, while `"a b"` alone
-stays a phrase. A leading minus negates an operator, a proximity term or a Message-ID (D175);
+stays a phrase. from:, to:, cc:, bcc: and recipient: (To, Cc or Bcc) take a party (D340): a part
+of an address or a name, or with a leading @ or dot a domain, `@beispiel.de` that domain with its
+subdomains and `.ru` every domain ending so; domain: takes a domain in any of these forms and
+looks at every role; between: takes two parties separated by a comma, one of which sent the mail
+and the other received it (`between:anna,.ru`). A leading minus negates an operator, a proximity
+term or a Message-ID (D175);
 free text words keep it, since websearch_to_tsquery reads it. An operator or a proximity term
 that cannot be used raises QueryError naming the token. filters.py turns the terms into SQL;
 every term must hold.
@@ -34,6 +39,8 @@ _OPERATORS: dict[str, QueryKey] = {
     for key in get_args(QueryKey)
     if key not in ("text", "message_id", "near") and key not in PLACED.values()
 } | PLACED
+# Operators taking a party of a role; `recipient` stands for To, Cc and Bcc together (D340).
+ADDRESS_KEYS: tuple[QueryKey, ...] = ("from", "to", "cc", "bcc", "recipient")
 _TOKEN = re.compile(r'(?:[^\s"]+|"[^"]*(?:"|\Z))+')
 _OPERATOR = re.compile(r"([A-Za-z]+):(.*)", re.DOTALL)
 _MESSAGE_ID = re.compile(r"<[^<>\s@]+@[^<>\s]+>")
@@ -71,6 +78,17 @@ def parse_day(value: str) -> date | None:
         return None
 
 
+def party_domain(party: str) -> str | None:
+    """The domain a party of an address operator names (D340), lower case without its leading @
+    and dots, when it starts with @ or a dot; None for a part of an address or a name."""
+    return party.lower().lstrip("@.") if party.startswith(("@", ".")) else None
+
+
+def between_parties(value: str) -> list[str]:
+    """The parties of between: as written, separated by commas (D340)."""
+    return [party.strip() for party in value.split(",")]
+
+
 def _term(raw: str) -> QueryTerm:
     if raw.startswith("-") and (negated := _operator(raw[1:], raw)):
         return negated.model_copy(update={"negated": True})
@@ -103,6 +121,13 @@ def _checked(key: str, value: str, raw: str) -> str:
         if value.lower() not in DKIM_KEYS:
             raise QueryError(raw, f"dkim: takes one of {', '.join(DKIM_KEYS)}")
         return value.lower()
+    parties = between_parties(value) if key == "between" else [value]
+    if key == "between" and (len(parties) != 2 or not all(parties)):
+        raise QueryError(raw, "between: takes two parties separated by a comma")
+    if key == "domain" and not value.strip("@."):
+        raise QueryError(raw, "domain: takes a domain")
+    if key in (*ADDRESS_KEYS, "between") and any(party_domain(p) == "" for p in parties):
+        raise QueryError(raw, f"{key}: takes a domain after @ or the dot")
     if key in ("after", "before") and parse_day(value) is None:
         raise QueryError(raw, f"{key}: takes a day as YYYY-MM-DD or DD.MM.YYYY")
     return value

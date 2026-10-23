@@ -258,6 +258,11 @@ async def test_the_hits_of_a_mail_follow_places_and_whole_words(
     assert (placed["words"], placed["stems"]) == (["Neger", "Witze"], ["neg", "witz"])
     assert (placed["in_subject"], placed["in_body"]) == (True, True)
     assert placed["counts"] == counts(1, 2, 0, 0)
+    # quoted words count as written, the others by their stems, which alone are marked (D341)
+    quoted = await hits(7, ("q", '"Neger raus" Neger'))
+    assert (quoted["words"], quoted["stems"]) == (["Neger raus", "Neger"], ["neg"])
+    assert quoted["counts"] == counts(2, 9, 0, 0)
+    assert (await hits(2, ("q", '"Negern"')))["counts"] == counts(0, 1, 0, 0)
     file_names = await hits(5, ("q", "datei:NEG"))
     assert (file_names["words"], file_names["counts"]) == (["NEG"], counts(0, 0, 0, 2))
     # a search without full text words echoes the option
@@ -272,7 +277,14 @@ async def test_whole_words_find_the_snippet_around_the_word_as_written(
     db_session.add(document)
     await db_session.flush()
     neger = Words("Neger")
-    whole = await _hit_snippets(db_session, True, [neger], {}, [document.id])
-    assert whole[document.id].endswith("Das Wort Neger allein.")
-    stemmed = await _hit_snippets(db_session, False, [neger], {neger: ["neg"]}, [document.id])
-    assert stemmed[document.id].startswith("Die Negern vorne.")
+
+    async def snippets(q: str, whole_word: bool) -> dict[int, str]:
+        search = full_text_search(parse_query(q), whole_word=whole_word)
+        assert search is not None
+        words = [words for words, _ in search.counted]
+        return await _hit_snippets(db_session, search, words, {neger: ["neg"]}, [document.id])
+
+    assert (await snippets("Neger", True))[document.id].endswith("Das Wort Neger allein.")
+    assert (await snippets("Neger", False))[document.id].startswith("Die Negern vorne.")
+    # a quoted word is looked for as written (D341)
+    assert (await snippets('"Neger"', False))[document.id].endswith("Das Wort Neger allein.")
