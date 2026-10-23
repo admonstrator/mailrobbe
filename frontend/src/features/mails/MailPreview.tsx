@@ -76,7 +76,7 @@ export function MailPreview({
 
   // A new mail starts at its top.
   useEffect(() => {
-    body.current?.closest("aside")?.scrollTo?.({ top: 0 });
+    body.current?.closest("[data-panel-body]")?.scrollTo?.({ top: 0 });
   }, [id]);
 
   const actions = (
@@ -118,7 +118,13 @@ export function MailPreview({
   );
 
   return (
-    <SidePanel label="Vorschau" actions={actions} onClose={onClose} className={styles.panel}>
+    <SidePanel
+      label="Vorschau"
+      actions={actions}
+      onClose={onClose}
+      movable
+      className={styles.panel}
+    >
       <div ref={body}>
         {detail.isPending ? (
           <div className={styles.loading}>

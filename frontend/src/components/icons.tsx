@@ -374,3 +374,23 @@ export function PlusIcon({ size = 14 }: { size?: number }) {
     </svg>
   );
 }
+
+/** A window with a pane at the right: the panel moves to the right. */
+export function PanelRightIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M14 4.5v15" />
+    </Icon>
+  );
+}
+
+/** A window with a pane at the bottom: the panel moves down. */
+export function PanelBottomIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="M3.5 13h17" />
+    </Icon>
+  );
+}

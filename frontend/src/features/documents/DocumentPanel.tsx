@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 
 import { attachmentContentUrl } from "../../api/client";
@@ -9,17 +10,20 @@ import { PersonLink } from "../../components/PersonLink";
 import { SidePanel } from "../../components/SidePanel";
 import { Spinner } from "../../components/Spinner";
 import { formatBytes, formatClock, formatDate, formatDateTime } from "../../lib/format";
+import { SummaryCard } from "../ai/SummaryCard";
 import { AttachmentPreview } from "../preview/AttachmentPreview";
 import styles from "./DocumentPanel.module.css";
 import { StatusLabel } from "./DocumentRows";
 import { KindIcon } from "./KindIcon";
 import { documentName, KIND_LABELS, mailsText, pagesText } from "./labels";
 import { ProtectionMark } from "./ProtectionMark";
+import { TranscriptCard } from "./TranscriptCard";
 import { documentPath } from "./urlState";
 
 /** A document of the list in the panel beside it (D335): "Ganz öffnen" leads to its page,
  *  "In neuem Fenster" opens that in a new tab. Below: name, kind and size, the mail it came
- *  with first, how often and when it was sent, the download and the browser's preview. */
+ *  with first, how often and when it was sent, the download, its summary, the browser's preview
+ *  and a recording's transcript below its player, as on its page. */
 export function DocumentPanel({ id, onClose }: { id: number; onClose: () => void }) {
   const detail = useDocument(id);
   const actions = (
@@ -40,7 +44,7 @@ export function DocumentPanel({ id, onClose }: { id: number; onClose: () => void
     </>
   );
   return (
-    <SidePanel label="Vorschau" actions={actions} onClose={onClose}>
+    <SidePanel label="Vorschau" actions={actions} onClose={onClose} movable>
       {detail.isPending ? (
         <div className={styles.loading}>
           <Spinner label="Dokument wird geladen" />
@@ -73,6 +77,9 @@ function PanelBody({ document }: { document: DocumentDetail }) {
       `zuletzt ${formatDate(document.last_date)}`,
   ].filter(Boolean);
   const shown = document.preview !== null && document.protection !== "locked";
+  // The player of a recording, which the transcript's times play from (D296).
+  const [player, setPlayer] = useState<HTMLMediaElement | null>(null);
+  const transcript = Boolean(document.transcribable || document.transcript);
 
   return (
     <div className={styles.body}>
@@ -111,12 +118,14 @@ function PanelBody({ document }: { document: DocumentDetail }) {
           Herunterladen
         </a>
       )}
+      <SummaryCard target="document" id={document.id} />
       {shown ? (
         <AttachmentPreview
           attachmentId={document.attachment_id}
           kind={document.preview!}
           name={name}
           decrypted={document.protection === "open"}
+          onMedia={setPlayer}
         />
       ) : (
         <p className={styles.muted}>
@@ -125,6 +134,7 @@ function PanelBody({ document }: { document: DocumentDetail }) {
             : "Keine Vorschau im Browser, nur Download."}
         </p>
       )}
+      {transcript && <TranscriptCard document={document} player={player} />}
     </div>
   );
 }
