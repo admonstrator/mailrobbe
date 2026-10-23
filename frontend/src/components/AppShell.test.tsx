@@ -231,3 +231,14 @@ describe("the header", () => {
     expect(state.getAttribute("href")).toBe("/import");
   });
 });
+
+describe("the page for an unknown address", () => {
+  it("says so on the sheet and leads to the mail list", async () => {
+    renderApp("/gibt-es-nicht");
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Seite nicht gefunden" }),
+    ).toBeTruthy();
+    expect(document.title).toBe("Seite nicht gefunden · Mailrobbe");
+    expect(screen.getByRole("link", { name: "Zur Mailliste" }).getAttribute("href")).toBe("/mails");
+  });
+});

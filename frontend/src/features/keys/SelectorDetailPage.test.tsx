@@ -61,12 +61,20 @@ describe("selector page", () => {
       .getAllByRole("listitem")
       .map((tile) => tile.textContent);
     expect(tiles).toEqual([
-      "Signaturen415ohne Duplikate",
-      "Mails415mit dieser Signatur",
-      "RSA-Signaturen415rekonstruierbar",
-      "Zeitraum11.02.2019 – 30.12.2020erste bis letzte Signatur (t=)",
+      "415 Signaturenohne Duplikate",
+      "415 Mailsmit dieser Signatur",
+      "415 RSA-Signaturenrekonstruierbar",
+      "11.02.2019 – 30.12.2020 Zeitraumerste bis letzte Signatur (t=)",
     ]);
 
+    // keys, lookups and mails each have a tab, the keys first
+    const tabs = screen.getByRole("tablist", { name: "Bereiche des Selektors" });
+    expect(
+      within(tabs)
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent),
+    ).toEqual(["Schlüssel2", "Abfragen3", "Mails415"]);
+    fireEvent.click(within(tabs).getByRole("tab", { name: /^Mails/ }));
     const mails = section("Mails, neueste zuerst");
     const rows = within(mails).getAllByRole("row").slice(1);
     expect(rows.map((row) => row.textContent)).toEqual([
@@ -130,6 +138,7 @@ describe("selector page", () => {
   it("lists every lookup with its answer", async () => {
     renderApp(PATH, backend());
     await screen.findByRole("heading", { level: 1, name: s2019Name });
+    fireEvent.click(screen.getByRole("tab", { name: /^Abfragen/ }));
     const lookups = section("Abfragen (3)");
     const rows = within(lookups).getAllByRole("row").slice(1);
     expect(

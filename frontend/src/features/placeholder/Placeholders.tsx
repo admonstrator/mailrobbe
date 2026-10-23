@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 
 import { buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import styles from "./Placeholders.module.css";
 
 function Placeholder({
@@ -19,7 +18,7 @@ function Placeholder({
   return (
     <main className={styles.page}>
       <title>{`${title} · Mailrobbe`}</title>
-      <Card className={styles.card}>
+      <div className={styles.box}>
         <h1 className={styles.title}>{title}</h1>
         <p className={styles.text}>{children}</p>
         <div className={styles.actions}>
@@ -29,7 +28,7 @@ function Placeholder({
             </Link>
           )}
         </div>
-      </Card>
+      </div>
     </main>
   );
 }
