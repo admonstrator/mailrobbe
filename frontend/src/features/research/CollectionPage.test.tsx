@@ -2,7 +2,9 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { EXPORT_LIMIT, type ErrorCode } from "../../api/types";
-import { collectionDetail, exports } from "../../test/fixtures";
+import { formatDate } from "../../lib/format";
+import { readHistory } from "../../lib/history";
+import { collectionDetail, exports, mailDetail } from "../../test/fixtures";
 import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const writes = (calls: ApiCall[]) => calls.filter((call) => call.method !== "GET");
@@ -26,28 +28,32 @@ async function openExport() {
 }
 
 describe("Akte page", () => {
-  it("shows the Akte with figures, persons, searches and its newest mails", async () => {
-    const { calls } = renderApp("/akten/1");
+  it("shows the Akte with its facts, its mails by month, persons and searches", async () => {
+    const { calls, router } = renderApp("/akten/1");
     expect(await screen.findByRole("heading", { level: 1, name: "Story Nordstahl" })).toBeTruthy();
     expect(document.title).toBe("Story Nordstahl · Mailrobbe");
     expect(screen.getByText(collectionDetail.description)).toBeTruthy();
-    const tiles = screen.getAllByRole("listitem").filter((item) => item.textContent);
+    const path = screen.getByRole("navigation", { name: "Pfad" });
+    expect(within(path).getByRole("link", { name: "Akten" }).getAttribute("href")).toBe("/akten");
+
+    const facts = screen.getByRole("complementary", { name: "Über diese Akte" });
     const figures = Object.fromEntries(
-      ["Mails", "Zeitraum", "Nicht im Archiv"].map((label) => [
-        label,
-        tiles.find((tile) => tile.firstChild?.textContent === label)?.lastChild?.textContent,
-      ]),
+      within(facts)
+        .getAllByRole("term")
+        .map((term) => [term.textContent, term.nextElementSibling?.textContent]),
     );
     expect(figures).toEqual({
+      Zeitraum: "02.09.2026 bis 18.10.2026",
       Mails: "24",
-      Zeitraum: "02.09.2026 – 18.10.2026",
-      "Nicht im Archiv": "1",
+      "Nicht im Archiv?": "1",
+      Angelegt: formatDate(collectionDetail.created_at),
     });
-    const anna = screen.getByRole("link", { name: "Anna Keller" });
-    expect(anna.closest("li")!.textContent).toBe("Anna Keller18");
-    expect(screen.getByRole("link", { name: "Nordstahl an Einkauf" }).getAttribute("href")).toBe(
-      "/mails?q=from%3Anordstahl&sort=date_asc",
-    );
+    expect(
+      within(facts).getByRole("link", { name: "Anna Keller, 18 Mails" }).getAttribute("href"),
+    ).toBe("/personen/11");
+    expect(
+      within(facts).getByRole("link", { name: "Nordstahl an Einkauf" }).getAttribute("href"),
+    ).toBe("/mails?q=from%3Anordstahl&sort=date_asc");
     expect(screen.getByRole("link", { name: "In Mailliste öffnen" }).getAttribute("href")).toBe(
       "/mails?collection=1",
     );
@@ -56,12 +62,41 @@ describe("Akte page", () => {
       name: "Vertragsentwurf Rahmenvereinbarung 2026 – finale Fassung",
     });
     expect(mail.getAttribute("href")).toBe("/mails/184221?collection=1");
-    expect(mail.closest("li")!.textContent).toContain("18.10.2026");
+    const row = mail.closest("li")!;
+    expect(row.textContent).toContain("18.10.2026");
+    expect(row.closest("section")!.getAttribute("aria-label")).toBe("Oktober 2026");
+    // its tags inline, and its first note once it is loaded
+    expect(within(row).getByText(mailDetail.research.tags[0].name)).toBeTruthy();
+    expect(await within(row).findByText(mailDetail.research.notes[0].body)).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Weitere in der Mailliste ›" }).getAttribute("href"),
     ).toBe("/mails?collection=1");
     const listed = calls.find((call) => call.url.pathname === "/api/mails")!;
     expect(listed.url.search).toBe("?collection=1");
+
+    // the tabs keep their place in the URL
+    fireEvent.click(within(facts).getByRole("button", { name: "Alle 3" }));
+    expect(router.state.location.search).toBe("?tab=personen");
+    const persons = screen.getByRole("list", { name: "Beteiligte Personen" });
+    const anna = within(persons).getByRole("link", { name: "Anna Keller" });
+    expect(anna.closest("li")!.textContent).toBe("AKAnna Keller18 Mails in dieser Akte");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Notizen" }));
+    expect(router.state.location.search).toBe("?tab=notizen");
+    const noted = calls.filter((call) => call.url.pathname === "/api/mails").at(-1)!;
+    expect(noted.url.search).toBe("?collection=1&has_note=true");
+  });
+
+  it("records the visit", async () => {
+    renderApp("/akten/1");
+    await screen.findByRole("heading", { level: 1, name: "Story Nordstahl" });
+    expect(readHistory()[0]).toMatchObject({
+      kind: "akte",
+      id: 1,
+      title: "Story Nordstahl",
+      subtitle: "Akte · 24 Mails",
+      path: "/akten/1",
+    });
   });
 
   it("edits name and description in place", async () => {
@@ -82,6 +117,11 @@ describe("Akte page", () => {
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Name" }), { key: "Escape" });
     expect(screen.queryByRole("textbox", { name: "Name" })).toBeNull();
 
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Beschreibung bearbeiten" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Beschreibung" }), { key: "Escape" });
+    expect(screen.queryByRole("textbox", { name: "Beschreibung" })).toBeNull();
+
     expect(writes(calls).map((call) => [call.method, call.url.pathname, call.body])).toEqual([
       ["PATCH", "/api/collections/1", { name: "Story Nordstahl II" }],
       ["PATCH", "/api/collections/1", { description: "Neu gefasst." }],
@@ -90,7 +130,8 @@ describe("Akte page", () => {
 
   it("deletes the Akte after asking, and returns to the Akten", async () => {
     const { router, calls } = renderApp("/akten/1", backend());
-    fireEvent.click(await screen.findByRole("button", { name: "Akte löschen" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Weitere Aktionen" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Akte löschen …" }));
     const dialog = screen.getByRole("dialog", { name: "Akte löschen" });
     expect(dialog.textContent).toContain("Ihre Mails, Notizen und Schlagworte bleiben");
     fireEvent.click(within(dialog).getByRole("button", { name: "Akte löschen" }));
