@@ -34,15 +34,21 @@ export type PersonRole = "sent" | "received" | "cc";
 export type PersonSort = "mails" | "name" | "recent";
 /** Tier of an alias suggestion (D160): certain when several signs agree. */
 export type AliasTier = "certain" | "uncertain";
+/** Which suggestions a list shows: a tier (D160), or the pairs the text model judged one (D323). */
+export type SuggestionView = AliasTier | "ai";
 /** Why a suggestion was made: name and local part, a name that fits both addresses of one
  *  organisation (both certain, with shared contacts), name and local part with too few shared
- *  contacts, a name alone, a local part alone (all three uncertain). */
+ *  contacts, a name alone, a local part alone (all three uncertain); ai: no rule suggests the
+ *  pair, the alias check found it and judged it one person (D323). */
 export type SuggestionReason =
   | "name_and_local_part"
   | "name_fits_addresses"
   | "name_and_local_part_few_contacts"
   | "name"
-  | "local_part";
+  | "local_part"
+  | "ai";
+/** What the text model says about two persons (D323). */
+export type AliasVerdict = "same" | "different" | "unclear";
 export type MboxStatus = "pending" | "running" | "paused" | "done" | "error";
 export type SortOrder = "date_desc" | "date_asc";
 /** Review status of a mail (D55); null is unreviewed. */
@@ -642,6 +648,7 @@ export interface SuggestionListParams {
   cursor?: string;
   limit?: number;
   tier?: AliasTier; // default certain
+  ai?: boolean; // the open pairs the text model judged one person; tier is ignored (D323)
 }
 
 export interface PersonMailCountParams {
@@ -724,21 +731,31 @@ export interface YearActivity {
   received: number;
 }
 
+/** What the text model said about two persons (D323): the newest check of their roots. */
+export interface AliasCheckInfo {
+  verdict: AliasVerdict;
+  reason: string; // the model's words, German
+  model: string;
+  checked_at: string;
+}
+
 export interface AliasCandidate {
   person: PersonSummary; // the other person
   same_name: string | null;
   same_local_part: string | null;
   tier: AliasTier;
   reason: SuggestionReason;
+  ai?: AliasCheckInfo | null; // null: not checked
 }
 
 export interface AliasSuggestion {
   first: PersonSummary; // more mails; stays by default when merging
   second: PersonSummary;
-  same_name: string | null;
+  same_name: string | null; // both null for a pair only the alias check found
   same_local_part: string | null;
   tier: AliasTier;
   reason: SuggestionReason;
+  ai?: AliasCheckInfo | null; // null: not checked
 }
 
 export interface SuggestionCounts {
@@ -758,12 +775,21 @@ export interface MergeLogEntry {
   undone_by: string | null;
 }
 
+/** The alias check (D321 to D323) as the suggestion list shows it. */
+export interface AliasCheckState {
+  available: boolean; // a text service on this machine with a model: "Mit KI prüfen" shows
+  running: boolean; // an AI run with --aliases is alive
+  checked: number; // pairs the text model judged so far
+  same: number; // open pairs it judged one person: the view with ai
+}
+
 export interface SuggestionPage {
   items: AliasSuggestion[];
   next_cursor: string | null;
-  total: number; // every open suggestion of the tier asked for
+  total: number; // every open suggestion of the tier asked for, or with ai check.same
   counts: SuggestionCounts; // every open suggestion per tier
   computed: boolean; // false until a refresh computed them by the current rules (with tiers)
+  check: AliasCheckState;
 }
 
 export interface PersonProfile {
@@ -976,9 +1002,9 @@ export interface ImportOptions {
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "stopped" | "skipped" | "failed";
-// names: DKIM key names; texts: mails and documents summarised (D300)
+// names: DKIM key names; texts: mails and documents summarised (D300); pairs: of persons (D321)
 export type StepUnit =
-  "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages" | "texts";
+  "bytes" | "mails" | "documents" | "names" | "domains" | "places" | "pages" | "texts" | "pairs";
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
@@ -2766,7 +2792,8 @@ export type AiTaskKind = "ocr" | "transcribe" | "summarize";
 export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelled";
 export type AiResultState = "valid" | "replaced" | "discarded";
 export type AiWorkList = "scanned" | "images" | "media";
-export type AiPhase = "check" | "ocr" | "transcribe" | "summarize" | "entities" | "signals";
+export type AiPhase =
+  "check" | "ocr" | "transcribe" | "summarize" | "aliases" | "entities" | "signals";
 export type AiTarget = "document" | "mail" | "thread"; // what an AI task, result or send is about (D301, D316)
 
 export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
@@ -2849,6 +2876,7 @@ export interface AiOptions {
   text_url: string; // "" without one
   text_remote: boolean;
   context_tokens: number;
+  aliases?: boolean; // the run checks alias candidates and takes no task (D321)
 }
 
 /** Live figures of an AI run; its pages are the ocr step's. */
@@ -2865,6 +2893,8 @@ export interface AiProgress extends RunProgress {
   position?: number | null; // seconds reached in the recording in work
   duration?: number | null; // of the recording in work, once decoded
   summaries: number; // summarize tasks done (D300)
+  aliases?: number; // pairs of persons checked (D321)
+  aliases_same?: number; // of them judged one person
 }
 
 /** A run of `mailrobbe ai run` (D187). */
@@ -2925,6 +2955,11 @@ export interface AiQueueRequest {
 /** What start did (D280): a run began; an AI run lives already and takes them next; another
  *  run (an import) keeps it from starting, so they wait in the queue. */
 export type AiQueuedRun = "started" | "running" | "busy";
+
+/** POST /api/ai/run/aliases (D321): started, an AI run lives already, or another run holds it. */
+export interface AiAliasRun {
+  run: AiQueuedRun;
+}
 
 export interface AiQueued {
   queued: number;

@@ -1210,6 +1210,22 @@ async def test_results_tasks_and_sends_name_a_mail(texts: Dashboard) -> None:
     assert (task["pages_read"], task["pages_total"], task["mail"]["id"]) == (1, 3, mail.id)
 
 
+async def test_the_alias_check_starts_with_a_text_service_on_this_machine(
+    texts: Dashboard, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "wait")
+    # a vision service alone checks no pair
+    assert await error_code(dashboard.client, "/api/ai/run/aliases", {}, 400) == "invalid_option"
+    assert await post(texts.client, "/api/ai/run/aliases", {}) == {"run": "started"}
+    job = (await status(texts))["job"]
+    assert job["alive"] and job["options"]["aliases"] is True
+    assert await post(texts.client, "/api/ai/run/aliases", {}) == {"run": "running"}
+    page = await get(texts.client, "/api/persons/suggestions", [("ai", "true")])
+    assert page["check"] == {"available": True, "running": True, "checked": 0, "same": 0}
+    await post(texts.client, "/api/ai/run/stop", {})
+    await reaped(texts)
+
+
 # Transcripts (D290 to D296) ---------------------------------------------------------------------
 
 SPOKEN = "Zauberworttranskript"  # a word no generated text holds

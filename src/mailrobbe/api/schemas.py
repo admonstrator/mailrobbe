@@ -26,7 +26,8 @@ HTTP status named at each code (ErrorCode); FastAPI's own validation errors stay
     POST /api/mails/{id}/dkim/recheck            MailDkim, after checking the mail again
     GET  /api/persons?PersonListParams           PersonPage (D31)
     GET  /api/persons/suggestions?SuggestionListParams  SuggestionPage, the open ones of a tier
-                                                 with the counts of both (D30, D160)
+                                                 with the counts of both (D30, D160), or with
+                                                 ai those the text model judged one (D323)
     POST /api/persons/suggestions/dismiss        SuggestionDismiss -> 204 (D28)
     POST /api/persons/merge                      MergeRequest -> PersonProfile of the target (D28)
     GET  /api/persons/merge-certain              CertainMergePlan: what merging every certain
@@ -228,6 +229,8 @@ X-Mailrobbe-Editor (D54):
     POST /api/ai/run                             AiRunRequest -> 202 AiJob (D187); 409
                                                  job_running while an import or AI run lives
     POST /api/ai/run/stop                        AiJob, its stop requested
+    POST /api/ai/run/aliases                     AiAliasRun: `mailrobbe ai run --aliases`
+                                                 started, or why not (D321)
 
 Summaries and AI tags (milestone 17, D300 to D311): POST /api/ai/tasks takes kind summarize with
 mail_ids, mail_filters (an Akte is collection=<id>), document_ids, the document list's filters or
@@ -297,6 +300,7 @@ from mailrobbe.enums import (
     AiTaskKind,
     AiTaskStatus,
     AliasTier,
+    AliasVerdict,
     DkimReason,
     DkimStatus,
     DnsStatus,
@@ -1122,6 +1126,9 @@ class SuggestionListParams(BaseModel):
     cursor: str | None = None  # next_cursor of a SuggestionPage of the same tier
     limit: int = Field(PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
     tier: AliasTier = AliasTier.CERTAIN  # D160
+    # D323: the open pairs the text model judged one person, of both tiers and those only the
+    # alias check found; tier is ignored then
+    ai: bool = False
 
 
 class PersonMailCountParams(BaseModel):
@@ -1210,6 +1217,15 @@ class YearActivity(BaseModel):
     received: int
 
 
+class AliasCheckInfo(BaseModel):
+    """What the text model said about two persons (D323): the newest check of their roots."""
+
+    verdict: AliasVerdict
+    reason: str  # the model's words, German
+    model: str
+    checked_at: datetime
+
+
 class AliasCandidate(BaseModel):
     """An open alias suggestion (D30) seen from one of its two persons."""
 
@@ -1218,15 +1234,17 @@ class AliasCandidate(BaseModel):
     same_local_part: str | None  # the local part both addresses have
     tier: AliasTier  # D160
     reason: SuggestionReason  # which signs agree; the UI says it in German
+    ai: AliasCheckInfo | None = None  # None: not checked
 
 
 class AliasSuggestion(BaseModel):
     first: PersonSummary  # the one with more mails; merging keeps it by default
     second: PersonSummary
-    same_name: str | None
+    same_name: str | None  # both None for a pair only the alias check found (reason "ai")
     same_local_part: str | None
-    tier: AliasTier
+    tier: AliasTier  # uncertain for a pair only the alias check found
     reason: SuggestionReason
+    ai: AliasCheckInfo | None = None  # None: not checked
 
 
 class SuggestionCounts(BaseModel):
@@ -1247,12 +1265,22 @@ class MergeLogEntry(BaseModel):
     undone_by: str | None
 
 
+class AliasCheckState(BaseModel):
+    """The alias check (D321 to D323) as the suggestion list shows it."""
+
+    available: bool  # a text service on this machine with a model: "Mit KI prüfen" shows
+    running: bool  # an AI run with --aliases is alive
+    checked: int  # pairs the text model judged so far
+    same: int  # open pairs it judged one person: the view with ai
+
+
 class SuggestionPage(BaseModel):
     items: list[AliasSuggestion]  # both reasons first, then by the mails of `first`, then ids
     next_cursor: str | None
-    total: int  # every open suggestion of the tier asked for
+    total: int  # every open suggestion of the tier asked for, or with ai check.same
     counts: SuggestionCounts  # every open suggestion per tier
     computed: bool  # False until a refresh computed them by the current rules (with tiers)
+    check: AliasCheckState
 
 
 class PersonLabel(AccountLabel):
@@ -3096,7 +3124,7 @@ class MapDownloadRequest(BaseModel):
 
 AiWorkList = Literal["scanned", "images", "media"]  # ai.queue.WorkList
 AiPhase = Literal[
-    "check", "ocr", "transcribe", "summarize", "entities", "signals"
+    "check", "ocr", "transcribe", "summarize", "aliases", "entities", "signals"
 ]  # ai.model.AI_STEPS
 AI_QUEUE_LIMIT = 50_000  # documents one request may queue (D186)
 AI_PAGE_SIZE = 50  # default page of the task, result and send log lists
@@ -3226,6 +3254,13 @@ class AiQueueRequest(BaseModel):
 # them next (single puts them first); another run (an import) keeps it from starting, so they
 # wait in the queue.
 AiQueuedRun = Literal["started", "running", "busy"]
+
+
+class AiAliasRun(BaseModel):
+    """POST /api/ai/run/aliases (D321): started, an AI run lives already (running), or another
+    run holds it back (busy)."""
+
+    run: AiQueuedRun
 
 
 class AiQueued(BaseModel):

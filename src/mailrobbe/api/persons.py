@@ -1,6 +1,10 @@
 """Persons: the person list, profiles, contacts, mail counts, alias suggestions, merges and the
 merge log (milestone 5, D28 to D33, D160 to D163). Endpoints and models are in schemas.py.
 
+The verdicts of the alias check (D323) stand beside the suggestions: alias_check read through
+the roots of its persons, the newest per pair; the view ai lists the open pairs judged one
+person, also those no rule suggests. The check itself is an AI run (api/ai.py).
+
 Static paths (/api/persons/suggestions, /api/persons/merge, /api/persons/merges, ...) are
 registered before the ones with a person id.
 
@@ -14,6 +18,7 @@ id in the direction of the sort, so every keyset is one row comparison; the pers
 or by latest mail walks ix_person_stats_mails or ix_person_stats_last_date backwards.
 """
 
+import asyncio
 import base64
 import binascii
 import json
@@ -40,6 +45,7 @@ from sqlalchemy import (
     case,
     cast,
     distinct,
+    false,
     func,
     literal,
     literal_column,
@@ -53,6 +59,8 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from mailrobbe import jobs
+from mailrobbe.ai.model import alias_check_service
 from mailrobbe.api import paging
 from mailrobbe.api.deps import AppSettings, Editor, Session, api_error
 from mailrobbe.api.filters import _contains
@@ -63,6 +71,8 @@ from mailrobbe.api.schemas import (
     TOP_CONTACTS,
     AliasAddress,
     AliasCandidate,
+    AliasCheckInfo,
+    AliasCheckState,
     AliasSuggestion,
     CertainMergePlan,
     CertainMergeResult,
@@ -93,9 +103,12 @@ from mailrobbe.api.schemas import (
     SuggestionPage,
     YearActivity,
 )
+from mailrobbe.config import Settings
 from mailrobbe.db.models import (
     LAST_DATE_SORT_KEY,
     TIMESTAMPTZ,
+    AliasCheck,
+    AliasDismissal,
     Edge,
     GlobalStats,
     Mail,
@@ -107,9 +120,10 @@ from mailrobbe.db.models import (
     PersonMergeMember,
     PersonStats,
     PersonYear,
+    alias_tier_enum,
 )
 from mailrobbe.db.models import AliasSuggestion as SuggestionRow
-from mailrobbe.enums import AliasTier, ParticipationRole
+from mailrobbe.enums import AliasTier, AliasVerdict, JobKind, ParticipationRole
 from mailrobbe.persons.labels import (
     address_labels,
     attach_labels,
@@ -134,7 +148,7 @@ from mailrobbe.persons.merge import dismiss_suggestion as dismiss_pair
 from mailrobbe.persons.roots import member_ids, resolve_root
 from mailrobbe.persons.suggestions import RULES as SUGGESTION_RULES
 from mailrobbe.persons.suggestions import STATS_KEY as SUGGESTIONS_KEY
-from mailrobbe.persons.suggestions import reason
+from mailrobbe.persons.suggestions import SuggestionReason, reason
 
 router = APIRouter(prefix="/api", tags=["persons"])
 
@@ -433,27 +447,102 @@ def _ordered_suggestions() -> Subquery:
     )
 
 
+def _root_pair(
+    table: type[AliasCheck] | type[AliasDismissal],
+) -> tuple[Select[Any], ColumnElement[int], ColumnElement[int]]:
+    """The rows of a table of person pairs with the roots of both (D28), the smaller first:
+    (select from the table and both persons, low, high); a pair within one root is left out."""
+    a, b = aliased(Person), aliased(Person)
+    root_a, root_b = func.coalesce(a.merged_into, a.id), func.coalesce(b.merged_into, b.id)
+    joined = (
+        select(table)
+        .join(a, a.id == table.person_a)
+        .join(b, b.id == table.person_b)
+        .where(root_a != root_b)
+    )
+    return joined, func.least(root_a, root_b), func.greatest(root_a, root_b)
+
+
+def _checks() -> Subquery:
+    """The newest check of every pair of roots (D323): alias_check through the roots of its
+    persons, like alias_dismissal; a pair within one root is left out."""
+    joined, low, high = _root_pair(AliasCheck)
+    return (
+        joined.with_only_columns(low.label("person_a"), high.label("person_b"), AliasCheck.verdict)
+        .distinct(low, high)
+        .order_by(low, high, AliasCheck.created_at.desc())
+        .subquery("checks")
+    )
+
+
+def _ai_suggestions() -> Subquery:
+    """The open pairs the text model judged one person (D323), with the columns of
+    _ordered_suggestions: the signs and tier of their suggestion, or none and uncertain for a
+    pair only the alias check found. A dismissed pair is left out."""
+    checks = _checks()
+    joined, low, high = _root_pair(AliasDismissal)
+    dismissed = (
+        joined.with_only_columns(AliasDismissal.person_a)
+        .where(low == checks.c.person_a, high == checks.c.person_b)
+        .exists()
+    )
+    stats_a, stats_b = aliased(PersonStats), aliased(PersonStats)
+    b_first = stats_b.mails > stats_a.mails
+    return (
+        select(
+            case((b_first, checks.c.person_b), else_=checks.c.person_a).label("first"),
+            case((b_first, checks.c.person_a), else_=checks.c.person_b).label("second"),
+            SuggestionRow.same_name,
+            SuggestionRow.same_local_part,
+            func.coalesce(
+                SuggestionRow.tier, literal(AliasTier.UNCERTAIN, type_=alias_tier_enum)
+            ).label("tier"),
+            func.coalesce(
+                and_(
+                    SuggestionRow.same_name.is_not(None),
+                    SuggestionRow.same_local_part.is_not(None),
+                ),
+                false(),
+            ).label("both"),
+            func.greatest(stats_a.mails, stats_b.mails).label("mails"),
+        )
+        .select_from(checks)
+        .join(stats_a, stats_a.person_id == checks.c.person_a)
+        .join(stats_b, stats_b.person_id == checks.c.person_b)
+        .outerjoin(
+            SuggestionRow,
+            and_(
+                SuggestionRow.person_a == checks.c.person_a,
+                SuggestionRow.person_b == checks.c.person_b,
+            ),
+        )
+        .where(checks.c.verdict == AliasVerdict.SAME, ~dismissed)
+        .subquery("suggestions")
+    )
+
+
 @router.get("/persons/suggestions")
 async def list_suggestions(
-    params: Annotated[SuggestionListParams, Query()], session: Session
+    params: Annotated[SuggestionListParams, Query()], session: Session, settings: AppSettings
 ) -> SuggestionPage:
-    scope = f"suggestions/{params.tier}"
+    scope = "suggestions/ai" if params.ai else f"suggestions/{params.tier}"
     cursor = _Cursor.decode(params.cursor, scope, (_flag, _int, _int, _int))
-    rows = _ordered_suggestions()
+    ordered = _ordered_suggestions()
+    rows = _ai_suggestions() if params.ai else ordered
     columns = [rows.c.both, rows.c.mails, rows.c.first, rows.c.second]
     start = [] if cursor is None else [_beyond(columns, cursor.key, True)]
+    tier = [] if params.ai else [rows.c.tier == params.tier]
     found = list(
         await session.execute(
-            select(rows)
-            .where(rows.c.tier == params.tier, *start)
-            .order_by(*_by(columns, True))
-            .limit(params.limit + 1)
+            select(rows).where(*tier, *start).order_by(*_by(columns, True)).limit(params.limit + 1)
         )
     )
     more = len(found) > params.limit
     del found[params.limit :]
-    counts = await _tier_counts(session, select(rows.c.tier).subquery())
+    counts = await _tier_counts(session, select(ordered.c.tier).subquery())
+    check = await _check_state(session, settings)
     summaries = await _summaries(session, [i for row in found for i in (row.first, row.second)])
+    verdicts = await _verdicts(session, [(row.first, row.second) for row in found])
     next_cursor = None
     if more:
         last = found[-1]
@@ -470,17 +559,84 @@ async def list_suggestions(
                 same_name=row.same_name,
                 same_local_part=row.same_local_part,
                 tier=row.tier,
-                reason=reason(row.same_name, row.same_local_part, row.tier),
+                reason=_reason(row.same_name, row.same_local_part, row.tier),
+                ai=verdicts.get(_pair(row.first, row.second)),
             )
             for row in found
         ],
         next_cursor=next_cursor,
-        total=getattr(counts, params.tier.value),
+        total=check.same if params.ai else getattr(counts, params.tier.value),
         counts=counts,
         computed=computed == {"rules": SUGGESTION_RULES},
+        check=check,
     )
     await attach_labels(session, page)
     return page
+
+
+def _reason(
+    same_name: str | None, same_local_part: str | None, tier: AliasTier
+) -> SuggestionReason:
+    """reason of a suggestion, "ai" for a pair only the alias check found (D323)."""
+    if same_name is None and same_local_part is None:
+        return "ai"
+    return reason(same_name, same_local_part, tier)
+
+
+def _pair(a: int, b: int) -> tuple[int, int]:
+    return (a, b) if a < b else (b, a)
+
+
+async def _verdicts(
+    session: AsyncSession, pairs: Sequence[tuple[int, int]]
+) -> dict[tuple[int, int], AliasCheckInfo]:
+    """The newest check of each pair of roots (D323), by _pair: alias_check read through the
+    persons of these roots, by the indexes of both its persons."""
+    roots = {root for pair in pairs for root in pair}
+    if not roots:
+        return {}
+    members = dict(
+        (
+            await session.execute(
+                select(Person.id, func.coalesce(Person.merged_into, Person.id)).where(
+                    or_(Person.id.in_(roots), Person.merged_into.in_(roots))
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    wanted = {_pair(*pair) for pair in pairs}
+    found: dict[tuple[int, int], AliasCheckInfo] = {}
+    checks = await session.scalars(
+        select(AliasCheck)
+        .where(AliasCheck.person_a.in_(members), AliasCheck.person_b.in_(members))
+        .order_by(AliasCheck.created_at, AliasCheck.person_a, AliasCheck.person_b)
+    )
+    for check in checks:
+        key = _pair(members[check.person_a], members[check.person_b])
+        if key in wanted:  # the newest one stays
+            found[key] = AliasCheckInfo(
+                verdict=check.verdict,
+                reason=check.reason,
+                model=check.model,
+                checked_at=check.created_at,
+            )
+    return found
+
+
+async def _check_state(session: AsyncSession, settings: Settings) -> AliasCheckState:
+    """The alias check as the suggestion list shows it (D321 to D323)."""
+    running = False
+    if await jobs.job_alive(session, JobKind.AI):
+        job = await jobs.latest_job(session, JobKind.AI)
+        running = job is not None and bool((job.options or {}).get("aliases"))
+    return AliasCheckState(
+        available=await asyncio.to_thread(lambda: alias_check_service(settings) is not None),
+        running=running,
+        checked=await session.scalar(select(func.count()).select_from(AliasCheck)) or 0,
+        same=await session.scalar(select(func.count()).select_from(_ai_suggestions())) or 0,
+    )
 
 
 async def _tier_counts(session: AsyncSession, tiers: Subquery) -> SuggestionCounts:
@@ -801,6 +957,7 @@ async def _candidates(session: AsyncSession, root: int) -> list[AliasCandidate]:
         )
     )
     summaries = await _summaries(session, [row.other for row in rows])
+    verdicts = await _verdicts(session, [(root, row.other) for row in rows])
     return [
         AliasCandidate(
             person=summaries[row.other],
@@ -808,6 +965,7 @@ async def _candidates(session: AsyncSession, root: int) -> list[AliasCandidate]:
             same_local_part=row.same_local_part,
             tier=row.tier,
             reason=reason(row.same_name, row.same_local_part, row.tier),
+            ai=verdicts.get(_pair(root, row.other)),
         )
         for row in rows
     ]

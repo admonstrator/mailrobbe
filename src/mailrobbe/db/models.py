@@ -84,6 +84,8 @@ stay identical to it (tests/db checks for drift). Deviations from the spec sketc
   document_password the one that opened a document (D236).
 - setting holds the settings changed on the page "Einstellungen", one row per setting, over the
   environment (D313).
+- alias_check holds what the text model said about a pair of persons (migration 0024, D323), read
+  through the roots of its persons like alias_dismissal.
 """
 
 from datetime import date, datetime
@@ -130,6 +132,7 @@ from mailrobbe.enums import (
     AiTaskKind,
     AiTaskStatus,
     AliasTier,
+    AliasVerdict,
     DkimStatus,
     DnsStatus,
     DocumentKind,
@@ -182,6 +185,7 @@ text_origin_enum = _pg_enum(TextOrigin, "text_origin")
 ai_task_kind_enum = _pg_enum(AiTaskKind, "ai_task_kind")
 ai_task_status_enum = _pg_enum(AiTaskStatus, "ai_task_status")
 ai_result_state_enum = _pg_enum(AiResultState, "ai_result_state")
+alias_verdict_enum = _pg_enum(AliasVerdict, "alias_verdict")
 
 TIMESTAMPTZ = DateTime(timezone=True)
 
@@ -699,6 +703,35 @@ class AliasDismissal(Base):
     )
     person_b: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+
+
+class AliasCheck(Base):
+    """The text model's verdict on two root persons (D321 to D323), newest per pair of roots."""
+
+    __tablename__ = "alias_check"
+    __table_args__ = (
+        CheckConstraint("person_a < person_b", name="ordered"),
+        Index("ix_alias_check_person_b", "person_b"),
+    )
+
+    person_a: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    person_b: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE"), primary_key=True
+    )
+    verdict: Mapped[AliasVerdict] = mapped_column(alias_verdict_enum)
+    reason: Mapped[str] = mapped_column(Text)  # the model's words, German
+    model: Mapped[str] = mapped_column(Text)
+    service_url: Mapped[str] = mapped_column(Text)  # display_url
+    prompt_version: Mapped[int] = mapped_column(Integer)
+    seconds: Mapped[float] = mapped_column(REAL)
+    tokens_in: Mapped[int] = mapped_column(Integer)
+    tokens_out: Mapped[int] = mapped_column(Integer)
+    job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
 

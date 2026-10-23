@@ -30,12 +30,19 @@ describe("person list state in the URL", () => {
     expect(toPersonListParams(state)).toEqual({ q: "keller", sort: "recent", cursor: "abc" });
   });
 
-  it("keeps the merge log tab and the switch for uncertain suggestions", () => {
+  it("keeps the suggestions tab with its view of uncertain suggestions or the KI's pairs", () => {
     const state = parsePersonListState(params("tab=vorschlaege&unsicher=1"));
-    expect(state).toEqual({ ...DEFAULT_PERSON_LIST_STATE, tab: "vorschlaege", uncertain: true });
+    expect(state).toEqual({
+      ...DEFAULT_PERSON_LIST_STATE,
+      tab: "vorschlaege",
+      suggestions: "uncertain",
+    });
     expect(personListSearch(state).toString()).toBe("tab=vorschlaege&unsicher=1");
+    const ai = parsePersonListState(params("tab=vorschlaege&ki=1"));
+    expect(ai.suggestions).toBe("ai");
+    expect(personListSearch(ai).toString()).toBe("tab=vorschlaege&ki=1");
     expect(parsePersonListState(params("tab=zusammengefuehrt")).tab).toBe("zusammengefuehrt");
-    expect(parsePersonListState(params("unsicher=ja")).uncertain).toBe(false);
+    expect(parsePersonListState(params("unsicher=ja")).suggestions).toBe("certain");
   });
 
   it("ignores values it cannot use", () => {
