@@ -1,49 +1,42 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
 import { useSaveSettings, useSettings } from "../../api/queries";
 import type { SettingInfo } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
-import { FoldCard } from "../../components/FoldCard";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatDateTime } from "../../lib/format";
+import { PageHead } from "../import/PageHead";
 import { GROUPS, SOURCE_LABELS, type SettingGroup, type SettingText } from "./labels";
 import { changes, fieldValue, formatSetting, type Draft } from "./model";
 import styles from "./SettingsPage.module.css";
 
-const OPEN_GROUPS = new Set(["archive", "ai-text", "ai-vision"]);
+const INTRO =
+  "Diese Werte gehen den gleichnamigen Einträgen der .env vor. „Zurücksetzen“ holt den Wert aus der .env oder den Standard zurück. Eine Änderung gilt sofort für die Oberfläche und für jeden Lauf, der danach startet; ein laufender Import oder KI-Lauf behält seine Werte. Nur in der .env stehen die Datenbank, die Pfade, Host und Port, der Zugangsschutz (Basic Auth) und die Freigabe für KI-Dienste außerhalb dieses Rechners.";
 
-/** The page "Einstellungen" (D313): every setting the server lets the page change, in groups,
- *  with where its value comes from. Changes collect in a draft until "Speichern". */
+/** The page "Einstellungen" (D313): every setting the server lets the page change, its groups in
+ *  a navigation at the left like a settings page of GitHub, one group at a time at the right with
+ *  where each value comes from. Changes of every group collect in one draft until "Speichern". */
 export function SettingsPage() {
   const settings = useSettings();
   return (
     <main className={styles.page}>
       <title>Einstellungen · Mailrobbe</title>
-      <h1 className={styles.title}>Einstellungen</h1>
-      <p className={styles.intro}>
-        Diese Werte gehen den gleichnamigen Einträgen der .env vor. „Zurücksetzen“ holt den Wert aus
-        der .env oder den Standard zurück. Eine Änderung gilt sofort für die Oberfläche und für
-        jeden Lauf, der danach startet; ein laufender Import oder KI-Lauf behält seine Werte. Nur in
-        der .env stehen die Datenbank, die Pfade, Host und Port, der Zugangsschutz (Basic Auth) und
-        die Freigabe für KI-Dienste außerhalb dieses Rechners.
-      </p>
+      <PageHead title="Einstellungen" sub="Gehen der .env vor und gelten sofort." help={INTRO} />
       {settings.isPending ? (
-        <Card className={styles.loading}>
+        <div className={styles.loading}>
           <Spinner label="Einstellungen werden geladen" />
-        </Card>
+        </div>
       ) : settings.isError ? (
-        <Card>
-          <ErrorState
-            title="Die Einstellungen konnten nicht geladen werden."
-            actions={<Button onClick={() => void settings.refetch()}>Erneut versuchen</Button>}
-          >
-            Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
-          </ErrorState>
-        </Card>
+        <ErrorState
+          title="Die Einstellungen konnten nicht geladen werden."
+          actions={<Button onClick={() => void settings.refetch()}>Erneut versuchen</Button>}
+        >
+          Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
+        </ErrorState>
       ) : (
         <Form items={settings.data.items} />
       )}
@@ -53,12 +46,15 @@ export function SettingsPage() {
 
 function Form({ items }: { items: SettingInfo[] }) {
   const save = useSaveSettings();
+  const [params, setParams] = useSearchParams();
   const [draft, setDraft] = useState<Draft>({});
   const [saved, setSaved] = useState(false);
   const { values, invalid } = changes(items, draft);
   const count = Object.keys(values).length;
   const rejected = rejectedSetting(save.error);
   const texts = textsByName();
+  const groups = groupsOf(items);
+  const chosen = groups.find(({ group }) => group.id === params.get("bereich")) ?? groups[0];
 
   function edit(name: string, value: string | boolean | null) {
     setDraft((current) => ({ ...current, [name]: value }));
@@ -78,37 +74,77 @@ function Form({ items }: { items: SettingInfo[] }) {
     );
   }
 
+  function choose(id: string) {
+    setParams(
+      (before) => {
+        const next = new URLSearchParams(before);
+        if (id === groups[0].group.id) next.delete("bereich");
+        else next.set("bereich", id);
+        return next;
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  }
+
   return (
     <>
-      {groupsOf(items).map(({ group, members }) => {
-        const stored = members.filter((item) => item.source === "stored").length;
-        return (
-          <FoldCard
-            key={group.id}
-            id={`settings-${group.id}`}
-            variant="main"
-            title={group.title}
-            summary={stored > 0 ? `${stored} geändert` : undefined}
-            defaultOpen={OPEN_GROUPS.has(group.id)}
-          >
-            {group.note && <p className={styles.note}>{group.note}</p>}
-            <div className={styles.rows}>
-              {members.map((item) => (
-                <Field
-                  key={item.name}
-                  item={item}
-                  text={texts.get(item.name) ?? { label: item.name }}
-                  value={fieldValue(item, draft)}
-                  resetting={draft[item.name] === null}
-                  invalid={invalid.includes(item.name)}
-                  rejected={rejected?.name === item.name ? rejected.reason : null}
-                  onChange={(value) => edit(item.name, value)}
-                />
-              ))}
-            </div>
-          </FoldCard>
-        );
-      })}
+      <div className={styles.layout}>
+        <nav aria-label="Bereiche der Einstellungen" className={styles.groups}>
+          {groups.map(({ group, members }) => {
+            const stored = members.filter((item) => item.source === "stored").length;
+            const pending = members.some(
+              (item) => item.name in values || invalid.includes(item.name),
+            );
+            return (
+              <button
+                key={group.id}
+                type="button"
+                className={cx(styles.group, group.id === chosen.group.id && styles.groupOn)}
+                aria-current={group.id === chosen.group.id ? "page" : undefined}
+                onClick={() => choose(group.id)}
+              >
+                <span className={styles.groupTitle}>{group.title}</span>
+                {pending && (
+                  <span
+                    className={styles.pending}
+                    title="Ungespeicherte Änderungen"
+                    aria-hidden="true"
+                  />
+                )}
+                {stored > 0 && (
+                  <span
+                    className={styles.stored}
+                    title={`${stored} hier geändert`}
+                    aria-hidden="true"
+                  >
+                    {stored}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+        <section aria-labelledby="settings-group-title" className={styles.groupPanel}>
+          <h2 id="settings-group-title" className={styles.groupHeading}>
+            {chosen.group.title}
+          </h2>
+          {chosen.group.note && <p className={styles.note}>{chosen.group.note}</p>}
+          <div className={styles.rows}>
+            {chosen.members.map((item) => (
+              <Field
+                key={item.name}
+                item={item}
+                text={texts.get(item.name) ?? { label: item.name }}
+                value={fieldValue(item, draft)}
+                resetting={draft[item.name] === null}
+                invalid={invalid.includes(item.name)}
+                rejected={rejected?.name === item.name ? rejected.reason : null}
+                onChange={(value) => edit(item.name, value)}
+              />
+            ))}
+          </div>
+        </section>
+      </div>
       {(count > 0 || invalid.length > 0 || save.isError || saved) && (
         <div className={styles.bar} role="region" aria-label="Änderungen">
           <p className={styles.barText} role="status">
