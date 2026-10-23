@@ -48,7 +48,7 @@ describe("topics screen", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Zeiträume",
       "Auswahl",
-      "Themen (2)",
+      "Themen 2",
     ]);
     expect(screen.getByRole("tab", { name: "Zeiträume" }).getAttribute("aria-selected")).toBe(
       "true",
@@ -95,10 +95,11 @@ describe("topics screen", () => {
       within(period("August 2025")).getByText("Kein Wort hebt sich in diesem Zeitraum ab."),
     ).toBeTruthy();
 
-    // The explanation is on the screen, without a word of rating.
-    const explanation = screen.getByRole("heading", {
-      name: "So entstehen die Begriffe",
-    }).parentElement!;
+    // The explanation is folded below the head, without a word of rating.
+    const explanation = screen
+      .getByRole("heading", { name: "So entstehen die Begriffe" })
+      .closest("details")!;
+    expect(explanation.open).toBe(false);
     expect(explanation.textContent).toMatch(/Spende, Spenden und spenden zählen zusammen/);
     expect(explanation.textContent).toMatch(/nicht aus Anhängen/);
     expect(explanation.textContent).toMatch(/mindestens 3 Mails/);

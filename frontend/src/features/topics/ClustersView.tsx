@@ -4,7 +4,6 @@ import { Link } from "react-router";
 import { useTopicClusters } from "../../api/queries";
 import type { ThemeInfo, TopicCluster, TopicMonth } from "../../api/types";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
@@ -51,34 +50,34 @@ export function ClustersView({ themes }: { themes: ThemeInfo[] | undefined }) {
 
   if (clusters.isPending) {
     return (
-      <Card className={styles.message}>
+      <div className={styles.message}>
         <div className={styles.loading}>
           <Spinner label="Themen werden geladen" />
         </div>
-      </Card>
+      </div>
     );
   }
   if (clusters.isError) {
     return (
-      <Card className={styles.message}>
+      <div className={styles.message}>
         <ErrorState
           title="Die Themen konnten nicht geladen werden."
           actions={<Button onClick={() => void clusters.refetch()}>Erneut versuchen</Button>}
         >
           Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
         </ErrorState>
-      </Card>
+      </div>
     );
   }
   const items = clusters.data.clusters;
   if (items.length === 0) {
     return (
-      <Card className={styles.message}>
+      <div className={styles.message}>
         <EmptyState title="Keine Themen gefunden">
           Ein Thema entsteht aus mindestens vier Wörtern, die jeweils in mindestens 10 Mails stehen
           und oft in denselben Mails zusammen vorkommen.
         </EmptyState>
-      </Card>
+      </div>
     );
   }
   const axis = sharedAxis(items);
