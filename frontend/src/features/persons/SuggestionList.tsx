@@ -165,6 +165,7 @@ export function SuggestionList({
               view={view}
               uncertainLeft={view === "certain" && (counts?.uncertain ?? 0) > 0}
               hasPersons={hasPersons}
+              check={check}
               onDone={setNotice}
             />
           </Card>
@@ -199,6 +200,7 @@ function Rows({
   view,
   uncertainLeft,
   hasPersons,
+  check,
   onDone,
 }: {
   items: AliasSuggestion[];
@@ -206,6 +208,7 @@ function Rows({
   view: SuggestionView;
   uncertainLeft: boolean;
   hasPersons: boolean;
+  check: AliasCheckState | undefined;
   onDone: (notice: ReactNode) => void;
 }) {
   if (items.length > 0) {
@@ -215,6 +218,7 @@ function Rows({
           <SuggestionRow
             key={`${suggestion.first.id}-${suggestion.second.id}`}
             suggestion={suggestion}
+            check={check}
             onDone={onDone}
           />
         ))}
@@ -276,7 +280,7 @@ function AliasCheck({ check }: { check: AliasCheckState }) {
         {start.isError && " Das Starten hat nicht geklappt: Der Server hat einen Fehler gemeldet."}
       </p>
       {check.available && !running && (
-        <Button size="sm" disabled={start.isPending} onClick={() => start.mutate()}>
+        <Button size="sm" disabled={start.isPending} onClick={() => start.mutate([])}>
           Mit KI prüfen
         </Button>
       )}
@@ -319,13 +323,20 @@ function RunNotice({ result }: { result: CertainMergeResult }) {
 
 function SuggestionRow({
   suggestion,
+  check,
   onDone,
 }: {
   suggestion: AliasSuggestion;
+  check: AliasCheckState | undefined;
   onDone: (notice: ReactNode) => void;
 }) {
   const merge = useMergePersons();
   const dismiss = useDismissSuggestion();
+  const ask = useStartAliasCheck();
+  // when the KI was asked about this pair: the time of its verdict then, "" for none (D328)
+  const [asked, setAsked] = useState<string | null>(null);
+  const verdictAt = suggestion.ai?.checked_at ?? "";
+  const waiting = asked !== null && asked === verdictAt && ask.data?.run === "started";
   const [reversed, setReversed] = useState(false);
   const { first, second } = suggestion;
   const [keep, other] = reversed ? [second, first] : [first, second];
@@ -356,6 +367,11 @@ function SuggestionRow({
     }
   }
 
+  function onAsk() {
+    setAsked(verdictAt);
+    ask.mutate([first.id, second.id]);
+  }
+
   const tag = (stays: boolean) => (
     <span className={cx(styles.tag, stays && styles.stays)}>
       {stays ? " · bleibt" : " · wird Alias"}
@@ -383,6 +399,7 @@ function SuggestionRow({
             <strong>{verdictText(suggestion.ai)}.</strong> {suggestion.ai.reason}
           </p>
         )}
+        {asked !== null && <AskState ask={ask} waiting={waiting} running={check?.running} />}
       </div>
       <div className={styles.actions}>
         <label className={styles.switch}>
@@ -401,6 +418,16 @@ function SuggestionRow({
         <Button size="sm" disabled={busy} onClick={() => void onDismiss()}>
           Verwerfen
         </Button>
+        {check?.available && (
+          <Button
+            size="sm"
+            disabled={busy || ask.isPending || waiting || check.running}
+            title="Nur dieses Paar sofort der KI vorlegen, auch wenn sie es schon geprüft hat"
+            onClick={onAsk}
+          >
+            KI fragen
+          </Button>
+        )}
       </div>
       {error && (
         <p className={styles.error} role="alert">
@@ -409,4 +436,54 @@ function SuggestionRow({
       )}
     </li>
   );
+}
+
+/** What became of "KI fragen" on one pair (D328): the KI at work, its answer is the verdict
+ *  above once it comes, or why it did not start. */
+function AskState({
+  ask,
+  waiting,
+  running,
+}: {
+  ask: ReturnType<typeof useStartAliasCheck>;
+  waiting: boolean;
+  running: boolean | undefined;
+}) {
+  if (ask.isError) {
+    return (
+      <p className={styles.verdict}>
+        Das Starten hat nicht geklappt: Der Server hat einen Fehler gemeldet.
+      </p>
+    );
+  }
+  const run = ask.data?.run;
+  if (run === "running") {
+    return (
+      <p className={styles.verdict}>
+        Gerade läuft ein anderer KI-Lauf. Bitte danach noch einmal fragen.
+      </p>
+    );
+  }
+  if (run === "busy") {
+    return (
+      <p className={styles.verdict}>
+        Gerade läuft ein Import oder ein anderer Lauf. Bitte später noch einmal.
+      </p>
+    );
+  }
+  if (ask.isPending || (waiting && running !== false)) {
+    return (
+      <p className={styles.verdict}>
+        <Spinner label="Die KI prüft" /> Die KI prüft dieses Paar …
+      </p>
+    );
+  }
+  if (waiting) {
+    return (
+      <p className={styles.verdict}>
+        Die KI hat kein Urteil geliefert. <Link to="/ki">Einzelheiten unter KI</Link>
+      </p>
+    );
+  }
+  return null;
 }

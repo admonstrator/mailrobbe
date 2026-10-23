@@ -1229,6 +1229,20 @@ async def test_the_alias_check_starts_with_a_text_service_on_this_machine(
     await reaped(texts)
 
 
+async def test_one_pair_is_asked_about_on_its_own(
+    texts: Dashboard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake(monkeypatch, "wait")
+    body = {"persons": [7]}
+    assert await error_code(texts.client, "/api/ai/run/aliases", body, 400) == "invalid_option"
+    body = {"persons": [9, 4, 9]}
+    assert await post(texts.client, "/api/ai/run/aliases", body) == {"run": "started"}
+    job = (await status(texts))["job"]
+    assert (job["options"]["aliases"], job["options"]["persons"]) == (True, [4, 9])
+    await post(texts.client, "/api/ai/run/stop", {})
+    await reaped(texts)
+
+
 # Transcripts (D290 to D296) ---------------------------------------------------------------------
 
 SPOKEN = "Zauberworttranskript"  # a word no generated text holds

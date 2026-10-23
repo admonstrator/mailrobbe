@@ -226,6 +226,9 @@ def test_the_command_line_takes_aliases() -> None:
     args = main_cli.build_parser().parse_args(["ai", "run", "--aliases"])
     found = ai_cli.options(Settings(_env_file=None), args)  # type: ignore[call-arg]
     assert found.aliases is True
+    line = ["ai", "run", "--aliases", "--person", "9", "--person", "4"]
+    found = ai_cli.options(Settings(_env_file=None), main_cli.build_parser().parse_args(line))  # type: ignore[call-arg]
+    assert (found.aliases, found.persons) == (True, [4, 9])
 
 
 # The run -------------------------------------------------------------------------------------
@@ -442,6 +445,25 @@ async def test_the_groups_are_asked_about_at_once_up_to_the_concurrency(
         result = await run_ai(settings, options)
     assert result.exit_code == 0, result.summary.message
     assert (result.summary.aliases, result.summary.aliases_sure, respond.most) == (2, 2, 2)
+
+
+async def test_one_pair_is_asked_about_again_on_its_own(archive: Any, database: str) -> None:
+    with fake_service("lmstudio", models={MODEL: None}, respond=judge) as fake:
+        settings = settings_for(database, archive, ai_text_url=fake.url, ai_text_model=MODEL)
+        assert (await run_ai(settings, options_for(settings))).exit_code == 0
+        found = await rows(
+            database,
+            "SELECT id FROM person WHERE canonical_email = ANY(:emails) ORDER BY id",
+            {"emails": sorted(ANNA)},
+        )
+        persons = [row.id for row in found]
+        options = options_for(settings).model_copy(update={"persons": persons})
+        result = await run_ai(settings, options)
+        chats = fake.chats
+    assert result.exit_code == 0, result.summary.message
+    assert (result.summary.aliases_queued, result.summary.aliases) == (1, 1)
+    assert len(chats) == 3  # two groups the first time, the pair again
+    assert (await checks(database))[ANNA].verdict == "same"
 
 
 async def test_a_verdict_against_keeps_a_sure_chain_apart(archive: Any, database: str) -> None:

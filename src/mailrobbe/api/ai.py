@@ -101,6 +101,7 @@ from mailrobbe.api.schemas import (
     AI_RULE_MINUTES,
     AI_RULE_SECONDS,
     AI_RULE_SECONDS_PER_MINUTE,
+    AiAliasCheck,
     AiAliasRun,
     AiChanged,
     AiDocumentRef,
@@ -429,6 +430,7 @@ async def _start_for(
     mail_ids: Sequence[int] = (),
     thread_ids: Sequence[int] = (),
     aliases: bool = False,
+    persons: Sequence[int] = (),
 ) -> AiQueuedRun:
     """Start a run reading only these documents (D280), mails (D307) and threads (D316), or the
     whole queue without any (D308), or with aliases the alias check (D321), with the settings'
@@ -449,6 +451,7 @@ async def _start_for(
     arguments += [f"--thread={thread_id}" for thread_id in thread_ids]
     if aliases:
         arguments.append("--aliases")
+        arguments += [f"--person={person}" for person in persons]
     environment = processes.child_environment(settings)
     try:
         await _start(session, settings, runs, JobKind.AI, arguments, environment)
@@ -930,13 +933,17 @@ def _run_arguments(
 
 @router.post("/run/aliases", dependencies=JSON_BODY)
 async def start_alias_check(
-    _: NoOptions, session: Session, settings: AppSettings, runs: Runs
+    body: AiAliasCheck, session: Session, settings: AppSettings, runs: Runs
 ) -> AiAliasRun:
-    """Start `mailrobbe ai run --aliases` (D321); 400 invalid_option without a text service on
-    this machine (D322)."""
+    """Start `mailrobbe ai run --aliases` (D321), with persons only for them (D328); 400
+    invalid_option without a text service on this machine (D322) or with one person."""
+    persons = sorted(set(body.persons))
+    if len(persons) == 1:
+        raise api_error(400, "invalid_option", "name two persons or more, or none")
     if not await alias_check_usable(settings):
         raise api_error(400, "invalid_option", "no text service with a model on this machine")
-    return AiAliasRun(run=await _start_for(session, settings, runs, [], aliases=True))
+    run = await _start_for(session, settings, runs, [], aliases=True, persons=persons)
+    return AiAliasRun(run=run)
 
 
 @router.post("/run/stop", dependencies=JSON_BODY)
