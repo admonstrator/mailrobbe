@@ -42,16 +42,15 @@ describe("entity page", () => {
     renderApp("/entitaeten/312");
     await screen.findByRole("heading", { name: "12.500,00 EUR", level: 1 });
 
-    const tiles = screen.getByRole("list", { name: "Kennzahlen" });
-    expect(
-      within(tiles)
-        .getAllByRole("listitem")
-        .map((tile) => tile.textContent),
-    ).toEqual([
-      "Mails41ohne Duplikate",
-      "Dokumente2Anhänge, die es erwähnen",
-      expect.stringMatching(/^Erste Erwähnung14\.03\.2019\d\d:\d\d Uhr$/),
-      expect.stringMatching(/^Letzte Erwähnung18\.10\.2026\d\d:\d\d Uhr$/),
+    // The figures as a row; what each counts, and the time of day, in its tooltip.
+    const figures = within(screen.getByRole("list", { name: "Kennzahlen" })).getAllByRole(
+      "listitem",
+    );
+    expect(figures.map((figure) => [figure.textContent, figure.title])).toEqual([
+      ["41Mails", "ohne Duplikate"],
+      ["2Dokumente", "Anhänge, die es erwähnen"],
+      ["14.03.2019Erste Erwähnung", expect.stringMatching(/^\d\d:\d\d Uhr$/)],
+      ["18.10.2026Letzte Erwähnung", expect.stringMatching(/^\d\d:\d\d Uhr$/)],
     ]);
 
     const years = card("Mails pro Jahr");

@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 
 import { FACET_MAILS, type EntityDetail, type PersonCount, type ThemeInfo } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
 import { personPath } from "../../components/PersonLink";
 import { formatNumber } from "../../lib/format";
 import { TAG_PALETTE } from "../../lib/research";
@@ -28,10 +27,10 @@ function partText(shown: number, total: number, sampled: boolean): string | null
 /** Mentioning mails per context of an amount, IBAN or account number (D82). */
 export function EntityContexts({ entity }: { entity: EntityDetail }) {
   return (
-    <Card variant="side" aria-labelledby="entity-contexts-title">
-      <CardTitle id="entity-contexts-title" variant="caps">
+    <section className={styles.section} aria-labelledby="entity-contexts-title">
+      <h2 id="entity-contexts-title" className={styles.title}>
         Im Zusammenhang mit
-      </CardTitle>
+      </h2>
       <ul className={styles.list}>
         {ENTITY_CONTEXTS.map((key) => (
           <li key={key} className={styles.row}>
@@ -48,7 +47,7 @@ export function EntityContexts({ entity }: { entity: EntityDetail }) {
       <p className={styles.note}>
         Mails, in denen ein Wort des Zusammenhangs im selben Satz steht.
       </p>
-    </Card>
+    </section>
   );
 }
 
@@ -69,10 +68,10 @@ export function EntityPersons({
   empty: string;
 }) {
   return (
-    <Card variant="side" aria-labelledby={id}>
-      <CardTitle id={id} variant="caps">
+    <section className={styles.section} aria-labelledby={id}>
+      <h2 id={id} className={styles.title}>
         {`${title} (${formatNumber(total)})`}
-      </CardTitle>
+      </h2>
       {persons.length === 0 ? (
         <p className={styles.note}>{empty}</p>
       ) : (
@@ -92,7 +91,7 @@ export function EntityPersons({
       {persons.length > 0 && partText(persons.length, total, sampled) && (
         <p className={styles.note}>{partText(persons.length, total, sampled)}</p>
       )}
-    </Card>
+    </section>
   );
 }
 
@@ -106,10 +105,10 @@ export function EntityRelated({
   themes: ThemeInfo[] | undefined;
 }) {
   return (
-    <Card variant="side" aria-labelledby="entity-related-title">
-      <CardTitle id="entity-related-title" variant="caps">
+    <section className={styles.section} aria-labelledby="entity-related-title">
+      <h2 id="entity-related-title" className={styles.title}>
         Gemeinsam erwähnt
-      </CardTitle>
+      </h2>
       {entity.related.length === 0 ? (
         <p className={styles.note}>Nichts anderes in denselben Mails erkannt.</p>
       ) : (
@@ -150,6 +149,6 @@ export function EntityRelated({
       {entity.related.length > 0 && entity.persons_sampled && (
         <p className={styles.note}>{partText(0, 0, true)}</p>
       )}
-    </Card>
+    </section>
   );
 }

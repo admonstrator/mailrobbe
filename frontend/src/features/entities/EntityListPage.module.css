@@ -1,9 +1,10 @@
+/* On the shell's white sheet (D334): the table parted by lines, not in a box. */
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   min-width: 0;
-  padding: 20px 24px 24px;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .head {
@@ -15,20 +16,13 @@
 
 .title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+  font: var(--font-page-title);
 }
 
 .total {
+  display: inline-flex;
+  align-items: center;
   color: var(--color-muted);
-  font-size: 13px;
-}
-
-.intro {
-  max-width: 90ch;
-  margin: -8px 0 0;
-  color: var(--color-muted);
-  font-size: 13px;
 }
 
 .notice {
@@ -44,7 +38,7 @@
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .toolbar {
@@ -126,19 +120,18 @@
 }
 
 .tableCard {
-  gap: 0;
-  padding: 0;
+  min-width: 0;
 }
 
 .loading {
   display: flex;
   justify-content: center;
-  padding: 48px;
+  padding: var(--space-7);
 }
 
 @media (max-width: 759px) {
   .page {
-    padding: 16px;
+    padding: var(--space-4);
   }
 
   .search {

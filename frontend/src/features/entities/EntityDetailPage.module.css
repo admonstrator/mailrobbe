@@ -1,14 +1,18 @@
+/* On the shell's white sheet (D334): the head, a row of figures and sections parted by lines;
+   the quiet column of persons and neighbours at the right. */
 .page {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  padding: var(--space-5) var(--space-6) var(--space-6);
 }
 
 .breadcrumb {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
-  padding: 16px 24px 0;
+  margin-bottom: var(--space-3);
   color: var(--color-muted);
   font-size: 13px;
 }
@@ -24,45 +28,46 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 20px;
-  padding: 16px 24px 24px;
+  gap: var(--space-6) 40px;
 }
 
 .main {
   display: flex;
   flex: 999 1 560px;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-6);
   min-width: 0;
 }
 
 .side {
   display: flex;
-  flex: 1 1 300px;
+  flex: 1 1 260px;
   flex-direction: column;
-  gap: 16px;
   min-width: 0;
-  max-width: 360px;
+  max-width: 320px;
 }
 
 .loading {
   display: flex;
   justify-content: center;
-  padding: 64px;
+  padding: var(--space-7);
 }
 
 .message {
-  margin: 16px 24px 24px;
+  min-width: 0;
 }
 
 .header {
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .identity {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .marker {
@@ -88,17 +93,12 @@
 .kind {
   margin: 0;
   color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 13px;
 }
 
 .label {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 1.3;
+  font: var(--font-page-title);
   overflow-wrap: anywhere;
 }
 
@@ -106,8 +106,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
-  margin: 4px 0 0;
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-1) 0 0;
   font-size: 13px;
 }
 
@@ -130,57 +130,26 @@
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--color-border-subtle);
+  gap: var(--space-2);
 }
 
-/* The four figures as one compact strip, divided by thin lines. */
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  list-style: none;
-}
-
-.tile {
+.section {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-3);
   min-width: 0;
-  padding: 10px 16px;
-  box-shadow: -1px 0 var(--color-border-subtle);
 }
 
-.tileLabel,
-.tileSub {
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tileValue {
-  overflow: hidden;
-  font-size: 19px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sectionTitle {
+  margin: 0;
+  font: var(--font-section);
 }
 
 .cardHead {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 12px;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
 }
 
 .hint {
@@ -317,18 +286,6 @@
 }
 
 /* Beside the side column the four figures need two lines below this width. */
-@media (max-width: 1279px) {
-  .tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .tile {
-    box-shadow:
-      -1px 0 var(--color-border-subtle),
-      0 -1px var(--color-border-subtle);
-  }
-}
-
 /* Beside the main column the side column stays in view, with a scroll of its own. */
 @media (min-width: 1024px) {
   .side {
@@ -336,8 +293,7 @@
     top: var(--sticky-top);
     box-sizing: border-box;
     max-height: var(--content-height);
-    margin-top: -16px;
-    padding: 16px 0;
+    padding-bottom: var(--space-4);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
@@ -345,19 +301,11 @@
 }
 
 @media (max-width: 759px) {
-  .breadcrumb {
-    padding: 16px 16px 0;
-  }
-
-  .columns {
-    padding: 16px;
+  .page {
+    padding: var(--space-4);
   }
 
   .side {
     max-width: none;
-  }
-
-  .tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
