@@ -11,7 +11,7 @@ import { Spinner } from "../../components/Spinner";
 import { tabPanelProps, Tabs } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { formatDateTime, formatNumber } from "../../lib/format";
-import { Figures, PageHead } from "../import/PageHead";
+import { Figures, PageHead } from "../../components/PageHead";
 import { KeyList } from "./KeyList";
 import { KeysRun, useKeysRun } from "./KeysRun";
 import { dnsStatusLabel, keysErrorText, periodText } from "./labels";

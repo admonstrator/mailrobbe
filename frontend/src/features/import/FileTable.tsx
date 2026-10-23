@@ -7,7 +7,7 @@ import { formatBytes, formatNumber } from "../../lib/format";
 import styles from "./FileTable.module.css";
 import { FILE_FILTER_LABELS, FILE_STATUS_LABELS } from "./labels";
 import { FILE_GROUPS, fileRows, type FileFilter, type FileRow as Row } from "./model";
-import { HelpTip } from "./PageHead";
+import { HelpTip } from "../../components/PageHead";
 
 const FILTERS: readonly FileFilter[] = ["all", ...FILE_GROUPS];
 

@@ -4,7 +4,7 @@ import { Button } from "../../components/Button";
 import { formatBytes, formatDateTime, formatElapsed, formatNumber } from "../../lib/format";
 import { databaseText, MBOX_DIR_MISSING, RUN_BADGES, stepLabel } from "./labels";
 import { importRunState, SILENT_SECONDS, type RunState } from "./model";
-import { Figures, type BadgeTone, type Figure } from "./PageHead";
+import { Figures, type BadgeTone, type Figure } from "../../components/PageHead";
 import styles from "./RunCard.module.css";
 import { RunSteps } from "./RunSteps";
 import { StepList } from "./StepList";

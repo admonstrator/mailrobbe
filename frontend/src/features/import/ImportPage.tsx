@@ -33,7 +33,7 @@ import { FileTable } from "./FileTable";
 import styles from "./ImportPage.module.css";
 import { actionErrorText, MBOX_DIR_MISSING, scanSummary } from "./labels";
 import { canResume, startRequest, type SettingsDraft } from "./model";
-import { PageHead, StateBadge } from "./PageHead";
+import { PageHead, StateBadge } from "../../components/PageHead";
 import { runBadge, RunProgress, RunSub, RunTab } from "./RunCard";
 import { SettingsCard } from "./SettingsCard";
 

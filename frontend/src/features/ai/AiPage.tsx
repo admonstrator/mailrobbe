@@ -17,7 +17,7 @@ import { Spinner } from "../../components/Spinner";
 import { tabPanelProps, Tabs } from "../../components/Tabs";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatNumber } from "../../lib/format";
-import { PageHead, StateBadge } from "../import/PageHead";
+import { PageHead, StateBadge } from "../../components/PageHead";
 import { AiRunCard } from "./AiRunCard";
 import { QueueCard, ResultsCard, SentCard } from "./AiLists";
 import styles from "./AiPage.module.css";

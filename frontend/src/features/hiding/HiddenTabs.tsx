@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 
 import { cx } from "../../lib/cx";
-import { PageHead } from "../import/PageHead";
+import { PageHead } from "../../components/PageHead";
 import styles from "./HiddenTabs.module.css";
 
 /** The page "Ausgeblendet" (D223, D227) as a page of D334: the head with the part's explanation

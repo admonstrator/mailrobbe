@@ -4,7 +4,7 @@ import { DKIM_KEYS, DKIM_REASON_TEXTS } from "../../lib/dkim";
 import { formatDateTime, formatNumber } from "../../lib/format";
 import styles from "./DkimResult.module.css";
 import { DKIM_RESULT_LABELS } from "./labels";
-import { HelpTip } from "./PageHead";
+import { HelpTip } from "../../components/PageHead";
 
 const RECHECK_HINT =
   "„DKIM für ‚Schlüssel fehlt‘ neu prüfen“ im Menü … prüft Mails ohne Ergebnis, mit „Schlüssel fehlt“ oder mit DNS-Fehler erneut.";

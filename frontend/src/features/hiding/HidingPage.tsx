@@ -15,7 +15,7 @@ import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
 import { personName } from "../../lib/person";
-import { Figures, type Figure } from "../import/PageHead";
+import { Figures, type Figure } from "../../components/PageHead";
 import { ConfirmDialog } from "../research/ConfirmDialog";
 import { mailCount } from "../research/labels";
 import { HiddenTabs } from "./HiddenTabs";

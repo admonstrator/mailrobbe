@@ -14,7 +14,7 @@ import { formatDateTime, formatNumber } from "../../lib/format";
 import { pageCount, rangeText } from "../../lib/paging";
 import { DebouncedInput } from "../documents/DebouncedInput";
 import { HiddenTabs } from "../hiding/HiddenTabs";
-import { Figures, type Figure } from "../import/PageHead";
+import { Figures, type Figure } from "../../components/PageHead";
 import { periodText } from "../keys/labels";
 import { PENDING_TEXT } from "./choice";
 import styles from "./BlocksPage.module.css";

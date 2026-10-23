@@ -15,7 +15,7 @@ import { selectorPath } from "../../lib/dkim";
 import { formatNumber } from "../../lib/format";
 import { pageCount, rangeText } from "../../lib/paging";
 import { DebouncedInput } from "../documents/DebouncedInput";
-import { PageHead } from "../import/PageHead";
+import { PageHead } from "../../components/PageHead";
 import { KeysRun, useKeysRun } from "./KeysRun";
 import { dnsStatusLabel, periodText, SELECTOR_FILTER_LABELS, SELECTOR_FILTERS } from "./labels";
 import styles from "./SelectorListPage.module.css";

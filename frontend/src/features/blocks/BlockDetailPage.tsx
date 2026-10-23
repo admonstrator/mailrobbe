@@ -19,7 +19,7 @@ import { useEditor } from "../../lib/editor";
 import { formatDate, formatNumber } from "../../lib/format";
 import { DEFAULT_LIST_STATE, listSearch, withFilters } from "../mails/listState";
 import { HiddenTabs } from "../hiding/HiddenTabs";
-import { Figures } from "../import/PageHead";
+import { Figures } from "../../components/PageHead";
 import styles from "./BlockDetailPage.module.css";
 import { blockStanding, nextChoice, pendingText, useEditorOnce } from "./choice";
 import { mailsText } from "./labels";

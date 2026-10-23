@@ -9,7 +9,7 @@ import {
   formatPercent,
   formatRelative,
 } from "../../lib/format";
-import { Figures } from "./PageHead";
+import { Figures } from "../../components/PageHead";
 
 interface Tile {
   label: string;

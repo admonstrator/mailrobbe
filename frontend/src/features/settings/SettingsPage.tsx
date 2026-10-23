@@ -9,7 +9,7 @@ import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatDateTime } from "../../lib/format";
-import { PageHead } from "../import/PageHead";
+import { PageHead } from "../../components/PageHead";
 import { GROUPS, SOURCE_LABELS, type SettingGroup, type SettingText } from "./labels";
 import { changes, fieldValue, formatSetting, type Draft } from "./model";
 import styles from "./SettingsPage.module.css";

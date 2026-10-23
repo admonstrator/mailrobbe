@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { HelpIcon } from "../../components/icons";
-import { cx } from "../../lib/cx";
+import { HelpIcon } from "./icons";
+import { cx } from "../lib/cx";
 import styles from "./PageHead.module.css";
 
 /** The head of a system page (D334): the title with an optional state badge, at most one muted
