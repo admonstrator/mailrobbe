@@ -113,10 +113,28 @@ describe("body card, text view", () => {
     );
   });
 
+  it("shows three or more blank lines in a row as one, white space alone counted blank", async () => {
+    const text = "Hallo Jonas,\n\n\n \n\t\n\u00a0\nder Vertrag kommt morgen.\n\n\nGruß Anna\n";
+    showText(text, [{ kind: "text", start: 0, end: text.length, lines: 9, folded: false }], {
+      words: ["Vertrag"],
+      stems: [],
+    });
+    const shown = await screen.findByText(/Gruß Anna/);
+    // two blank lines stay as written
+    expect(shown.textContent).toBe("Hallo Jonas,\n\nder Vertrag kommt morgen.\n\n\nGruß Anna");
+    expect(screen.getByText("Vertrag").tagName).toBe("MARK");
+    expect(screen.getByText("1 Fundstelle markiert")).toBeTruthy();
+  });
+
   it("shows a text without segments as it is", async () => {
     showText("Nur eine Zeile.\n", []);
     expect((await screen.findByText(/Nur eine Zeile/)).textContent).toBe("Nur eine Zeile.");
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("shortens the blank lines of a text without segments too", async () => {
+    showText("Oben.\n\n\n\n\nUnten.\n", []);
+    expect((await screen.findByText(/Oben/)).textContent).toBe("Oben.\n\nUnten.");
   });
 });
 
