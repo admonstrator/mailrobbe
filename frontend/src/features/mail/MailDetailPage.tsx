@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { ApiError } from "../../api/client";
-import { useMailDetail, useMailHits, useMailNeighbors, useMailSummary } from "../../api/queries";
+import {
+  useAiSummary,
+  useMailDetail,
+  useMailHits,
+  useMailNeighbors,
+  useMailSummary,
+} from "../../api/queries";
+import type { AiSummaryResult, AttachmentInfo } from "../../api/types";
 import { buttonClass } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { CompactBar, useScrolledPast } from "../../components/CompactBar";
@@ -21,6 +28,7 @@ import {
 } from "../mails/listState";
 import { formatTotal } from "../mails/SummaryTiles";
 import { ActionsCard } from "./ActionsCard";
+import { AttachmentDialog } from "./AttachmentDialog";
 import { AttachmentsCard } from "./AttachmentsCard";
 import { BodyCard, type BodyTab } from "./BodyCard";
 import { DkimCard } from "./DkimCard";
@@ -72,6 +80,17 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
     hits.data && hits.data.words.length + hits.data.stems.length > 0 ? hits.data : undefined;
   const [tab, setTab] = useState<BodyTab>("text");
   const body = useRef<HTMLElement>(null);
+  // The attachment open over the page, with the summaries of the attachments' documents beside
+  // it and in the list (D331).
+  const [opened, setOpened] = useState<AttachmentInfo | null>(null);
+  const ai = useAiSummary({ mail: id });
+  const summaries = useMemo(
+    () =>
+      new Map<number, AiSummaryResult>(
+        (ai.data?.attachments ?? []).map(({ document_id, result }) => [document_id, result]),
+      ),
+    [ai.data],
+  );
   // Scrolled past the header, a compact bar keeps subject, status and the steps in view (D166).
   const [header, compact] = useScrolledPast<HTMLElement>();
   const prevId = neighbors.data?.prev_id ?? null;
@@ -161,7 +180,15 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
       ) : (
         <div className={styles.columns}>
           <main className={styles.main}>
-            <HeaderCard ref={header} mail={detail.data} mailHref={mailHref} marks={marks} />
+            <HeaderCard ref={header} mail={detail.data} mailHref={mailHref} marks={marks}>
+              {detail.data.thread_id !== null && detail.data.thread_size > 1 && (
+                <SummaryCard
+                  target="thread"
+                  id={detail.data.thread_id}
+                  threadSize={detail.data.thread_size}
+                />
+              )}
+            </HeaderCard>
             <HiddenNote mail={detail.data} />
             {marks && (
               <SearchHitsCard
@@ -181,16 +208,28 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
                 setTab("text");
                 body.current?.scrollIntoView({ block: "start", behavior: "smooth" });
               }}
+              onAttachment={(documentId) =>
+                setOpened(attachmentOfDocument(detail.data.attachments, documentId))
+              }
             />
-            {detail.data.thread_id !== null && detail.data.thread_size > 1 && (
-              <SummaryCard target="thread" id={detail.data.thread_id} />
-            )}
             <BodyCard ref={body} mailId={id} tab={tab} onTab={setTab} marks={marks} />
             {detail.data.attachments.length > 0 && (
               <AttachmentsCard
                 attachments={detail.data.attachments}
                 hits={marks?.attachments}
                 marks={marks}
+                summaries={summaries}
+                mailId={id}
+                onOpen={setOpened}
+              />
+            )}
+            {opened && (
+              <AttachmentDialog
+                mail={detail.data}
+                attachment={opened}
+                summaries={summaries}
+                marks={marks}
+                onOpen={setOpened}
               />
             )}
             <DkimCard mail={detail.data} />
@@ -216,6 +255,19 @@ function MailDetailView({ id, listQuery }: { id: number; listQuery: string }) {
       )}
     </div>
   );
+}
+
+/** The attachment, or a container's member, that is this document; null when none is. */
+function attachmentOfDocument(
+  attachments: AttachmentInfo[],
+  documentId: number,
+): AttachmentInfo | null {
+  for (const attachment of attachments) {
+    if (attachment.document_id === documentId) return attachment;
+    const member = attachment.members?.find((entry) => entry.document_id === documentId);
+    if (member) return member;
+  }
+  return null;
 }
 
 function MailNotFound({ listQuery, id }: { listQuery: string; id?: number }) {

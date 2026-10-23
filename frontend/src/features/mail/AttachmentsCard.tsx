@@ -3,13 +3,20 @@ import { Link } from "react-router";
 
 import { attachmentContentUrl } from "../../api/client";
 import { useEnqueueAi } from "../../api/queries";
-import type { AttachmentHit, AttachmentInfo, DocumentKind, MetadataSummary } from "../../api/types";
+import type {
+  AiSummaryResult,
+  AttachmentHit,
+  AttachmentInfo,
+  DocumentKind,
+  MetadataSummary,
+} from "../../api/types";
 import { Button } from "../../components/Button";
 import { FoldCard } from "../../components/FoldCard";
 import { Highlighted, type SearchMarks } from "../../components/Highlighted";
 import { cx } from "../../lib/cx";
 import { formatBytes, formatClock, formatDate, formatNumber } from "../../lib/format";
 import { aiErrorText, startedText } from "../ai/labels";
+import { SummaryBlock } from "../ai/SummaryCard";
 import { KindIcon } from "../documents/KindIcon";
 import {
   KIND_LABELS,
@@ -24,7 +31,6 @@ import { MACHINE_TITLE, MachineMark, TRANSCRIPT_TITLE } from "../documents/Machi
 import { ProtectionMark } from "../documents/ProtectionMark";
 import { documentPath } from "../documents/urlState";
 import { photoPosition, PhotoPosition } from "../places/PhotoPosition";
-import { PreviewOverlay } from "../preview/PreviewOverlay";
 import styles from "./AttachmentsCard.module.css";
 import { attachmentElementId } from "./SearchHitsCard";
 
@@ -97,35 +103,88 @@ function foldedSummary(attachments: AttachmentInfo[]): string {
   return [formatBytes(size), names.join(", ")].join(" · ");
 }
 
+/** Which attachments the list shows (D331): all, those whose summary found a theme hint, or
+ *  those with a summary. */
+type AttachmentFilter = "all" | "hint" | "summary";
+
+const FILTER_LABELS: Record<AttachmentFilter, string> = {
+  all: "Alle",
+  hint: "Mit Hinweis",
+  summary: "Zusammengefasst",
+};
+
+/** From this many pictures on, they stand as a strip of small images below the rows (D331). */
+export const STRIP_MIN = 3;
+
+/** A picture the strip can show: the browser draws it, and it is not protected. */
+const stripImage = (attachment: AttachmentInfo) =>
+  attachment.preview === "image" && !attachment.protection;
+
+/** The attachments in the order the list shows them, which the arrows over the page follow: the
+ *  rows, then the strip's pictures. */
+export function shownOrder(attachments: AttachmentInfo[]): AttachmentInfo[] {
+  const pictures = attachments.filter(stripImage);
+  if (pictures.length < STRIP_MIN) return attachments;
+  return [...attachments.filter((attachment) => !stripImage(attachment)), ...pictures];
+}
+
 /** The attachments below the mail's text, one row each as a mail program lists them (D18, D75,
- *  D166): kind, name, pages and size, the metadata line of D167, preview over the page (D120,
- *  D165), the download read from the MBOX file (D76) and the document each one is, with the other
- *  mails that carry it; those holding a search word of the mail list's query marked, with the
- *  place (D79). A long list shows its first ATTACHMENTS_SHOWN. Each says whether it needs a
- *  password or was opened with one (D233); a container lists the documents it holds below it
- *  (D231). A photo with a position shows it on a small map (D249), one photo at a time: the
- *  first, or the one chosen. The list folds like every block of the page. */
+ *  D166): kind, name, pages and size, the metadata line of D167, the download read from the MBOX
+ *  file (D76) and the document each one is, with the other mails that carry it; those holding a
+ *  search word of the mail list's query marked, with the place (D79). A long list shows its first
+ *  ATTACHMENTS_SHOWN. Each says whether it needs a password or was opened with one (D233); a
+ *  container lists the documents it holds below it (D231). A photo with a position shows it on a
+ *  small map (D249), one photo at a time: the first, or the one chosen. The name opens the
+ *  attachment over the page with what the page knows about it (D331). An attachment with a summary
+ *  shows its beginning, its hints and "mehr" for the whole (D331); with summaries the list filters
+ *  to those with a hint or a summary, and STRIP_MIN pictures or more stand as a strip below the
+ *  rows. The list folds like every block of the page. */
 export function AttachmentsCard({
   attachments,
   hits = [],
   marks,
+  summaries,
+  mailId,
+  onOpen,
 }: {
   attachments: AttachmentInfo[];
   hits?: AttachmentHit[];
   marks?: SearchMarks;
+  /** The summaries of the attachments' documents, by document id. */
+  summaries?: ReadonlyMap<number, AiSummaryResult>;
+  /** The mail whose team tags a summary's tags can become (D310). */
+  mailId?: number;
+  onOpen: (attachment: AttachmentInfo) => void;
 }) {
   const [all, setAll] = useState(false);
-  // One preview at a time, over the page.
-  const [open, setOpen] = useState<AttachmentInfo | null>(null);
+  const [filter, setFilter] = useState<AttachmentFilter>("all");
+  const [unfolded, setUnfolded] = useState<ReadonlySet<number>>(new Set());
   const [chosen, setChosen] = useState<number | null>(null);
   const hitById = new Map(hits.map((hit) => [hit.attachment_id, hit]));
+  const summaryOf = (attachment: AttachmentInfo) =>
+    attachment.document_id === null ? undefined : summaries?.get(attachment.document_id);
+  const counts: Record<AttachmentFilter, AttachmentInfo[]> = {
+    all: attachments,
+    summary: attachments.filter((attachment) => summaryOf(attachment)),
+    hint: attachments.filter((attachment) => (summaryOf(attachment)?.themes.length ?? 0) > 0),
+  };
+  const kept = counts[filter];
+  const pictures = kept.filter(stripImage);
+  const strip = pictures.length >= STRIP_MIN ? pictures : [];
+  const rows = strip.length > 0 ? kept.filter((attachment) => !stripImage(attachment)) : kept;
   const shown = all
-    ? attachments
-    : attachments.filter(
+    ? rows
+    : rows.filter(
         (attachment, index) => index < ATTACHMENTS_SHOWN || holdsHit(attachment, hitById),
       );
   const positioned = shown.filter((attachment) => photoPosition(attachment.metadata));
   const mapped = positioned.find((attachment) => attachment.id === chosen) ?? positioned[0];
+  const toggle = (id: number) =>
+    setUnfolded((open) => {
+      const next = new Set(open);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   return (
     <FoldCard
@@ -136,14 +195,34 @@ export function AttachmentsCard({
       title={`Anhänge (${formatNumber(attachments.length)})`}
       summary={foldedSummary(attachments)}
     >
+      {counts.summary.length > 0 && (
+        <div className={styles.filters} role="group" aria-label="Anhänge zeigen">
+          {(["all", "hint", "summary"] as const).map(
+            (key) =>
+              (key !== "hint" || counts.hint.length > 0) && (
+                <button
+                  key={key}
+                  type="button"
+                  className={styles.filter}
+                  aria-pressed={filter === key}
+                  onClick={() => setFilter(key)}
+                >
+                  {FILTER_LABELS[key]}{" "}
+                  <span className={styles.filterCount}>{formatNumber(counts[key].length)}</span>
+                </button>
+              ),
+          )}
+        </div>
+      )}
       <ul className={styles.list}>
         {shown.map((attachment) => {
           const kind = attachment.kind ?? kindFromMimeType(attachment.mime_type);
           const name = attachment.filename || "(ohne Namen)";
           const hit = hitById.get(attachment.id);
           const described = attachment.metadata && metadataLine(attachment.metadata, kind);
-          const preview = attachment.protection !== "locked" && attachment.preview;
           const position = photoPosition(attachment.metadata);
+          const summary = summaryOf(attachment);
+          const open = unfolded.has(attachment.id);
           return (
             <li
               key={attachment.id}
@@ -152,9 +231,17 @@ export function AttachmentsCard({
             >
               <KindIcon kind={kind} labelled />
               <div className={styles.text}>
-                <span className={styles.name} title={name}>
-                  <Highlighted text={name} marks={hit?.in_name ? marks : undefined} />
-                </span>
+                <button
+                  type="button"
+                  className={styles.open}
+                  title={name}
+                  aria-haspopup="dialog"
+                  onClick={() => onOpen(attachment)}
+                >
+                  <span className={styles.name}>
+                    <Highlighted text={name} marks={hit?.in_name ? marks : undefined} />
+                  </span>
+                </button>
                 <span className={styles.meta}>
                   <span title={attachment.mime_type}>{KIND_LABELS[kind]}</span>
                   {attachment.pages !== null && ` · ${pagesText(attachment.pages)}`}
@@ -182,6 +269,33 @@ export function AttachmentsCard({
                     {hitText(hit, marks, transcribed(attachment))}
                   </span>
                 )}
+                {summary && (
+                  <span className={styles.summary}>
+                    <span className={styles.ki} title="Maschinell erzeugte Zusammenfassung">
+                      KI
+                    </span>
+                    {summary.themes.map((hint, index) => (
+                      <span key={`${hint.theme}-${index}`} className={styles.hint}>
+                        {`Hinweis: ${hint.label}`}
+                      </span>
+                    ))}
+                    {!open && <span className={styles.teaser}>{teaserText(summary)}</span>}
+                    <Button
+                      variant="link"
+                      size="xs"
+                      aria-expanded={open}
+                      aria-label={`Zusammenfassung von ${name} ${open ? "einklappen" : "ganz zeigen"}`}
+                      onClick={() => toggle(attachment.id)}
+                    >
+                      {open ? "weniger" : "mehr"}
+                    </Button>
+                  </span>
+                )}
+                {summary && open && (
+                  <div className={styles.unfolded}>
+                    <SummaryBlock result={summary} mailId={mailId} />
+                  </div>
+                )}
                 {position && attachment === mapped && (
                   <span className={styles.position}>
                     <PhotoPosition documentId={attachment.document_id} position={position} />
@@ -203,18 +317,6 @@ export function AttachmentsCard({
                 >
                   Herunterladen
                 </a>
-                {preview ? (
-                  <button
-                    type="button"
-                    className={styles.open}
-                    aria-haspopup="dialog"
-                    onClick={() => setOpen(attachment)}
-                  >
-                    Vorschau
-                  </button>
-                ) : (
-                  <span className={styles.downloadOnly}>nur Download</span>
-                )}
                 {attachment.document_id !== null && (
                   <Link
                     to={documentPath(attachment.document_id)}
@@ -244,35 +346,65 @@ export function AttachmentsCard({
           );
         })}
       </ul>
-      {shown.length < attachments.length && (
+      {shown.length < rows.length && (
         <Button variant="link" size="xs" className={styles.more} onClick={() => setAll(true)}>
-          {`alle ${formatNumber(attachments.length)} anzeigen`}
+          {`alle ${formatNumber(rows.length)} anzeigen`}
         </Button>
       )}
-      {open?.preview && (
-        <PreviewOverlay
-          attachmentId={open.id}
-          kind={open.preview}
-          name={open.filename || "(ohne Namen)"}
-          decrypted={open.protection === "open"}
-          // the lines of its transcript below the player, the search words marked (D296)
-          transcriptOf={
-            open.transcript === "transcribed" || open.transcript === "no_text"
-              ? open.document_id
-              : null
-          }
-          shareable={open.transcript === "transcribed"}
-          marks={marks}
-          onClose={() => setOpen(null)}
-        />
+      {strip.length > 0 && (
+        <>
+          <h3 className={styles.stripHeading}>{`Bilder (${formatNumber(strip.length)})`}</h3>
+          <ul className={styles.strip} aria-label="Bilder">
+            {strip.map((attachment) => {
+              const name = attachment.filename || "(ohne Namen)";
+              const summary = summaryOf(attachment);
+              const hints = summary?.themes.map((hint) => hint.label) ?? [];
+              return (
+                <li key={attachment.id} id={attachmentElementId(attachment.id)}>
+                  <button
+                    type="button"
+                    className={cx(styles.thumb, hitById.has(attachment.id) && styles.hit)}
+                    title={name}
+                    aria-label={name}
+                    aria-haspopup="dialog"
+                    onClick={() => onOpen(attachment)}
+                  >
+                    <KindIcon kind="image" />
+                    <img
+                      src={attachmentContentUrl(attachment.id)}
+                      alt=""
+                      loading="lazy"
+                      // a picture the browser cannot draw leaves the icon below it
+                      onError={(event) => {
+                        event.currentTarget.hidden = true;
+                      }}
+                    />
+                    {summary && <span className={cx(styles.ki, styles.thumbKi)}>KI</span>}
+                    {hints.length > 0 && (
+                      <span className={cx(styles.hint, styles.thumbHint)} title={hints.join(", ")}>
+                        Hinweis
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
+      {kept.length === 0 && <p className={styles.empty}>Kein Anhang passt zu diesem Filter.</p>}
     </FoldCard>
   );
 }
 
+/** The beginning of a summary in one line, or its tags when its text was too short. */
+function teaserText(summary: AiSummaryResult): string {
+  return summary.summary || summary.tags.map((tag) => tag.label).join(", ");
+}
+
 /** The quiet labels after the size: the protection (D233), and the text status where it says
  *  more than the protection does and more than the kind already tells. */
-function Notes({ attachment }: { attachment: AttachmentInfo }) {
+export function Notes({ attachment }: { attachment: AttachmentInfo }) {
   const { protection } = attachment;
   // "Nicht unterstützt" only says that no text is read from pictures, sound and the like.
   const note =
@@ -334,7 +466,7 @@ const TRANSCRIPT_TITLES = {
 /** "Text erkennen" for a scan or picture without a text, "Transkribieren" for a recording: starts
  *  a run for just this document (D280, D295); the row then says "Texterkennung läuft" or
  *  "Transkript wird erstellt" until it is done. */
-function AiButton({
+export function AiButton({
   documentId,
   name,
   kind,

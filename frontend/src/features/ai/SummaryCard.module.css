@@ -1,8 +1,7 @@
 /* The card "KI-Zusammenfassung" (D307, D311), its dialogs and the button beside the download. */
 
 .card,
-.summary,
-.attachments {
+.summary {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -106,6 +105,7 @@
   padding-right: 10px;
 }
 
+/* Shown on hover and focus only, so a row of tags stays quiet (D331). */
 .adopt {
   flex-shrink: 0;
   width: 18px;
@@ -117,8 +117,13 @@
   color: inherit;
   font-size: 14px;
   line-height: 1;
-  opacity: 0.7;
+  opacity: 0;
   cursor: pointer;
+}
+
+.tag:hover .adopt,
+.adopt:focus-visible {
+  opacity: 0.7;
 }
 
 .adopt:hover:not(:disabled) {
@@ -148,42 +153,76 @@
   gap: 8px;
 }
 
-.attachments {
-  gap: 12px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: 12px;
-}
-
-.heading {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.attachment {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.attachment + .attachment {
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: 12px;
-}
-
-.name {
-  font-size: 13.5px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-
 .foot {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* The attachment a hint was found in: opens it over the page (D331). */
+.source {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.source:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+/* A thread's summary as a line in the mail's head (D331). */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: var(--radius-tile);
+  padding: 10px 12px;
+  background: var(--color-bg);
+}
+
+.threadHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.threadTitle {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.ki {
+  flex-shrink: 0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.teaser {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadTools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }

@@ -55,7 +55,7 @@ async function settle(calls: ApiCall[]) {
 }
 
 describe("the card KI-Zusammenfassung", () => {
-  it("shows the summary as machine made, with tags, hints and the attachments", async () => {
+  it("shows the summary as machine made, with tags and hints, the attachments' too", async () => {
     renderElement(<SummaryCard target="mail" id={MAIL} />, summaryApi(aiSummaryMail));
     const card = await findCard();
     expect(within(card).getByText("Maschinell erzeugt · local-text:8b · 21.10.2026")).toBeTruthy();
@@ -70,22 +70,19 @@ describe("the card KI-Zusammenfassung", () => {
     const href = new URL(quote.getAttribute("href")!, "http://localhost");
     expect(href.pathname).toBe(`/mails/${MAIL}`);
     expect(href.searchParams.get("q")).toBe('"Spenden ohne Quittungen verbuchen"');
-    // the summary of the scanned attachment, from its recognised text
-    const attachments = within(card).getByRole("region", {
-      name: "Zusammenfassungen der Anhänge",
-    });
+    // the attachment's tags join the mail's, each once; its summary stands in the attachment
+    // list (D331)
+    const tags = within(card).getByRole("list", { name: "Schlagwörter" });
     expect(
-      within(attachments)
-        .getByRole("link", { name: "Scan_20180306_7499.pdf" })
-        .getAttribute("href"),
-    ).toBe("/anhaenge/5150");
+      within(tags)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Rahmenvereinbarung", "Spendenquittungen"]);
+    expect(within(card).queryByText("Eine Quittung über 500 Euro", { exact: false })).toBeNull();
     expect(
-      within(attachments).getByText(
-        "Maschinell erzeugt · local-text:8b · 21.10.2026 · aus dem erkannten Text",
+      within(card).getByText(
+        "Schlagwörter und Hinweise auch aus einem Anhang; seine Zusammenfassung steht in der Liste der Anhänge.",
       ),
-    ).toBeTruthy();
-    expect(
-      within(attachments).getByText("Eine Quittung über 500 Euro", { exact: false }),
     ).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Neu zusammenfassen" })).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Verwerfen" })).toBeTruthy();
@@ -198,8 +195,13 @@ describe("the card KI-Zusammenfassung", () => {
 
   it("says when a thread changed since its summary, whose quotes open the thread", async () => {
     const view = { ...aiSummaryNone, result: aiSummaryMail.result, stale: true };
-    renderElement(<SummaryCard target="thread" id={184001} />, summaryApi(view));
+    renderElement(<SummaryCard target="thread" id={184001} threadSize={7} />, summaryApi(view));
     const card = await screen.findByRole("region", { name: "KI-Zusammenfassung des Threads" });
+    // a line in the mail's head with the summary's beginning, the whole on request (D331)
+    expect(within(card).getByText("Thread · 7 Mails")).toBeTruthy();
+    expect(within(card).getByText(/^Herr Brandt schickt/)).toBeTruthy();
+    expect(within(card).queryByText(/Seit dieser Zusammenfassung/)).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Mehr" }));
     expect(within(card).getByText(/Seit dieser Zusammenfassung hat sich der Thread/)).toBeTruthy();
     const quote = within(card).getByRole("link", { name: "„Spenden ohne Quittungen verbuchen“" });
     const href = new URL(quote.getAttribute("href")!, "http://localhost");
