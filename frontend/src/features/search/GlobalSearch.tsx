@@ -1,8 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { useStats } from "../../api/queries";
 import { SearchIcon, SlidersIcon } from "../../components/icons";
 import { cx } from "../../lib/cx";
+import { formatNumber } from "../../lib/format";
 import { isPlainKey } from "../../lib/keys";
 import { RuleDialog } from "../hiding/RuleDialog";
 import { filterChips } from "../mails/chips";
@@ -40,6 +42,7 @@ export function withExcluded(q: string, text: string): string {
 export function GlobalSearch() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { data: stats } = useStats();
   const input = useRef<HTMLInputElement>(null);
   const area = useRef<HTMLDivElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -169,7 +172,10 @@ export function GlobalSearch() {
           id="global-search"
           type="search"
           defaultValue={current}
-          placeholder="Volltext, Betreff, Adresse, Domain, Message-ID … (from:anna@ to:@beispiel.de has:attachment)"
+          placeholder={
+            stats ? `In ${formatNumber(stats.mails)} Mails suchen` : "In den Mails suchen"
+          }
+          title="Volltext, Betreff, Adresse, Domain, Message-ID … (from:anna@ to:@beispiel.de has:attachment)"
           autoComplete="off"
           spellCheck={false}
           className={styles.searchInput}

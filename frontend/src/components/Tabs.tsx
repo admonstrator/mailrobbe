@@ -8,12 +8,15 @@ export interface TabItem<T extends string> {
   label: string;
   disabled?: boolean;
   title?: string;
+  /** A count shown as a small badge after the label, such as the files of a tab. */
+  count?: number | string;
 }
 
 const tabId = (prefix: string, id: string) => `${prefix}-tab-${id}`;
 const panelId = (prefix: string, id: string) => `${prefix}-panel-${id}`;
 
-/** A tab bar (WAI-ARIA tabs: arrow keys move between tabs); end is shown on its right. */
+/** A tab bar (WAI-ARIA tabs: arrow keys move between tabs) underlined like the mockup of D332;
+ *  end is shown on its right. */
 export function Tabs<T extends string>({
   items,
   active,
@@ -60,6 +63,7 @@ export function Tabs<T extends string>({
             onKeyDown={onKeyDown}
           >
             {item.label}
+            {item.count !== undefined && <span className={styles.count}>{item.count}</span>}
           </button>
         ))}
       </div>

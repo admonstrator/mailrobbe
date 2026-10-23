@@ -4,182 +4,107 @@
   min-height: 100dvh;
 }
 
+/* The header of D332 on the ground colour; it keeps one row of --header-height (the map's height
+   and every sticky part depend on it). */
 .header {
-  display: flex;
-  align-items: center;
   position: sticky;
   top: 0;
   z-index: 30;
-  gap: 24px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   box-sizing: border-box;
   height: var(--header-height);
-  padding: 0 24px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  padding: 0 var(--space-4) 0 var(--space-3);
+  background: var(--color-ground);
   transition: box-shadow var(--transition-fast);
 }
 
-/* Lifted off the page once the window scrolls. */
+/* Parted from the scrolled page by a quiet line. */
 .scrolled {
-  box-shadow: 0 4px 16px rgb(22 24 29 / 7%);
+  box-shadow: 0 1px 0 var(--color-border);
 }
 
+.iconButton {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-nav);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.iconButton:hover {
+  background: var(--color-ground-hover);
+}
+
+/* As wide as the sidebar's rest, so the search field starts where the sheet starts. */
 .logo,
 .logo:hover {
   display: flex;
-  flex-shrink: 0;
+  flex: none;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
+  width: 166px;
   color: var(--color-text);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.01em;
   text-decoration: none;
 }
 
-/* The links fill the header's height, so the active one's bar sits on its lower edge. */
-.nav {
+.end {
   display: flex;
-  flex-shrink: 0;
-  align-self: stretch;
-  gap: 4px;
-}
-
-.navLink {
-  position: relative;
-  display: flex;
+  flex: none;
   align-items: center;
-  padding: 0 12px;
-  color: var(--color-nav);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.navLink::before {
-  position: absolute;
-  inset: 12px 0;
-  z-index: -1;
-  border-radius: var(--radius-control);
-  background: transparent;
-  content: "";
-  transition: background-color var(--transition-fast);
-}
-
-.navLink::after {
-  position: absolute;
-  right: 8px;
-  bottom: -1px;
-  left: 8px;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: transparent;
-  content: "";
-}
-
-.navLink:hover {
-  color: var(--color-text);
-  text-decoration: none;
-}
-
-.navLink:hover::before {
-  background: var(--color-field);
-}
-
-.navLink:focus-visible {
-  outline-offset: -10px;
-}
-
-.navLink.active,
-.navLink.active:hover {
-  color: var(--color-accent-hover);
-  font-weight: 600;
-}
-
-.navLink.active::after {
-  background: var(--color-accent);
-}
-
-/* A menu of the navigation (D312): its button looks like a link, its panel opens below the header. */
-.menu {
-  display: flex;
-}
-
-.menuButton {
-  gap: 4px;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.chevron {
-  transition: transform var(--transition-fast);
-}
-
-.menuButton[aria-expanded="true"] .chevron {
-  transform: rotate(180deg);
-}
-
-.panel {
-  position: fixed;
-  top: calc(var(--header-height) - 4px);
-  z-index: 40;
-  display: none;
-  flex-direction: column;
-  box-sizing: border-box;
-  width: 220px;
-  padding: 6px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-popover);
-}
-
-.panelOpen {
-  display: flex;
-}
-
-.panelLink,
-.panelLink:hover {
-  padding: 8px 10px;
-  border-radius: var(--radius-control);
-  color: var(--color-text);
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.panelLink:hover {
-  background: var(--color-field);
-}
-
-.panelLink.active,
-.panelLink.active:hover {
-  color: var(--color-accent-hover);
-  font-weight: 600;
-}
-
-.figures {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 16px;
+  gap: var(--space-2);
   margin-left: auto;
-  color: var(--color-muted);
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.figures strong {
-  color: var(--color-text);
-  font-weight: 600;
 }
 
 .importState,
 .importState:hover {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--color-muted);
+  gap: var(--space-2);
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  color: var(--color-nav);
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.importState:hover {
+  background: var(--color-ground-hover);
+}
+
+.running,
+.running:hover {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.importTrack {
+  display: block;
+  width: 64px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--color-ground-hover);
+}
+
+.importFill {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
 }
 
 .importDot {
@@ -188,71 +113,74 @@
   border-radius: 50%;
 }
 
-.running .importDot {
-  background: var(--color-pass);
-}
-
 .stopped .importDot {
   background: var(--color-no-key);
 }
 
 .done .importDot {
-  background: var(--color-unsigned);
+  background: var(--color-pass);
+}
+
+.avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  margin-left: var(--space-1);
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.avatar:hover {
+  box-shadow: 0 0 0 3px var(--color-ground-hover);
 }
 
 .editor {
-  flex-shrink: 0;
-  max-width: 220px;
-  overflow: hidden;
-  border: 0;
+  flex: none;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
-  padding: 6px 8px;
-  background: transparent;
-  color: var(--color-muted);
+  background: var(--color-surface);
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: pointer;
 }
 
 .editor:hover {
-  background: var(--color-field);
-  color: var(--color-text);
+  background: var(--color-hover);
 }
 
-.editor strong {
-  color: var(--color-text);
-  font-weight: 600;
+/* Below the header: the sidebar and the sheet. */
+.body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
 }
 
-/* The header keeps one row of --header-height (the map's height and every sticky part depend on it), so on narrower screens
-   its parts give way in steps: first the totals, then spacing and the editor's label, then the
-   words of the logo and of the import state, whose dot and title stay, and last the spacing of
-   the navigation. With four links and two menus (D312) every step leaves the search field at
-   least 200 px wide down to 1024 px, room for a running import's longer state and a long editor
-   name (measured from 1024 to 2560 px). */
-@media (max-width: 1599px) {
-  .count {
-    display: none;
-  }
+/* The one white sheet every page sits on (D334). It does not scroll by itself and does not clip,
+   so the pages' sticky parts and menus keep working. */
+.sheet {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  min-height: calc(100dvh - var(--header-height) - var(--space-4));
+  margin: 0 var(--space-4) var(--space-4) 0;
+  border-radius: var(--radius-sheet);
+  background: var(--color-surface);
 }
 
-@media (max-width: 1519px) {
-  .header {
-    gap: 16px;
-    padding: 0 16px;
-  }
-
-  .navLink {
-    padding: 0 8px;
-  }
-
-  .editorPrefix {
-    display: none;
-  }
-}
-
+/* Narrow windows: the logo's word and the import's text give way to the search field. */
 @media (max-width: 1199px) {
+  .logo,
+  .logo:hover {
+    width: auto;
+  }
+
   .logoText,
   .importText {
     position: absolute;
@@ -262,53 +190,8 @@
     clip-path: inset(50%);
     white-space: nowrap;
   }
-}
 
-@media (max-width: 1099px) {
-  .nav {
-    gap: 2px;
-  }
-
-  .navLink {
-    padding: 0 6px;
-  }
-
-  .navLink::after {
-    right: 4px;
-    left: 4px;
-  }
-
-  .editor {
-    max-width: 128px;
-  }
-}
-
-/* Below the narrowest step the navigation scrolls sideways inside the header instead of widening
-   the page. */
-@media (max-width: 1023px) {
-  .nav {
-    flex-shrink: 1;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .navLink {
-    flex-shrink: 0;
-  }
-
-  .navLink::after {
-    bottom: 0;
-  }
-}
-
-/* On a phone the editor's name stands alone, so the header does not grow by the label. */
-@media (max-width: 759px) {
-  .editor {
-    max-width: 120px;
-  }
-
-  .editorPrefix {
-    display: none;
+  .importTrack {
+    width: 40px;
   }
 }
