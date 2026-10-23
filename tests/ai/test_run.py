@@ -425,6 +425,36 @@ async def test_a_run_reads_the_queue_in_order_and_stores_the_texts(
     assert (ocr.unit, ocr.done, ocr.total) == ("pages", 5, 5)
 
 
+async def test_several_documents_are_read_at_once(archive: Archive, database: str) -> None:
+    await queue(database, "Flyer.pdf", "Brief.pdf", "Scan.pdf")
+    first_pages = threading.Barrier(3, timeout=10)  # only met with three documents in work
+    lock = threading.Lock()
+    reading = [0, 0]  # pages in work now, the most at once
+
+    def together(name: str, number: int) -> OcrPage:
+        with lock:
+            reading[0] += 1
+            reading[1] = max(reading)
+        if number == 1:
+            first_pages.wait()
+        with lock:
+            reading[0] -= 1
+        return tesseract_page(name, number)
+
+    settings = settings_for(database, archive)
+    options = options_for(settings, tesseract_workers=3)
+    fake = Fake(tesseract_reader=together)
+    result = await run_ai(settings, options, engines=fake.engines())
+
+    assert result.exit_code == 0 and result.summary.done == 3
+    assert reading[1] == 3  # the slots are the run's, not each document's
+    assert sorted(fake.reads) == sorted(
+        [("tesseract", "Flyer.pdf", 1), ("tesseract", "Brief.pdf", 1)]
+        + [("tesseract", "Scan.pdf", n) for n in (1, 2, 3)]
+    )
+    assert {row.status for row in (await tasks(database)).values()} == {"done"}
+
+
 async def test_a_run_for_one_document_leaves_the_queue_waiting(
     archive: Archive, database: str
 ) -> None:

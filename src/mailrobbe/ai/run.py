@@ -12,10 +12,10 @@
                 checked when summaries wait: a missing model stops the run, one that is not
                 set, refused, or (while other tasks wait too) not answering leaves the
                 summaries waiting
-    ocr         the waiting OCR tasks one at a time, highest priority first, then the documents
-                carried by most mails (D186): the bytes read from the MBOX file, pages rendered
-                in small batches from the first page not read yet (ai.ocr.render, a child
-                process), each page read by Tesseract or the vision model, kept in
+    ocr         the waiting OCR tasks, several at once (below), highest priority first, then
+                the documents carried by most mails (D186): the bytes read from the MBOX file,
+                pages rendered in small batches from the first page not read yet (ai.ocr.render,
+                a child process), each page read by Tesseract or the vision model, kept in
                 ai_task.partial and committed, so a stop loses at most the pages in work; at most
                 max_pages pages per document and pass. Then store.store_ocr_result, the task done,
                 ai_calibration updated
@@ -55,7 +55,9 @@ alias run takes them after its step aliases, and nothing else.
 The engine of a task (D182) is its own, or for "auto" the run's choice; "auto" reads a PDF with
 Tesseract and an image with the vision model when one is usable, and reads a Tesseract page that
 is uncertain again with the vision model, keeping that page unless it failed or came back empty.
-Tesseract reads tesseract_workers pages at once, the vision model concurrency pages.
+Tesseract reads tesseract_workers pages at once in the whole run, the vision model concurrency
+pages, and as many documents as the larger of the two are in work at once (D342): most scans and
+photos have a page or two, so one document at a time left all cores but one idle.
 
 Failures (D184): an unreadable file, a page rendering that fails, a recording that cannot be
 decoded or a transcriber failing on it is an attempt of the task; a page whose answer is invalid
@@ -499,6 +501,8 @@ class _Run:
         self.ocr_waiting = 0  # OCR tasks waiting after the check
         self.recordings_waiting = 0  # transcribe tasks waiting after the check: the step's total
         self._prompts: Any = None
+        workers = {"tesseract": options.tesseract_workers, "vision": options.concurrency}
+        self.slots = {engine: asyncio.Semaphore(max(1, count)) for engine, count in workers.items()}
         self.summaries = SummarizeStep(self, _ONLY)
         self.asked_only = False  # a round for what was asked for on a page (D329)
         self.turning = True  # until a round for those could do none of them
@@ -825,15 +829,21 @@ class _Run:
         self.ran.add("ocr")
         ended, turned = None, False
         with self.job.steps.step("ocr", unit="pages", total=self.pages_waiting) as counter:
-            try:
-                while not self.job.stop.is_set():
+
+            async def worker() -> None:
+                nonlocal turned
+                while not self.job.stop.is_set() and not turned:
                     task = await self._take()
                     if task is None:
-                        break
+                        return
                     self.taken += 1
                     await self._work(task, counter)
-                    if turned := await self._turn(AiTaskKind.OCR):
-                        break
+                    if await self._turn(AiTaskKind.OCR):
+                        turned = True
+
+            tasks = max(self.options.tesseract_workers, self.options.concurrency)
+            try:
+                await self._together(worker, tasks)
             except _Ended as error:  # the step ends stopped or done, not failed
                 ended = error
         if ended is not None:
@@ -991,9 +1001,9 @@ class _Run:
         reread: bool,
         counter: Step,
     ) -> None:
-        """Read these pages, the engine's number at once; each kept and committed as it comes.
-        Pages not started when a stop arrives stay unread."""
-        limit = asyncio.Semaphore(self._workers(engine))
+        """Read these pages within the engine's slots of the run; each kept and committed as it
+        comes. Pages not started when a stop arrives stay unread."""
+        limit = self.slots[engine]
 
         async def one(page: RenderedPage) -> OcrPage | None:
             async with limit:
@@ -1032,7 +1042,8 @@ class _Run:
             return found
         if not again.pages:
             return found
-        better = await self._vision_page(task, again.pages[0].png, page.number)
+        async with self.slots["vision"]:  # always after a Tesseract slot, never before
+            better = await self._vision_page(task, again.pages[0].png, page.number)
         if better.error is not None or not better.text.strip():  # the tokens were spent anyway
             spent = {"tokens_in": better.tokens_in, "tokens_out": better.tokens_out}
             return found.model_copy(update=spent)
@@ -1221,7 +1232,7 @@ class _Run:
             if page.error is None and page.seconds > 0:
                 model = self.vision.model if page.engine == "vision" and self.vision else ""
                 groups.setdefault((page.engine, model), []).append(page.seconds)
-        for (engine, model), seconds in groups.items():
+        for (engine, model), seconds in sorted(groups.items()):  # one lock order for every task
             await session.execute(
                 _CALIBRATE,
                 {"engine": engine, "model": model, "seconds": sum(seconds), "pages": len(seconds)},
@@ -1485,12 +1496,15 @@ class _Run:
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
         return not turned
 
-    async def _together(self, worker: Callable[[], Coroutine[Any, Any, None]]) -> None:
-        """worker() options.concurrency times at once, each taking the next piece of work until
-        none is left (D327); the first to fail cancels the others, and its error is raised."""
+    async def _together(
+        self, worker: Callable[[], Coroutine[Any, Any, None]], count: int | None = None
+    ) -> None:
+        """worker() count (by default options.concurrency) times at once, each taking the next
+        piece of work until none is left (D327); the first to fail cancels the others, and its
+        error is raised."""
         try:
             async with asyncio.TaskGroup() as group:
-                for _ in range(max(1, self.options.concurrency)):
+                for _ in range(max(1, count or self.options.concurrency)):
                     group.create_task(worker())
         except BaseExceptionGroup as failed:
             raise failed.exceptions[0] from None
