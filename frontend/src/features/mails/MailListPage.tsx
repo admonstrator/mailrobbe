@@ -332,7 +332,7 @@ export function MailListPage() {
   ];
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>Mails · Mailrobbe</title>
       {/* Toolbar, filters or bulk actions, and figures stay below the header while the rows
           scroll. */}
@@ -514,7 +514,7 @@ export function MailListPage() {
         />
       )}
       {exporting && <ExportDialog {...exporting} onClose={() => setExporting(null)} />}
-    </div>
+    </main>
   );
 }
 

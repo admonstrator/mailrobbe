@@ -106,7 +106,7 @@ export function DocumentListPage() {
       : null;
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <title>Anhänge · Mailrobbe</title>
       {/* Title, count, search, sort and the filters stay above the rows while they scroll. */}
       <div ref={bar} className={styles.head}>
@@ -214,7 +214,7 @@ export function DocumentListPage() {
         </div>
         {previewId !== null && <DocumentPanel id={previewId} onClose={() => preview(null)} />}
       </div>
-    </div>
+    </main>
   );
 }
 
