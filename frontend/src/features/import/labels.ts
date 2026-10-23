@@ -16,14 +16,15 @@ import { DKIM_FILTER_LABELS } from "../../lib/dkim";
 import { formatBytes, formatElapsed, formatNumber, formatRemaining } from "../../lib/format";
 import type { FileFilter, RunState, StepState } from "./model";
 
-export const RUN_TITLES: Record<RunState, string> = {
-  none: "Noch kein Import",
-  running: "Import läuft",
-  pausing: "Import wird pausiert …",
-  paused: "Import pausiert",
-  done: "Import fertig",
-  aborted: "Import abgebrochen",
-  orphaned: "Import verwaist",
+/** The state badge beside the page's title "Import". */
+export const RUN_BADGES: Record<RunState, string> = {
+  none: "Noch kein Lauf",
+  running: "Läuft",
+  pausing: "Wird angehalten …",
+  paused: "Angehalten",
+  done: "Fertig",
+  aborted: "Abgebrochen",
+  orphaned: "Verwaist",
 };
 
 /** The steps of the runs (D110) by their key; a key missing here is shown as it is. */

@@ -77,9 +77,10 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* Header and sidebar stand on the ground; the pages on the shell's white sheet (D332). */
 body {
   margin: 0;
-  background: var(--color-bg);
+  background: var(--color-ground);
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -126,8 +127,12 @@ textarea {
   font-family: var(--font-mono);
 }
 
-/* Inner scroll areas (filter columns, lists, menus) get a thin, quiet scrollbar; the window keeps
-   the platform's own. */
+/* Inner scroll areas (filter columns, lists, menus) get a thin, quiet scrollbar; the window's
+   scrollbar takes the ground's colours. */
+html {
+  scrollbar-color: var(--color-border-strong) var(--color-ground);
+}
+
 :where(body *) {
   scrollbar-width: thin;
   scrollbar-color: var(--color-border-strong) transparent;

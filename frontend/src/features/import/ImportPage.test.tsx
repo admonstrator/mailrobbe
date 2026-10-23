@@ -39,14 +39,40 @@ const button = (name: string | RegExp) => screen.getByRole("button", { name });
 const apiError = (status: number, code: ErrorCode, message = "refused") =>
   Response.json({ detail: { code, message } }, { status });
 
-async function heading(name: string) {
-  return screen.findByRole("heading", { level: 1, name });
+/** Waits for the page's title and the state badge beside it to start with text. */
+async function heading(text: string) {
+  const title = await screen.findByRole("heading", { level: 1, name: "Import" });
+  const badge = () => title.parentElement!.querySelector("span")!.textContent!;
+  await waitFor(() => expect(badge().startsWith(text)).toBe(true));
+  return badge();
 }
 
-/** What follows the label in a step's row of a run's list. */
+/** The detail of a step of the import run: chosen in the list, read at the right. */
 function stepDetail(label: string): string {
+  const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
+  fireEvent.click(within(steps).getByRole("button", { name: new RegExp(`^${label}`) }));
+  const detail = screen.getByRole("region", { name: "Gewählter Schritt" });
+  expect(within(detail).getByRole("heading").textContent).toBe(label);
+  return detail.querySelector("p")!.textContent!;
+}
+
+/** What follows the label in a step's row of the DKIM run's list. */
+function listDetail(label: string): string {
   const row = screen.getByText(label).closest("li")!;
   return row.textContent!.slice(label.length);
+}
+
+/** The menu "…" of the page's head, opened. */
+function menu() {
+  if (!screen.queryByRole("menu")) {
+    fireEvent.click(screen.getByRole("button", { name: "Weitere Aktionen" }));
+  }
+  return screen.getByRole("menu");
+}
+const item = (name: string | RegExp) => within(menu()).getByRole("menuitem", { name });
+
+function openTab(name: string) {
+  fireEvent.click(screen.getByRole("tab", { name: new RegExp(`^${name}`) }));
 }
 
 function figures(): string[] {
@@ -63,7 +89,7 @@ afterEach(() => {
 describe("run card", () => {
   it("shows a running import with workers, throughput and remaining time", async () => {
     renderApp("/import");
-    await heading("Import läuft");
+    expect(await heading("Läuft")).toBe("Läuft · Schritt 3 von 12");
     expect(document.title).toBe("Import · Mailrobbe");
     expect(screen.getByText("8 Worker aktiv")).toBeTruthy();
     const { totals } = importStatus;
@@ -75,18 +101,24 @@ describe("run card", () => {
     expect(
       screen.getByRole("progressbar", { name: "Gesamtfortschritt" }).getAttribute("aria-valuenow"),
     ).toBe(String(percent));
-    expect(await screen.findByText(/Duplikate \(/)).toBeTruthy();
+    expect(await screen.findByText("Duplikate")).toBeTruthy();
     expect(figures()).toEqual([
       `313.491 von ca. 430.996 Mails geparst (${percent} %)`,
       "1.420 Mails/s Parsing",
       "1.397 Mails/s DKIM",
-      "1.912 Duplikate (Message-ID + Hash)",
+      "1.912 Duplikate",
       "58 Importfehler",
+      "8.942 Personen",
+      "118.204 Anhänge",
+      "9,8 GB Datenbank",
     ]);
 
     const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
-    expect(steps.closest("details")).toBeNull(); // open while the run lives
     expect(within(steps).getAllByRole("listitem")).toHaveLength(12);
+    // the running step is chosen at first, its share at the right of its row
+    const running = within(steps).getByRole("button", { name: /^Mails einlesen/ });
+    expect(running.getAttribute("aria-current")).toBe("step");
+    expect(running.textContent).toMatch(/^Mails einlesen\d+ %$/);
     expect(stepDetail("Verzeichnis scannen")).toBe("fertig in 4 s");
     expect(stepDetail("Header älterer Mails nachlesen")).toBe("nicht nötig");
     expect(stepDetail("Mails einlesen")).toBe(
@@ -95,11 +127,11 @@ describe("run card", () => {
     expect(stepDetail("Duplikate erkennen")).toBe("wartet");
     expect(stepDetail("Text aus Anhängen lesen")).toBe("wartet");
 
-    expect(button("Pausieren")).toHaveProperty("disabled", false);
+    expect(button("Anhalten")).toHaveProperty("disabled", false);
     for (const name of [/DKIM für/, "Verzeichnis neu scannen"]) {
-      expect(button(name)).toHaveProperty("disabled", true);
-      expect(button(name).title).toMatch(/^Es läuft gerade ein Import/);
+      expect(item(name)).toHaveProperty("disabled", true);
     }
+    expect(item("Gelöschte Selektoren")).toHaveProperty("disabled", false);
     expect(screen.queryByRole("button", { name: /Import (starten|fortsetzen)/ })).toBeNull();
   });
 
@@ -127,7 +159,7 @@ describe("run card", () => {
       },
     };
     renderApp("/import", backend(status).api);
-    await heading("Import läuft");
+    await heading("Läuft");
     expect(stepDetail("Threads bilden")).toBe(
       "läuft seit 1 min 11 s · Datenbank wartet seit 1 min 10 s auf eine Sperre",
     );
@@ -139,7 +171,7 @@ describe("run card", () => {
   it("warns when a live run has not reported for a while", async () => {
     const status = { ...importStatus, import_job: { ...importJob, report_age_seconds: 45 } };
     renderApp("/import", backend(status).api);
-    await heading("Import läuft");
+    await heading("Läuft");
     expect(screen.getByText(/letzte Meldung vor 45 s/)).toBeTruthy();
     expect(
       screen.getByText(
@@ -156,32 +188,42 @@ describe("run card", () => {
       return undefined;
     });
     const { calls } = renderApp("/import", server.api);
-    await heading("Import läuft");
+    await heading("Läuft");
 
-    fireEvent.click(button("Pausieren"));
-    expect(await heading("Import wird pausiert …")).toBeTruthy();
+    fireEvent.click(button("Anhalten"));
+    expect(await heading("Wird angehalten …")).toMatch(/^Wird angehalten … · Schritt/);
     expect(posts(calls, "/api/import/pause").map((call) => call.body)).toEqual([{}]);
-    expect(button("Wird pausiert …")).toHaveProperty("disabled", true);
+    expect(button("Wird angehalten …")).toHaveProperty("disabled", true);
   });
 
   it("offers to resume a paused import and leaves out the rates", async () => {
     renderApp("/import", backend(importStatusPaused).api);
-    await heading("Import pausiert");
+    expect(await heading("Angehalten")).toBe("Angehalten");
     expect(screen.getByText("Gestartet 20.10.2026 01:02 · pausiert 20.10.2026 03:15")).toBeTruthy();
     const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
-    expect(steps.closest("details")?.open).toBe(false); // folded once the run ended
+    // where the run stopped is chosen at first
+    expect(
+      within(steps)
+        .getByRole("button", { name: /^Mails einlesen/ })
+        .getAttribute("aria-current"),
+    ).toBe("step");
     expect(stepDetail("Mails einlesen")).toBe(
       "angehalten bei 28,0 GB von 108,0 GB nach 2 h 13 min",
     );
     expect(stepDetail("Duplikate erkennen")).toBe("nicht erreicht");
-    await screen.findByText(/Duplikate \(/);
+    await screen.findByText("Duplikate");
     expect(figures().some((text) => text.includes("Mails/s"))).toBe(false);
-    for (const name of ["Import fortsetzen", /DKIM für/, "Verzeichnis neu scannen"]) {
-      expect(button(name)).toHaveProperty("disabled", false);
+    expect(button("Import fortsetzen")).toHaveProperty("disabled", false);
+    for (const name of [/DKIM für/, "Verzeichnis neu scannen"]) {
+      expect(item(name)).toHaveProperty("disabled", false);
     }
-    expect(button(/DKIM für/).title).toBe(
-      "Prüft Mails ohne Ergebnis, mit „Schlüssel fehlt“ oder mit DNS-Fehler erneut.",
-    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    openTab("Ergebnis");
+    expect(
+      await screen.findByRole("img", {
+        name: "„DKIM für ‚Schlüssel fehlt‘ neu prüfen“ im Menü … prüft Mails ohne Ergebnis, mit „Schlüssel fehlt“ oder mit DNS-Fehler erneut.",
+      }),
+    ).toBeTruthy();
   });
 
   it("starts anew after a finished import", async () => {
@@ -197,7 +239,7 @@ describe("run card", () => {
       totals: { ...importStatus.totals, done: 72, running: 0, pending: 0, error: 0 },
     };
     renderApp("/import", backend(status).api);
-    await heading("Import fertig");
+    await heading("Fertig");
     expect(button("Import starten")).toBeTruthy();
   });
 
@@ -210,7 +252,7 @@ describe("run card", () => {
       leftover: { seconds: 190, wait: null },
     });
     renderApp("/import", backend(orphaned).api);
-    await heading("Import verwaist");
+    await heading("Verwaist");
     expect(
       screen.getByText(
         "Der Importprozess endete, ohne sein Ende zu melden, etwa weil der Server oder der Container neu gestartet wurde. Zuletzt lief „Mails einlesen“.",
@@ -222,8 +264,6 @@ describe("run card", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText(/letzte Meldung 20\.10\.2026 03:15/)).toBeTruthy();
-    const steps = screen.getByRole("list", { name: "Schritte des Laufs" });
-    expect(steps.closest("details")).toBeNull(); // open: it tells where the run stopped
     expect(stepDetail("Mails einlesen")).toBe(
       "abgebrochen bei 28,0 GB von 108,0 GB nach 2 h 11 min",
     );
@@ -236,34 +276,39 @@ describe("run card", () => {
       "/import",
       backend(withJob({ status: "failed", message: "database connection lost" })).api,
     );
-    await heading("Import abgebrochen");
+    await heading("Abgebrochen");
     expect(screen.getByText("database connection lost")).toBeTruthy();
     expect(screen.queryByText(/ohne sein Ende zu melden/)).toBeNull();
   });
 
   it("explains an empty archive and offers the scan", async () => {
     const { calls } = renderApp("/import", backend(importStatusEmpty).api);
-    await heading("Noch kein Import");
+    await heading("Noch kein Lauf");
+    // a new archive opens on its files
+    expect(screen.getByRole("tab", { name: /^Dateien/ }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
     expect(screen.getByText("Noch keine MBOX-Dateien")).toBeTruthy();
     expect(
       screen.getByText("Lege MBOX-Dateien in das Verzeichnis /data/mbox und scanne es neu."),
     ).toBeTruthy();
     expect(button("Import starten")).toBeTruthy();
-    const scans = screen.getAllByRole("button", { name: "Verzeichnis neu scannen" });
-    expect(scans).toHaveLength(2);
-    fireEvent.click(scans[1]);
+    expect(item("Verzeichnis neu scannen")).toHaveProperty("disabled", false);
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Verzeichnis neu scannen" }));
     await waitFor(() => expect(posts(calls, "/api/import/rescan")).toHaveLength(1));
   });
 
   it("warns when the server cannot read the MBOX directory", async () => {
     renderApp("/import", backend({ ...importStatusPaused, mbox_dir_ok: false }).api);
-    await heading("Import pausiert");
+    await heading("Angehalten");
     expect(screen.getByText(/Das MBOX-Verzeichnis ist für den Server nicht lesbar/)).toBeTruthy();
-    for (const name of ["Import fortsetzen", "Verzeichnis neu scannen"]) {
-      expect(button(name)).toHaveProperty("disabled", true);
-      expect(button(name).title).toBe("Das MBOX-Verzeichnis ist für den Server nicht lesbar.");
-    }
-    expect(button(/DKIM für/)).toHaveProperty("disabled", false);
+    expect(button("Import fortsetzen")).toHaveProperty("disabled", true);
+    expect(button("Import fortsetzen").title).toBe(
+      "Das MBOX-Verzeichnis ist für den Server nicht lesbar.",
+    );
+    expect(item("Verzeichnis neu scannen")).toHaveProperty("disabled", true);
+    expect(item(/DKIM für/)).toHaveProperty("disabled", false);
   });
 
   it("explains a status that cannot be loaded", async () => {
@@ -283,8 +328,8 @@ describe("actions", () => {
       if (call.url.pathname === "/api/import/start") server.set(importStatus);
       return undefined;
     });
-    const { calls } = renderApp("/import", server.api);
-    await heading("Import pausiert");
+    const { calls } = renderApp("/import?tab=optionen", server.api);
+    await heading("Angehalten");
 
     const workers = screen.getByRole("spinbutton", { name: "Parallele Worker" });
     expect(workers).toHaveProperty("value", "8");
@@ -297,11 +342,11 @@ describe("actions", () => {
     fireEvent.change(dns, { target: { value: "9.9.9.9 " } });
     fireEvent.click(button("Import fortsetzen"));
 
-    await heading("Import läuft");
+    await heading("Läuft");
     expect(posts(calls, "/api/import/start").map((call) => call.body)).toEqual([
       { workers: 4, attachment_hash_limit: 20 * 1024 ** 2, dkim_nameservers: "9.9.9.9" },
     ]);
-    expect(button("Pausieren")).toBeTruthy();
+    expect(button("Anhalten")).toBeTruthy();
     await waitFor(() => expect(workers).toHaveProperty("value", "8"));
     expect(dns).toHaveProperty("value", "1.1.1.1, 9.9.9.9");
   });
@@ -309,7 +354,8 @@ describe("actions", () => {
   it("keeps an edited setting while the status is polled", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { calls } = renderApp("/import");
-    await heading("Import läuft");
+    await heading("Läuft");
+    openTab("Startoptionen");
     const workers = screen.getByRole("spinbutton", { name: "Parallele Worker" });
     fireEvent.change(workers, { target: { value: "12" } });
     const before = calls.filter((call) => call.url.pathname === "/api/import/status").length;
@@ -322,7 +368,8 @@ describe("actions", () => {
 
   it("refuses a setting it cannot send", async () => {
     const { calls } = renderApp("/import", backend(importStatusPaused).api);
-    await heading("Import pausiert");
+    await heading("Angehalten");
+    fireEvent.click(item("Startoptionen …"));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Parallele Worker" }), {
       target: { value: "0" },
     });
@@ -351,7 +398,7 @@ describe("actions", () => {
           : undefined,
       ).api,
     );
-    await heading("Import pausiert");
+    await heading("Angehalten");
     fireEvent.click(button("Import fortsetzen"));
     expect((await screen.findByRole("alert")).textContent).toBe(text);
 
@@ -366,8 +413,8 @@ describe("actions", () => {
         call.url.pathname === "/api/import/pause" ? apiError(409, "no_job") : undefined,
       ).api,
     );
-    await heading("Import läuft");
-    fireEvent.click(button("Pausieren"));
+    await heading("Läuft");
+    fireEvent.click(button("Anhalten"));
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Es läuft gerade nichts, das angehalten werden könnte.",
     );
@@ -375,8 +422,8 @@ describe("actions", () => {
 
   it("rescans the directory and lists what it found", async () => {
     const { calls } = renderApp("/import", backend(importStatusPaused).api);
-    await heading("Import pausiert");
-    fireEvent.click(button("Verzeichnis neu scannen"));
+    await heading("Angehalten");
+    fireEvent.click(item("Verzeichnis neu scannen"));
 
     const summary = await screen.findByText(/^74 Dateien gefunden/);
     const notice = summary.closest<HTMLElement>("[role=status]")!;
@@ -409,18 +456,20 @@ describe("actions", () => {
       return undefined;
     });
     const { calls } = renderApp("/import", server.api);
-    await heading("Import pausiert");
-    fireEvent.click(button(/DKIM für/));
+    await heading("Angehalten");
+    fireEvent.click(item(/DKIM für/));
 
     expect(await screen.findByText("DKIM-Prüfung läuft")).toBeTruthy();
-    expect(stepDetail("Signaturen prüfen")).toBe(
+    expect(listDetail("Signaturen prüfen")).toBe(
       "12.408 von 64.790 Mails · 312 Mails/s · Restzeit geschätzt 3 min · läuft seit 40 s",
     );
     expect(posts(calls, "/api/dkim/recheck").map((call) => call.body)).toEqual([{}]);
-    for (const name of ["Import fortsetzen", /DKIM für/, "Verzeichnis neu scannen"]) {
-      expect(button(name)).toHaveProperty("disabled", true);
-      expect(button(name).title).toBe("Es läuft gerade eine DKIM-Prüfung.");
+    expect(button("Import fortsetzen")).toHaveProperty("disabled", true);
+    expect(button("Import fortsetzen").title).toBe("Es läuft gerade eine DKIM-Prüfung.");
+    for (const name of [/DKIM für/, "Verzeichnis neu scannen"]) {
+      expect(item(name)).toHaveProperty("disabled", true);
     }
+    fireEvent.keyDown(document, { key: "Escape" });
 
     fireEvent.click(button("DKIM-Prüfung abbrechen"));
     expect(await screen.findByText("DKIM-Prüfung wird abgebrochen …")).toBeTruthy();
@@ -462,15 +511,15 @@ describe("actions", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const server = backend(importStatus);
     const { calls } = renderApp("/import", server.api);
-    await heading("Import läuft");
-    await screen.findByText(/Duplikate \(/);
+    await heading("Läuft");
+    await screen.findByText("Duplikate");
     const count = (path: string) => calls.filter((call) => call.url.pathname === path).length;
     expect(count("/api/stats")).toBe(1);
     expect(count("/api/import/summary")).toBe(1);
 
     server.set(withJob({ status: "done", stop_requested: false }));
     await act(() => vi.advanceTimersByTimeAsync(2_100));
-    await heading("Import fertig");
+    await heading("Fertig");
     await waitFor(() => expect(count("/api/stats")).toBe(2));
     expect(count("/api/import/summary")).toBe(2);
   });
@@ -478,7 +527,7 @@ describe("actions", () => {
 
 describe("file table", () => {
   it("lists running and failed files and collapses the done and waiting ones", async () => {
-    renderApp("/import");
+    renderApp("/import?tab=dateien");
     const table = await screen.findByRole("table");
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2 + 1 + 8 + 1 + 1 + 1);
@@ -514,7 +563,7 @@ describe("file table", () => {
   });
 
   it("filters by status, with the counts in the options", async () => {
-    renderApp("/import");
+    renderApp("/import?tab=dateien");
     const select = await screen.findByRole("combobox", { name: "Status" });
     expect(
       within(select)
@@ -530,7 +579,7 @@ describe("file table", () => {
   });
 
   it("opens the error log of a file", async () => {
-    const { calls } = renderApp("/import");
+    const { calls } = renderApp("/import?tab=dateien");
     fireEvent.click(
       await screen.findByRole("button", { name: "53 Fehler in export-2022-Q1.mbox anzeigen" }),
     );
@@ -547,19 +596,19 @@ describe("file table", () => {
 
 describe("archive figures", () => {
   it("shows sizes, DNS cache, persons and edges", async () => {
-    renderApp("/import");
+    renderApp("/import?tab=ergebnis");
     const tiles = await screen.findByRole("list", { name: "Kennzahlen des Archivs" });
     const texts = within(tiles)
       .getAllByRole("listitem")
       .map((tile) => tile.textContent);
     const share = formatPercent(importSummary.db_size_bytes / importSummary.raw_size_bytes);
     expect(texts.slice(0, 4)).toEqual([
-      `DB-Größe (Metadaten + Index)9,8 GBca. ${share} der Rohdaten`,
-      "Volltextindex4,1 GBBetreff + Textteil",
-      "DNS-Cache6.218Selector-Einträge · 99,4 % Cache-Treffer",
-      "Personen erkannt8.942312 sichere Alias-Vorschläge offen",
+      `9,8 GB DB-Größe (Metadaten + Index)ca. ${share} der Rohdaten`,
+      "4,1 GB VolltextindexBetreff + Textteil",
+      "6.218 DNS-CacheSelector-Einträge · 99,4 % Cache-Treffer",
+      "8.942 Personen erkannt312 sichere Alias-Vorschläge offen",
     ]);
-    expect(texts[4]).toMatch(/^Kantentabelle61\.207Personenpaare · aktualisiert /);
+    expect(texts[4]).toMatch(/^61\.207 KantentabellePersonenpaare · aktualisiert /);
     expect(
       within(tiles)
         .getByRole("link", { name: "312 sichere Alias-Vorschläge offen" })
@@ -572,7 +621,7 @@ describe("archive figures", () => {
       ...importSummary,
       dkim: { ...importSummary.dkim, temp_error: 41 },
     };
-    renderApp("/import", (call) =>
+    renderApp("/import?tab=ergebnis", (call) =>
       call.url.pathname === "/api/import/summary" ? summary : fixtureApi(call),
     );
     const card = (await screen.findByRole("heading", { name: "DKIM-Ergebnis bisher" })).closest(
@@ -589,7 +638,11 @@ describe("archive figures", () => {
       "Unsigniert35.341",
       "DNS-Fehler41",
     ]);
-    expect(within(card).getByRole("img").getAttribute("aria-label")).toMatch(
+    expect(
+      within(card)
+        .getByRole("img", { name: /^Anteile/ })
+        .getAttribute("aria-label"),
+    ).toMatch(
       /^Anteile: 65 % Gültig, 1 % Ungültig, 22 % Schlüssel fehlt, 12 % Unsigniert, 0 % DNS-Fehler$/,
     );
     expect(
@@ -603,7 +656,7 @@ describe("archive figures", () => {
 
 describe("error log", () => {
   it("lists the newest five and opens all of them, a page at a time", async () => {
-    const { calls } = renderApp("/import");
+    const { calls } = renderApp("/import?tab=fehler");
     const card = (await screen.findByRole("heading", { name: "Fehlerprotokoll" })).closest(
       "section",
     )!;
@@ -614,7 +667,7 @@ describe("error log", () => {
     );
     expect(within(entries[2]).getByText(/DKIM-Prüfung gescheitert/)).toBeTruthy();
 
-    fireEvent.click(within(card).getByRole("button", { name: "Alle 58" }));
+    fireEvent.click(screen.getByRole("button", { name: "Alle 58" }));
     const dialog = await screen.findByRole("dialog", { name: "Fehlerprotokoll" });
     expect(await within(dialog).findByText("50 von 58 Fehlern")).toBeTruthy();
     expect(within(dialog).getAllByRole("listitem")[0].textContent).toMatch(
@@ -638,12 +691,26 @@ describe("error log", () => {
   });
 
   it("says when there are no errors", async () => {
-    renderApp("/import", (call) =>
+    renderApp("/import?tab=fehler", (call) =>
       call.url.pathname === "/api/import/errors"
         ? { items: [], next_cursor: null, total: 0, kinds: {} }
         : fixtureApi(call),
     );
     expect(await screen.findByText("Der Import hat keine Fehler gemeldet.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Alle/ })).toBeNull();
+  });
+
+  it("groups the errors by their cause and opens the errors of one", async () => {
+    renderApp("/import");
+    const tab = await screen.findByRole("tab", { name: /^Fehler/ });
+    expect(tab.textContent).toBe("Fehler58");
+    fireEvent.click(tab);
+    const causes = (await screen.findByRole("heading", { name: "Nach Ursache" })).closest(
+      "section",
+    )!;
+    fireEvent.click(within(causes).getByRole("button", { name: /^Datei nicht lesbar/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Fehlerprotokoll" });
+    expect(within(dialog).getByRole("combobox", { name: "Art" })).toHaveProperty("value", "io");
+    expect(await within(dialog).findByText("1 von 1 Fehlern")).toBeTruthy();
   });
 });

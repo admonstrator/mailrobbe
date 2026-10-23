@@ -4,7 +4,6 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { useBlockPage, useBlockSummary } from "../../api/queries";
 import type { BlockInfo, BlockPage, BlockSummary } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { SearchIcon } from "../../components/icons";
@@ -15,6 +14,7 @@ import { formatDateTime, formatNumber } from "../../lib/format";
 import { pageCount, rangeText } from "../../lib/paging";
 import { DebouncedInput } from "../documents/DebouncedInput";
 import { HiddenTabs } from "../hiding/HiddenTabs";
+import { Figures, type Figure } from "../../components/PageHead";
 import { periodText } from "../keys/labels";
 import { PENDING_TEXT } from "./choice";
 import styles from "./BlocksPage.module.css";
@@ -28,6 +28,9 @@ import {
   toBlockListParams,
   type BlockListState,
 } from "./urlState";
+
+const INTRO =
+  "Standardblöcke sind Absätze, die in vielen Mails gleich am Ende stehen: Signaturen, Rechtshinweise, Werbezeilen. Die Suche lässt sie aus, das Mail-Detail zeigt sie eingeklappt. Im Mail-Detail lässt sich jeder Absatz von Hand als Standardblock markieren oder zurücknehmen.";
 
 const STATE_LABELS = { standard: "Standardblöcke", dismissed: "Zurückgenommen" } as const;
 
@@ -54,13 +57,8 @@ export function BlocksPage() {
   return (
     <main className={styles.page}>
       <title>Standardblöcke · Mailrobbe</title>
-      <HiddenTabs />
-      <p className={styles.lead}>
-        Absätze, die in vielen Mails gleich am Ende stehen: Signaturen, Rechtshinweise, Werbezeilen.
-        Die Suche lässt sie aus, das Mail-Detail zeigt sie eingeklappt. Im Mail-Detail lässt sich
-        jeder Absatz von Hand als Standardblock markieren oder zurücknehmen.
-      </p>
-      {summary.data && <Figures summary={summary.data} />}
+      <HiddenTabs help={INTRO} />
+      {summary.data && <RunFigures summary={summary.data} />}
 
       <div className={styles.toolbar}>
         <div role="group" aria-label="Anzeigen" className={styles.segments}>
@@ -111,7 +109,7 @@ export function BlocksPage() {
         )}
       </div>
 
-      <Card className={styles.tableCard}>
+      <div className={styles.tableBox}>
         {page.isPending ? (
           <div className={styles.loading}>
             <Spinner label="Standardblöcke werden geladen" />
@@ -128,7 +126,7 @@ export function BlocksPage() {
         ) : (
           <BlockTable items={page.data.items} stale={page.isPlaceholderData} />
         )}
-      </Card>
+      </div>
 
       {page.data && page.data.items.length > 0 && (
         <Pagination {...blockPagination(state, page.data)} />
@@ -138,9 +136,9 @@ export function BlocksPage() {
 }
 
 /** The figures of the last blocks step, and what the next run will do. */
-function Figures({ summary }: { summary: BlockSummary }) {
+function RunFigures({ summary }: { summary: BlockSummary }) {
   const computed = summary.computed_at;
-  const tiles = [
+  const tiles: Figure[] = [
     {
       label: "Standardblöcke",
       value: formatNumber(summary.blocks),
@@ -182,15 +180,7 @@ function Figures({ summary }: { summary: BlockSummary }) {
   ].filter(Boolean);
   return (
     <>
-      <ul className={styles.tiles} aria-label="Zahlen des letzten Laufs">
-        {tiles.map((tile) => (
-          <li key={tile.label} className={styles.tile}>
-            <span className={styles.tileLabel}>{tile.label}</span>
-            <span className={styles.tileValue}>{tile.value}</span>
-            <span className={styles.tileSub}>{tile.sub}</span>
-          </li>
-        ))}
-      </ul>
+      <Figures items={tiles} label="Zahlen des letzten Laufs" />
       {later.length > 0 && (
         <p className={styles.pending} role="status">
           {later.join(" ")} „Import starten“ führt die Schritte aus; es liest nur die Datenbank.{" "}

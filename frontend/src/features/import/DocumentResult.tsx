@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 
 import type { DocumentTextStatus, ImportSummary } from "../../api/types";
-import { Card, CardTitle } from "../../components/Card";
 import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { TEXT_STATUS_FILTER_LABELS, TEXT_STATUSES } from "../documents/labels";
@@ -21,8 +20,10 @@ export function DocumentResult({ summary }: { summary: ImportSummary }) {
   const pending = counts.pending ?? 0;
 
   return (
-    <Card variant="side" className={styles.card} aria-labelledby="import-documents-title">
-      <CardTitle id="import-documents-title">Anhänge ausgewertet</CardTitle>
+    <section className={styles.card} aria-labelledby="import-documents-title">
+      <h2 id="import-documents-title" className={styles.title}>
+        Anhänge ausgewertet
+      </h2>
       {total === 0 ? (
         <p className={styles.none}>
           {summary.attachments > 0
@@ -66,6 +67,6 @@ export function DocumentResult({ summary }: { summary: ImportSummary }) {
           </p>
         </>
       )}
-    </Card>
+    </section>
   );
 }

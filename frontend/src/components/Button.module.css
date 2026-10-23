@@ -1,13 +1,17 @@
+/* Buttons by weight (D334): one primary filled with the accent, default white with a border,
+   outline in the accent, link quiet text. 34 px high, 30 px small. */
 .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  box-sizing: border-box;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: 8px;
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.25;
   cursor: pointer;
   white-space: nowrap;
@@ -16,11 +20,6 @@
     border-color var(--transition-fast),
     color var(--transition-fast),
     box-shadow var(--transition-fast);
-}
-
-.default,
-.primary {
-  box-shadow: var(--shadow-card);
 }
 
 a.button:hover {
@@ -37,14 +36,12 @@ a.default:hover {
 .default:active:not(:disabled),
 a.default:active {
   background: var(--color-field);
-  box-shadow: none;
 }
 
 .primary {
   border-color: var(--color-accent);
   background: var(--color-accent);
   color: #fff;
-  font-weight: 500;
 }
 
 .primary:hover:not(:disabled),
@@ -62,7 +59,6 @@ a.primary:active {
 .outline {
   border-color: var(--color-accent);
   color: var(--color-accent);
-  font-weight: 500;
 }
 
 .outline:hover:not(:disabled),
@@ -75,12 +71,14 @@ a.outline:hover {
   border-color: transparent;
   background: transparent;
   color: var(--color-accent);
-  padding: 4px;
+  font-weight: 400;
 }
 
-.link:hover:not(:disabled) {
-  text-decoration: underline;
+.link:hover:not(:disabled),
+a.link:hover {
+  background: transparent;
   color: var(--color-accent-hover);
+  text-decoration: underline;
 }
 
 .button:disabled,
@@ -97,20 +95,30 @@ a.outline:hover {
 }
 
 .md {
-  padding: 7px 12px;
+  min-height: 34px;
+  padding: 0 14px;
 }
 
 .sm {
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
 }
 
 .xs {
-  padding: 5px 10px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: var(--radius-control);
   font-size: 12px;
 }
 
 .link.md,
 .link.sm,
 .link.xs {
+  min-height: 0;
   padding: 4px;
+}
+
+.link.md {
+  font-size: 14px;
 }
