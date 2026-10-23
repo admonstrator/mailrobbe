@@ -160,14 +160,6 @@ export function ChevronDownIcon(props: IconProps) {
   );
 }
 
-/** The bookmark of a mail as a star, filled while set (D335). */
-export function StarIcon({ filled = false, ...props }: IconProps & { filled?: boolean }) {
-  return (
-    <Icon {...props}>
-      <path
-        d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"
-        fill={filled ? "currentColor" : "none"}
-      />
 // The shell of D332: sidebar, header and history.
 
 /** Three lines: the button that folds the sidebar. */
@@ -179,10 +171,6 @@ export function MenuIcon(props: IconProps) {
   );
 }
 
-export function NewWindowIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
 export function MailIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -192,10 +180,6 @@ export function MailIcon(props: IconProps) {
   );
 }
 
-export function InsightsIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
 /** One person: a person in the history. */
 export function PersonIcon(props: IconProps) {
   return (
@@ -206,10 +190,6 @@ export function PersonIcon(props: IconProps) {
   );
 }
 
-export function PageBackIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="m15 6-6 6 6 6" />
 /** Two persons: the person list. */
 export function PersonsIcon(props: IconProps) {
   return (
@@ -220,10 +200,6 @@ export function PersonsIcon(props: IconProps) {
   );
 }
 
-export function PageOnIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="m9 6 6 6-6 6" />
 /** A folder: Akten. */
 export function FolderIcon(props: IconProps) {
   return (
@@ -233,10 +209,6 @@ export function FolderIcon(props: IconProps) {
   );
 }
 
-export function ChevronUpIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="m6 15 6-6 6 6" />
 /** A clock with a turning arrow: the history. */
 export function HistoryIcon(props: IconProps) {
   return (
@@ -247,12 +219,6 @@ export function HistoryIcon(props: IconProps) {
   );
 }
 
-/** A plus, as on the filter bar's "Weitere Filter". */
-export function PlusIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
 /** A pulse line: the timeline. */
 export function PulseIcon(props: IconProps) {
   return (
@@ -345,5 +311,66 @@ export function HelpIcon(props: IconProps) {
       <circle cx="12" cy="12" r="9" />
       <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17v.01" />
     </Icon>
+  );
+}
+
+/** The bookmark of a mail as a star, filled while set (D335). */
+export function StarIcon({ filled = false, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <Icon {...props}>
+      <path
+        d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"
+        fill={filled ? "currentColor" : "none"}
+      />
+    </Icon>
+  );
+}
+
+export function NewWindowIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M14 4h6v6M20 4 10 14M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+    </Icon>
+  );
+}
+
+export function InsightsIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+    </Icon>
+  );
+}
+
+export function PageBackIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m15 6-6 6 6 6" />
+    </Icon>
+  );
+}
+
+export function PageOnIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m9 6 6 6-6 6" />
+    </Icon>
+  );
+}
+
+export function ChevronUpIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m6 15 6-6 6 6" />
+    </Icon>
+  );
+}
+
+/** A plus, as on the filter bar's "Weitere Filter". */
+export function PlusIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
