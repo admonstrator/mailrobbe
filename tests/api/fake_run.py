@@ -7,6 +7,7 @@
     python fake_run.py BEHAVIOUR map --origin ORIGIN download --region R --detail D [--bbox B]
     python fake_run.py BEHAVIOUR ai --origin ORIGIN run --engine E --max-pages N --max-minutes N
         [--vision-model M] [--text-model M] [--document ID]... [--mail ID]... [--aliases]
+        [--person ID]...
 
 Tests put (sys.executable, this file, BEHAVIOUR) into api.processes.CLI. Like the real commands,
 it takes the advisory lock of its kind, records its run with jobs.begin_job (options from its
@@ -66,6 +67,8 @@ def _options(kind: JobKind, args: argparse.Namespace, settings: Settings) -> Bas
             update["mails"] = args.mail
         if args.aliases:
             update["aliases"] = True
+        if args.person:
+            update["persons"] = sorted(args.person)
         return options.model_copy(update=update)
     if kind is JobKind.DKIM_KEYS:
         return DkimKeysOptions(
@@ -104,6 +107,7 @@ async def main(argv: Sequence[str]) -> int:
     parser.add_argument("--text-model")
     parser.add_argument("--mail", type=int, action="append")
     parser.add_argument("--aliases", action="store_true")
+    parser.add_argument("--person", type=int, action="append")
     args = parser.parse_args(rest)
     kind = JobKind(kind_name.replace("-", "_"))
     if behaviour == "exit":

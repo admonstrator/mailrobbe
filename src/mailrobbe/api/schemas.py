@@ -232,7 +232,8 @@ X-Mailrobbe-Editor (D54):
     POST /api/ai/run                             AiRunRequest -> 202 AiJob (D187); 409
                                                  job_running while an import or AI run lives
     POST /api/ai/run/stop                        AiJob, its stop requested
-    POST /api/ai/run/aliases                     AiAliasRun: `mailrobbe ai run --aliases`
+    POST /api/ai/run/aliases                     AiAliasRun: `mailrobbe ai run --aliases`, with
+                                                 AiAliasCheck.persons only these (D328)
                                                  started, or why not (D321)
 
 Summaries and AI tags (milestone 17, D300 to D311): POST /api/ai/tasks takes kind summarize with
@@ -3259,6 +3260,13 @@ class AiQueueRequest(BaseModel):
 # them next (single puts them first); another run (an import) keeps it from starting, so they
 # wait in the queue.
 AiQueuedRun = Literal["started", "running", "busy"]
+
+
+class AiAliasCheck(BaseModel):
+    """The body of POST /api/ai/run/aliases: no persons for the whole check (D321), or 2 to 6
+    persons asked about as one group, whatever was checked before (D328)."""
+
+    persons: list[int] = Field(default_factory=list, max_length=6)
 
 
 class AiAliasRun(BaseModel):

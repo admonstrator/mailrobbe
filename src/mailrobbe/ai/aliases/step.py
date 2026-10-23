@@ -188,9 +188,14 @@ class AliasStep:
         self._prompts: AliasPrompts = load_prompts().aliases
 
     async def read(self) -> int:
-        """The groups to ask about now."""
-        async with self.run.sessionmaker() as session:
-            self.groups = await read_groups(session, self._prompts.version)
+        """The groups to ask about now; with options.persons only these, as one group, whatever
+        was checked before (D328)."""
+        persons = self.run.options.persons
+        if persons:
+            self.groups = [Group(tuple(sorted(persons)))]
+        else:
+            async with self.run.sessionmaker() as session:
+                self.groups = await read_groups(session, self._prompts.version)
         self.run.summary.aliases_queued = len(self.groups)
         return len(self.groups)
 
