@@ -46,6 +46,26 @@
      high. Pages scroll with the window, so find in page, scroll restoration and the detail
      pages' compact bars keep working. */
   --header-height: 56px;
+
+  /* The shell of D332: header and sidebar stand on the ground, every page on one white sheet.
+     Pages use these steps only (D334); blocks of a page are parted by space, not by boxes. */
+  --color-ground: #eef1f5;
+  --color-ground-hover: #e1e6ee;
+  --color-nav-active: #d6e2fb;
+  --color-nav-active-text: #1446a8;
+  --radius-sheet: 16px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 72px;
+  --panel-width: 480px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --font-page-title: 600 22px/1.3 var(--font-sans);
+  --font-section: 600 15px/1.4 var(--font-sans);
   --sticky-top: var(--header-height);
   --content-height: calc(100dvh - var(--header-height));
 
