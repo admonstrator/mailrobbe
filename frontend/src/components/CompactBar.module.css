@@ -1,5 +1,5 @@
 /* Above the page, below the shell's header and a modal; the pages' frames and scroll margins
-   count on its 48 px below the header's --sticky-top. Inside the shell it spans the white sheet
+   count on its 48 px below the header's --sticky-top. Beside the sidebar it spans the white sheet
    only (left and width set by the component), with the sheet's rounded top corners. */
 .bar {
   position: fixed;
