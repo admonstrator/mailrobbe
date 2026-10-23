@@ -18,7 +18,7 @@ import { cx } from "../../lib/cx";
 import { formatNumber } from "../../lib/format";
 import { mailsText, periodName, termFigures, themesOf, UNIT_LABELS, UNIT_PLURALS } from "./labels";
 import styles from "./PeriodsView.module.css";
-import { Segments } from "./Segments";
+import { Segments } from "../../components/Segments";
 import { TermChip, TermList } from "./TermChip";
 import {
   periodList,

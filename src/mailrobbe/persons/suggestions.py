@@ -126,6 +126,7 @@ SuggestionReason = Literal[
     "name_and_local_part_few_contacts",
     "name",
     "local_part",
+    "ai",  # no rule suggests the pair; the alias check found it and judged it one (D323)
 ]
 
 _ROOT = aliased(Person)

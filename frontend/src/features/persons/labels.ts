@@ -2,7 +2,12 @@
 // D160) and what merging and undoing did (D162, D163).
 
 import { ApiError } from "../../api/client";
-import type { AliasCandidate, SuggestionReason } from "../../api/types";
+import type {
+  AliasCandidate,
+  AliasCheckInfo,
+  AliasVerdict,
+  SuggestionReason,
+} from "../../api/types";
 import { formatNumber } from "../../lib/format";
 import { personName, type Named } from "../../lib/person";
 
@@ -24,7 +29,22 @@ export const REASON_TEXTS: Record<SuggestionReason, string> = {
     "Unsicher: Name und Adressteil gleich, aber zu wenige gemeinsame Kontakte",
   name: "Unsicher: nur der gleiche Name",
   local_part: "Unsicher: nur der gleiche Adressteil",
+  ai: "Von der KI gefunden: ähnlicher Name, keine Regel schlägt das Paar vor",
 };
+
+/** What the text model said about two persons (D323), as a short label. */
+export const VERDICT_TEXTS: Record<AliasVerdict, string> = {
+  same: "KI: dieselbe Person",
+  different: "KI: verschiedene Personen",
+  unclear: "KI: unklar",
+};
+
+/** The labels of a suggestion's signs and the text model's verdict, for the merge dialog. */
+export function candidateReasons(candidate: Reasons & { ai?: AliasCheckInfo | null }): string[] {
+  const reasons = suggestionReasons(candidate);
+  if (candidate.ai) reasons.push(VERDICT_TEXTS[candidate.ai.verdict]);
+  return reasons;
+}
 
 /** A person's name: the team's label (D157), else the name of the mails, else the address. */
 export function personLabel(person: Named): string {

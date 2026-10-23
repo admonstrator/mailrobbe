@@ -45,9 +45,42 @@
   gap: 8px 16px;
 }
 
-.toolbar .switch {
-  color: var(--color-text);
+.check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  padding: 10px 14px;
+  background: var(--color-surface);
+}
+
+.checkText {
+  flex: 1 1 320px;
+  margin: 0;
+  color: var(--color-muted);
   font-size: 13px;
+}
+
+.checkText a {
+  color: var(--color-accent-hover);
+  font-weight: 600;
+}
+
+.verdict {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.verdict strong {
+  color: var(--color-text);
+}
+
+.same strong {
+  color: var(--color-pass-text);
 }
 
 .card {

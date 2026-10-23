@@ -40,7 +40,7 @@ import { personLabel } from "../persons/labels";
 import { ColorChip } from "../research/ColorChip";
 import { PersonPicker } from "../timeline/PersonPicker";
 import { formatRatio, formatShare, mailsText, termFigures, themesOf } from "./labels";
-import { Segments } from "./Segments";
+import { Segments } from "../../components/Segments";
 import styles from "./SelectionView.module.css";
 import { TermChip, TermList } from "./TermChip";
 import {

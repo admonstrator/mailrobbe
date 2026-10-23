@@ -75,6 +75,7 @@ export const AI_STEP_LABELS: Record<string, string> = {
   ocr: "Texterkennung",
   transcribe: "Transkription",
   summarize: "Zusammenfassen",
+  aliases: "Personen abgleichen",
   entities: "Entitäten erkennen",
   entity_figures: "Kennzahlen der Entitäten",
   signals: "Signale berechnen",
@@ -92,6 +93,7 @@ const UNIT_TEXTS: Record<Exclude<StepUnit, "bytes">, [one: string, many: string,
   places: ["Ort", "Orte", "Orten"],
   pages: ["Seite", "Seiten", "Seiten"],
   texts: ["Text", "Texte", "Texten"],
+  pairs: ["Paar", "Paare", "Paaren"],
 };
 
 const rateFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
