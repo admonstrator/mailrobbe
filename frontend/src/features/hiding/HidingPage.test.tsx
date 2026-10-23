@@ -97,12 +97,31 @@ describe("hide rules page", () => {
     expect(within(second).getByText("automatisch versendet")).toBeTruthy();
     expect(within(second).getByText("ausgeschaltet")).toBeTruthy();
     expect(within(second).getByText("angelegt am 20.10.2026")).toBeTruthy();
-    expect(screen.getByText(/Mails sind ausgeblendet/).textContent).toBe(
-      "1.200 Mails sind ausgeblendet, 34 weitere passen, bleiben aber sichtbar (Akte, Notiz, Lesezeichen oder „relevant“). Liste mit ausgeblendeten Mails",
-    );
+    const figures = screen.getByRole("list", { name: "Kennzahlen der Ausblendregeln" });
     expect(
-      screen.getByRole("link", { name: "Liste mit ausgeblendeten Mails" }).getAttribute("href"),
+      within(figures)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual([
+      "1.200 Mails ausgeblendetListe mit ausgeblendeten Mails",
+      "34 trotz Regel sichtbar",
+      "1 von 2 Regeln aktiv",
+    ]);
+    const kept = within(figures).getAllByRole("listitem")[1];
+    expect(kept.getAttribute("title")).toContain("Akte, mit Notiz, Lesezeichen oder „relevant“");
+    expect(
+      within(figures)
+        .getByRole("link", { name: "Liste mit ausgeblendeten Mails" })
+        .getAttribute("href"),
     ).toBe("/mails?include_hidden=true");
+    // the head explains the rules behind its help and starts a new one
+    expect(screen.getByRole("heading", { level: 1, name: "Ausgeblendet" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: /^Ausblendregeln nehmen Newsletter/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Neue Regel" })).toBeTruthy();
+    const parts = screen.getByRole("navigation", { name: "Ausgeblendet" });
+    expect(
+      within(parts).getByRole("link", { name: "Ausblendregeln" }).getAttribute("aria-current"),
+    ).toBe("page");
   });
 
   it("switches a rule off with all its criteria", async () => {

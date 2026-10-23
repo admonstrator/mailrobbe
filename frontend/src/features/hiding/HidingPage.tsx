@@ -7,15 +7,15 @@ import {
   useHideSuggestions,
   useUpdateHideRule,
 } from "../../api/queries";
-import type { HideRuleFields, HideRuleInfo, HideSuggestion } from "../../api/types";
+import type { HideRuleFields, HideRuleInfo, HideRuleList, HideSuggestion } from "../../api/types";
 import { Button, buttonClass } from "../../components/Button";
-import { Card, CardTitle } from "../../components/Card";
 import { EmptyState } from "../../components/EmptyState";
 import { ErrorState } from "../../components/ErrorState";
 import { Spinner } from "../../components/Spinner";
 import { cx } from "../../lib/cx";
 import { formatDate, formatDateTime, formatNumber } from "../../lib/format";
 import { personName } from "../../lib/person";
+import { Figures, type Figure } from "../import/PageHead";
 import { ConfirmDialog } from "../research/ConfirmDialog";
 import { mailCount } from "../research/labels";
 import { HiddenTabs } from "./HiddenTabs";
@@ -25,6 +25,9 @@ import { RuleDialog, type RuleDraft } from "./RuleDialog";
 
 /** The list with the hidden mails included (D222). */
 const WITH_HIDDEN = "/mails?include_hidden=true";
+
+const INTRO =
+  "Ausblendregeln nehmen Newsletter, Rundmails und Systemmails aus Mailliste, Suche, Zeitachse und Export. Sie gelten für das ganze Team; Mails in einer Akte, mit Notiz, Lesezeichen oder „relevant“ bleiben immer sichtbar, und das Suchmenü bezieht die ausgeblendeten auf Wunsch ein.";
 
 /** "Ausgeblendet · Ausblendregeln" (D223): the team's rules with their mails, who made and
  *  changed them, switch, edit and delete; the totals; and the suggestions, mailing lists and
@@ -44,80 +47,64 @@ export function HidingPage() {
   return (
     <main className={styles.page}>
       <title>Ausblendregeln · Mailrobbe</title>
-      <HiddenTabs />
-      <div className={styles.toolbar}>
-        <p className={styles.intro}>
-          Ausblendregeln nehmen Newsletter, Rundmails und Systemmails aus Mailliste, Suche,
-          Zeitachse und Export. Sie gelten für das ganze Team; Mails in einer Akte, mit Notiz,
-          Lesezeichen oder „relevant“ bleiben immer sichtbar, und das Suchmenü bezieht die
-          ausgeblendeten auf Wunsch ein.
-        </p>
-        <Button variant="primary" onClick={() => setDraft({})}>
-          Neue Regel
-        </Button>
-      </div>
+      <HiddenTabs
+        help={INTRO}
+        actions={
+          <Button variant="primary" onClick={() => setDraft({})}>
+            Neue Regel
+          </Button>
+        }
+      />
       <div className={styles.columns}>
         <div className={styles.main}>
           {rules.isPending ? (
-            <Card className={styles.loading}>
+            <div className={styles.loading}>
               <Spinner label="Ausblendregeln werden geladen" />
-            </Card>
+            </div>
           ) : rules.isError ? (
-            <Card>
-              <ErrorState
-                title="Die Ausblendregeln konnten nicht geladen werden."
-                actions={<Button onClick={() => void rules.refetch()}>Erneut versuchen</Button>}
-              >
-                Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
-              </ErrorState>
-            </Card>
+            <ErrorState
+              title="Die Ausblendregeln konnten nicht geladen werden."
+              actions={<Button onClick={() => void rules.refetch()}>Erneut versuchen</Button>}
+            >
+              Der Server ist nicht erreichbar oder hat einen Fehler gemeldet.
+            </ErrorState>
           ) : rules.data.rules.length === 0 ? (
-            <Card>
-              <EmptyState
-                title="Noch keine Ausblendregel"
-                actions={
-                  <Button variant="primary" onClick={() => setDraft({})}>
-                    Erste Regel anlegen
-                  </Button>
-                }
-              >
-                Eine Regel blendet Mails aus, die bei der Recherche nur stören: Newsletter,
-                Verteiler, Benachrichtigungen. Sie fehlen dann in Liste, Suche und Zahlen, bleiben
-                aber im Archiv und lassen sich jederzeit einbeziehen. Rechts stehen Vorschläge; in
-                einer Mail entsteht eine Regel mit „Mails wie diese ausblenden“.
-              </EmptyState>
-            </Card>
+            <EmptyState
+              title="Noch keine Ausblendregel"
+              actions={
+                <Button variant="primary" onClick={() => setDraft({})}>
+                  Erste Regel anlegen
+                </Button>
+              }
+            >
+              Eine Regel blendet Mails aus, die bei der Recherche nur stören: Newsletter, Verteiler,
+              Benachrichtigungen. Sie fehlen dann in Liste, Suche und Zahlen, bleiben aber im Archiv
+              und lassen sich jederzeit einbeziehen. Rechts stehen Vorschläge; in einer Mail
+              entsteht eine Regel mit „Mails wie diese ausblenden“.
+            </EmptyState>
           ) : (
             <>
-              <p className={styles.totals}>
-                <strong>{formatNumber(rules.data.hidden)}</strong>{" "}
-                {rules.data.hidden === 1 ? "Mail ist" : "Mails sind"} ausgeblendet
-                {rules.data.kept > 0 &&
-                  `, ${formatNumber(rules.data.kept)} weitere ${rules.data.kept === 1 ? "passt" : "passen"}, ${rules.data.kept === 1 ? "bleibt" : "bleiben"} aber sichtbar (Akte, Notiz, Lesezeichen oder „relevant“)`}
-                . <Link to={WITH_HIDDEN}>Liste mit ausgeblendeten Mails</Link>
-              </p>
+              <Figures label="Kennzahlen der Ausblendregeln" items={totals(rules.data)} />
               {toggle.isError && (
                 <p className={styles.error} role="alert">
                   {hidingErrorText(toggle.error)}
                 </p>
               )}
-              <Card className={styles.listCard}>
-                <ul className={styles.list} aria-label="Ausblendregeln">
-                  {rules.data.rules.map((rule) => (
-                    <RuleItem
-                      key={rule.id}
-                      rule={rule}
-                      switching={switching === rule.id}
-                      onToggle={() => onToggle(rule)}
-                      onEdit={() => setDraft(rule)}
-                      onDelete={() => {
-                        remove.reset();
-                        setDeleting(rule);
-                      }}
-                    />
-                  ))}
-                </ul>
-              </Card>
+              <ul className={styles.list} aria-label="Ausblendregeln">
+                {rules.data.rules.map((rule) => (
+                  <RuleItem
+                    key={rule.id}
+                    rule={rule}
+                    switching={switching === rule.id}
+                    onToggle={() => onToggle(rule)}
+                    onEdit={() => setDraft(rule)}
+                    onDelete={() => {
+                      remove.reset();
+                      setDeleting(rule);
+                    }}
+                  />
+                ))}
+              </ul>
             </>
           )}
         </div>
@@ -199,55 +186,78 @@ function Suggestions({ onPick }: { onPick: (draft: RuleDraft) => void }) {
   const suggestions = useHideSuggestions();
   return (
     <aside className={styles.side} aria-labelledby="hide-suggestions">
-      <Card variant="side">
-        <CardTitle variant="caps" id="hide-suggestions">
-          Vorschläge
-        </CardTitle>
+      <h2 id="hide-suggestions" className={styles.sideTitle}>
+        Vorschläge
+      </h2>
+      <p className={styles.sideText}>
+        Verteiler und automatische Absender mit den meisten Mails, die noch keine Regel ausblendet.
+        Gezählt werden nur diese Mails.
+      </p>
+      {suggestions.isPending ? (
+        <Spinner label="Vorschläge werden geladen" />
+      ) : suggestions.isError ? (
+        <p className={styles.sideText}>Die Vorschläge sind gerade nicht verfügbar.</p>
+      ) : suggestions.data.length === 0 ? (
         <p className={styles.sideText}>
-          Verteiler und automatische Absender mit den meisten Mails, die noch keine Regel
-          ausblendet. Gezählt werden nur diese Mails.
+          Keine Vorschläge: Für die Verteiler und automatischen Absender gibt es schon Regeln.
         </p>
-        {suggestions.isPending ? (
-          <Spinner label="Vorschläge werden geladen" />
-        ) : suggestions.isError ? (
-          <p className={styles.sideText}>Die Vorschläge sind gerade nicht verfügbar.</p>
-        ) : suggestions.data.length === 0 ? (
-          <p className={styles.sideText}>
-            Keine Vorschläge: Für die Verteiler und automatischen Absender gibt es schon Regeln.
-          </p>
-        ) : (
-          <ul className={styles.suggestions}>
-            {suggestions.data.map((suggestion) => {
-              const name = suggestionName(suggestion);
-              return (
-                <li key={`${suggestion.kind}-${name}`} className={styles.suggestion}>
-                  <div className={styles.suggestionMain}>
-                    <span className={styles.suggestionName}>{name}</span>
-                    <span className={styles.meta}>
-                      {suggestion.kind === "list"
-                        ? "Verteiler"
-                        : `Absender ${suggestion.person?.email ?? ""}`}{" "}
-                      · {mailCount(suggestion.mails)}
-                    </span>
-                  </div>
-                  <Button
-                    size="xs"
-                    onClick={() => onPick(suggestionDraft(suggestion))}
-                    aria-label={`Regel für ${name} anlegen`}
-                  >
-                    Regel anlegen
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <Link to={WITH_HIDDEN} className={buttonClass("link", "sm")}>
-          Ausgeblendete Mails ansehen
-        </Link>
-      </Card>
+      ) : (
+        <ul className={styles.suggestions}>
+          {suggestions.data.map((suggestion) => {
+            const name = suggestionName(suggestion);
+            return (
+              <li
+                key={`${suggestion.kind}-${suggestion.list_id ?? suggestion.person?.person_id ?? name}`}
+                className={styles.suggestion}
+              >
+                <div className={styles.suggestionMain}>
+                  <span className={styles.suggestionName}>{name}</span>
+                  <span className={styles.meta}>
+                    {suggestion.kind === "list"
+                      ? "Verteiler"
+                      : `Absender ${suggestion.person?.email ?? ""}`}{" "}
+                    · {mailCount(suggestion.mails)}
+                  </span>
+                </div>
+                <Button
+                  size="xs"
+                  onClick={() => onPick(suggestionDraft(suggestion))}
+                  aria-label={`Regel für ${name} anlegen`}
+                >
+                  Regel anlegen
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <Link to={WITH_HIDDEN} className={buttonClass("link", "sm")}>
+        Ausgeblendete Mails ansehen
+      </Link>
     </aside>
   );
+}
+
+/** The figures above the rules: what is hidden, what a rule matches but stays, the rules on. */
+function totals(list: HideRuleList): Figure[] {
+  const on = list.rules.filter((rule) => rule.enabled).length;
+  return [
+    {
+      value: formatNumber(list.hidden),
+      label: list.hidden === 1 ? "Mail ausgeblendet" : "Mails ausgeblendet",
+      sub: <Link to={WITH_HIDDEN}>Liste mit ausgeblendeten Mails</Link>,
+    },
+    {
+      value: formatNumber(list.kept),
+      label: "trotz Regel sichtbar",
+      title:
+        "Passen zu einer Regel, bleiben aber sichtbar: in einer Akte, mit Notiz, Lesezeichen oder „relevant“.",
+    },
+    {
+      value: `${formatNumber(on)} von ${formatNumber(list.rules.length)}`,
+      label: list.rules.length === 1 ? "Regel aktiv" : "Regeln aktiv",
+    },
+  ];
 }
 
 function ruleTitle(rule: HideRuleInfo): string {
