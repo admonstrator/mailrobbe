@@ -108,6 +108,7 @@ from mailrobbe.api.schemas import (
     AiEstimate,
     AiJob,
     AiMailRef,
+    AiPrework,
     AiQueued,
     AiQueuedRun,
     AiQueueRequest,
@@ -431,11 +432,12 @@ async def _start_for(
     thread_ids: Sequence[int] = (),
     aliases: bool = False,
     persons: Sequence[int] = (),
+    questions: Sequence[int] = (),
 ) -> AiQueuedRun:
     """Start a run reading only these documents (D280), mails (D307) and threads (D316), or the
-    whole queue without any (D308), or with aliases the alias check (D321), with the settings'
-    options (D315); a live AI run takes them next instead, and any other live run leaves them
-    waiting."""
+    whole queue without any (D308), or with aliases the alias check (D321), or questions about
+    persons (D347), with the settings' options (D315); a live AI run takes them next instead,
+    and any other live run leaves them waiting."""
     if await jobs.job_alive(session, JobKind.AI):
         return "running"
     _, defaults = await asyncio.to_thread(_settings_view, settings)
@@ -452,6 +454,7 @@ async def _start_for(
     if aliases:
         arguments.append("--aliases")
         arguments += [f"--person={person}" for person in persons]
+    arguments += [f"--question={question}" for question in questions]
     environment = processes.child_environment(settings)
     try:
         await _start(session, settings, runs, JobKind.AI, arguments, environment)
@@ -562,8 +565,14 @@ async def _enqueue_summaries(
     thread_ids = list(request.thread_ids or [])
     pending: list[int] = []
     recognized = queue.Queued(0, 0, 0, 0)  # the attachments' OCR and transcriptions (D317)
-    if request.single and request.mail_ids is not None and not request.preview:
-        attached = await queue.enqueue_attachments(session, mail_ids, editor=editor)
+    attached = None
+    if request.single and not request.preview:
+        if request.document_ids is not None:
+            attached = await queue.enqueue_documents(session, document_ids, editor=editor)
+        elif request.mail_ids is not None or request.thread_ids is not None:
+            mails = mail_ids + await thread_mails(session, thread_ids)
+            attached = await queue.enqueue_attachments(session, mails, editor=editor)
+    if attached is not None:
         document_ids, pending, recognized = (
             attached.summarize,
             attached.pending,
@@ -613,6 +622,63 @@ async def _enqueue_summaries(
         run=run,
         short=queued.short,
         estimate=estimate,
+        prework=None
+        if attached is None
+        else await prework_estimate(session, defaults, pending, estimate),
+    )
+
+
+_THREAD_MAILS = text("""
+    SELECT id FROM mail
+    WHERE thread_id = ANY(CAST(:thread_ids AS bigint[])) AND is_duplicate_of IS NULL
+""")
+
+
+async def thread_mails(session: AsyncSession, thread_ids: Sequence[int]) -> list[int]:
+    """The mails of these threads that are no duplicates, whose attachments go first (D346)."""
+    if not thread_ids:
+        return []
+    return list(await session.scalars(_THREAD_MAILS, {"thread_ids": list(thread_ids)}))
+
+
+_RECOGNIZED = text("""
+    SELECT COALESCE(sum(LEAST(COALESCE(d.pages, 1), :max_pages))
+            FILTER (WHERE d.kind <> 'media'), 0) AS pages,
+        COALESCE(sum(LEAST(d.duration, :max_seconds)) FILTER (WHERE d.kind = 'media'), 0)
+            AS seconds,
+        count(*) FILTER (WHERE d.kind = 'media' AND d.duration IS NULL) AS without_minutes
+    FROM document d WHERE d.id = ANY(CAST(:ids AS bigint[]))
+""")
+
+
+async def prework_estimate(
+    session: AsyncSession, defaults: AiOptions, pending: Sequence[int], text: AiTextEstimate
+) -> AiPrework:
+    """What comes before an answer or a summary asked for by a button (D348): the documents
+    read first by OCR (Tesseract's seconds per page, D188) or the transcriber (its seconds per
+    minute), and the summaries with the text estimate; estimated when a rule of thumb entered."""
+    row = (
+        await session.execute(
+            _RECOGNIZED,
+            {
+                "ids": list(pending),
+                "max_pages": defaults.max_pages,
+                "max_seconds": defaults.max_minutes * 60.0,
+            },
+        )
+    ).one()
+    per_page = (await _calibration(session)).get(("tesseract", ""))
+    per_minute = await session.scalar(_SECONDS_PER_MINUTE, {"model": TRANSCRIBE_MODEL})
+    minutes = float(row.seconds) / 60 + AI_RULE_MINUTES * row.without_minutes
+    seconds = int(row.pages) * (AI_RULE_SECONDS["tesseract"] if per_page is None else per_page)
+    seconds += minutes * (AI_RULE_SECONDS_PER_MINUTE if per_minute is None else float(per_minute))
+    return AiPrework(
+        recognize=len(pending),
+        summaries=text.tasks,
+        seconds=seconds + text.seconds,
+        estimated=text.estimated
+        or (int(row.pages) > 0 and per_page is None)
+        or (minutes > 0 and (per_minute is None or row.without_minutes > 0)),
     )
 
 

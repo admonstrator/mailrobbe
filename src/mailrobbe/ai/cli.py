@@ -154,6 +154,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="summarise only this queued thread (mail.thread_id), as --mail; repeatable",
     )
     work.add_argument(
+        "--question",
+        type=int,
+        action="append",
+        default=[],
+        metavar="ID",
+        help="answer this question about persons (person_question.id) and what it waits for, "
+        "leaving the rest of the queue waiting; repeatable",
+    )
+    work.add_argument(
         "--text-model", help="the text model for this run (default: MAILROBBE_AI_TEXT_MODEL)"
     )
     work.add_argument(
@@ -309,6 +318,8 @@ def options(settings: Settings, args: argparse.Namespace) -> AiOptions:
         update["mails"] = sorted(set(args.mail))
     if args.thread:
         update["threads"] = sorted(set(args.thread))
+    if args.question:
+        update["questions"] = sorted(set(args.question))
     if args.text_model:
         update["text_model"] = args.text_model.strip()
     if args.aliases:

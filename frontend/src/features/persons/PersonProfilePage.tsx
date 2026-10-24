@@ -18,6 +18,7 @@ import { personLabel } from "./labels";
 import { MergeDialog } from "./MergeDialog";
 import { PersonEventsCard, personEventsHref } from "./PersonEventsCard";
 import { PersonMails } from "./PersonMails";
+import { PersonQuestions } from "./PersonQuestions";
 import styles from "./PersonProfilePage.module.css";
 import { PersonSignalsCard } from "./PersonSignalsCard";
 import { ProfileAside } from "./ProfileAside";
@@ -42,6 +43,7 @@ const TAB_LABELS: Record<ProfileTab, string> = {
   anhaenge: "Anhänge",
   termine: "Termine",
   signale: "Signale",
+  ki: "KI fragen",
 };
 
 /** Starts the download of url, as a link with download does. */
@@ -161,6 +163,7 @@ function Profile({ profile }: { profile: PersonProfile }) {
 
   const actions = (
     <div className={styles.actions}>
+      <Button onClick={() => setTab("ki")}>KI fragen</Button>
       <Link to={`/karte?center=${profile.id}`} className={buttonClass()}>
         <GraphIcon size={14} />
         Im Graphen zeigen
@@ -232,6 +235,7 @@ function Profile({ profile }: { profile: PersonProfile }) {
             <EventsTab personId={profile.id} empty={events.data?.total === 0} />
           )}
           {tab === "signale" && <SignalsTab personId={profile.id} />}
+          {tab === "ki" && <PersonQuestions profile={profile} />}
         </div>
       </div>
       {merging && <MergeDialog profile={profile} onClose={() => setMerging(false)} />}

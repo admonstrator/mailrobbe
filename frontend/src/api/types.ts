@@ -1034,7 +1034,8 @@ export type StepUnit =
   | "pages"
   | "texts"
   | "pairs"
-  | "groups";
+  | "groups"
+  | "questions";
 
 /** One step of a run, in the order the run goes through them (D110). */
 export interface StepProgress {
@@ -2823,7 +2824,7 @@ export type AiTaskStatus = "waiting" | "running" | "done" | "failed" | "cancelle
 export type AiResultState = "valid" | "replaced" | "discarded";
 export type AiWorkList = "scanned" | "images" | "media";
 export type AiPhase =
-  "check" | "ocr" | "transcribe" | "summarize" | "aliases" | "entities" | "signals";
+  "check" | "ocr" | "transcribe" | "summarize" | "ask" | "aliases" | "entities" | "signals";
 export type AiTarget = "document" | "mail" | "thread"; // what an AI task, result or send is about (D301, D316)
 
 export const AI_QUEUE_LIMIT = 50_000; // documents one request may queue
@@ -2907,6 +2908,7 @@ export interface AiOptions {
   text_remote: boolean;
   context_tokens: number;
   aliases?: boolean; // the run checks alias candidates and takes no task (D321)
+  questions?: number[]; // a run for these questions about persons (D347)
 }
 
 /** Live figures of an AI run; its pages are the ocr step's. */
@@ -3006,6 +3008,15 @@ export interface AiQueued {
   run: AiQueuedRun | null; // with start, null without
   short: number; // summaries: mails with little own text, tags and theme hints only (D302)
   estimate: AiTextEstimate | null; // summaries: how long they take (D308)
+  prework?: AiPrework | null; // summarised from a button: what comes first (D348)
+}
+
+/** What is done before a summary or an answer asked for by a button (D348). */
+export interface AiPrework {
+  recognize: number; // documents read first by OCR or the transcriber
+  summaries: number;
+  seconds: number;
+  estimated: boolean;
 }
 
 /** How long summarising a selection takes (D188, D308). */
@@ -3343,4 +3354,56 @@ export interface SettingsView {
 /** New values by name; null deletes the stored one. All or nothing. */
 export interface SettingsUpdate {
   values: Record<string, SettingValue>;
+}
+
+// Questions about persons, "KI fragen" (D347, D348) -------------------------------------------
+
+export interface PersonQuestionTemplate {
+  key: string;
+  label: string;
+  question: string; // "" for the free question
+  compare: boolean; // needs a second person
+}
+
+export interface PersonQuestionPerson {
+  id: number;
+  name: string | null;
+  email: string;
+}
+
+export interface PersonQuestionItem {
+  id: number;
+  template: string;
+  label: string;
+  question: string;
+  person: PersonQuestionPerson; // Person A
+  other: PersonQuestionPerson | null; // Person B of a comparison
+  status: AiTaskStatus;
+  answer: string | null;
+  contents: number | null; // summaries the model read
+  model: string | null;
+  error: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  prework: AiPrework | null;
+  open: number; // of the prework, still open
+}
+
+export interface PersonQuestions {
+  available: boolean; // a text service on this machine (D322)
+  templates: PersonQuestionTemplate[];
+  questions: PersonQuestionItem[];
+  run: AiJob | null;
+}
+
+export interface PersonQuestionRequest {
+  template: string;
+  other_id?: number | null;
+  text?: string | null;
+}
+
+export interface PersonQuestionAsked {
+  question: PersonQuestionItem;
+  run: AiQueuedRun;
 }

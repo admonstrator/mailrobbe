@@ -403,6 +403,7 @@ async def test_a_run_checks_the_groups_and_the_sure_ones_merge(archive: Any, dat
         "ocr": "skipped",
         "transcribe": "skipped",
         "summarize": "skipped",
+        "ask": "skipped",
         "aliases": "done",
         "entities": "skipped",
         "signals": "skipped",

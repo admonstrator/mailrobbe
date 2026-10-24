@@ -21,7 +21,7 @@ All functions run in the caller's transaction.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -357,10 +357,10 @@ async def enqueue_summaries(
     )
 
 
-# The documents of these mails' own attachments (not an archive's members, D231) for D317: what a
-# work list of OCR or transcription would take, whether there is a text to summarise, and whether
-# a valid summary exists.
-_ATTACHED = text(f"""
+# What a document needs before its summary (D317, D346): whether a work list of OCR or
+# transcription would take it, whether there is a text to summarise, whether a valid summary
+# exists; over document d.
+_STATE = f"""
     SELECT DISTINCT d.id,
         ({WORK_LISTS["scanned"]}) OR ({WORK_LISTS["images"]}) OR ({WORK_LISTS["media"]})
             AS unread,
@@ -368,14 +368,22 @@ _ATTACHED = text(f"""
         EXISTS (SELECT 1 FROM ai_result r
                 WHERE r.kind = 'summarize' AND r.target = 'document'
                   AND r.target_sha256 = d.sha256 AND r.state = 'valid') AS summarized
+"""
+# The documents of these mails' own attachments (not an archive's members, D231).
+_ATTACHED = text(f"""
+    {_STATE}
     FROM attachment a JOIN document d ON d.id = a.document_id
     WHERE a.mail_id = ANY(CAST(:mail_ids AS bigint[])) AND a.container_id IS NULL
+""")
+_CHOSEN = text(f"""
+    {_STATE}
+    FROM document d WHERE d.id = ANY(CAST(:document_ids AS bigint[]))
 """)
 
 
 @dataclass(frozen=True, slots=True)
 class Attached:
-    """What enqueue_attachments did for the attachments of some mails."""
+    """What enqueue_attachments or enqueue_documents did."""
 
     recognized: Queued  # the OCR and transcribe tasks
     summarize: list[int]  # documents to summarise: with a text, or waiting for one, and no summary
@@ -388,9 +396,25 @@ async def enqueue_attachments(
     """Queue the OCR or transcription of these mails' attachments that a work list would take,
     first in the queue, and name the documents whose summaries go with the mails' (D317)."""
     rows = (await session.execute(_ATTACHED, {"mail_ids": sorted(set(mail_ids))})).all()
+    return await _prepare(session, rows, editor, again=False)
+
+
+async def enqueue_documents(
+    session: AsyncSession, document_ids: Sequence[int], *, editor: str | None = None
+) -> Attached:
+    """The same for documents summarised from a button (D346): a scan or a recording is read
+    first; a document chosen keeps its summary's request even when it has one (summarised
+    again)."""
+    rows = (await session.execute(_CHOSEN, {"document_ids": sorted(set(document_ids))})).all()
+    return await _prepare(session, rows, editor, again=True)
+
+
+async def _prepare(
+    session: AsyncSession, rows: Sequence[Any], editor: str | None, *, again: bool
+) -> Attached:
     unread = sorted(row.id for row in rows if row.unread)
     recognized = await enqueue(session, unread, editor=editor, single=True)
     summarize = sorted(
-        row.id for row in rows if not row.summarized and (row.readable or row.unread)
+        row.id for row in rows if (again or not row.summarized) and (row.readable or row.unread)
     )
     return Attached(recognized, summarize, unread)

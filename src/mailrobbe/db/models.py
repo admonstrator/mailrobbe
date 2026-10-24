@@ -737,6 +737,45 @@ class AliasCheck(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
 
 
+class PersonQuestion(Base):
+    """A question "KI fragen" asked on a person's page, about it or about it and another (D347),
+    with the text model's answer once the AI run gave it."""
+
+    __tablename__ = "person_question"
+    __table_args__ = (
+        Index("ix_person_question_person_id", "person_id", "id"),
+        Index("ix_person_question_other_id", "other_id"),
+        Index("ix_person_question_waiting", "id", postgresql_where=text("status = 'waiting'")),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    person_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("person.id", ondelete="CASCADE"))
+    other_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("person.id", ondelete="CASCADE")
+    )
+    template: Mapped[str] = mapped_column(Text)  # a key of ai.questions.TEMPLATES
+    question: Mapped[str] = mapped_column(Text)  # as asked, German
+    status: Mapped[AiTaskStatus] = mapped_column(ai_task_status_enum, server_default="waiting")
+    # The work done first (D348): the open tasks it waits for and the estimate shown.
+    prework: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    answer: Mapped[str | None] = mapped_column(Text)  # the model's words, German
+    contents: Mapped[int | None] = mapped_column(Integer)  # summaries the model read
+    model: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[int | None] = mapped_column(Integer)
+    seconds: Mapped[float | None] = mapped_column(REAL)
+    tokens_in: Mapped[int | None] = mapped_column(Integer)
+    tokens_out: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)  # English, one line
+    attempts: Mapped[int] = mapped_column(SmallInteger, server_default="0")
+    queued_by: Mapped[str | None] = mapped_column(Text)  # D54
+    queued_at: Mapped[datetime] = mapped_column(TIMESTAMPTZ, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    finished_at: Mapped[datetime | None] = mapped_column(TIMESTAMPTZ)
+    job_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("job.id", ondelete="SET NULL")
+    )
+
+
 class MergeBatch(Base):
     """One "Alle sicheren zusammenführen" (D162): the merges it made share it."""
 

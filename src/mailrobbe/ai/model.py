@@ -43,10 +43,11 @@ IMAGE_MIN_BYTES = 100 * 1024  # smaller images are not on the work list "Bilder"
 NO_TEXT_MARK = "[kein Text]"  # the vision prompt's answer for a page without writing
 PAGE_SEPARATOR = "\n\f\n"  # between the pages of a recognised text
 # The steps of an AI run (job.steps, D187), in order: summaries after OCR and transcription, so a
-# text recognised or transcribed in the same run is what they read. A run with --aliases has
-# the steps check and aliases only (D321).
+# text recognised or transcribed in the same run is what they read, and the questions about
+# persons after the summaries they read (D347). A run with --aliases has the steps check and
+# aliases only (D321).
 AI_STEPS = (
-    "check", "ocr", "transcribe", "summarize", "aliases", "entities", "signals"
+    "check", "ocr", "transcribe", "summarize", "ask", "aliases", "entities", "signals"
 )  # fmt: skip
 # Transcription (D292, D293): pieces of speech the transcriber reads at once, lines of a transcript
 PIECE_SECONDS = 25.0  # longest piece, cut at a pause where there is one
@@ -75,6 +76,13 @@ SUMMARY_RULE_SECONDS_PER_KTOKEN = 5.0
 ALIAS_ANSWER_TOKENS = 1000  # max_tokens of an answer: the persons of a group with reasons
 ALIAS_THINKING_TOKENS = 3000  # and on top of it while the text model thinks (D338)
 ALIAS_REASON_MAX_CHARS = 600  # a longer reason is cut there; the prompt asks for 300
+
+# Questions about persons (D347, D348).
+QUESTION_CONVERSATIONS = 20  # the conversations of a person (or two) the model reads, at most
+QUESTION_MAILS = 20  # the mails per conversation whose attachments are read first and shown
+QUESTION_CONTACTS = 12  # the most frequent contacts per person in the material
+QUESTION_ANSWER_TOKENS = 1500  # max_tokens of an answer
+QUESTION_MAX_CHARS = 1000  # characters of a free question
 
 
 class ForbiddenService(ValueError):
@@ -328,11 +336,18 @@ class AiOptions(BaseModel):
     # D321: the run checks alias candidates with the text model and takes no task.
     aliases: bool = False
     persons: list[int] = []  # with aliases: only these persons, as one group, checked again (D328)
+    # D347: a run started for questions about persons takes them and what they wait for only.
+    questions: list[int] = []
 
     @property
     def only(self) -> dict[str, list[int]]:
         """The parameters of the run's restriction to some elements (ai.run._ONLY)."""
-        return {"documents": self.documents, "mails": self.mails, "threads": self.threads}
+        return {
+            "documents": self.documents,
+            "mails": self.mails,
+            "threads": self.threads,
+            "questions": self.questions,
+        }
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "AiOptions":

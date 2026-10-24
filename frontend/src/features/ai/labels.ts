@@ -6,6 +6,7 @@ import { ApiError } from "../../api/client";
 import type {
   AiEngine,
   AiEstimate,
+  AiPrework,
   AiQueued,
   AiResultState,
   AiSummaryResult,
@@ -309,4 +310,20 @@ export function summaryStartedText(queued: AiQueued, target: AiTarget): string {
     default:
       return `Vorgemerkt: Der nächste KI-Lauf fasst ${element} zuerst zusammen.`;
   }
+}
+
+/** What comes before a summary or an answer asked for by a button (D348), beyond own summaries
+ *  of the element itself: "Erst ist Vorarbeit nötig: 3 Anhänge erkennen oder transkribieren,
+ *  12 Texte zusammenfassen. Das dauert geschätzt ca. 8 min." null when there is none. */
+export function preworkText(prework: AiPrework, own = 0): string | null {
+  const summaries = Math.max(0, prework.summaries - own);
+  const parts = [
+    prework.recognize > 0 &&
+      `${formatNumber(prework.recognize)} ${prework.recognize === 1 ? "Anhang" : "Anhänge"} erkennen oder transkribieren`,
+    summaries > 0 &&
+      `${formatNumber(summaries)} ${summaries === 1 ? "Text" : "Texte"} zusammenfassen`,
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  const time = `${prework.estimated ? "geschätzt " : ""}ca. ${formatRemaining(prework.seconds)}`;
+  return `Erst ist Vorarbeit nötig: ${parts.join(", ")}. Das dauert ${time}.`;
 }

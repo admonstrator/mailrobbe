@@ -22,6 +22,8 @@ _ALIAS_NEEDS = (
     '"sure"',
     '"reason"',
 )
+# What the prompt of the questions about persons must hold (D347).
+_QUESTION_NEEDS = (MATERIAL_START, MATERIAL_END, '"answer"')
 # What each summary prompt must hold; ai.summarize fills the placeholders with str.replace, never
 # with str.format, so the JSON braces of the system prompt stay as written.
 _SUMMARY_NEEDS = {
@@ -54,18 +56,26 @@ class AliasPrompts:
 
 
 @dataclass(frozen=True, slots=True)
+class QuestionPrompts:
+    version: int  # person_question.prompt_version (D347)
+    system: str  # the material and the question follow as the user's
+
+
+@dataclass(frozen=True, slots=True)
 class Prompts:
     version: int  # ai_result.prompt_version of an OCR result
     ocr: str  # for the vision model, one page picture at a time
     summarize: SummaryPrompts
     aliases: AliasPrompts
+    questions: QuestionPrompts
 
 
 @cache
 def load_prompts() -> Prompts:
     """The prompts of ai.toml; raises PromptsError when it lacks one, the OCR prompt does not
     name the answer for a page without writing (NO_TEXT_MARK), a summary prompt lacks what
-    _SUMMARY_NEEDS names or the prompt of the alias check what _ALIAS_NEEDS names."""
+    _SUMMARY_NEEDS names, the prompt of the alias check what _ALIAS_NEEDS names or that of the
+    questions what _QUESTION_NEEDS names."""
     with AI_FILE.open("rb") as file:
         data = tomllib.load(file)
     version, ocr = data.get("version"), data.get("ocr")
@@ -81,6 +91,7 @@ def load_prompts() -> Prompts:
         ocr=ocr.strip(),
         summarize=_summarize(data.get("summarize")),
         aliases=_aliases(data.get("aliases")),
+        questions=_questions(data.get("questions")),
     )
 
 
@@ -117,3 +128,17 @@ def _aliases(table: Any) -> AliasPrompts:
     if missing:
         raise PromptsError(f"ai.toml: aliases.system must hold {', '.join(missing)}")
     return AliasPrompts(version=table["version"], system=prompt.strip())
+
+
+def _questions(table: Any) -> QuestionPrompts:
+    if not isinstance(table, dict):
+        raise PromptsError("ai.toml: the table [questions] is missing")
+    if not _version(table.get("version")):
+        raise PromptsError("ai.toml: questions.version must be a whole number from 1")
+    prompt = table.get("system")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise PromptsError("ai.toml: the prompt questions.system is missing")
+    missing = [need for need in _QUESTION_NEEDS if need not in prompt]
+    if missing:
+        raise PromptsError(f"ai.toml: questions.system must hold {', '.join(missing)}")
+    return QuestionPrompts(version=table["version"], system=prompt.strip())

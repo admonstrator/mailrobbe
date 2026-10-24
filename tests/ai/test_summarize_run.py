@@ -391,6 +391,7 @@ async def test_a_run_summarises_a_mail_and_a_short_one(archive: Any, database: s
         "ocr": "skipped",
         "transcribe": "skipped",
         "summarize": "done",
+        "ask": "skipped",
         "aliases": "skipped",
         "entities": "skipped",
         "signals": "skipped",
@@ -950,6 +951,7 @@ def test_the_command_line_takes_mails_and_a_text_model() -> None:
         "documents": [2],
         "mails": [4, 9],
         "threads": [7],
+        "questions": [],
     }
 
 

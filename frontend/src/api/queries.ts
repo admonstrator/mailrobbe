@@ -28,6 +28,9 @@ import {
 import { useDebounced } from "../lib/useDebounced";
 import { ENTITY_REFS_LIMIT } from "./types";
 import type {
+  PersonQuestionAsked,
+  PersonQuestionRequest,
+  PersonQuestions,
   AiAliasCheck,
   AiAliasRun,
   AiChanged,
@@ -1675,6 +1678,7 @@ export const aiKeys = {
   sendLog: ["ai", "send-log"] as const,
   // Milestone 17 (D307, D309): under "ai", so a queue change or a discard asks them again.
   summary: (params: AiSummaryParams) => ["ai", "summary", params] as const,
+  questions: (person: number) => ["ai", "questions", person] as const,
   facets: (filters: MailFilters) => ["ai", "facets", filters] as const,
   tags: (params: AiTagParams) => ["ai", "tags", params] as const,
 };
@@ -1817,6 +1821,36 @@ export function useAiSummary(params: AiSummaryParams, enabled = true) {
     enabled,
     refetchInterval: (query) =>
       query.state.data?.task || query.state.data?.preparing ? OCR_POLL : false,
+  });
+}
+
+/** The questions "KI fragen" about a person (D347); asked again every 3 s while one is open. */
+export function usePersonQuestions(person: number) {
+  return useQuery({
+    queryKey: aiKeys.questions(person),
+    queryFn: ({ signal }) =>
+      apiGet<PersonQuestions>(`/api/persons/${person}/questions`, undefined, signal),
+    refetchInterval: (query) =>
+      query.state.data?.questions.some((q) => q.status === "waiting" || q.status === "running")
+        ? OCR_POLL
+        : false,
+  });
+}
+
+export function useAskPerson(person: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: PersonQuestionRequest) =>
+      apiPost<PersonQuestionAsked>(`/api/persons/${person}/questions`, request),
+    onSuccess: () => aiChanged(queryClient),
+  });
+}
+
+export function useDiscardQuestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => apiDelete(`/api/person-questions/${id}`),
+    onSuccess: () => aiChanged(queryClient),
   });
 }
 

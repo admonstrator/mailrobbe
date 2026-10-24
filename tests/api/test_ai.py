@@ -371,6 +371,7 @@ async def test_a_work_list_is_queued_once_and_raised_after(
         "run": None,
         "short": 0,
         "estimate": None,
+        "prework": None,
     }
     assert await queue(dashboard, body) == {
         "queued": 0,
@@ -380,6 +381,7 @@ async def test_a_work_list_is_queued_once_and_raised_after(
         "run": None,
         "short": 0,
         "estimate": None,
+        "prework": None,
     }
     listed = await tasks(dashboard)
     # Newest first; a work list is queued by its mails, so the scans' order is the archive's.
@@ -405,6 +407,7 @@ async def test_ids_leave_out_logos_and_what_ocr_cannot_read(
         "run": None,
         "short": 0,
         "estimate": None,
+        "prework": None,
     }
     with_logos = await queue(dashboard, {"document_ids": work.images, "include_logos": True})
     assert (with_logos["queued"], with_logos["raised"]) == (1, 2)
@@ -433,6 +436,7 @@ async def test_the_document_list_filters_are_queued_by_its_own_conditions(
         "run": None,
         "short": 0,
         "estimate": None,
+        "prework": None,
     }
     summary = await get(
         dashboard.client, "/api/documents/summary", [("kind", "pdf"), ("text_status", "scanned")]
@@ -1342,6 +1346,7 @@ async def test_recordings_are_queued_for_the_transcriber(dashboard: Dashboard, w
         "run": None,
         "short": 0,
         "estimate": None,
+        "prework": None,
     }
     listed = await tasks(dashboard)
     assert {(task["kind"], task["engine"], task["status"]) for task in listed} == {

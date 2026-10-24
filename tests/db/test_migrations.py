@@ -113,6 +113,7 @@ TABLES = {
     "ai_theme_hint",
     "setting",
     "alias_check",
+    "person_question",
 }
 
 ENUMS: dict[str, tuple[type[StrEnum], list[str]]] = {
@@ -295,7 +296,7 @@ async def test_upgrade_creates_all_tables(db_session: AsyncSession) -> None:
         text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
     )
     assert set(tables) == {*TABLES, "alembic_version"}
-    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0025"
+    assert await db_session.scalar(text("SELECT version_num FROM alembic_version")) == "0026"
 
 
 @pytest.mark.db
@@ -510,6 +511,10 @@ def test_upgrade_renders_offline_without_database() -> None:
     )
     assert (
         "UPDATE alembic_version SET version_num='0025' WHERE alembic_version.version_num = '0024'"
+        in sql
+    )
+    assert (
+        "UPDATE alembic_version SET version_num='0026' WHERE alembic_version.version_num = '0025'"
         in sql
     )
 

@@ -31,6 +31,9 @@
                 (ai.summarize.step, D300 to D306, D327), after OCR and transcription so a text
                 recognised in this run is what they read; a long text part by part, each part
                 kept, so a stop continues at the next part
+    ask         the waiting questions about persons (ai.questions, D347), one at a time, each
+                once the summaries and recognitions it waits for are done; a text service on
+                this machine only
     entities    the entities phase of the import (D84), which also computes the entity figures,
     signals     and the signals phase (D135), when a document's text changed in this run
 
@@ -41,9 +44,11 @@ about one group of persons at a time (D324) and keeps the verdicts of its pairs,
 continues with the groups not yet checked.
 
 A run started for some documents or mails (AiOptions.documents, AiOptions.mails, D280, D307)
-takes only their tasks, of every kind, and leaves the rest of the queue waiting.
+takes only their tasks, of every kind, and leaves the rest of the queue waiting; one started for
+a question (AiOptions.questions, D347) takes no task but what is asked for on a page.
 
-What is asked for on a page (priority PRIORITY_SINGLE, D186) is done now (D329): every run takes
+What is asked for on a page (priority PRIORITY_SINGLE, D186, and every question about persons,
+D347) is done now (D329): every run takes
 it, whatever it was started for, before anything else. When it waits for another step than the
 one in work (a summary asked for while OCR reads a work list, a scan's OCR while the summaries
 of everything are written), that step ends after its task in work and the run makes a round of
@@ -123,6 +128,7 @@ from mailrobbe.ai.model import (
 )
 from mailrobbe.ai.ocr import render, tesseract, vision
 from mailrobbe.ai.prompts import load_prompts
+from mailrobbe.ai.questions import QuestionStep
 from mailrobbe.ai.store import reapply_results, store_ocr_result, store_transcript_result
 from mailrobbe.ai.summarize.step import SummarizeStep
 from mailrobbe.attachments.content import AttachmentChanged, document_sources, read_attachment
@@ -268,6 +274,8 @@ class AiSummary:
     aliases_same: int = 0  # pairs of them judged one person
     aliases_sure: int = 0  # of those, the model sure
     aliases_failed: int = 0
+    questions: int = 0  # questions about persons answered (D347)
+    questions_failed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -362,7 +370,8 @@ _ONLY = (
     f"({{task}}.priority >= {PRIORITY_SINGLE} OR (NOT CAST(:asked AS boolean) AND ("
     "(cardinality(CAST(:documents AS bigint[])) = 0"
     " AND cardinality(CAST(:mails AS bigint[])) = 0"
-    " AND cardinality(CAST(:threads AS bigint[])) = 0)"
+    " AND cardinality(CAST(:threads AS bigint[])) = 0"
+    " AND cardinality(CAST(:questions AS bigint[])) = 0)"
     " OR ({task}.target = 'document' AND {task}.target_sha256 IN"
     " (SELECT sha256 FROM document WHERE id = ANY(CAST(:documents AS bigint[]))))"
     " OR ({task}.target = 'mail' AND {task}.target_sha256 IN"
@@ -372,12 +381,14 @@ _ONLY = (
 
 
 def _asked(*kinds: AiTaskKind) -> Any:
-    """Whether tasks of these kinds asked for on a page wait (ix_ai_task_waiting)."""
+    """Whether tasks of these kinds asked for on a page wait (ix_ai_task_waiting), or a question
+    about persons (ix_person_question_waiting, D347)."""
     listed = ", ".join(f"'{kind.value}'" for kind in kinds)
     return text(f"""
         SELECT EXISTS (SELECT 1 FROM ai_task
                        WHERE kind IN ({listed}) AND status = 'waiting'
                          AND priority >= {PRIORITY_SINGLE})
+            OR EXISTS (SELECT 1 FROM person_question WHERE status = 'waiting')
     """)
 
 
@@ -509,6 +520,7 @@ class _Run:
         self.taken = 0  # tasks this run took
         self.ran: set[str] = set()  # the steps that ran: a later round does not skip them
         self.aliases = AliasStep(self)
+        self.questions = QuestionStep(self)
 
     @property
     def only(self) -> dict[str, Any]:
@@ -577,7 +589,7 @@ class _Run:
             self.summary.status, self.summary.message = JobStatus.DONE, self._line()
             return EXIT_OK
         except _Ended as ended:
-            self._skip("summarize")
+            self._skip("summarize", "ask")
             self.summary.status = ended.status
             self.summary.message = f"{self._line()}; {ended.message}"
             if ended.exit_code != EXIT_INTERRUPTED:
@@ -585,7 +597,7 @@ class _Run:
             return ended.exit_code
 
     async def _round(self) -> bool:
-        """check, ocr, transcribe and summarize once; False when a step turned to what was
+        """check, ocr, transcribe, summarize and ask once; False when a step turned to what was
         asked for on a page."""
         try:
             await self._check()
@@ -594,7 +606,7 @@ class _Run:
         except _Ended:
             self._skip("transcribe")
             raise
-        return await self._transcribe() and await self._summarize()
+        return await self._transcribe() and await self._summarize() and await self._questions()
 
     def _skip(self, *keys: str) -> None:
         """Skip the steps with nothing to do, keeping a step an earlier round ran."""
@@ -627,6 +639,11 @@ class _Run:
             line += (
                 f", {summary.summaries} of {summary.summaries_queued} texts summarised "
                 f"({summary.summaries_failed} failed)"
+            )
+        if summary.questions or summary.questions_failed:
+            line += (
+                f", {summary.questions} questions about persons answered "
+                f"({summary.questions_failed} failed)"
             )
         if summary.tokens_in or summary.tokens_out:
             line += f", {summary.tokens_in + summary.tokens_out} tokens"
@@ -766,17 +783,19 @@ class _Run:
         log.warning("everything goes to Tesseract: %s", problem)
 
     async def _check_text(self) -> None:
-        """Make the text service usable for the waiting summaries or say why they wait (D300);
-        raises _Ended when its model is missing. One that does not answer is waited for unless
-        OCR tasks wait too."""
-        if not await self.summaries.count():
+        """Make the text service usable for the waiting summaries and questions or say why they
+        wait (D300, D347); raises _Ended when its model is missing. One that does not answer is
+        waited for unless OCR tasks wait too."""
+        steps = [step for step in (self.summaries, self.questions) if await step.count()]
+        if not steps:
             return
         # Waited for when only summaries wait; OCR tasks do not wait for it, the summaries do.
         found = await self._text_service(needed=not self.progress.queued)
-        if isinstance(found, str):
-            self.summaries.leave(found)
-        else:
-            self.summaries.use(*found)
+        for step in steps:
+            if isinstance(found, str):
+                step.leave(found)
+            else:
+                step.use(*found)
 
     async def _text_service(self, needed: bool) -> tuple[Service, ServiceProtocol] | str:
         """The usable text service with its protocol, or why there is none; raises _Ended when
@@ -1496,6 +1515,25 @@ class _Run:
             raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
         return not turned
 
+    async def _questions(self) -> bool:
+        """The waiting questions about persons, one at a time (ai.questions, D347)."""
+        step = self.questions
+        if step.service is None or not step.waiting:
+            self._skip("ask")
+            return True
+        self.job.set_phase("ask")
+        self.ran.add("ask")
+        with self.job.steps.step("ask", unit="questions", total=step.waiting) as counter:
+            while not self.job.stop.is_set():
+                question = await step.take()
+                if question is None:
+                    break
+                self.taken += 1
+                await step.work(question, counter)
+        if self.job.stop.is_set():
+            raise _Ended(JobStatus.STOPPED, "stopped on request", EXIT_INTERRUPTED)
+        return True
+
     async def _together(
         self, worker: Callable[[], Coroutine[Any, Any, None]], count: int | None = None
     ) -> None:
@@ -1532,7 +1570,7 @@ class _Run:
     async def _alias_run(self) -> int:
         """A run with --aliases (D321): the check, then the step aliases; the exit code. It
         takes no task but what is asked for on a page meanwhile (run, D329)."""
-        self.job.steps.skip("ocr", "transcribe", "summarize")
+        self.job.steps.skip("ocr", "transcribe", "summarize", "ask")
         try:
             with self.job.steps.step("check"):
                 waiting = await self.aliases.read()
