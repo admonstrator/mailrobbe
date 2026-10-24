@@ -278,6 +278,22 @@ export interface MailListItem {
   attachment_machine?: boolean;
   /** That machine made text is a recording's transcript (D296); attachment_machine is true too. */
   attachment_transcript?: boolean;
+  /** Why the mail matched (D344): the participants q's address operators name, with roles. */
+  hit_persons?: MailHitPerson[];
+  /** The entities filtered by and where the mail mentions them. */
+  hit_entities?: MailEntityHit[];
+  /** Names of the attachments whose name or text holds a counted word, at most 3. */
+  hit_files?: (string | null)[];
+}
+
+export interface MailHitPerson extends PersonRef {
+  role: ParticipationRole;
+}
+
+export interface MailEntityHit {
+  entity: EntityRef;
+  in_mail: boolean; // in the mail's own subject or text
+  files: (string | null)[]; // names of the attachments mentioning it, at most 3
 }
 
 export interface MailPage {
@@ -3241,6 +3257,8 @@ export interface AiSummaryTask {
   status: AiTaskStatus; // waiting or running
   parts_done: number;
   parts_total: number | null;
+  queued_at?: string | null; // since when it waits or runs (D345)
+  started_at?: string | null;
 }
 
 export interface AiAttachmentSummary {

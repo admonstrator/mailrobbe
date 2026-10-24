@@ -351,6 +351,7 @@ COUNT_LIMIT = 10_000
 PAGE_SIZE = 50  # also the page size of persons, contacts and suggestions
 MAX_PAGE_SIZE = 200
 RECIPIENT_PREVIEW = 3  # recipients listed per row of the mail list
+HIT_FILES = 3  # attachments named per row of the mail list as the place of its hits (D344)
 TOP_SENDER_DOMAINS = 10  # in Stats; the full list comes from /api/stats/sender-domains
 THREAD_LIMIT = 200  # thread members in MailDetail
 DUPLICATES_LIMIT = 50
@@ -576,6 +577,21 @@ class MailHitCounts(BaseModel):
     filename: int  # in the file names of its attachments' documents
 
 
+class MailHitPerson(PersonRef):
+    """A participant an address operator of q names (D340), with its role: why the row matched
+    (D344)."""
+
+    role: ParticipationRole
+
+
+class MailEntityHit(BaseModel):
+    """An entity the list is filtered by and where the mail mentions it (D344)."""
+
+    entity: "EntityRef"
+    in_mail: bool  # in the mail's own subject or text
+    files: list[str | None]  # names of the attachments mentioning it, at most HIT_FILES
+
+
 class MailListItem(BaseModel):
     id: int
     date: datetime | None
@@ -606,6 +622,12 @@ class MailListItem(BaseModel):
     attachment_machine: bool = False
     # such a machine made text is a transcript of a recording (D296): "maschinell transkribiert"
     attachment_transcript: bool = False
+    # Why the mail matched (D344): the participants q's address operators name, in the order of
+    # recipients; the entities filtered by with their places; the names of the attachments whose
+    # name or text holds a counted word, at most HIT_FILES, in mail order.
+    hit_persons: list[MailHitPerson] = []
+    hit_entities: list[MailEntityHit] = []
+    hit_files: list[str | None] = []
 
 
 class MailPage(BaseModel):
@@ -3570,6 +3592,8 @@ class AiSummaryTask(BaseModel):
     status: AiTaskStatus  # waiting or running
     parts_done: int  # parts of a long text summarised so far
     parts_total: int | None
+    queued_at: datetime | None = None  # since when it waits or runs, for "seit 2:14" (D345)
+    started_at: datetime | None = None
 
 
 class AiAttachmentSummary(BaseModel):
@@ -3672,6 +3696,7 @@ class SettingsUpdate(BaseModel):
 
 
 AiQueued.model_rebuild()
+MailEntityHit.model_rebuild()
 
 
 ImportStatus.model_rebuild()

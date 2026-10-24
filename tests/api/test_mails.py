@@ -381,6 +381,43 @@ async def test_participant_filters_select_what_sql_selects(
         assert await listed(client, params) == expected, name
 
 
+async def test_rows_name_why_they_matched(
+    client: httpx.AsyncClient, imported_database_url: str
+) -> None:
+    """D344: the recipients an address operator names, with their roles, and where the entity
+    filtered by stands."""
+    url = imported_database_url
+    domain = (
+        await rows(
+            url,
+            "SELECT p.domain FROM participation pa JOIN person p ON p.id = pa.person_id"
+            " WHERE pa.role = 'cc' GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 1",
+        )
+    )[0].domain
+    page = await get(client, "/api/mails", [("q", f"cc:@{domain}"), ("limit", "50")])
+    assert page["items"]
+    for item in page["items"]:
+        assert item["hit_persons"], item["id"]
+        for person in item["hit_persons"]:
+            assert person["role"] == "cc"
+            assert person["email"].endswith((f"@{domain}", f".{domain}"))
+
+    entity = (
+        await rows(
+            url,
+            "SELECT entity_id FROM document_entity d JOIN attachment a"
+            " ON a.document_id = d.document_id GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 1",
+        )
+    )[0].entity_id
+    page = await get(client, "/api/mails", [("entity", str(entity)), ("limit", "50")])
+    assert page["items"]
+    for item in page["items"]:
+        [hit] = item["hit_entities"]
+        assert hit["entity"]["id"] == entity
+        assert hit["in_mail"] or hit["files"]
+    assert any(item["hit_entities"][0]["files"] for item in page["items"])
+
+
 async def test_filters_agree_with_the_manifest(
     client: httpx.AsyncClient, imported_database_url: str, generated_archive: GeneratedArchive
 ) -> None:
@@ -510,6 +547,9 @@ async def test_items_show_the_mail_and_its_participants(
             "hits": None,
             "attachment_machine": False,
             "attachment_transcript": False,
+            "hit_persons": [],
+            "hit_entities": [],
+            "hit_files": [],
         }
 
 

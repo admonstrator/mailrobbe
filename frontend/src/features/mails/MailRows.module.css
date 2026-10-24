@@ -134,6 +134,53 @@
   white-space: nowrap;
 }
 
+.line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Why the mail matched (D344): a second line of labelled chips; the row grows by it. */
+.why {
+  display: flex;
+  gap: 4px var(--space-2);
+  margin: 2px 0 var(--space-1);
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.reason {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 0 var(--space-2);
+  background: var(--color-field);
+  text-overflow: ellipsis;
+}
+
+.kind {
+  color: var(--color-pass-text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.role {
+  color: var(--color-accent-hover);
+}
+
+.bcc {
+  color: var(--color-fail-text);
+}
+
+.where {
+  color: var(--color-muted);
+}
+
 .subject {
   color: var(--color-text);
   text-decoration: none;

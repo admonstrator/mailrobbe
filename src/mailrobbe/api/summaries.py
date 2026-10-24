@@ -83,7 +83,8 @@ _TASK = text("""
         CASE WHEN jsonb_typeof(partial -> 'parts') = 'array'
              THEN jsonb_array_length(partial -> 'parts') ELSE 0 END AS parts_done,
         CASE WHEN jsonb_typeof(partial -> 'parts_total') = 'number'
-             THEN (partial ->> 'parts_total')::int END AS parts_total
+             THEN (partial ->> 'parts_total')::int END AS parts_total,
+        queued_at, started_at
     FROM ai_task
     WHERE kind = 'summarize' AND target = :target AND target_sha256 = :sha256
       AND status IN ('waiting', 'running')
@@ -183,6 +184,8 @@ async def summary(
             status=AiTaskStatus(task.status),
             parts_done=task.parts_done,
             parts_total=task.parts_total,
+            queued_at=task.queued_at,
+            started_at=task.started_at,
         ),
         failed=failed,
         attachments=[
