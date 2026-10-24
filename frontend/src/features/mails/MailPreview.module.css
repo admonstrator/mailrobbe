@@ -120,6 +120,42 @@
   font-weight: 600;
 }
 
+/* The running summary (D345): a bar that moves while the model works. */
+.summaryBar {
+  height: 4px;
+  margin: 6px 0;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-border-subtle);
+}
+
+.summaryBar span {
+  display: block;
+  width: 30%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-accent);
+  animation: summary-run 1.4s ease-in-out infinite;
+}
+
+@keyframes summary-run {
+  from {
+    margin-left: -30%;
+  }
+
+  to {
+    margin-left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .summaryBar span {
+    width: 100%;
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
 .text {
   min-width: 0;
   overflow-wrap: anywhere;

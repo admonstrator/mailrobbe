@@ -159,6 +159,7 @@ _mail_id: ColumnElement[int] = Mail.__table__.c.id
 _raw_sha256: ColumnElement[str] = Mail.__table__.c.raw_sha256
 _SENDER = (ParticipationRole.FROM,)
 _RECIPIENTS = (ParticipationRole.TO, ParticipationRole.CC, ParticipationRole.BCC)
+_ANY_ROLE = _SENDER + _RECIPIENTS
 # Mails of the order a filtered page looks at before collecting all matches instead: a filter
 # matching one mail in 100 fills a page of 50 within them.
 WALK_ROWS = 5000
@@ -513,6 +514,28 @@ def _operator(term: QueryTerm) -> list[ColumnElement[bool]]:
         case "message_id":
             return [Mail.message_id == value]
     return []  # full text words, free and placed: text_conditions
+
+
+def party_conditions(
+    terms: Sequence[QueryTerm],
+) -> list[tuple[tuple[ParticipationRole, ...], ColumnElement[bool]]]:
+    """The roles and the person condition of each address operator of q that must hold (D340):
+    the participants a row of the mail list shows as the reason it matched (D344). domain: and
+    both parties of between: in any role."""
+    found: list[tuple[tuple[ParticipationRole, ...], ColumnElement[bool]]] = []
+    for term in terms:
+        if term.negated:
+            continue
+        match term.key:
+            case "from" | "to" | "cc" | "bcc" | "recipient":
+                roles = _RECIPIENTS if term.key == "recipient" else (ParticipationRole(term.key),)
+                found.append((roles, _party(term.value)))
+            case "between":
+                found += [(_ANY_ROLE, _party(party)) for party in between_parties(term.value)]
+            case "domain":
+                domain = term.value.lower().lstrip("@")
+                found.append((_ANY_ROLE, _in_domains(Person.domain, [domain])))
+    return found
 
 
 def _contains(value: str) -> str:

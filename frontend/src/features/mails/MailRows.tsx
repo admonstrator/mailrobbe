@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { Link } from "react-router";
 
 import { useResearch, useSaveMark } from "../../api/queries";
-import type { MailListItem, PersonRef, TagRef } from "../../api/types";
+import type { MailListItem, ParticipationRole, PersonRef, TagRef } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
 import { DkimDot } from "../../components/DkimDot";
 import { Highlighted, type SearchMarks } from "../../components/Highlighted";
@@ -21,6 +21,8 @@ import { formatBytes, formatDateTime, formatNumber } from "../../lib/format";
 import { formatListDate } from "../../lib/listDate";
 import { personName } from "../../lib/person";
 import { TAG_PALETTE } from "../../lib/research";
+import { documentName } from "../documents/labels";
+import { KIND_LABELS } from "../entities/labels";
 import { EVENT_LABELS } from "./chips";
 import type { ColumnChoice } from "./columns";
 import { hitPlaces } from "./hitPlaces";
@@ -51,6 +53,73 @@ function recipientsText(mail: MailListItem): string | null {
   const shown = count <= 2 ? recipients : recipients.slice(0, 1);
   const rest = count - shown.length;
   return `an ${shown.map((person: PersonRef) => personName(person)).join(", ")}${rest > 0 ? ` +${rest}` : ""}`;
+}
+
+/** Participants named per row as the reason it matched (D344); the rest is "+n". */
+const HIT_PERSONS = 3;
+const ROLE_LABELS: Record<ParticipationRole, string> = {
+  from: "Von",
+  to: "An",
+  cc: "CC",
+  bcc: "BCC",
+};
+
+/** "Quittung.pdf, Liste.xlsx": the attachments named as a place of a hit. */
+const fileNames = (files: (string | null)[]) => files.map(documentName).join(", ");
+
+/** Why the mail matched (D344), as small labelled chips below the subject: where the search
+ *  words occur with the attachments holding them, the entities filtered by and where they
+ *  stand, the participants an address operator names with their roles. Null without any. */
+function HitReasons({ mail }: { mail: MailListItem }) {
+  const places = mail.hits && hitPlaces(mail.hits);
+  const files = mail.hit_files ?? [];
+  const entities = mail.hit_entities ?? [];
+  const persons = mail.hit_persons ?? [];
+  if (!places && !entities.length && !persons.length) return null;
+  return (
+    <span className={styles.why}>
+      {places && (
+        <span className={styles.reason}>
+          <span className={styles.kind}>Suchwort</span>
+          <span title={places.title}>{places.label}</span>
+          {files.length > 0 && <span className={styles.where}>{fileNames(files)}</span>}
+        </span>
+      )}
+      {entities.map(({ entity, in_mail, files: in_files }) => {
+        const where = [
+          ...(in_mail ? ["im Text"] : []),
+          ...(in_files.length ? [`in ${fileNames(in_files)}`] : []),
+        ];
+        return (
+          <span
+            key={entity.id}
+            className={styles.reason}
+            title={`${entity.label} ${where.join(" und ")}`}
+          >
+            <span className={styles.kind}>{KIND_LABELS[entity.kind].one}</span>
+            {entity.label}
+            {where.length > 0 && <span className={styles.where}>{where.join(" und ")}</span>}
+          </span>
+        );
+      })}
+      {persons.slice(0, HIT_PERSONS).map((person) => (
+        <span
+          key={`${person.role}-${person.person_id}`}
+          className={styles.reason}
+          title={person.name ? `${person.name} <${person.email}>` : person.email}
+        >
+          <span className={cx(styles.kind, styles.role, person.role === "bcc" && styles.bcc)}>
+            {ROLE_LABELS[person.role]}
+          </span>
+          {person.name && `${personName(person)} `}
+          <span className={person.name ? styles.where : undefined}>{person.email}</span>
+        </span>
+      ))}
+      {persons.length > HIT_PERSONS && (
+        <span className={styles.where}>+{formatNumber(persons.length - HIT_PERSONS)}</span>
+      )}
+    </span>
+  );
 }
 
 /** The title of the mark of D73, or null for none: the search words occur in an attachment.
@@ -180,8 +249,8 @@ function Row({
   const review = (pending && "review" in pending ? pending.review : mail.review) ?? "unreviewed";
   const subject = mail.subject || "(kein Betreff)";
   const inAttachment = attachmentMatch(mail);
-  const places = mail.hits && hitPlaces(mail.hits);
   const recipients = recipientsText(mail);
+  const reasons = <HitReasons mail={mail} />;
   const sender = mail.sender ? personName(mail.sender) : "(unbekannt)";
 
   function openRow(event: MouseEvent<HTMLLIElement>) {
@@ -234,27 +303,23 @@ function Row({
         {sender}
       </span>
       <span className={styles.text}>
-        <Link
-          to={href}
-          data-subject
-          className={cx(styles.subject, !mail.subject && styles.muted)}
-          onClick={(event) => {
-            // A plain click previews; Ctrl, Shift, Meta or the middle button open the detail.
-            if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
-            event.preventDefault();
-            onOpen(mail.id);
-          }}
-        >
-          {mail.subject ? <Highlighted text={mail.subject} marks={marks} /> : subject}
-        </Link>
-        {places ? (
-          <span className={styles.second}>
-            {" – Treffer: "}
-            <span title={places.title}>{places.label}</span>
-          </span>
-        ) : (
-          recipients && <span className={styles.second}>{` – ${recipients}`}</span>
-        )}
+        <span className={styles.line}>
+          <Link
+            to={href}
+            data-subject
+            className={cx(styles.subject, !mail.subject && styles.muted)}
+            onClick={(event) => {
+              // A plain click previews; Ctrl, Shift, Meta or the middle button open the detail.
+              if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
+              event.preventDefault();
+              onOpen(mail.id);
+            }}
+          >
+            {mail.subject ? <Highlighted text={mail.subject} marks={marks} /> : subject}
+          </Link>
+          {recipients && <span className={styles.second}>{` – ${recipients}`}</span>}
+        </span>
+        {reasons}
       </span>
       <span className={styles.marks}>
         {mail.is_duplicate && <CopyIcon size={14} label="Duplikat" className={styles.quiet} />}

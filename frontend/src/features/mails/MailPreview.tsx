@@ -5,6 +5,7 @@ import {
   useAiSummary,
   useChangeMailCollections,
   useCreateCollection,
+  useEnqueueAi,
   useMailBody,
   useMailDetail,
   useMailNeighbors,
@@ -16,6 +17,7 @@ import {
 import {
   NAME_LIMIT,
   type AiSummaryResult,
+  type AiSummaryView,
   type AttachmentInfo,
   type MailDetail,
   type MailOrderParams,
@@ -37,6 +39,7 @@ import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { personName } from "../../lib/person";
+import { aiErrorText, summaryTaskText } from "../ai/labels";
 import { documentName } from "../documents/labels";
 import { AttachmentDialog } from "../mail/AttachmentDialog";
 import { TextView } from "../mail/BodyCard";
@@ -154,7 +157,6 @@ function PreviewBody({ mail, marks }: { mail: MailDetail; marks: SearchMarks | u
       ),
     [ai.data],
   );
-  const summary = ai.data?.result?.summary;
 
   return (
     <div className={styles.body}>
@@ -182,14 +184,7 @@ function PreviewBody({ mail, marks }: { mail: MailDetail; marks: SearchMarks | u
         {mail.date && <span className={styles.date}>{formatDateTime(mail.date)}</span>}
       </div>
 
-      {summary && (
-        <p className={styles.summary}>
-          <span className={styles.summaryLabel} title="Von einem Sprachmodell; kann irren">
-            KI-Kurzfassung
-          </span>{" "}
-          {summary}
-        </p>
-      )}
+      {ai.data && <PreviewSummary mailId={mail.id} view={ai.data} />}
 
       <div className={styles.text}>
         {text.data ? (
@@ -232,6 +227,77 @@ function PreviewBody({ mail, marks }: { mail: MailDetail; marks: SearchMarks | u
       )}
 
       <PreviewActions mail={mail} />
+    </div>
+  );
+}
+
+/** "1:05": minutes and seconds since an ISO time. */
+function since(iso: string, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - Date.parse(iso)) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** The AI summary right below the participants (D345): the summary, the running task with the
+ *  time it has taken, ticking every second, or "Zusammenfassen". useAiSummary asks again every
+ *  3 s while a task is open, so the text shows when it is there, without a reload. */
+function PreviewSummary({ mailId, view }: { mailId: number; view: AiSummaryView }) {
+  const enqueue = useEnqueueAi();
+  const [now, setNow] = useState(Date.now);
+  const task = view.task;
+  const preparing = view.preparing ?? 0;
+  const busy = task !== null || preparing > 0;
+  useEffect(() => {
+    if (!busy) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
+  const label = (
+    <span className={styles.summaryLabel} title="Von einem Sprachmodell; kann irren">
+      KI-Kurzfassung
+    </span>
+  );
+  if (view.result && !task) {
+    return (
+      <p className={styles.summary}>
+        {label} {view.result.summary}
+      </p>
+    );
+  }
+  if (busy) {
+    const from = task?.started_at ?? task?.queued_at;
+    const what = task ? summaryTaskText(task) : "Anhänge werden erst erkannt oder zusammengefasst";
+    return (
+      <div className={styles.summary} role="status">
+        {label}
+        <div className={styles.summaryBar} aria-hidden="true">
+          <span />
+        </div>
+        {from ? `${what} · KI rechnet seit ${since(from, now)} Min.` : what}
+      </div>
+    );
+  }
+  if (!view.available || !view.summarizable) return null;
+  return (
+    <div className={styles.summary}>
+      {label}{" "}
+      {view.failed ? "Der letzte Versuch ist fehlgeschlagen." : "Noch keine Zusammenfassung."}{" "}
+      <button
+        type="button"
+        className={buttonClass("default", "sm")}
+        disabled={enqueue.isPending}
+        onClick={() =>
+          enqueue.mutate({ kind: "summarize", mail_ids: [mailId], single: true, start: true })
+        }
+      >
+        Zusammenfassen
+      </button>
+      {enqueue.isError && (
+        <span className={styles.error} role="alert">
+          {" "}
+          {aiErrorText(enqueue.error)}
+        </span>
+      )}
     </div>
   );
 }

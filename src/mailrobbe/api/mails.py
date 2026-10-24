@@ -30,12 +30,14 @@ from sqlalchemy import (
     Select,
     Text,
     all_,
+    and_,
     any_,
     bindparam,
     distinct,
     func,
     literal,
     literal_column,
+    or_,
     select,
     true,
 )
@@ -58,18 +60,23 @@ from mailrobbe.api.filters import (
     internal_domains,
     mail_conditions,
     order,
+    party_conditions,
     resolve_contents,
     text_query,
     unfiltered,
 )
 from mailrobbe.api.fulltext import full_text_search
-from mailrobbe.api.hits import machine_hits, page_hits
+from mailrobbe.api.hits import machine_hits, page_files, page_hits
 from mailrobbe.api.query import DKIM_KEYS, QueryError, parse_query
 from mailrobbe.api.schemas import (
     COUNT_LIMIT,
+    HIT_FILES,
     RECIPIENT_PREVIEW,
     DkimKey,
+    EntityRef,
+    MailEntityHit,
     MailFilters,
+    MailHitPerson,
     MailListItem,
     MailListParams,
     MailNeighbors,
@@ -83,6 +90,8 @@ from mailrobbe.config import Settings
 from mailrobbe.db.models import (
     MAIL_SORT_KEY,
     TIMESTAMPTZ,
+    Attachment,
+    Entity,
     Mail,
     MailHidden,
     MailMark,
@@ -94,6 +103,7 @@ from mailrobbe.db.models import (
     Person,
     Tag,
 )
+from mailrobbe.entities.mentions import mentions
 from mailrobbe.enums import DkimStatus, ParticipationRole, TextOrigin
 from mailrobbe.hiding import model as hiding
 from mailrobbe.persons.labels import attach_labels, label_text, labelled_persons
@@ -245,10 +255,13 @@ async def list_mails(
             item.attachment_match = itself == 0 and attached > 0
         in_texts = [item.id for item in items if hits[item.id].attachment > 0]
         machine = await machine_hits(session, in_texts, search)  # D189, D296
+        named = [item.id for item in items if hits[item.id].attachment + hits[item.id].filename]
+        files = await page_files(session, named, search, HIT_FILES)  # D344
         for item in items:
             origins = machine.get(item.id, set())
             item.attachment_machine = bool(origins)
             item.attachment_transcript = TextOrigin.TRANSCRIPT in origins
+            item.hit_files = files.get(item.id, [])
     else:
         through_attachments = await _found_through_attachments(session, terms, ids)
         for item in items:
@@ -256,9 +269,13 @@ async def list_mails(
             item.attachment_match = item.id in through_attachments
     near_counts = await near.near_counts(session, ids)
     event_kinds = await events.event_kinds(session, ids)
+    persons = await _hit_persons(session, ids, terms)
+    entities = await _hit_entities(session, ids, params.entity)
     for item in items:
         item.near_count = near_counts.get(item.id, 0)
         item.event = event_kinds.get(item.id)
+        item.hit_persons = persons.get(item.id, [])
+        item.hit_entities = entities.get(item.id, [])
     page = MailPage(
         items=items,
         next_cursor=next_cursor,
@@ -370,6 +387,90 @@ async def _participants(
     for participants in people.values():
         participants.sort(key=_participant_order)
     return people
+
+
+async def _hit_persons(
+    session: AsyncSession, mail_ids: Sequence[int], terms: Sequence[QueryTerm]
+) -> dict[int, list[MailHitPerson]]:
+    """The participants of these mails that q's address operators name (D344), by the same
+    conditions the filter uses, in the order of _participant_order."""
+    parties = party_conditions(terms)
+    if not parties or not mail_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            Participation.mail_id,
+            Participation.role,
+            Person.id,
+            Person.canonical_email,
+            func.coalesce(Participation.display_name, Person.display_name),
+        )
+        .join(Person, Person.id == Participation.person_id)
+        .where(
+            Participation.mail_id == any_(literal(list(mail_ids), ARRAY(BigInteger))),
+            or_(*(and_(Participation.role.in_(roles), person) for roles, person in parties)),
+        )
+        .distinct()
+    )
+    found: defaultdict[int, list[tuple[ParticipationRole, PersonRef]]] = defaultdict(list)
+    for mail_id, role, person_id, email, name in rows:
+        found[mail_id].append((role, PersonRef(person_id=person_id, email=email, name=name)))
+    return {
+        mail_id: [
+            MailHitPerson(role=role, **person.model_dump())
+            for role, person in sorted(participants, key=_participant_order)
+        ]
+        for mail_id, participants in found.items()
+    }
+
+
+async def _hit_entities(
+    session: AsyncSession, mail_ids: Sequence[int], entity_ids: Sequence[int]
+) -> dict[int, list[MailEntityHit]]:
+    """Where these mails mention the entities the list is filtered by (D344): in their own text,
+    in which attachments; in the order of entity_ids."""
+    if not entity_ids or not mail_ids:
+        return {}
+    mention = mentions()
+    rows = await session.execute(
+        select(
+            mention.c.mail_id,
+            Entity.id,
+            Entity.kind,
+            Entity.label,
+            Entity.detail,
+            mention.c.document_id,
+            Attachment.filename,
+        )
+        .join(Entity, Entity.id == mention.c.entity_id)
+        .outerjoin(
+            Attachment,
+            and_(
+                Attachment.mail_id == mention.c.mail_id,
+                Attachment.document_id == mention.c.document_id,
+            ),
+        )
+        .where(
+            mention.c.mail_id == any_(literal(list(mail_ids), ARRAY(BigInteger))),
+            mention.c.entity_id == any_(literal(list(entity_ids), ARRAY(BigInteger))),
+        )
+        .order_by(mention.c.mail_id, Attachment.position)
+    )
+    found: dict[int, dict[int, MailEntityHit]] = defaultdict(dict)
+    for mail_id, entity_id, kind, label, detail, document_id, filename in rows:
+        hit = found[mail_id].get(entity_id)
+        if hit is None:
+            entity = EntityRef(id=entity_id, kind=kind, label=label, detail=detail)
+            hit = found[mail_id][entity_id] = MailEntityHit(entity=entity, in_mail=False, files=[])
+        if document_id is None:
+            hit.in_mail = True
+        elif len(hit.files) < HIT_FILES and filename not in hit.files:
+            hit.files.append(filename)
+    position = {entity_id: index for index, entity_id in enumerate(entity_ids)}
+    return {
+        mail_id: sorted(hits.values(), key=lambda hit: position[hit.entity.id])
+        for mail_id, hits in found.items()
+    }
 
 
 def _participant_order(participant: tuple[ParticipationRole, PersonRef]) -> tuple[Any, ...]:

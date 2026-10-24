@@ -104,6 +104,30 @@ async def page_hits(
     return {mail_id: MailHitCounts(**counts) for mail_id, counts in found.items()}
 
 
+async def page_files(
+    session: AsyncSession, mail_ids: Sequence[int], search: FullText, limit: int
+) -> dict[int, list[str | None]]:
+    """The names of the attachments of a page's mails whose name or text holds a counted word,
+    at most limit per mail, in mail order (D344)."""
+    ids = literal(list(mail_ids), ARRAY(BigInteger))
+    attached = _attached(search, Attachment.mail_id == any_(ids))
+    if not mail_ids or attached is None:
+        return {}
+    rows, documents = attached
+    statement = (
+        documents.add_columns(Attachment.mail_id, Attachment.position, Attachment.filename)
+        .group_by(Attachment.mail_id, Attachment.position, Attachment.filename)
+        .having(_total(rows) > 0)
+        .order_by(Attachment.mail_id, Attachment.position)
+    )
+    found: dict[int, list[str | None]] = {}
+    for mail_id, _, filename in await session.execute(statement):
+        names = found.setdefault(mail_id, [])
+        if len(names) < limit:
+            names.append(filename)
+    return found
+
+
 async def machine_hits(
     session: AsyncSession, mail_ids: Sequence[int], search: FullText
 ) -> dict[int, set[TextOrigin]]:
