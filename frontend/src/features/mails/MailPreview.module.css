@@ -189,6 +189,16 @@
   background: var(--color-hover);
 }
 
+.attachmentSummary {
+  margin: 2px 0 0;
+  padding: 0 var(--space-3);
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fileName {
   flex: 1;
   min-width: 0;

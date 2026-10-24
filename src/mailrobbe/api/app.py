@@ -32,6 +32,7 @@ from mailrobbe.api import (
     previews,
     processes,
     protected,
+    questions,
     research,
     signals,
     social,
@@ -94,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(entities.router)  # before detail: /api/mails/facets is no mail id
     app.include_router(signals.router)  # before detail: /api/mails/signals is no mail id
     app.include_router(detail.router)
+    app.include_router(questions.router)  # D347
     app.include_router(persons.router)
     app.include_router(events.router)
     app.include_router(graph.router)

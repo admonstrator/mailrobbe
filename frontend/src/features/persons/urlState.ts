@@ -143,7 +143,8 @@ export function personMailList(personId: number, state: ProfileMailState): ListS
 }
 
 /** The tabs of a profile (D336). */
-export type ProfileTab = "ueberblick" | "mails" | "kontakte" | "anhaenge" | "termine" | "signale";
+export type ProfileTab =
+  "ueberblick" | "mails" | "kontakte" | "anhaenge" | "termine" | "signale" | "ki";
 
 export const PROFILE_TABS: readonly ProfileTab[] = [
   "ueberblick",
@@ -152,6 +153,7 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
   "anhaenge",
   "termine",
   "signale",
+  "ki",
 ];
 
 /** The tab a profile's URL names; without one the mails when the URL narrows them (a link from

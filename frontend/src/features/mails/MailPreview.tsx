@@ -40,6 +40,7 @@ import { dkimKey } from "../../lib/dkim";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { personName } from "../../lib/person";
 import { aiErrorText, summaryTaskText } from "../ai/labels";
+import { startedNotice, summaryRequest } from "../ai/SummaryCard";
 import { documentName } from "../documents/labels";
 import { AttachmentDialog } from "../mail/AttachmentDialog";
 import { TextView } from "../mail/BodyCard";
@@ -212,6 +213,15 @@ function PreviewBody({ mail, marks }: { mail: MailDetail; marks: SearchMarks | u
                 <span className={styles.fileName}>{documentName(attachment.filename)}</span>
                 <span className={styles.fileSize}>{formatBytes(attachment.size)}</span>
               </button>
+              <AttachmentSummaryLine
+                attachment={attachment}
+                summary={
+                  attachment.document_id === null
+                    ? undefined
+                    : summaries.get(attachment.document_id)
+                }
+                available={ai.data?.available ?? false}
+              />
             </li>
           ))}
         </ul>
@@ -408,5 +418,49 @@ function PreviewActions({ mail }: { mail: MailDetail }) {
       )}
       {open === "note" && <NoteList mailId={mail.id} notes={notes} onWritten={() => {}} />}
     </div>
+  );
+}
+
+/** Below an attachment of the preview (D348): the beginning of its summary, or "Zusammenfassen",
+ *  which starts it first in the queue, a scan or a recording read first; the mail's summary
+ *  view then asks again while it is under way and shows the summary here once there. */
+function AttachmentSummaryLine({
+  attachment,
+  summary,
+  available,
+}: {
+  attachment: AttachmentInfo;
+  summary: AiSummaryResult | undefined;
+  available: boolean;
+}) {
+  const enqueue = useEnqueueAi();
+  const [notice, setNotice] = useState<string | null>(null);
+  const documentId = attachment.document_id;
+  if (summary) {
+    return (
+      <p className={styles.attachmentSummary} title={summary.summary}>
+        <span className={styles.summaryLabel}>KI</span> {summary.summary}
+      </p>
+    );
+  }
+  if (documentId === null || !attachment.sha256 || !available) return null;
+  return (
+    <p className={styles.attachmentSummary}>
+      {notice ?? (
+        <button
+          type="button"
+          className={buttonClass("link", "xs")}
+          disabled={enqueue.isPending}
+          onClick={() =>
+            enqueue.mutate(summaryRequest("document", documentId), {
+              onSuccess: (queued) => setNotice(startedNotice(queued, "document")),
+              onError: (error) => setNotice(aiErrorText(error)),
+            })
+          }
+        >
+          KI-Zusammenfassung holen
+        </button>
+      )}
+    </p>
   );
 }

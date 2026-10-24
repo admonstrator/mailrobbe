@@ -118,6 +118,7 @@ describe("person profile", () => {
       "Anhänge",
       "Termine 3",
       "Signale 8",
+      "KI fragen",
     ]);
     expect(screen.getByRole("tab", { name: "Überblick" }).getAttribute("aria-selected")).toBe(
       "true",

@@ -20,7 +20,7 @@ import {
   formatDateTimeLong,
   formatNumber,
 } from "../../lib/format";
-import { SummarizeButton, SummaryBlock } from "../ai/SummaryCard";
+import { DocumentSummary, SummaryBlock } from "../ai/SummaryCard";
 import { KIND_LABELS, kindFromMimeType } from "../documents/labels";
 import { documentPath } from "../documents/urlState";
 import { DEFAULT_LIST_STATE, listSearch } from "../mails/listState";
@@ -118,12 +118,19 @@ function AttachmentFacts({
         <h3 className={styles.heading}>KI-Zusammenfassung</h3>
         {summary ? (
           <SummaryBlock result={summary} mailId={mail.id} />
+        ) : documentId === null ? (
+          <p className={styles.note}>Noch keine Zusammenfassung.</p>
         ) : (
           <>
-            <p className={styles.note}>Noch keine Zusammenfassung.</p>
-            {documentId !== null && (
+            <DocumentSummary
+              documentId={documentId}
+              mailId={mail.id}
+              recognizable={
+                attachment.ocr === "readable" || attachment.transcript === "transcribable"
+              }
+            />
+            {(attachment.ocr === "readable" || attachment.transcript === "transcribable") && (
               <span className={styles.actions}>
-                <SummarizeButton documentId={documentId} size="sm" />
                 {attachment.ocr === "readable" && (
                   <AiButton documentId={documentId} name={name} kind="ocr" />
                 )}

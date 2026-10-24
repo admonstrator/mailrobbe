@@ -12,9 +12,9 @@ model and date.
 
 A thread (D316) is found by its thread_id: its content now (ai.queue.THREAD_KEY over
 ix_mail_thread_id), its valid summary by ix_ai_result_thread_id, stale when that read other
-mails. A mail counts its attachments' open tasks of any kind (D317), and while the element or
-its attachments have one and an AI run lives, the view carries that run, whose steps are the
-card's progress (D318).
+mails. A mail counts its attachments' open tasks of any kind (D317), a thread its mails'
+(D346), and while the element or its attachments have one and an AI run lives, the view carries
+that run, whose steps are the card's progress (D318).
 """
 
 from collections import defaultdict
@@ -120,6 +120,15 @@ _PREPARING = text("""
         AND t.status IN ('waiting', 'running')
     WHERE a.mail_id = :mail_id AND a.container_id IS NULL
 """)
+# A thread's too (D346): its mails' attachments are read and summarised first.
+_THREAD_PREPARING = text("""
+    SELECT count(DISTINCT t.id) FROM mail m
+    JOIN attachment a ON a.mail_id = m.id AND a.container_id IS NULL
+    JOIN document d ON d.id = a.document_id
+    JOIN ai_task t ON t.target = 'document' AND t.target_sha256 = d.sha256
+        AND t.status IN ('waiting', 'running')
+    WHERE m.thread_id = :thread_id AND m.is_duplicate_of IS NULL
+""")
 _LINKS = text("""
     SELECT l.result_id, l.tag_id FROM ai_tag_link l
     WHERE l.result_id = ANY(CAST(:result_ids AS bigint[]))
@@ -164,6 +173,8 @@ async def summary(
     if target is AiTarget.MAIL:
         attached = list(await session.execute(_ATTACHMENTS, {"mail_id": element_id}))
         preparing = int(await session.scalar(_PREPARING, {"mail_id": element_id}) or 0)
+    elif target is AiTarget.THREAD:
+        preparing = int(await session.scalar(_THREAD_PREPARING, {"thread_id": element_id}) or 0)
     run = None
     if task is not None or preparing:
         latest = await jobs.latest_job(session, JobKind.AI)

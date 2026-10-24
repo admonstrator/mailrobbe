@@ -69,6 +69,8 @@ def _options(kind: JobKind, args: argparse.Namespace, settings: Settings) -> Bas
             update["aliases"] = True
         if args.person:
             update["persons"] = sorted(args.person)
+        if args.question:
+            update["questions"] = sorted(args.question)
         return options.model_copy(update=update)
     if kind is JobKind.DKIM_KEYS:
         return DkimKeysOptions(
@@ -108,6 +110,7 @@ async def main(argv: Sequence[str]) -> int:
     parser.add_argument("--mail", type=int, action="append")
     parser.add_argument("--aliases", action="store_true")
     parser.add_argument("--person", type=int, action="append")
+    parser.add_argument("--question", type=int, action="append")
     args = parser.parse_args(rest)
     kind = JobKind(kind_name.replace("-", "_"))
     if behaviour == "exit":

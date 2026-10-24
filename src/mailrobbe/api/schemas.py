@@ -258,6 +258,17 @@ DocumentFilters ai_tag:
                                                  same name on the mails carrying the AI tag
                                                  (D310); 404 not_found for an unknown AI tag
 
+Questions about persons, "KI fragen" (D347, D348); a summary asked for by a button says in
+AiQueued.prework what is read and summarised first and how long it takes:
+
+    GET  /api/persons/{id}/questions             PersonQuestions: the templates and the
+                                                 questions about the person, newest first
+    POST /api/persons/{id}/questions             PersonQuestionRequest -> PersonQuestionAsked:
+                                                 queues the prework first, keeps the question
+                                                 and starts a run for it; 400 invalid_option,
+                                                 invalid_selection, 404 not_found
+    DELETE /api/person-questions/{id}            204; 404 not_found also while it runs
+
 The page "Einstellungen" (D313 to D315):
 
     GET  /api/settings                           SettingsView: every setting the page changes
@@ -3155,7 +3166,7 @@ class MapDownloadRequest(BaseModel):
 
 AiWorkList = Literal["scanned", "images", "media"]  # ai.queue.WorkList
 AiPhase = Literal[
-    "check", "ocr", "transcribe", "summarize", "aliases", "entities", "signals"
+    "check", "ocr", "transcribe", "summarize", "ask", "aliases", "entities", "signals"
 ]  # ai.model.AI_STEPS
 AI_QUEUE_LIMIT = 50_000  # documents one request may queue (D186)
 AI_PAGE_SIZE = 50  # default page of the task, result and send log lists
@@ -3314,6 +3325,18 @@ class AiQueued(BaseModel):
     # and theme hints only), and how long the queued (with preview: the queueable) ones take.
     short: int = 0
     estimate: "AiTextEstimate | None" = None
+    # A mail, document or thread summarised from its button (D348): what comes first.
+    prework: "AiPrework | None" = None
+
+
+class AiPrework(BaseModel):
+    """What is done before the summary or answer asked for by a button (D348): the documents
+    read first by OCR or the transcriber, the summaries, and how long all of it takes."""
+
+    recognize: int  # documents read first
+    summaries: int  # summaries queued or raised, the asked one among them
+    seconds: float
+    estimated: bool  # True: a rule of thumb entered, "geschätzt"
 
 
 class AiTextEstimate(BaseModel):
@@ -3702,3 +3725,62 @@ MailEntityHit.model_rebuild()
 ImportStatus.model_rebuild()
 DocumentDetail.model_rebuild()
 AiStatus.model_rebuild()
+
+
+# Questions about persons (D347, D348) --------------------------------------------------------
+
+
+class PersonQuestionTemplate(BaseModel):
+    """A question the team can ask about a person (ai.questions.TEMPLATES)."""
+
+    key: str
+    label: str
+    question: str  # "" for the free question
+    compare: bool  # needs a second person
+
+
+class PersonQuestionPerson(BaseModel):
+    id: int
+    name: str | None
+    email: str
+
+
+class PersonQuestionItem(BaseModel):
+    """One question with its answer once there, or what it waits for."""
+
+    id: int
+    template: str
+    label: str
+    question: str
+    person: PersonQuestionPerson  # Person A
+    other: PersonQuestionPerson | None  # Person B of a comparison
+    status: AiTaskStatus
+    answer: str | None
+    contents: int | None  # summaries the model read
+    model: str | None
+    error: str | None
+    queued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    prework: AiPrework | None  # what came first, as estimated when it was asked
+    open: int  # of that, still open
+
+
+class PersonQuestions(BaseModel):
+    """What the card "KI fragen" of a person shows; asked again every 3 s while one is open."""
+
+    available: bool  # a text service on this machine with a model (D322)
+    templates: list[PersonQuestionTemplate]
+    questions: list[PersonQuestionItem]  # about this person, as A or B, newest first
+    run: AiJob | None  # the AI run while it lives and a question is open
+
+
+class PersonQuestionRequest(BaseModel):
+    template: str
+    other_id: int | None = Field(default=None, ge=-(2**63), le=2**63 - 1)
+    text: str | None = Field(default=None, max_length=1000)  # the free question
+
+
+class PersonQuestionAsked(BaseModel):
+    question: PersonQuestionItem
+    run: AiQueuedRun

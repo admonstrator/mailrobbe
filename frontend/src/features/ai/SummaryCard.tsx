@@ -5,6 +5,7 @@ import { useAdoptAiTag, useAiSummary, useDiscardAi, useEnqueueAi } from "../../a
 import type {
   AiAttachmentSummary,
   AiJob,
+  AiQueued,
   AiQueueRequest,
   AiSummaryParams,
   AiSummaryResult,
@@ -23,10 +24,12 @@ import { documentPath } from "../documents/urlState";
 import { StepList } from "../import/StepList";
 import { DEFAULT_LIST_STATE, listSearch } from "../mails/listState";
 import { Dialog } from "../persons/Dialog";
+import { AiBusy } from "./AiBusy";
 import {
   aiErrorText,
   mailCount,
   partsText,
+  preworkText,
   SHORT_SUMMARY_TEXT,
   summaryLine,
   summaryStartedText,
@@ -161,7 +164,7 @@ export function SummaryCard({
     enqueue.mutate(summaryRequest(target, id), {
       onSuccess: (queued) => {
         setDialog(null);
-        setNotice(summaryStartedText(queued, target));
+        setNotice(startedNotice(queued, target));
         setFoldOpen(foldId, true);
       },
       onError: (error) => {
@@ -647,7 +650,7 @@ export function SummarizeButton({ documentId, size }: { documentId: number; size
         title={notice ?? "Fasst den Text des Dokuments jetzt mit dem Textmodell zusammen"}
         onClick={() =>
           enqueue.mutate(summaryRequest("document", documentId), {
-            onSuccess: (queued) => setNotice(summaryStartedText(queued, "document")),
+            onSuccess: (queued) => setNotice(startedNotice(queued, "document")),
             onError: (error) => setNotice(aiErrorText(error)),
           })
         }
@@ -660,5 +663,71 @@ export function SummarizeButton({ documentId, size }: { documentId: number; size
         </span>
       )}
     </>
+  );
+}
+
+/** "Die Zusammenfassung läuft … Erst ist Vorarbeit nötig: …" after a button started it (D348). */
+export function startedNotice(queued: AiQueued, target: AiTarget): string {
+  const started = summaryStartedText(queued, target);
+  const before = queued.prework && preworkText(queued.prework, 1);
+  return before ? `${before} ${started}` : started;
+}
+
+/** The summary of an attachment's document in the attachment's dialog, where the mail's view had
+ *  none (D348): the summary once there, the running task with its time, or "Zusammenfassen" for
+ *  a document with a text or one OCR or the transcriber reads first, which the notice says with
+ *  how long it takes. Asked again every 3 s while its task is open, so it shows without a
+ *  reload. */
+export function DocumentSummary({
+  documentId,
+  mailId,
+  recognizable,
+}: {
+  documentId: number;
+  mailId: number;
+  recognizable: boolean;
+}) {
+  const summary = useAiSummary(summaryParams("document", documentId));
+  const enqueue = useEnqueueAi();
+  const [notice, setNotice] = useState<string | null>(null);
+  const view = summary.data;
+  if (!view) return <p className={styles.note}>Noch keine Zusammenfassung.</p>;
+  if (view.result && !view.task) return <SummaryBlock result={view.result} mailId={mailId} />;
+  const offered = view.available && (view.summarizable || recognizable);
+  return (
+    <div className={styles.card}>
+      {view.task ? (
+        <AiBusy
+          what={summaryTaskText(view.task)}
+          from={view.task.started_at ?? view.task.queued_at}
+        />
+      ) : (
+        <p className={styles.note}>
+          {view.failed ? "Der letzte Versuch ist fehlgeschlagen." : "Noch keine Zusammenfassung."}
+        </p>
+      )}
+      {offered && !view.task && (
+        <span className={styles.actions}>
+          <Button
+            size="sm"
+            disabled={enqueue.isPending}
+            title="Fasst die Datei jetzt mit dem Textmodell zusammen; ein Scan oder eine Aufnahme wird zuerst gelesen"
+            onClick={() =>
+              enqueue.mutate(summaryRequest("document", documentId), {
+                onSuccess: (queued) => setNotice(startedNotice(queued, "document")),
+                onError: (error) => setNotice(aiErrorText(error)),
+              })
+            }
+          >
+            Zusammenfassen
+          </Button>
+        </span>
+      )}
+      {notice && (
+        <p className={styles.note} role="status">
+          {notice}
+        </p>
+      )}
+    </div>
   );
 }
