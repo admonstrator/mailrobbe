@@ -1,9 +1,10 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { mailDetail, mailItems } from "../../test/fixtures";
+import type { AiSummaryView } from "../../api/types";
+import { aiSummaryNone, mailDetail, mailItems } from "../../test/fixtures";
 import { openInsights, rowOf, rows } from "../../test/mailList";
-import { renderApp } from "../../test/render";
+import { fixtureApi, renderApp, type ApiCall } from "../../test/render";
 
 const previewOf = (location: { search: string }) =>
   new URLSearchParams(location.search).get("vorschau");
@@ -74,5 +75,43 @@ describe("the preview beside the mail list (D335)", () => {
     fireEvent.click(screen.getByRole("link", { name: mailItems[1].subject! }));
     expect(await screen.findByRole("complementary", { name: "Vorschau" })).toBeTruthy();
     expect(screen.queryByRole("complementary", { name: "Einblicke" })).toBeNull();
+  });
+});
+
+describe("the AI summary in the preview (D345, D352)", () => {
+  it("offers the light blue block, which starts the summary and then shows it running", async () => {
+    const running: AiSummaryView = {
+      ...aiSummaryNone,
+      task: {
+        id: 9,
+        status: "running",
+        parts_done: 0,
+        parts_total: 1,
+        queued_at: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+      },
+    };
+    let view: AiSummaryView = aiSummaryNone;
+    const posts: unknown[] = [];
+    renderApp(`/mails?vorschau=${mailDetail.id}`, (call: ApiCall) => {
+      if (call.url.pathname === "/api/ai/summary") return view;
+      if (call.url.pathname === "/api/ai/tasks" && call.method === "POST") {
+        posts.push(call.body);
+        view = running;
+        return { queued: 1, raised: 0, unreadable: 0, logos: 0, run: "started", short: 0 };
+      }
+      return fixtureApi(call);
+    });
+    const offer = await within(
+      await screen.findByRole("complementary", { name: "Vorschau" }),
+    ).findByRole("button", { name: "KI-Zusammenfassung erstellen" });
+    fireEvent.click(offer);
+    expect(await within(panel()).findByText(/KI rechnet seit 0:0\d Min\./)).toBeTruthy();
+    expect(within(panel()).getByRole("status").textContent).toContain(
+      "KI-Zusammenfassung wird erstellt",
+    );
+    expect(posts).toEqual([
+      { kind: "summarize", mail_ids: [mailDetail.id], single: true, start: true },
+    ]);
   });
 });

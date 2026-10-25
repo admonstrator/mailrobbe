@@ -24,6 +24,7 @@ import { documentPath } from "../documents/urlState";
 import { StepList } from "../import/StepList";
 import { DEFAULT_LIST_STATE, listSearch } from "../mails/listState";
 import { Dialog } from "../persons/Dialog";
+import { SummarizeBox } from "./AiBox";
 import { AiBusy } from "./AiBusy";
 import {
   aiErrorText,
@@ -120,8 +121,9 @@ export function attachmentHints(view: AiSummaryView): SourcedHint[] {
 
 /** The card "KI-Zusammenfassung" of a mail (above its text) or a document (above its text card),
  *  D307: the summary with model and date, as machine made (D311), its tags with the mails each
- *  describes, its theme hints with their quotes; "Zusammenfassen", "Neu zusammenfassen" and
- *  "Verwerfen"; an open task's progress, asked again every 3 s. A mail's card gathers the tags and
+ *  describes, its theme hints with their quotes; "Neu zusammenfassen" and "Verwerfen"; an open
+ *  task's progress, asked again every 3 s. Without a summary the light blue block "KI-Zusammenfassung
+ *  erstellen" (D352) stands in the card, or alone in its place when there is nothing else to show. A mail's card gathers the tags and
  *  hints of its attachments' summaries too, a hint naming its attachment, which onAttachment opens;
  *  the summaries themselves stand in the attachment list (D331). A thread's summary is a line in
  *  the mail's head that opens to the whole (D331). Nothing while loading or failing to load, and
@@ -174,6 +176,21 @@ export function SummaryCard({
       },
     });
 
+  const alone =
+    target !== "thread" && !result && !view.failed && !view.attachments.length && !preparing;
+  if (offered && alone) {
+    return (
+      <>
+        <SummarizeBox disabled={enqueue.isPending} onClick={queue} />
+        {notice && (
+          <p className={styles.note} role="status">
+            {notice}
+          </p>
+        )}
+      </>
+    );
+  }
+
   const tags = target === "mail" ? mergedTags(view) : (result?.tags ?? []);
   const hints = [
     ...(result ? ownHints(result) : []),
@@ -194,7 +211,16 @@ export function SummaryCard({
             onSource={onAttachment}
           />
         ) : (
-          !task && <p className={styles.note}>{NONE_YET[target]}</p>
+          !task &&
+          (offered && target !== "thread" ? (
+            <SummarizeBox
+              failed={Boolean(view.failed)}
+              disabled={enqueue.isPending}
+              onClick={queue}
+            />
+          ) : (
+            <p className={styles.note}>{NONE_YET[target]}</p>
+          ))
         )}
         {!result && (tags.length > 0 || hints.length > 0) && (
           <div className={styles.summary}>
@@ -273,14 +299,13 @@ export function SummaryCard({
       )}
     </>
   );
-  const start =
-    !result && offered ? (
-      <Button size="sm" disabled={enqueue.isPending} onClick={queue}>
-        Zusammenfassen
-      </Button>
-    ) : null;
-
   if (target === "thread") {
+    const start =
+      !result && offered ? (
+        <Button size="sm" disabled={enqueue.isPending} onClick={queue}>
+          Zusammenfassen
+        </Button>
+      ) : null;
     return (
       <ThreadLine
         foldId={foldId}
@@ -293,13 +318,7 @@ export function SummaryCard({
     );
   }
   return (
-    <FoldCard
-      id={foldId}
-      variant="main"
-      title="KI-Zusammenfassung"
-      summary={foldedText(view)}
-      actions={start}
-    >
+    <FoldCard id={foldId} variant="main" title="KI-Zusammenfassung" summary={foldedText(view)}>
       {content}
     </FoldCard>
   );
@@ -674,7 +693,8 @@ export function startedNotice(queued: AiQueued, target: AiTarget): string {
 }
 
 /** The summary of an attachment's document in the attachment's dialog, where the mail's view had
- *  none (D348): the summary once there, the running task with its time, or "Zusammenfassen" for
+ *  none (D348): the summary once there, the running task with its time, or the light blue block
+ *  "KI-Zusammenfassung erstellen" (D352) for
  *  a document with a text or one OCR or the transcriber reads first, which the notice says with
  *  how long it takes. Asked again every 3 s while its task is open, so it shows without a
  *  reload. */
@@ -694,6 +714,11 @@ export function DocumentSummary({
   if (!view) return <p className={styles.note}>Noch keine Zusammenfassung.</p>;
   if (view.result && !view.task) return <SummaryBlock result={view.result} mailId={mailId} />;
   const offered = view.available && (view.summarizable || recognizable);
+  const queue = () =>
+    enqueue.mutate(summaryRequest("document", documentId), {
+      onSuccess: (queued) => setNotice(startedNotice(queued, "document")),
+      onError: (error) => setNotice(aiErrorText(error)),
+    });
   return (
     <div className={styles.card}>
       {view.task ? (
@@ -701,27 +726,21 @@ export function DocumentSummary({
           what={summaryTaskText(view.task)}
           from={view.task.started_at ?? view.task.queued_at}
         />
+      ) : offered ? (
+        <SummarizeBox
+          failed={Boolean(view.failed)}
+          hint={
+            view.summarizable
+              ? undefined
+              : "Die Datei wird zuerst gelesen, dann zusammengefasst; kann irren"
+          }
+          disabled={enqueue.isPending}
+          onClick={queue}
+        />
       ) : (
         <p className={styles.note}>
           {view.failed ? "Der letzte Versuch ist fehlgeschlagen." : "Noch keine Zusammenfassung."}
         </p>
-      )}
-      {offered && !view.task && (
-        <span className={styles.actions}>
-          <Button
-            size="sm"
-            disabled={enqueue.isPending}
-            title="Fasst die Datei jetzt mit dem Textmodell zusammen; ein Scan oder eine Aufnahme wird zuerst gelesen"
-            onClick={() =>
-              enqueue.mutate(summaryRequest("document", documentId), {
-                onSuccess: (queued) => setNotice(startedNotice(queued, "document")),
-                onError: (error) => setNotice(aiErrorText(error)),
-              })
-            }
-          >
-            Zusammenfassen
-          </Button>
-        </span>
       )}
       {notice && (
         <p className={styles.note} role="status">

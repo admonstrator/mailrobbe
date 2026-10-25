@@ -275,6 +275,15 @@ export function SparkIcon(props: IconProps) {
   );
 }
 
+/** Three sparkles: making an AI summary (D352). */
+export function SparklesIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M10 4l1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6zM18 2.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8zM18 15l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" />
+    </Icon>
+  );
+}
+
 /** A crossed eye: hidden mails. */
 export function EyeOffIcon(props: IconProps) {
   return (
