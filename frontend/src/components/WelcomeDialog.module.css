@@ -1,0 +1,23 @@
+.text {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contact {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}

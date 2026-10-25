@@ -1,10 +1,15 @@
 import { cleanup } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 
 import { fakeMaps } from "./maplibre";
 
 // jsdom has no WebGL: the maps of the page "Orte" and the small maps draw on a stand-in.
 vi.mock("../features/places/maplibre", () => import("./maplibre"));
+
+// The welcome note of the first start would sit over every test; one test brings it back.
+beforeEach(() => {
+  localStorage.setItem("mailrobbe.welcome", "1");
+});
 
 afterEach(() => {
   cleanup();
