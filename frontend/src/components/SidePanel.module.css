@@ -9,8 +9,9 @@
   max-height: var(--content-height);
   flex-direction: column;
   overflow: hidden;
-  border-left: 1px solid var(--color-border-subtle);
+  border-left: 2px solid var(--color-muted);
   background: var(--color-surface);
+  box-shadow: -6px 0 10px -6px rgb(0 0 0 / 0.2);
 }
 
 .bar {
@@ -63,9 +64,9 @@
   position: fixed;
   bottom: 0;
   z-index: 20;
-  border-top: 1px solid var(--color-border-subtle);
+  border-top: 2px solid var(--color-muted);
   border-left: 0;
-  box-shadow: var(--shadow-popover);
+  box-shadow: 0 -6px 10px -6px rgb(0 0 0 / 0.25);
 }
 
 /* The inner edge that resizes a movable panel: the left edge at the right, the top edge below. */
@@ -88,6 +89,24 @@
   width: auto;
   height: 7px;
   cursor: row-resize;
+}
+
+/* A grip on the hard line shows that the edge can be dragged. */
+.handle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.bottom .handle::after {
+  width: 44px;
+  height: 4px;
 }
 
 .handle:hover,

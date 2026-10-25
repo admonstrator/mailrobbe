@@ -16,6 +16,7 @@ import { Card } from "../../components/Card";
 import { ErrorState } from "../../components/ErrorState";
 import { MarkedParts, markWords, type SearchMarks } from "../../components/Highlighted";
 import { Spinner } from "../../components/Spinner";
+import { useFold } from "../../lib/folds";
 import { Tabs, tabPanelProps, type TabItem } from "../../components/Tabs";
 import { formatBytes, formatNumber } from "../../lib/format";
 import { markCount, type TextPart } from "../../lib/highlight";
@@ -30,6 +31,19 @@ import { blockPath } from "../blocks/urlState";
 import styles from "./BodyCard.module.css";
 import { sourceErrorText } from "./errors";
 import { MenuParagraph, PendingNote } from "./ParagraphMenu";
+
+/** The fold id of the view option "Standardblöcke anzeigen", kept in this browser (D351). */
+const SHOW_STANDARD = "showStandard";
+
+export function ShowStandardOption() {
+  const [shown, setShown] = useFold(SHOW_STANDARD, false);
+  return (
+    <label className={styles.option}>
+      <input type="checkbox" checked={shown} onChange={(event) => setShown(event.target.checked)} />
+      Standardblöcke anzeigen
+    </label>
+  );
+}
 
 export type BodyTab = "text" | "html" | "headers" | "raw";
 
@@ -71,6 +85,7 @@ export function BodyCard({
   return (
     <Card ref={ref} className={styles.card} aria-label="Inhalt">
       <Tabs items={tabs} active={tab} onSelect={onTab} idPrefix={ID_PREFIX} label="Ansicht" />
+      {tab === "text" && <ShowStandardOption />}
       <div {...tabPanelProps(ID_PREFIX, tab)} className={styles.panel}>
         {tab === "text" && (
           <Loaded query={text}>
@@ -355,6 +370,7 @@ interface View {
   busy: (hash: string) => boolean;
   failed: (hash: string) => boolean;
   choose: (run: Run, standard: boolean) => void;
+  showStandard: boolean;
 }
 
 /** A block's text, its quoted runs muted, each paragraph with its menu; noted: the fold around
@@ -399,14 +415,26 @@ function BlockItems({
   view: View;
   noted?: boolean;
 }) {
-  return layout(items).map((laid, index) =>
+  const laidOut = layout(items);
+  return laidOut.map((laid, index) =>
     Array.isArray(laid) ? (
       <div key={index} className={styles.text}>
         <BlockText runs={laid} view={view} noted={noted} />
       </div>
-    ) : laid.fold === null ? null : (
+    ) : laid.fold === null || (isRule(laid, view) && isRule(laidOut[index - 1], view)) ? null : (
       <Fold key={index} fold={laid.fold} block={laid} place={`${place}.${index}`} view={view} />
     ),
+  );
+}
+
+/** Whether a block shows as a thin line: a signature or standard block without a search word
+ *  while the team's view leaves the standard blocks out. Lines in a row make one. */
+function isRule(item: Run[] | Block | undefined, view: View): boolean {
+  if (!item || Array.isArray(item) || item.fold === null) return false;
+  return (
+    (item.fold === "signature" || item.fold === "standard") &&
+    !view.showStandard &&
+    hitsOf(item) === 0
   );
 }
 
@@ -428,6 +456,20 @@ function Fold({
   const counts = lineCount(block.lines) + (hits > 0 ? `, ${places(hits)}` : "");
   const paragraph = block.hash === null ? undefined : view.paragraph(block.hash);
   const standing = paragraph && view.standing(paragraph);
+  if ((fold === "signature" || fold === "standard") && hits === 0) {
+    if (!view.showStandard) {
+      const label =
+        FOLD_LABELS[fold] +
+        (standing && standing.mails > 0 ? ` · in ${mailsText(standing.mails)}` : "");
+      return <div role="separator" aria-label={label} title={label} className={styles.rule} />;
+    }
+    return (
+      <div className={styles.shownBlock}>
+        <BlockItems items={block.items} place={place} view={view} noted={block.hash !== null} />
+        {standing?.pending && <PendingNote expected={standing.expected} />}
+      </div>
+    );
+  }
   return (
     <div className={styles.fold}>
       <div className={styles.quoteToggle}>
@@ -460,6 +502,7 @@ function Fold({
  *  server's segments say (D151, D227); a folded block holding a search word opens itself (D79).
  *  Every paragraph can be marked as a standard block or taken back (D225). */
 export function TextView({ data, marks }: { data: MailText; marks?: SearchMarks }) {
+  const [showStandard] = useFold(SHOW_STANDARD, false);
   // the folds opened or closed by hand, by their place ("2", "2.1" for one inside it); the
   // others as the hits suggest
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
@@ -481,6 +524,7 @@ export function TextView({ data, marks }: { data: MailText; marks?: SearchMarks 
   const total = blocks.reduce((sum, block) => sum + hitsOf(block), 0);
   const saving = (hash: string) => save.variables?.hash === hash;
   const view: View = {
+    showStandard,
     toggled,
     toggle: (place, open) => setToggled({ ...toggled, [place]: !open }),
     paragraph: (hash) => known.get(hash),
@@ -513,7 +557,7 @@ export function TextView({ data, marks }: { data: MailText; marks?: SearchMarks 
       {blocks.map((block, index) =>
         block.fold === null ? (
           <BlockItems key={index} items={block.items} place={String(index)} view={view} />
-        ) : (
+        ) : isRule(block, view) && isRule(blocks[index - 1], view) ? null : (
           <Fold key={index} fold={block.fold} block={block} place={String(index)} view={view} />
         ),
       )}
