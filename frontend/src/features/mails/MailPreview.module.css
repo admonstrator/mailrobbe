@@ -52,15 +52,21 @@
 .badges {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 
+/* As high as the DKIM badge, its text in the middle (D352). */
 .signal {
+  display: inline-flex;
+  align-items: center;
   border-radius: 999px;
-  padding: 2px 9px;
+  padding: 5px 12px;
   background: var(--color-no-key-soft);
   color: var(--color-no-key-text);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .people {
@@ -106,54 +112,20 @@
   white-space: nowrap;
 }
 
-.summary {
-  margin: 0;
-  border-radius: 10px;
-  padding: 10px var(--space-3);
-  background: var(--color-hover);
-  color: var(--color-nav);
-  font-size: 13px;
-}
-
 .summaryLabel {
   color: var(--color-text);
   font-weight: 600;
 }
 
-/* The running summary (D345): a bar that moves while the model works. */
-.summaryBar {
-  height: 4px;
-  margin: 6px 0;
-  overflow: hidden;
-  border-radius: 2px;
-  background: var(--color-border-subtle);
+.summaryText {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
-.summaryBar span {
-  display: block;
-  width: 30%;
-  height: 100%;
-  border-radius: 2px;
-  background: var(--color-accent);
-  animation: summary-run 1.4s ease-in-out infinite;
-}
-
-@keyframes summary-run {
-  from {
-    margin-left: -30%;
-  }
-
-  to {
-    margin-left: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .summaryBar span {
-    width: 100%;
-    animation: none;
-    opacity: 0.4;
-  }
+.summaryNote {
+  color: var(--color-nav);
+  font-size: 12px;
 }
 
 .text {

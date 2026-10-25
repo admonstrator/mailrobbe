@@ -486,9 +486,9 @@ export function AiButton({
   }
   const ocr = kind === "ocr";
   return (
-    <button
-      type="button"
-      className={styles.open}
+    <Button
+      variant="ai"
+      size="xs"
       disabled={enqueue.isPending}
       aria-label={ocr ? `Text von ${name} erkennen` : `${name} transkribieren`}
       onClick={() =>
@@ -511,7 +511,7 @@ export function AiButton({
       }
     >
       {ocr ? "Text erkennen" : "Transkribieren"}
-    </button>
+    </Button>
   );
 }
 

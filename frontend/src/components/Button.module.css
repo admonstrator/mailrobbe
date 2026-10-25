@@ -67,6 +67,22 @@ a.outline:hover {
   color: var(--color-accent-hover);
 }
 
+.ai {
+  border-color: color-mix(in srgb, var(--color-accent) 22%, var(--color-accent-soft));
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+
+.ai:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 7%, var(--color-accent-soft));
+  color: var(--color-accent-hover);
+}
+
+.ai svg {
+  flex: none;
+  color: var(--color-accent);
+}
+
 .link {
   border-color: transparent;
   background: transparent;

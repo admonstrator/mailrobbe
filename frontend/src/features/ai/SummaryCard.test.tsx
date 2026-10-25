@@ -86,7 +86,7 @@ describe("the card KI-Zusammenfassung", () => {
     ).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Neu zusammenfassen" })).toBeTruthy();
     expect(within(card).getByRole("button", { name: "Verwerfen" })).toBeTruthy();
-    expect(within(card).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "KI-Zusammenfassung erstellen" })).toBeNull();
   });
 
   it("says when the text was too short, and when a service in the internet wrote it", async () => {
@@ -126,9 +126,11 @@ describe("the card KI-Zusammenfassung", () => {
       <SummaryCard target="mail" id={MAIL} />,
       summaryApi(aiSummaryNone, waiting),
     );
+    // nothing but the offer: the light blue block alone, no card around it (D352)
+    const offer = await screen.findByRole("button", { name: "KI-Zusammenfassung erstellen" });
+    expect(screen.queryByRole("region", { name: "KI-Zusammenfassung" })).toBeNull();
+    fireEvent.click(offer);
     const card = await findCard();
-    expect(within(card).getByText("Noch keine Zusammenfassung dieser Mail.")).toBeTruthy();
-    fireEvent.click(within(card).getByRole("button", { name: "Zusammenfassen" }));
     expect(
       await within(card).findByText(
         "Die Zusammenfassung läuft; sie erscheint hier, sobald sie fertig ist.",
@@ -141,7 +143,7 @@ describe("the card KI-Zusammenfassung", () => {
     expect(within(task).getByRole("link", { name: "zur Seite „KI“" }).getAttribute("href")).toBe(
       "/ki",
     );
-    expect(within(card).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "KI-Zusammenfassung erstellen" })).toBeNull();
   });
 
   it("shows the part a running task is at", async () => {
@@ -152,7 +154,7 @@ describe("the card KI-Zusammenfassung", () => {
     renderElement(<SummaryCard target="mail" id={MAIL} />, summaryApi(running));
     const card = await findCard();
     expect(within(card).getByText(/Zusammenfassung läuft · Teil 2 von 4/)).toBeTruthy();
-    expect(within(card).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "KI-Zusammenfassung erstellen" })).toBeNull();
     expect(within(card).queryByText("Noch keine Zusammenfassung dieser Mail.")).toBeNull();
   });
 
@@ -222,7 +224,9 @@ describe("the card KI-Zusammenfassung", () => {
         "Die Zusammenfassung ist fehlgeschlagen: the answer is no JSON object",
       ),
     ).toBeTruthy();
-    expect(within(card).getByRole("button", { name: "Zusammenfassen" })).toBeTruthy();
+    expect(
+      within(card).getByRole("button", { name: "KI-Zusammenfassung erneut versuchen" }),
+    ).toBeTruthy();
   });
 
   it("summarises again and discards only after a confirmation", async () => {
@@ -320,17 +324,14 @@ describe("summaries on the mail and document pages", () => {
     expect(scrolled).toEqual([text]);
   });
 
-  it("summarises a document from beside its download", async () => {
+  it("offers a document's summary as the light blue block above its text (D352)", async () => {
     const view = { ...aiSummaryNone };
     const { calls } = renderApp(`/anhaenge/${documentDetail.id}`, summaryApi(view));
-    const header = (await screen.findByRole("heading", { level: 1 })).closest("header")!;
-    const button = await within(header).findByRole("button", { name: "Zusammenfassen" });
-    const download = within(header).getByRole("link", { name: "Herunterladen" });
-    expect(download.parentElement).toBe(button.parentElement);
-    // the card leaves the offer to the button
-    expect(screen.queryByRole("region", { name: "KI-Zusammenfassung" })).toBeNull();
-    fireEvent.click(button);
-    expect(await within(header).findByText(/Die Zusammenfassung läuft/)).toBeTruthy();
+    const offer = await screen.findByRole("button", { name: "KI-Zusammenfassung erstellen" });
+    const header = screen.getByRole("heading", { level: 1 }).closest("header")!;
+    expect(within(header).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
+    fireEvent.click(offer);
+    expect(await screen.findByText(/Die Zusammenfassung läuft/)).toBeTruthy();
     expect(posts(calls, "/api/ai/tasks")[0].body).toEqual({
       kind: "summarize",
       document_ids: [documentDetail.id],

@@ -103,7 +103,7 @@ export function TranscriptCard({
         ) : (
           <div className={styles.actions}>
             {!result && document.transcribable && (
-              <Button size="sm" disabled={enqueue.isPending} onClick={queue}>
+              <Button variant="ai" size="sm" disabled={enqueue.isPending} onClick={queue}>
                 Transkribieren
               </Button>
             )}

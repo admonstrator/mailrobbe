@@ -141,12 +141,7 @@ export function PersonQuestions({ profile }: { profile: PersonProfile }) {
               ) : (
                 <p className={styles.question}>{namedQuestion(chosen.question, profile, other)}</p>
               )}
-              <Button
-                variant="primary"
-                size="sm"
-                disabled={!ready || ask.isPending}
-                onClick={submit}
-              >
+              <Button variant="ai" size="sm" disabled={!ready || ask.isPending} onClick={submit}>
                 KI fragen
               </Button>
             </div>

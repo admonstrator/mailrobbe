@@ -23,7 +23,7 @@ import {
   type MailOrderParams,
 } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
-import { buttonClass } from "../../components/Button";
+import { Button, buttonClass } from "../../components/Button";
 import { DkimBadge } from "../../components/DkimBadge";
 import type { SearchMarks } from "../../components/Highlighted";
 import {
@@ -39,6 +39,7 @@ import { cx } from "../../lib/cx";
 import { dkimKey } from "../../lib/dkim";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { personName } from "../../lib/person";
+import { AiBar, AiBox, SummarizeBox } from "../ai/AiBox";
 import { aiErrorText, summaryTaskText } from "../ai/labels";
 import { startedNotice, summaryRequest } from "../ai/SummaryCard";
 import { documentName } from "../documents/labels";
@@ -248,9 +249,10 @@ function since(iso: string, now: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** The AI summary right below the participants (D345): the summary, the running task with the
- *  time it has taken, ticking every second, or "Zusammenfassen". useAiSummary asks again every
- *  3 s while a task is open, so the text shows when it is there, without a reload. */
+/** The AI summary right below the participants (D345) in the light blue block (D352): the
+ *  summary, the running task with the time it has taken, ticking every second, or "KI-Zusammenfassung
+ *  erstellen". useAiSummary asks again every 3 s while a task is open, so the text shows when it is
+ *  there, without a reload. */
 function PreviewSummary({ mailId, view }: { mailId: number; view: AiSummaryView }) {
   const enqueue = useEnqueueAi();
   const [now, setNow] = useState(Date.now);
@@ -263,57 +265,44 @@ function PreviewSummary({ mailId, view }: { mailId: number; view: AiSummaryView 
     return () => window.clearInterval(timer);
   }, [busy]);
 
-  const label = (
-    <span className={styles.summaryLabel} title="Von einem Sprachmodell; kann irren">
-      KI-Kurzfassung
-    </span>
-  );
   if (view.result && !task) {
     return (
-      <p className={styles.summary}>
-        {label} {view.result.summary}
-      </p>
+      <AiBox heading="KI-Zusammenfassung" note="vom Sprachmodell, kann irren">
+        <p className={styles.summaryText}>{view.result.summary}</p>
+      </AiBox>
     );
   }
   if (busy) {
     const from = task?.started_at ?? task?.queued_at;
     const what = task ? summaryTaskText(task) : "Anhänge werden erst erkannt oder zusammengefasst";
     return (
-      <div className={styles.summary} role="status">
-        {label}
-        <div className={styles.summaryBar} aria-hidden="true">
-          <span />
-        </div>
-        {from ? `${what} · KI rechnet seit ${since(from, now)} Min.` : what}
-      </div>
+      <AiBox heading="KI-Zusammenfassung wird erstellt" busy>
+        <AiBar />
+        <span className={styles.summaryNote}>
+          {from ? `${what} · KI rechnet seit ${since(from, now)} Min.` : what}
+        </span>
+      </AiBox>
     );
   }
   if (!view.available || !view.summarizable) return null;
   return (
-    <div className={styles.summary}>
-      {label}{" "}
-      {view.failed ? "Der letzte Versuch ist fehlgeschlagen." : "Noch keine Zusammenfassung."}{" "}
-      <button
-        type="button"
-        className={buttonClass("default", "sm")}
+    <div>
+      <SummarizeBox
+        failed={Boolean(view.failed)}
         disabled={enqueue.isPending}
         onClick={() =>
           enqueue.mutate({ kind: "summarize", mail_ids: [mailId], single: true, start: true })
         }
-      >
-        Zusammenfassen
-      </button>
+      />
       {enqueue.isError && (
-        <span className={styles.error} role="alert">
-          {" "}
+        <p className={styles.error} role="alert">
           {aiErrorText(enqueue.error)}
-        </span>
+        </p>
       )}
     </div>
   );
 }
 
-/** "an Anna Keller, Jonas Brandt und 4 weitere", a line per role. */
 function Recipients({ mail }: { mail: MailDetail }) {
   return (["to", "cc", "bcc"] as const).map((role) => {
     const people = mail.participants.filter((person) => person.role === role);
@@ -448,9 +437,9 @@ function AttachmentSummaryLine({
   return (
     <p className={styles.attachmentSummary}>
       {notice ?? (
-        <button
-          type="button"
-          className={buttonClass("link", "xs")}
+        <Button
+          variant="ai"
+          size="xs"
           disabled={enqueue.isPending}
           onClick={() =>
             enqueue.mutate(summaryRequest("document", documentId), {
@@ -460,7 +449,7 @@ function AttachmentSummaryLine({
           }
         >
           KI-Zusammenfassung holen
-        </button>
+        </Button>
       )}
     </p>
   );

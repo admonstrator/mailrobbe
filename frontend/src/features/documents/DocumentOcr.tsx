@@ -119,6 +119,7 @@ export function RecognizeButton({ document, size }: { document: DocumentDetail; 
   return (
     <>
       <Button
+        variant="ai"
         size={size}
         disabled={enqueue.isPending}
         title={notice ?? "Liest die Schrift der Seiten jetzt mit der Texterkennung"}
