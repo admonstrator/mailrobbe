@@ -324,17 +324,14 @@ describe("summaries on the mail and document pages", () => {
     expect(scrolled).toEqual([text]);
   });
 
-  it("summarises a document from beside its download", async () => {
+  it("offers a document's summary as the light blue block above its text (D352)", async () => {
     const view = { ...aiSummaryNone };
     const { calls } = renderApp(`/anhaenge/${documentDetail.id}`, summaryApi(view));
-    const header = (await screen.findByRole("heading", { level: 1 })).closest("header")!;
-    const button = await within(header).findByRole("button", { name: "Zusammenfassen" });
-    const download = within(header).getByRole("link", { name: "Herunterladen" });
-    expect(download.parentElement).toBe(button.parentElement);
-    // the card leaves the offer to the button
-    expect(screen.queryByRole("region", { name: "KI-Zusammenfassung" })).toBeNull();
-    fireEvent.click(button);
-    expect(await within(header).findByText(/Die Zusammenfassung läuft/)).toBeTruthy();
+    const offer = await screen.findByRole("button", { name: "KI-Zusammenfassung erstellen" });
+    const header = screen.getByRole("heading", { level: 1 }).closest("header")!;
+    expect(within(header).queryByRole("button", { name: "Zusammenfassen" })).toBeNull();
+    fireEvent.click(offer);
+    expect(await screen.findByText(/Die Zusammenfassung läuft/)).toBeTruthy();
     expect(posts(calls, "/api/ai/tasks")[0].body).toEqual({
       kind: "summarize",
       document_ids: [documentDetail.id],

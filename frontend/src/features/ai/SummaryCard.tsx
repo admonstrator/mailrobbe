@@ -81,10 +81,10 @@ const NONE_YET: Record<AiTarget, string> = {
 };
 
 /** Whether the card shows: a summary, an open or failed task, a mail's attachments' summaries,
- *  or a mail that can be summarised now. A document offers it beside its download instead. */
-function shown(view: AiSummaryView, target: AiTarget): boolean {
+ *  or an element that can be summarised now. */
+function shown(view: AiSummaryView): boolean {
   if (view.result || view.task || view.failed || view.attachments.length > 0) return true;
-  return target !== "document" && view.available && view.summarizable;
+  return view.available && view.summarizable;
 }
 
 /** A theme hint with the attachment whose summary found it; null: the element's own. */
@@ -149,7 +149,7 @@ export function SummaryCard({
   const [dialog, setDialog] = useState<"again" | "discard" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const view = summary.data;
-  if (!view || !shown(view, target)) return null;
+  if (!view || !shown(view)) return null;
 
   const foldId = `${target}.summary`;
   const { result, task } = view;
@@ -649,39 +649,6 @@ function DiscardDialog({
         </Button>
       </div>
     </Dialog>
-  );
-}
-
-/** "Zusammenfassen" beside a document's download and in its narrow bar (D307): for a document
- *  with a text and no summary yet while a text service is usable; starts a run for just this
- *  document, whose card then follows it. */
-export function SummarizeButton({ documentId, size }: { documentId: number; size?: "sm" }) {
-  const summary = useAiSummary(summaryParams("document", documentId));
-  const enqueue = useEnqueueAi();
-  const [notice, setNotice] = useState<string | null>(null);
-  const view = summary.data;
-  if (!view || !view.available || !view.summarizable || view.result || view.task) return null;
-  return (
-    <>
-      <Button
-        size={size}
-        disabled={enqueue.isPending}
-        title={notice ?? "Fasst den Text des Dokuments jetzt mit dem Textmodell zusammen"}
-        onClick={() =>
-          enqueue.mutate(summaryRequest("document", documentId), {
-            onSuccess: (queued) => setNotice(startedNotice(queued, "document")),
-            onError: (error) => setNotice(aiErrorText(error)),
-          })
-        }
-      >
-        Zusammenfassen
-      </Button>
-      {notice && size === undefined && (
-        <span className={styles.note} role="status">
-          {notice}
-        </span>
-      )}
-    </>
   );
 }
 
