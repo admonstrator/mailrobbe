@@ -29,6 +29,7 @@ PyAV's wheels bundle FFmpeg libraries*, whose licence depends on the build (LGPL
 | Noto Sans (map glyphs in `frontend/public/map/fonts/`) | SIL OFL-1.1 |
 | Map sprites (`frontend/public/map/sprites/`, from tangrams/icons) | MIT |
 | DejaVu Sans (`src/mailrobbe/export/fonts/`) | Bitstream Vera licence |
+| Logos of the payment services in the welcome note (from Simple Icons) | CC0-1.0; the marks belong to their owners |
 
 ## System packages in the image
 

@@ -6,7 +6,7 @@ let fallback = false; // when the browser keeps no storage
 
 export function welcomeSeen(): boolean {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) !== null || fallback;
+    return window.localStorage.getItem(STORAGE_KEY) !== null;
   } catch {
     return fallback;
   }
