@@ -10,6 +10,7 @@ import styles from "./AppShell.module.css";
 import { EditorDialog } from "./EditorDialog";
 import { HistoryMenu } from "./HistoryMenu";
 import { ThemeButton } from "./ThemeButton";
+import { WelcomeDialog } from "./WelcomeDialog";
 import { MenuIcon } from "./icons";
 import { setSidebarFolded, Sidebar, useSidebarFolded } from "./Sidebar";
 
@@ -50,6 +51,7 @@ export function AppShell() {
           <Outlet />
         </div>
       </div>
+      <WelcomeDialog />
     </div>
   );
 }

@@ -207,7 +207,7 @@ Das Suchmenü stellt zusätzlich ein: Suchbereich, ganzes Wort, Mindesttrefferza
 
 Mailrobbe steht unter der [GNU Affero General Public License 3.0](LICENSE). Du darfst es frei nutzen, ändern und weitergeben, auch in Redaktionen, Firmen und Behörden. Wer es verändert und anderen zur Verfügung stellt, auch über ein Netzwerk, muss seine Änderungen unter derselben Lizenz offenlegen.
 
-Der Preis ist deine Entscheidung. Wenn Mailrobbe dir Zeit spart, freut sich die Weiterentwicklung über einen Betrag in einer Höhe, die dir angemessen erscheint. Das gilt für Einzelpersonen, Redaktionen und ausdrücklich auch für Behörden. Eine Rechnung gibt es auf Wunsch über [hey@admon.me](mailto:hey@admon.me). Die Lizenzen der verwendeten Bausteine stehen in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Der Preis ist deine Entscheidung. Wenn Mailrobbe dir Zeit spart, freut sich die Weiterentwicklung über einen Betrag in einer Höhe, die dir angemessen erscheint. Das gilt für Einzelpersonen, Redaktionen und ausdrücklich auch für Behörden. Die Lizenzen der verwendeten Bausteine stehen in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ---
 
