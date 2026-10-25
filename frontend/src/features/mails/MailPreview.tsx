@@ -43,7 +43,7 @@ import { aiErrorText, summaryTaskText } from "../ai/labels";
 import { startedNotice, summaryRequest } from "../ai/SummaryCard";
 import { documentName } from "../documents/labels";
 import { AttachmentDialog } from "../mail/AttachmentDialog";
-import { TextView } from "../mail/BodyCard";
+import { ShowStandardOption, TextView } from "../mail/BodyCard";
 import { LinkField } from "../mail/LinkField";
 import { NoteList } from "../mail/NoteList";
 import { signalName, signalThemeInfo } from "../signals/labels";
@@ -187,6 +187,7 @@ function PreviewBody({ mail, marks }: { mail: MailDetail; marks: SearchMarks | u
 
       {ai.data && <PreviewSummary mailId={mail.id} view={ai.data} />}
 
+      <ShowStandardOption />
       <div className={styles.text}>
         {text.data ? (
           <TextView data={text.data} marks={marks} />

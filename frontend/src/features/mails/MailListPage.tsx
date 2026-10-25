@@ -474,7 +474,7 @@ export function MailListPage() {
             />
           )}
           {paging && (
-            <div className={styles.foot}>
+            <div className={cx(styles.foot, previewId !== null && styles.footSticky)}>
               <Pagination {...paging} />
             </div>
           )}
