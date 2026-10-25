@@ -3,6 +3,7 @@ name = "mailrobbe"
 version = "0.1.0"
 description = "Import, verify and explore large MBOX archives"
 readme = "README.md"
+license = "AGPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.0",
