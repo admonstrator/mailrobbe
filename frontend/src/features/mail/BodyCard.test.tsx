@@ -51,7 +51,7 @@ describe("body card, text view", () => {
   it("folds the history and the signature, each with its line count", async () => {
     showText(REPLY, REPLY_SEGMENTS);
     expect(await screen.findByText(/passt so, ich schicke den Vertrag morgen\./)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Signatur einblenden (3 Zeilen)" })).toBeTruthy();
+    expect(screen.getByRole("separator", { name: "Signatur" })).toBeTruthy();
     const quote = screen.getByRole("button", { name: "Zitat einblenden (4 Zeilen)" });
     expect(quote.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText(/Nordlicht GmbH/)).toBeNull();
@@ -76,7 +76,7 @@ describe("body card, text view", () => {
     const quote = screen.getByRole("button", { name: "Zitat ausblenden (4 Zeilen, 1 Fundstelle)" });
     expect(screen.getByText("Haftung").tagName).toBe("MARK");
     // The signature holds no hit and stays folded.
-    expect(screen.getByRole("button", { name: "Signatur einblenden (3 Zeilen)" })).toBeTruthy();
+    expect(screen.getByRole("separator", { name: "Signatur" })).toBeTruthy();
 
     fireEvent.click(quote);
     expect(quote.textContent).toBe("Zitat einblenden (4 Zeilen, 1 Fundstelle)");
@@ -219,25 +219,21 @@ function showBlocked(marks?: SearchMarks, body: MailText = blockedText()) {
 }
 
 describe("body card, standard blocks", () => {
-  it("folds a standard block like a quote, with its mails and a link to its page", async () => {
+  it("leaves a standard block out as a thin line until the view shows the standard blocks", async () => {
     showBlocked();
     expect(await screen.findByText(/Passt so, ich schicke/)).toBeTruthy();
     expect(screen.queryByText(new RegExp(NOTICE))).toBeNull();
-    const toggle = screen.getByRole("button", { name: "Standardblock einblenden (1 Zeile)" });
-    const link = screen.getByRole("link", { name: "in 1.234 Mails" });
-    expect(link.getAttribute("href")).toBe(`/ausgeblendet/bloecke/${NOTICE_HASH}`);
+    const line = { name: "Standardblock · in 1.234 Mails" };
+    expect(screen.getByRole("separator", line)).toBeTruthy();
 
-    fireEvent.click(toggle);
-    expect(screen.getByText(NOTICE).closest("span[class*='quoted']")).toBeTruthy();
-    expect(toggle.textContent).toBe("Standardblock ausblenden (1 Zeile)");
-
-    // the quote holds the same block, folded again inside it, and counts its line
+    // the quote holds the same block, a line again inside it
     fireEvent.click(screen.getByRole("button", { name: "Zitat einblenden (3 Zeilen)" }));
     expect(screen.getByText(/anbei der Entwurf zur Spende/)).toBeTruthy();
-    expect(screen.getAllByText(new RegExp(NOTICE))).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Standardblock einblenden (1 Zeile)" }));
-    expect(screen.getByText(`> ${NOTICE}`)).toBeTruthy();
-    expect(screen.getAllByRole("link", { name: "in 1.234 Mails" })).toHaveLength(2);
+    expect(screen.getAllByRole("separator", line)).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Standardblöcke anzeigen" }));
+    expect(screen.queryByRole("separator")).toBeNull();
+    expect(screen.getAllByText(new RegExp(NOTICE)).length).toBeGreaterThan(0);
   });
 
   it("opens a standard block that holds a search word, and the quote around it", async () => {
@@ -306,7 +302,7 @@ describe("body card, standard blocks", () => {
     expect(
       await screen.findByText("Als Standardblock markiert · wirkt beim nächsten Lauf"),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Standardblock einblenden (1 Zeile)" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Standardblöcke anzeigen" }));
     const handles = screen.getAllByRole("button", { name: "Absatz: Standardblock" });
     expect(handles).toHaveLength(2);
     fireEvent.click(handles[1]);

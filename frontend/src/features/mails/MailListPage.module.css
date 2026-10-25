@@ -101,6 +101,15 @@
   padding: var(--space-3) var(--space-4) var(--space-4);
 }
 
+/* With a preview open the page numbers stay in view, above the panel at the bottom (D351). */
+.footSticky {
+  position: sticky;
+  bottom: var(--panel-bottom, 0px);
+  z-index: 1;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
 /* The panels stick below the head, not only below the shell header. */
 .body > aside {
   top: calc(var(--sticky-top) + var(--list-bar, 0px));

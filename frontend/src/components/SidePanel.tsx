@@ -98,11 +98,14 @@ export function SidePanel({
     const parent = panel.current?.parentElement;
     if (!bottom || !parent) return;
     parent.style.setProperty("padding-bottom", `${height}px`);
+    // The list's pagination stays in view just above the panel.
+    parent.style.setProperty("--panel-bottom", `${height}px`);
     // Rows reached by j and k scroll into view above the panel, not behind it.
     const root = document.documentElement;
     root.style.setProperty("scroll-padding-bottom", `${height}px`);
     return () => {
       parent.style.removeProperty("padding-bottom");
+      parent.style.removeProperty("--panel-bottom");
       root.style.removeProperty("scroll-padding-bottom");
     };
   }, [bottom, height]);

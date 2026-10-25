@@ -140,3 +140,32 @@
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* A standard block left out of the text (D351): one thin line, no words. */
+.rule {
+  height: 9px;
+  cursor: help;
+}
+
+.rule::after {
+  display: block;
+  margin-top: 4px;
+  border-top: 1px solid var(--color-border-strong);
+  content: "";
+}
+
+/* A standard block the view shows: muted, set off by a hairline. */
+.shownBlock {
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border-strong);
+  color: var(--color-muted);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
