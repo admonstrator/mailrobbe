@@ -45,8 +45,8 @@ export function WelcomeDialog() {
         ))}
       </div>
       <p className={styles.contact}>
-        Fragen, Lob, Kritik oder eine Rechnung: <a href="mailto:hey@admon.me">hey@admon.me</a>, auf
-        Wunsch verschlüsselt mit{" "}
+        Fragen, Lob, Kritik: <a href="mailto:hey@admon.me">hey@admon.me</a>, auf Wunsch
+        verschlüsselt mit{" "}
         <a
           href="https://github.com/admonstrator/Admonstrator/blob/main/pgp/hey@admon.me.asc"
           target="_blank"
