@@ -422,6 +422,7 @@ function SuggestionRow({
         </Button>
         {check?.available && (
           <Button
+            variant="ai"
             size="sm"
             disabled={busy || ask.isPending || waiting || check.running}
             title="Nur dieses Paar sofort der KI vorlegen, auch wenn sie es schon geprüft hat"

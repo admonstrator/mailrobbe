@@ -49,6 +49,7 @@ export function SummarizeButton({
   return (
     <>
       <Button
+        variant="ai"
         size={size}
         disabled={!usable}
         title={status.data && !usable ? NO_TEXT_SERVICE : undefined}

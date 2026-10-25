@@ -23,7 +23,7 @@ import {
   type MailOrderParams,
 } from "../../api/types";
 import { Avatar } from "../../components/Avatar";
-import { buttonClass } from "../../components/Button";
+import { Button, buttonClass } from "../../components/Button";
 import { DkimBadge } from "../../components/DkimBadge";
 import type { SearchMarks } from "../../components/Highlighted";
 import {
@@ -437,9 +437,9 @@ function AttachmentSummaryLine({
   return (
     <p className={styles.attachmentSummary}>
       {notice ?? (
-        <button
-          type="button"
-          className={buttonClass("link", "xs")}
+        <Button
+          variant="ai"
+          size="xs"
           disabled={enqueue.isPending}
           onClick={() =>
             enqueue.mutate(summaryRequest("document", documentId), {
@@ -449,7 +449,7 @@ function AttachmentSummaryLine({
           }
         >
           KI-Zusammenfassung holen
-        </button>
+        </Button>
       )}
     </p>
   );

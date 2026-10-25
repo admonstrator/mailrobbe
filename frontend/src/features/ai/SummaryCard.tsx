@@ -302,7 +302,7 @@ export function SummaryCard({
   if (target === "thread") {
     const start =
       !result && offered ? (
-        <Button size="sm" disabled={enqueue.isPending} onClick={queue}>
+        <Button variant="ai" size="sm" disabled={enqueue.isPending} onClick={queue}>
           Zusammenfassen
         </Button>
       ) : null;

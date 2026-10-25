@@ -163,7 +163,9 @@ function Profile({ profile }: { profile: PersonProfile }) {
 
   const actions = (
     <div className={styles.actions}>
-      <Button onClick={() => setTab("ki")}>KI fragen</Button>
+      <Button variant="ai" onClick={() => setTab("ki")}>
+        KI fragen
+      </Button>
       <Link to={`/karte?center=${profile.id}`} className={buttonClass()}>
         <GraphIcon size={14} />
         Im Graphen zeigen
